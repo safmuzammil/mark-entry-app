@@ -1070,25 +1070,32 @@ function ReportManager() {
   };
 
 // --- Add this fetch function before your component's return statement ---
-  const fetchClassSubjectMarks = async () => {
+const fetchClassSubjectMarks = async () => {
     setIsInspecting(true);
     try {
       const studentSnap = await getDocs(collection(db, 'students'));
       const matchedStudents = [];
       studentSnap.forEach(docSnap => {
         const data = docSnap.data();
-        if ((data.classes || []).includes(inspectorClass)) {
-          matchedStudents.push(data);
+        // Ensure we capture the document id as regNo if regNo property is missing
+        const studentObj = { id: docSnap.id, regNo: data.regNo || docSnap.id, ...data };
+        if ((studentObj.classes || []).includes(inspectorClass)) {
+          matchedStudents.push(studentObj);
         }
       });
       matchedStudents.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
 
       const marksRecord = {};
       for (const student of matchedStudents) {
-        const markDocRef = doc(db, 'marks', student.regNo);
-        const markSnap = await getDoc(markDocRef);
+        // Check both regNo and document ID to ensure a match
+        let markSnap = await getDoc(doc(db, 'marks', student.regNo));
+        if (!markSnap.exists() && student.id) {
+          markSnap = await getDoc(doc(db, 'marks', student.id));
+        }
+
         if (markSnap.exists()) {
           const studentMarksData = markSnap.data();
+          // Extract marks for the selected subject (e.g., QURAN)
           marksRecord[student.regNo] = studentMarksData[inspectorSubject.toUpperCase()] || {};
         } else {
           marksRecord[student.regNo] = {};
@@ -1132,7 +1139,7 @@ function ReportManager() {
     });
   };
 
-  return (
+ return (
     <div>
       {/* 1. AI ASSISTANT CHAT PANEL */}
       <div style={styles.card}>
@@ -1214,7 +1221,7 @@ function ReportManager() {
         </form>
       </div>
 
-      {/* 2. MANUAL EXPORT CARD WITH AUTO-SYNC STATUS */}
+      {/* 2. MANUAL EXPORT CARD WITH AUTO-SYNC STATUS & FILTER CONTROLS */}
       <div style={styles.card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px', flexWrap: 'wrap', gap: '15px' }}>
           <div>
@@ -1286,80 +1293,11 @@ function ReportManager() {
         )}
 
         {statusMsg && <div style={{ padding: '16px', background: '#e0f2fe', borderRadius: '8px', color: '#0369a1', fontWeight: '600', marginBottom: '20px' }}>{statusMsg}</div>}
-{/* --- ADD THIS JSX BLOCK INSIDE YOUR RETURN LAYOUT --- */}
-      <div style={styles.card}>
-        <h3 style={styles.sectionTitle}>🔍 Class & Subject Level-by-Level Mark Inspector</h3>
-        <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '20px' }}>
-          Select a class and subject to inspect student marks across all CCE assessment levels (Level 1 to Level 4).
-        </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '20px' }}>
-          <div>
-            <label style={styles.label}>Select Class Group:</label>
-            <select value={inspectorClass} onChange={(e) => setInspectorClass(e.target.value)} style={styles.input}>
-              {DEFAULT_CLASSES.map(cls => <option key={cls} value={cls}>{cls}</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={styles.label}>Select Subject:</label>
-            <select value={inspectorSubject} onChange={(e) => setInspectorSubject(e.target.value)} style={styles.input}>
-              {DEFAULT_SUBJECTS.map(sub => <option key={sub} value={sub}>{sub}</option>)}
-            </select>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'end' }}>
-            <button onClick={fetchClassSubjectMarks} style={{ ...styles.buttonPrimary, width: '100%', background: '#0284c7' }}>
-              {isInspecting ? 'Loading...' : 'Inspect Marks'}
-            </button>
-          </div>
-        </div>
-
-        {subjectLevelMarks.students && subjectLevelMarks.students.length > 0 && (
-          <div style={{ overflowX: 'auto', marginTop: '20px', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
-                  <th style={{ padding: '12px' }}>Roll</th>
-                  <th style={{ padding: '12px' }}>Ad.No</th>
-                  <th style={{ padding: '12px' }}>Student Name</th>
-                  <th style={{ padding: '12px', textAlign: 'center' }}>Level 1 (Max 15)</th>
-                  <th style={{ padding: '12px', textAlign: 'center' }}>Level 2 (Max 20)</th>
-                  <th style={{ padding: '12px', textAlign: 'center' }}>Level 3 (Max 25)</th>
-                  <th style={{ padding: '12px', textAlign: 'center' }}>Level 4 (Max 40)</th>
-                  <th style={{ padding: '12px', textAlign: 'center', fontWeight: 'bold', color: '#2563eb' }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {subjectLevelMarks.students.map((student, idx) => {
-                  const recs = subjectLevelMarks.records[student.regNo] || {};
-                  const l1 = Number(recs['15']) || 0;
-                  const l2 = Number(recs['20']) || 0;
-                  const l3 = Number(recs['25']) || 0;
-                  const l4 = Number(recs['40']) || 0;
-                  const total = l1 + l2 + l3 + l4;
-
-                  return (
-                    <tr key={student.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                      <td style={{ padding: '12px', fontWeight: '600' }}>{student.rollNo || '-'}</td>
-                      <td style={{ padding: '12px', fontWeight: '600' }}>{student.adNo}</td>
-                      <td style={{ padding: '12px', color: '#334155' }}>{student.firstName}</td>
-                      <td style={{ padding: '12px', textAlign: 'center' }}>{recs['15'] !== undefined ? recs['15'] : '-'}</td>
-                      <td style={{ padding: '12px', textAlign: 'center' }}>{recs['20'] !== undefined ? recs['20'] : '-'}</td>
-                      <td style={{ padding: '12px', textAlign: 'center' }}>{recs['25'] !== undefined ? recs['25'] : '-'}</td>
-                      <td style={{ padding: '12px', textAlign: 'center' }}>{recs['40'] !== undefined ? recs['40'] : '-'}</td>
-                      <td style={{ padding: '12px', textAlign: 'center', fontWeight: '800', color: '#2563eb' }}>{total > 0 ? total : '-'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-      
-        {/* RESULTS PREVIEW TABLE */}
+        {/* 3. FILTER RESULTS PREVIEW TABLE (Appears directly beneath the controls) */}
         {filteredResults.length > 0 && (
-          <div style={{ border: '1px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '16px', borderBottom: '1px solid #cbd5e1' }}>
+          <div style={{ border: '1px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden', marginTop: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '16px', borderBottom: '1px solid #cbd5e1', flexWrap: 'wrap', gap: '10px' }}>
               <h4 style={{ margin: 0, color: '#0f172a' }}>Filter Results ({filteredResults.length} records)</h4>
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button onClick={handleCopyToClipboard} style={{ padding: '8px 16px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
@@ -1399,6 +1337,76 @@ function ReportManager() {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* 4. CLASS & SUBJECT LEVEL-BY-LEVEL MARK INSPECTOR CARD */}
+      <div style={styles.card}>
+        <h3 style={styles.sectionTitle}>🔍 Class & Subject Level-by-Level Mark Inspector</h3>
+        <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '20px' }}>
+          Select a class and subject to inspect student marks across all CCE assessment levels (Level 1 to Level 4).
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+          <div>
+            <label style={styles.label}>Select Class Group:</label>
+            <select value={inspectorClass} onChange={(e) => setInspectorClass(e.target.value)} style={styles.input}>
+              {DEFAULT_CLASSES.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={styles.label}>Select Subject:</label>
+            <select value={inspectorSubject} onChange={(e) => setInspectorSubject(e.target.value)} style={styles.input}>
+              {DEFAULT_SUBJECTS.map(sub => <option key={sub} value={sub}>{sub}</option>)}
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'end' }}>
+            <button onClick={fetchClassSubjectMarks} style={{ ...styles.buttonPrimary, width: '100%', background: '#0284c7' }}>
+              {isInspecting ? 'Loading...' : 'Inspect Marks'}
+            </button>
+          </div>
+        </div>
+
+        {subjectLevelMarks.students && subjectLevelMarks.students.length > 0 && (
+          <div style={{ overflowX: 'auto', marginTop: '20px', border: '1px solid #cbd5e1', borderRadius: '12px', background: '#ffffff' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '700px' }}>
+              <thead>
+                <tr style={{ background: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>
+                  <th style={{ padding: '14px', color: '#0f172a', fontWeight: '700' }}>Roll</th>
+                  <th style={{ padding: '14px', color: '#0f172a', fontWeight: '700' }}>Ad.No</th>
+                  <th style={{ padding: '14px', color: '#0f172a', fontWeight: '700' }}>Student Name</th>
+                  <th style={{ padding: '14px', color: '#0f172a', fontWeight: '700', textAlign: 'center' }}>Level 1 (15)</th>
+                  <th style={{ padding: '14px', color: '#0f172a', fontWeight: '700', textAlign: 'center' }}>Level 2 (20)</th>
+                  <th style={{ padding: '14px', color: '#0f172a', fontWeight: '700', textAlign: 'center' }}>Level 3 (25)</th>
+                  <th style={{ padding: '14px', color: '#0f172a', fontWeight: '700', textAlign: 'center' }}>Level 4 (40)</th>
+                  <th style={{ padding: '14px', color: '#2563eb', fontWeight: '800', textAlign: 'center' }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {subjectLevelMarks.students.map((student, idx) => {
+                  const recs = subjectLevelMarks.records[student.regNo] || {};
+                  const l1 = Number(recs['15']) || 0;
+                  const l2 = Number(recs['20']) || 0;
+                  const l3 = Number(recs['25']) || 0;
+                  const l4 = Number(recs['40']) || 0;
+                  const total = l1 + l2 + l3 + l4;
+
+                  return (
+                    <tr key={student.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                      <td style={{ padding: '14px', fontWeight: '700', color: '#475569' }}>{student.rollNo || '-'}</td>
+                      <td style={{ padding: '14px', fontWeight: '700', color: '#0f172a' }}>{student.adNo}</td>
+                      <td style={{ padding: '14px', color: '#0f172a', fontWeight: '600' }}>{student.firstName}</td>
+                      <td style={{ padding: '14px', textAlign: 'center', color: '#334155', fontWeight: '500' }}>{recs['15'] !== undefined ? recs['15'] : '-'}</td>
+                      <td style={{ padding: '14px', textAlign: 'center', color: '#334155', fontWeight: '500' }}>{recs['20'] !== undefined ? recs['20'] : '-'}</td>
+                      <td style={{ padding: '14px', textAlign: 'center', color: '#334155', fontWeight: '500' }}>{recs['25'] !== undefined ? recs['25'] : '-'}</td>
+                      <td style={{ padding: '14px', textAlign: 'center', color: '#334155', fontWeight: '500' }}>{recs['40'] !== undefined ? recs['40'] : '-'}</td>
+                      <td style={{ padding: '14px', textAlign: 'center', fontWeight: '800', color: '#2563eb', fontSize: '15px' }}>{total > 0 ? total : '-'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
