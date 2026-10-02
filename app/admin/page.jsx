@@ -1075,30 +1075,43 @@ const fetchClassSubjectMarks = async () => {
     try {
       const studentSnap = await getDocs(collection(db, 'students'));
       const matchedStudents = [];
+      
       studentSnap.forEach(docSnap => {
         const data = docSnap.data();
-        // Ensure we capture the document id as regNo if regNo property is missing
-        const studentObj = { id: docSnap.id, regNo: data.regNo || docSnap.id, ...data };
+        const studentObj = { id: docSnap.id, ...data };
+        // Check if student belongs to the selected class group
         if ((studentObj.classes || []).includes(inspectorClass)) {
           matchedStudents.push(studentObj);
         }
       });
+      
       matchedStudents.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
+      console.log("Matched Students:", matchedStudents);
 
       const marksRecord = {};
       for (const student of matchedStudents) {
-        // Check both regNo and document ID to ensure a match
-        let markSnap = await getDoc(doc(db, 'marks', student.regNo));
-        if (!markSnap.exists() && student.id) {
-          markSnap = await getDoc(doc(db, 'marks', student.id));
+        let markSnap = null;
+        // Try all potential unique identifiers used when saving marks
+        const possibleKeys = [student.regNo, student.id, student.adNo, student.admissionNo].filter(Boolean);
+        
+        for (const key of possibleKeys) {
+          markSnap = await getDoc(doc(db, 'marks', String(key)));
+          if (markSnap.exists()) break;
         }
 
-        if (markSnap.exists()) {
+        if (markSnap && markSnap.exists()) {
           const studentMarksData = markSnap.data();
-          // Extract marks for the selected subject (e.g., QURAN)
-          marksRecord[student.regNo] = studentMarksData[inspectorSubject.toUpperCase()] || {};
+          console.log(`Marks document found for ${student.firstName}:`, studentMarksData);
+          
+          // Find subject key case-insensitively (e.g., matches "Quran", "QURAN", "quran")
+          const foundSubjectKey = Object.keys(studentMarksData).find(
+            k => k.toUpperCase() === inspectorSubject.toUpperCase()
+          );
+
+          marksRecord[student.regNo || student.id] = foundSubjectKey ? studentMarksData[foundSubjectKey] : {};
         } else {
-          marksRecord[student.regNo] = {};
+          console.log(`No marks found in Firestore for student: ${student.firstName} (Checked keys:`, possibleKeys, ")");
+          marksRecord[student.regNo || student.id] = {};
         }
       }
 
