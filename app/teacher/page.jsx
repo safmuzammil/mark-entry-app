@@ -2,7 +2,8 @@
 import { useState, useEffect } from 'react';
 import { auth, db } from '../../lib/firebase';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { collection, getDocs, doc, getDoc, setDoc } from 'firebase/firestore'; // Added setDoc
+import { collection, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
+import * as XLSX from 'xlsx';
 
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxN_z56f3Q5O3OjsKFagUSqromiH0xTKTfro0zqJZN4ZB-FJLM3jERMigPXiOkfw-4/exec';
 
@@ -14,11 +15,11 @@ const CCE_LEVELS = {
 };
 
 const styles = {
-  pageBackground: { minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '40px 20px', fontFamily: 'Inter, system-ui, sans-serif', color: '#0f172a' },
-  card: { background: '#ffffff', padding: '32px', borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9', marginBottom: '32px' },
+  pageBackground: { minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '20px 12px', fontFamily: 'Inter, system-ui, sans-serif', color: '#0f172a' },
+  card: { background: '#ffffff', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9', marginBottom: '24px', overflowX: 'auto' },
   input: { width: '100%', padding: '12px 16px', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', color: '#0f172a', fontSize: '15px', outline: 'none', boxSizing: 'border-box' },
   label: { display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '8px' },
-  buttonPrimary: { padding: '12px 24px', background: '#2563eb', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '15px', transition: '0.2s' },
+  buttonPrimary: { padding: '12px 24px', background: '#2563eb', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '15px', transition: '0.2s', width: '100%' },
   buttonSuccess: { padding: '14px 24px', background: '#10b981', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '16px', width: '100%' },
   buttonDanger: { padding: '10px 20px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px', transition: '0.2s' },
   sectionTitle: { margin: '0 0 20px 0', fontSize: '20px', color: '#0f172a', fontWeight: '700', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px' }
@@ -106,7 +107,6 @@ export default function TeacherDashboard() {
     setClassStudents(matchedStudents);
   }, [isAuthenticated, selectedEnrollmentId, allStudentsCache, loggedInTeacher]);
 
-  // UPGRADED: Fetch existing marks directly from fast Firestore instead of slow Google Sheets
   useEffect(() => {
     if (!isAuthenticated || !selectedEnrollmentId || classStudents.length === 0) return;
     const currentEnrollment = loggedInTeacher.enrollments.find(e => e.id === selectedEnrollmentId);
@@ -134,15 +134,12 @@ export default function TeacherDashboard() {
     setStudentMarks({ ...studentMarks, [studentRegNo]: value });
   };
 
-  // --- UPGRADED: DYNAMIC CSV TEMPLATE (Ad.No ONLY) ---
   const handleDownloadMarksTemplate = () => {
     if (classStudents.length === 0) return alert('No students found in this class to generate a template.');
     
-    // Header only uses Ad.No
     let csvContent = "data:text/csv;charset=utf-8,Ad.No,Student Name,Marks (Max " + assessmentMaxMark + ")\n";
     
     classStudents.forEach(student => {
-      // Export Ad.No and Name. Leave the marks column blank.
       csvContent += `${student.adNo},"${student.firstName}",\n`; 
     });
 
@@ -159,62 +156,69 @@ export default function TeacherDashboard() {
     document.body.removeChild(link);
   };
 
-  // --- UPGRADED: UPLOAD PROCESS FOR Ad.No ---
-  const handleCSVUpload = (e) => {
+  // --- UNIVERSAL SPREADSHEET UPLOAD (.csv, .xls, .xlsx) ---
+  const handleUniversalUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target.result;
-      const lines = text.split('\n');
-      
+    const fileExtension = file.name.split('.').pop().toLowerCase();
+
+    const processSheetData = (sheetData) => {
       const newMarks = { ...studentMarks }; 
       let updatedCount = 0;
       let errorCount = 0;
       const maxAllowed = Number(assessmentMaxMark);
 
-      for (let i = 1; i < lines.length; i++) {
-        let line = lines[i].trim();
-        if (!line) continue;
+      sheetData.forEach((row) => {
+        const rawAdNo = String(row['Ad.No'] || row['AdNo'] || row['AdmissionNo'] || row['RegNo'] || '').trim();
+        const keys = Object.keys(row);
+        const marksStr = String(row['Marks'] || row['Mark'] || row['Score'] || row[keys[keys.length - 1]] || '').trim();
         
-        let cols = parseCSVLine(line); 
-        if (cols.length >= 3) { // Expecting Ad.No, Name, Marks
-          const rawAdNo = cols[0].trim(); // Read the Ad.No from column 1
-          const marksStr = cols[cols.length - 1].trim(); 
+        if (rawAdNo && marksStr !== '') {
+          const markVal = parseFloat(marksStr);
+          const matchedStudent = classStudents.find(s => String(s.adNo).trim() === rawAdNo);
           
-          if (marksStr !== '') {
-            const markVal = parseFloat(marksStr);
-            
-            // Match the student perfectly by Ad.No
-            const matchedStudent = classStudents.find(s => s.adNo === rawAdNo);
-            
-            if (matchedStudent) {
-              if (!isNaN(markVal) && markVal <= maxAllowed && markVal >= 0) {
-                // Apply the mark to the student's unique Registration Number under the hood!
-                newMarks[matchedStudent.regNo] = marksStr;
-                updatedCount++;
-              } else {
-                errorCount++;
-              }
+          if (matchedStudent) {
+            if (!isNaN(markVal) && markVal <= maxAllowed && markVal >= 0) {
+              newMarks[matchedStudent.regNo] = marksStr;
+              updatedCount++;
+            } else {
+              errorCount++;
             }
           }
         }
-      }
+      });
       
       setStudentMarks(newMarks);
       
       if (errorCount > 0) {
         alert(`Extracted marks for ${updatedCount} students, but skipped ${errorCount} invalid marks. Review table and click 'Save All Marks'.`);
       } else {
-        alert(`Successfully imported marks for ${updatedCount} students. Review table and click 'Save All Marks'.`);
+        alert(`Successfully imported marks for ${updatedCount} students from ${file.name}. Review table and click 'Save All Marks'.`);
       }
     };
-    reader.readAsText(file);
+
+    if (fileExtension === 'csv' || fileExtension === 'txt') {
+      reader.onload = (event) => {
+        const workbook = XLSX.read(event.target.result, { type: 'string' });
+        const sheetName = workbook.SheetNames[0];
+        processSheetData(XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]));
+      };
+      reader.readAsText(file);
+    } else {
+      reader.onload = (event) => {
+        const binaryData = new Uint8Array(event.target.result);
+        const workbook = XLSX.read(binaryData, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        processSheetData(XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]));
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
     e.target.value = null; 
   };
 
-  // --- UPGRADED: SAVE MARKS TO FIRESTORE & SHEETS ---
   const handleBulkSubmit = async (e) => {
     e.preventDefault();
     let marksPayload = [];
@@ -223,14 +227,12 @@ export default function TeacherDashboard() {
 
     setStatusMsg('Syncing marks to high-speed database...');
     
-    // 1. Save to Firebase Firestore instantly
     const firestorePromises = [];
     for (let student of classStudents) {
       let val = studentMarks[student.regNo];
       if (val !== undefined && val !== '') {
         if (parseFloat(val) > maxNumber) return alert(`Marks for ${student.firstName} exceed limit!`);
         
-        // Push payload for Google Sheets backup
         marksPayload.push({
           studentId: student.regNo,
           subject: currentEnrollment.subject,
@@ -238,7 +240,6 @@ export default function TeacherDashboard() {
           marksObtained: val
         });
 
-        // Save directly to Firestore for lightning-fast student portal loading
         firestorePromises.push(
           setDoc(doc(db, 'marks', student.regNo), {
             [currentEnrollment.subject]: {
@@ -250,10 +251,9 @@ export default function TeacherDashboard() {
     }
 
     try {
-      await Promise.all(firestorePromises); // Wait for Firebase save
+      await Promise.all(firestorePromises);
       setStatusMsg('Firebase updated! Backing up to Google Sheets...');
       
-      // 2. Background Backup to Google Sheets
       const res = await fetch(WEB_APP_URL, { method: 'POST', body: JSON.stringify({ marks: marksPayload }) });
       const result = await res.json();
       if (result.status === 'success') setStatusMsg('Marks saved successfully everywhere!');
@@ -276,8 +276,8 @@ export default function TeacherDashboard() {
 
   if (!isAuthenticated) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f0f2f5', fontFamily: 'Inter, system-ui, sans-serif' }}>
-        <div style={{ background: '#ffffff', padding: '48px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', width: '100%', maxWidth: '420px', border: '1px solid #e2e8f0' }}>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f0f2f5', fontFamily: 'Inter, system-ui, sans-serif', padding: '16px' }}>
+        <div style={{ background: '#ffffff', padding: '48px 24px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', width: '100%', maxWidth: '420px', border: '1px solid #e2e8f0' }}>
           <div style={{ textAlign: 'center', marginBottom: '32px' }}>
             <h2 style={{ color: '#0f172a', margin: '0 0 12px 0', fontSize: '28px', fontWeight: '800' }}>Teacher Portal</h2>
             <p style={{ color: '#64748b', fontSize: '15px', margin: 0 }}>Log in to access your subjects</p>
@@ -305,7 +305,7 @@ export default function TeacherDashboard() {
     <div style={styles.pageBackground}>
       <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
         
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '15px' }}>
           <div>
             <h1 style={{ margin: '0 0 4px 0', fontSize: '24px', color: '#0f172a', fontWeight: '800' }}>Teacher Mark Entry</h1>
             <p style={{ margin: 0, color: '#64748b', fontSize: '15px' }}>Welcome back, <strong style={{ color: '#0f172a' }}>{loggedInTeacher?.fullName}</strong></p>
@@ -314,7 +314,7 @@ export default function TeacherDashboard() {
         </div>
         
         <div style={styles.card}>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
             <div>
               <label style={styles.label}>Select Assigned Subject:</label>
               <select value={selectedEnrollmentId} onChange={(e) => setSelectedEnrollmentId(e.target.value)} style={{ ...styles.input, cursor: 'pointer' }}>
@@ -336,7 +336,7 @@ export default function TeacherDashboard() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginBottom: '24px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '24px' }}>
           <div style={{ background: '#ffffff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
             <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 'bold' }}>CLASS AVERAGE</span>
             <div style={{ fontSize: '24px', fontWeight: '800', color: '#0f172a', marginTop: '4px' }}>{classAverage} / {assessmentMaxMark}</div>
@@ -359,13 +359,13 @@ export default function TeacherDashboard() {
               <span style={{ fontSize: '14px', color: '#64748b', marginLeft: '10px' }}>({classStudents.length} students)</span>
             </h3>
 
-            <div style={{ display: 'flex', gap: '10px' }}>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <button type="button" onClick={handleDownloadMarksTemplate} style={{ padding: '8px 16px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}>
                 📥 Download Template
               </button>
               <label style={{ padding: '8px 16px', background: '#0284c7', color: '#ffffff', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center' }}>
-                📂 Upload CSV Marks
-                <input type="file" accept=".csv" onChange={handleCSVUpload} style={{ display: 'none' }} />
+                📂 Upload Spreadsheet (.csv, .xls, .xlsx)
+                <input type="file" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" onChange={handleUniversalUpload} style={{ display: 'none' }} />
               </label>
             </div>
           </div>
@@ -376,7 +376,7 @@ export default function TeacherDashboard() {
             </div>
           ) : (
             <div style={{ overflowX: 'auto', marginBottom: '24px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px', minWidth: '550px' }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
                     <th style={{ padding: '16px', color: '#334155', width: '60px' }}>Sn</th>
