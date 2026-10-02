@@ -1081,28 +1081,46 @@ function ReportManager() {
   };
 
 // --- Add this fetch function before your component's return statement ---
-const fetchClassSubjectMarks = async () => {
+const [inspectorTeacherName, setInspectorTeacherName] = useState('');
+
+  const fetchClassSubjectMarks = async () => {
     setIsInspecting(true);
+    setInspectorTeacherName('Searching for assigned teacher...');
     try {
+      // 1. Fetch matching students for the class
       const studentSnap = await getDocs(collection(db, 'students'));
       const matchedStudents = [];
-      
       studentSnap.forEach(docSnap => {
-        const data = docSnap.data();
+        const data = docSnap.docSnap ? docSnap.docSnap.data() : docSnap.data();
         const studentObj = { id: docSnap.id, ...data };
-        // Check if student belongs to the selected class group
         if ((studentObj.classes || []).includes(inspectorClass)) {
           matchedStudents.push(studentObj);
         }
       });
-      
       matchedStudents.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
-      console.log("Matched Students:", matchedStudents);
 
+      // 2. Find which teacher teaches this subject for this class/group
+      const teacherSnap = await getDocs(collection(db, 'teachers'));
+      let assignedTeacher = 'Unassigned';
+      
+      teacherSnap.forEach(tDoc => {
+        const tData = tDoc.data();
+        if (tData.enrollments && Array.isArray(tData.enrollments)) {
+          const hasMatchingEnrollment = tData.enrollments.some(env => 
+            (env.subject || '').toUpperCase() === inspectorSubject.toUpperCase() &&
+            (env.alias || '').toLowerCase().includes(inspectorClass.toLowerCase())
+          );
+          if (hasMatchingEnrollment) {
+            assignedTeacher = tData.fullName || tDoc.id;
+          }
+        }
+      });
+      setInspectorTeacherName(assignedTeacher);
+
+      // 3. Fetch marks for each matched student
       const marksRecord = {};
       for (const student of matchedStudents) {
         let markSnap = null;
-        // Try all potential unique identifiers used when saving marks
         const possibleKeys = [student.regNo, student.id, student.adNo, student.admissionNo].filter(Boolean);
         
         for (const key of possibleKeys) {
@@ -1112,16 +1130,11 @@ const fetchClassSubjectMarks = async () => {
 
         if (markSnap && markSnap.exists()) {
           const studentMarksData = markSnap.data();
-          console.log(`Marks document found for ${student.firstName}:`, studentMarksData);
-          
-          // Find subject key case-insensitively (e.g., matches "Quran", "QURAN", "quran")
           const foundSubjectKey = Object.keys(studentMarksData).find(
             k => k.toUpperCase() === inspectorSubject.toUpperCase()
           );
-
           marksRecord[student.regNo || student.id] = foundSubjectKey ? studentMarksData[foundSubjectKey] : {};
         } else {
-          console.log(`No marks found in Firestore for student: ${student.firstName} (Checked keys:`, possibleKeys, ")");
           marksRecord[student.regNo || student.id] = {};
         }
       }
@@ -1366,8 +1379,15 @@ const fetchClassSubjectMarks = async () => {
       </div>
 
       {/* 4. CLASS & SUBJECT LEVEL-BY-LEVEL MARK INSPECTOR CARD */}
-      <div style={styles.card}>
-        <h3 style={styles.sectionTitle}>🔍 Class & Subject Level-by-Level Mark Inspector</h3>
+     <div style={styles.card}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+          <h3 style={styles.sectionTitle}>🔍 Class & Subject Level-by-Level Mark Inspector</h3>
+          {inspectorTeacherName && (
+            <span style={{ fontSize: '13px', color: '#94a3b8', fontStyle: 'italic', background: '#f8fafc', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+              Instructor: <strong style={{ color: '#64748b', fontWeight: '500' }}>{inspectorTeacherName}</strong>
+            </span>
+          )}
+        </div>
         <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '20px' }}>
           Select a class and subject to inspect student marks across all CCE assessment levels (Level 1 to Level 4).
         </p>
@@ -1409,7 +1429,7 @@ const fetchClassSubjectMarks = async () => {
               </thead>
               <tbody>
                 {subjectLevelMarks.students.map((student, idx) => {
-                  const recs = subjectLevelMarks.records[student.regNo] || {};
+                  const recs = subjectLevelMarks.records[student.regNo || student.id] || {};
                   const l1 = Number(recs['15']) || 0;
                   const l2 = Number(recs['20']) || 0;
                   const l3 = Number(recs['25']) || 0;
@@ -1417,10 +1437,14 @@ const fetchClassSubjectMarks = async () => {
                   const total = l1 + l2 + l3 + l4;
 
                   return (
-                    <tr key={student.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                    <tr key={student.regNo || student.id} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
                       <td style={{ padding: '14px', fontWeight: '700', color: '#475569' }}>{student.rollNo || '-'}</td>
                       <td style={{ padding: '14px', fontWeight: '700', color: '#0f172a' }}>{student.adNo}</td>
-                      <td style={{ padding: '14px', color: '#0f172a', fontWeight: '600' }}>{student.firstName}</td>
+                      <td style={{ padding: '14px' }}>
+                        <div style={{ color: '#0f172a', fontWeight: '600' }}>{student.firstName}</div>
+                        {/* Fading placeholder-style subtext showing teacher name per student row if desired */}
+                        <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>Taught by: {inspectorTeacherName}</div>
+                      </td>
                       <td style={{ padding: '14px', textAlign: 'center', color: '#334155', fontWeight: '500' }}>{recs['15'] !== undefined ? recs['15'] : '-'}</td>
                       <td style={{ padding: '14px', textAlign: 'center', color: '#334155', fontWeight: '500' }}>{recs['20'] !== undefined ? recs['20'] : '-'}</td>
                       <td style={{ padding: '14px', textAlign: 'center', color: '#334155', fontWeight: '500' }}>{recs['25'] !== undefined ? recs['25'] : '-'}</td>
