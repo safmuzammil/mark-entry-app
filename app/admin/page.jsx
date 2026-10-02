@@ -17,6 +17,7 @@ const GRADES = ["1", "2", "3"];
 const DEPARTMENTS = ["QURAN", "LANGUAGE", "AQIDAH", "HADITH", "FIQH", "CIVIL"];
 const MADHABS = ["Hanafi", "Shafi", "General"];
 
+
 const parseCSVLine = (str) => {
   let arr = [];
   let quote = false;
@@ -914,6 +915,11 @@ function ReportManager() {
   const [exportMetric, setExportMetric] = useState('STATUS');
   const [exportSubject, setExportSubject] = useState(DEFAULT_SUBJECTS[0]);
 
+  // --- Add these new state variables with your other useState hooks ---
+  const [inspectorClass, setInspectorClass] = useState(DEFAULT_CLASSES[0]);
+  const [inspectorSubject, setInspectorSubject] = useState(DEFAULT_SUBJECTS[0]);
+  const [subjectLevelMarks, setSubjectLevelMarks] = useState({});
+  const [isInspecting, setIsInspecting] = useState(false);
   // AI Assistant States
   const [chatMessages, setChatMessages] = useState([
     {
@@ -1061,6 +1067,40 @@ function ReportManager() {
     setFilteredResults(mappedResults);
     if (mappedResults.length === 0) setStatusMsg(`No students match the criteria (${thresholdCondition} ${thresholdScore}).`);
     else setStatusMsg(`Found ${mappedResults.length} students matching your filters.`);
+  };
+
+// --- Add this fetch function before your component's return statement ---
+  const fetchClassSubjectMarks = async () => {
+    setIsInspecting(true);
+    try {
+      const studentSnap = await getDocs(collection(db, 'students'));
+      const matchedStudents = [];
+      studentSnap.forEach(docSnap => {
+        const data = docSnap.data();
+        if ((data.classes || []).includes(inspectorClass)) {
+          matchedStudents.push(data);
+        }
+      });
+      matchedStudents.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
+
+      const marksRecord = {};
+      for (const student of matchedStudents) {
+        const markDocRef = doc(db, 'marks', student.regNo);
+        const markSnap = await getDoc(markDocRef);
+        if (markSnap.exists()) {
+          const studentMarksData = markSnap.data();
+          marksRecord[student.regNo] = studentMarksData[inspectorSubject.toUpperCase()] || {};
+        } else {
+          marksRecord[student.regNo] = {};
+        }
+      }
+
+      setSubjectLevelMarks({ students: matchedStudents, records: marksRecord });
+    } catch (err) {
+      console.error('Error fetching subject level marks:', err);
+    } finally {
+      setIsInspecting(false);
+    }
   };
 
   const handleDownloadExcel = () => {
@@ -1246,7 +1286,76 @@ function ReportManager() {
         )}
 
         {statusMsg && <div style={{ padding: '16px', background: '#e0f2fe', borderRadius: '8px', color: '#0369a1', fontWeight: '600', marginBottom: '20px' }}>{statusMsg}</div>}
+{/* --- ADD THIS JSX BLOCK INSIDE YOUR RETURN LAYOUT --- */}
+      <div style={styles.card}>
+        <h3 style={styles.sectionTitle}>🔍 Class & Subject Level-by-Level Mark Inspector</h3>
+        <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '20px' }}>
+          Select a class and subject to inspect student marks across all CCE assessment levels (Level 1 to Level 4).
+        </p>
 
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+          <div>
+            <label style={styles.label}>Select Class Group:</label>
+            <select value={inspectorClass} onChange={(e) => setInspectorClass(e.target.value)} style={styles.input}>
+              {DEFAULT_CLASSES.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={styles.label}>Select Subject:</label>
+            <select value={inspectorSubject} onChange={(e) => setInspectorSubject(e.target.value)} style={styles.input}>
+              {DEFAULT_SUBJECTS.map(sub => <option key={sub} value={sub}>{sub}</option>)}
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'end' }}>
+            <button onClick={fetchClassSubjectMarks} style={{ ...styles.buttonPrimary, width: '100%', background: '#0284c7' }}>
+              {isInspecting ? 'Loading...' : 'Inspect Marks'}
+            </button>
+          </div>
+        </div>
+
+        {subjectLevelMarks.students && subjectLevelMarks.students.length > 0 && (
+          <div style={{ overflowX: 'auto', marginTop: '20px', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
+                  <th style={{ padding: '12px' }}>Roll</th>
+                  <th style={{ padding: '12px' }}>Ad.No</th>
+                  <th style={{ padding: '12px' }}>Student Name</th>
+                  <th style={{ padding: '12px', textAlign: 'center' }}>Level 1 (Max 15)</th>
+                  <th style={{ padding: '12px', textAlign: 'center' }}>Level 2 (Max 20)</th>
+                  <th style={{ padding: '12px', textAlign: 'center' }}>Level 3 (Max 25)</th>
+                  <th style={{ padding: '12px', textAlign: 'center' }}>Level 4 (Max 40)</th>
+                  <th style={{ padding: '12px', textAlign: 'center', fontWeight: 'bold', color: '#2563eb' }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {subjectLevelMarks.students.map((student, idx) => {
+                  const recs = subjectLevelMarks.records[student.regNo] || {};
+                  const l1 = Number(recs['15']) || 0;
+                  const l2 = Number(recs['20']) || 0;
+                  const l3 = Number(recs['25']) || 0;
+                  const l4 = Number(recs['40']) || 0;
+                  const total = l1 + l2 + l3 + l4;
+
+                  return (
+                    <tr key={student.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                      <td style={{ padding: '12px', fontWeight: '600' }}>{student.rollNo || '-'}</td>
+                      <td style={{ padding: '12px', fontWeight: '600' }}>{student.adNo}</td>
+                      <td style={{ padding: '12px', color: '#334155' }}>{student.firstName}</td>
+                      <td style={{ padding: '12px', textAlign: 'center' }}>{recs['15'] !== undefined ? recs['15'] : '-'}</td>
+                      <td style={{ padding: '12px', textAlign: 'center' }}>{recs['20'] !== undefined ? recs['20'] : '-'}</td>
+                      <td style={{ padding: '12px', textAlign: 'center' }}>{recs['25'] !== undefined ? recs['25'] : '-'}</td>
+                      <td style={{ padding: '12px', textAlign: 'center' }}>{recs['40'] !== undefined ? recs['40'] : '-'}</td>
+                      <td style={{ padding: '12px', textAlign: 'center', fontWeight: '800', color: '#2563eb' }}>{total > 0 ? total : '-'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      
         {/* RESULTS PREVIEW TABLE */}
         {filteredResults.length > 0 && (
           <div style={{ border: '1px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden' }}>
