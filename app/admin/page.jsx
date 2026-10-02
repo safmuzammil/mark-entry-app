@@ -459,7 +459,8 @@ function TeacherManager() {
 
       <div style={styles.card}>
         <h3 style={styles.sectionTitle}>Teachers Directory</h3>
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px' }}>
+        <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
               <th style={{ padding: '16px', color: '#334155' }}>Name & Username</th>
@@ -487,8 +488,10 @@ function TeacherManager() {
               </tr>
             ))}
           </tbody>
-        </table>
+         </table>
+        </div>  
       </div>
+
     </div>
   );
 }
@@ -713,8 +716,9 @@ function StudentManager() {
     else setSelectedRows(filteredArray.map(s => s.regNo)); 
   };
 
-  return (
+return (
     <div>
+      {/* 1. MASS UPLOAD CARD */}
       <div style={styles.card}>
         <h3 style={styles.sectionTitle}>Mass Upload Students</h3>
         <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '20px' }}>Upload CSV columns: <strong>rollNo, regNo, adNo, firstName, classes, department, madhab</strong>.</p>
@@ -724,13 +728,16 @@ function StudentManager() {
         </div>
       </div>
 
+      {/* 2. REGISTER / EDIT STUDENT FORM CARD */}
       <div style={{ ...styles.card, borderLeft: isEditing ? '6px solid #f59e0b' : '1px solid #f1f5f9' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
           <h3 style={styles.sectionTitle}>{isEditing ? `Editing Student: ${regNo}` : 'Register Student'}</h3>
           {isEditing && <button type="button" onClick={resetForm} style={{ padding: '8px 16px', background: '#e2e8f0', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>}
         </div>
+        
         <form onSubmit={handleAddOrUpdateStudent} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr', gap: '20px' }}>
+          {/* Responsive form grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
             <div>
               <label style={styles.label}>Sn (Roll No)</label>
               <input type="number" value={rollNo} onChange={(e) => setRollNo(e.target.value)} required style={styles.input} />
@@ -753,7 +760,7 @@ function StudentManager() {
             </div>
           </div>
           
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '24px' }}>
             <div>
               <label style={styles.label}>Reg.no (Username)</label>
               <input type="text" value={regNo} onChange={(e) => setRegNo(e.target.value)} disabled={isEditing} required style={{ ...styles.input, backgroundColor: isEditing ? '#f1f5f9' : '#ffffff', color: isEditing ? '#94a3b8' : '#0f172a' }} />
@@ -770,7 +777,7 @@ function StudentManager() {
             </div>
           </div>
           
-          <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+          <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxSizing: 'border-box' }}>
             <h4 style={{ margin: '0 0 16px 0', fontSize: '16px', color: '#1e293b' }}>Assign to Classes / Groups</h4>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '12px', background: '#ffffff', padding: '16px', border: '1px solid #cbd5e1', borderRadius: '8px', marginBottom: '16px' }}>
               {availableStudentClasses.map(cls => (
@@ -779,8 +786,8 @@ function StudentManager() {
                 </label>
               ))}
             </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <input type="text" value={customClassInput} onChange={(e) => setCustomClassInput(e.target.value)} placeholder="Or custom group (e.g. Mixed_Urdu)..." style={{ ...styles.input, flex: 1 }} />
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <input type="text" value={customClassInput} onChange={(e) => setCustomClassInput(e.target.value)} placeholder="Or custom group (e.g. Mixed_Urdu)..." style={{ ...styles.input, flex: '1 1 200px' }} />
               <button type="button" onClick={handleAddCustomClass} style={{ padding: '8px 14px', background: '#cbd5e1', color: '#334155', border: 'none', borderRadius: '6px', fontWeight: '600', cursor: 'pointer' }}>Add Custom Group</button>
             </div>
           </div>
@@ -792,6 +799,7 @@ function StudentManager() {
         {statusMsg && <div style={{ marginTop: '20px', padding: '16px', background: statusMsg.includes('Error') ? '#fee2e2' : '#ecfdf5', border: `1px solid ${statusMsg.includes('Error') ? '#fecaca' : '#a7f3d0'}`, borderRadius: '8px', color: statusMsg.includes('Error') ? '#991b1b' : '#065f46', fontWeight: '600' }}>{statusMsg}</div>}
       </div>
 
+      {/* 3. STUDENTS DIRECTORY CARD WITH SCROLLABLE TABLE */}
       <div style={styles.card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px', marginBottom: '20px' }}>
           <div>
@@ -800,7 +808,7 @@ function StudentManager() {
           </div>
           
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '10px', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#334155' }}>Filter Depts:</span>
               {DEPARTMENTS.map(d => (
                 <label key={d} style={{ display: 'flex', alignItems: 'center', fontSize: '12px', color: '#0f172a', background: filterDepartments.includes(d) ? '#dbeafe' : '#ffffff', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', border: filterDepartments.includes(d) ? '2px solid #3b82f6' : '1px solid #cbd5e1', fontWeight: '600' }}>
@@ -835,55 +843,58 @@ function StudentManager() {
               <select value={bulkDept} onChange={(e) => setBulkDept(e.target.value)} style={styles.filterSelect}><option value="">Set Dept -</option>{DEPARTMENTS.map(dept => <option key={dept} value={dept}>{dept}</option>)}</select>
               <select value={bulkMadhab} onChange={(e) => setBulkMadhab(e.target.value)} style={styles.filterSelect}><option value="">Set Madhab -</option>{MADHABS.map(m => <option key={m} value={m}>{m}</option>)}</select>
               <span style={{ color: '#94a3b8', margin: '0 5px' }}>|</span>
-              <input type="text" value={bulkAddClass} onChange={(e) => setBulkAddClass(e.target.value)} placeholder="Assign Group..." style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '14px', width: '250px' }} />
+              <input type="text" value={bulkAddClass} onChange={(e) => setBulkAddClass(e.target.value)} placeholder="Assign Group..." style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '14px', width: '250px', maxWidth: '100%' }} />
               <button onClick={handleBulkUpdate} style={{ padding: '8px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Apply</button>
             </div>
           </div>
         )}
 
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
-              <th style={{ padding: '16px', width: '40px' }}><input type="checkbox" checked={filteredStudents.length > 0 && selectedRows.length === filteredStudents.length} onChange={() => toggleSelectAll(filteredStudents)} style={{ accentColor: '#2563eb', width: '16px', height: '16px', cursor: 'pointer' }} /></th>
-              <th style={{ padding: '16px', color: '#334155' }}>Sn</th>
-              <th style={{ padding: '16px', color: '#334155' }}>Reg / Ad.No</th>
-              <th style={{ padding: '16px', color: '#334155' }}>Name</th>
-              <th style={{ padding: '16px', color: '#334155' }}>Profile</th>
-              <th style={{ padding: '16px', color: '#334155' }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredStudents.map((student, index) => {
-              const isUrdu = isUrduStudent(student.adNo);
-              const levels = getStudentLevels(student);
+        {/* Mobile-friendly scrollable wrapper for the directory table */}
+        <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px', minWidth: '750px' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
+                <th style={{ padding: '16px', width: '40px' }}><input type="checkbox" checked={filteredStudents.length > 0 && selectedRows.length === filteredStudents.length} onChange={() => toggleSelectAll(filteredStudents)} style={{ accentColor: '#2563eb', width: '16px', height: '16px', cursor: 'pointer' }} /></th>
+                <th style={{ padding: '16px', color: '#334155' }}>Sn</th>
+                <th style={{ padding: '16px', color: '#334155' }}>Reg / Ad.No</th>
+                <th style={{ padding: '16px', color: '#334155' }}>Name</th>
+                <th style={{ padding: '16px', color: '#334155' }}>Profile</th>
+                <th style={{ padding: '16px', color: '#334155' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredStudents.map((student, index) => {
+                const isUrdu = isUrduStudent(student.adNo);
+                const levels = getStudentLevels(student);
 
-              return (
-                <tr key={index} style={{ borderBottom: '1px solid #e2e8f0', background: selectedRows.includes(student.regNo) ? '#f0f9ff' : 'transparent' }}>
-                  <td style={{ padding: '16px' }}><input type="checkbox" checked={selectedRows.includes(student.regNo)} onChange={() => toggleRowSelect(student.regNo)} style={{ accentColor: '#2563eb', width: '16px', height: '16px', cursor: 'pointer' }} /></td>
-                  <td style={{ padding: '16px', fontWeight: '600', color: '#64748b' }}>{student.rollNo || '-'}</td>
-                  <td style={{ padding: '16px', fontWeight: '600', color: '#0f172a' }}>{student.regNo}<br /><span style={{ fontSize: '12px', color: '#64748b' }}>Ad: {student.adNo}</span>{isUrdu && <span style={{ ...styles.badge, background: '#fef3c7', color: '#b45309', marginLeft: '6px' }}>URDU</span>}</td>
-                  <td style={{ padding: '16px', color: '#334155' }}>{student.firstName}</td>
-                  <td style={{ padding: '16px' }}>
-                    <span style={{ ...styles.badge, background: '#e0f2fe', color: '#0369a1', display: 'block', marginBottom: '4px', width: 'fit-content' }}>{student.department || 'GENERAL'}</span>
-                    <span style={{ ...styles.badge, background: '#f3e8ff', color: '#7e22ce', width: 'fit-content' }}>{student.madhab || 'Hanafi'}</span>
-                  </td>
-                  <td style={{ padding: '16px' }}>
-                    {(student.classes || [student.className]).map((c, i) => (
-                      <span key={i} style={{ display: 'inline-block', background: '#f1f5f9', color: '#0f172a', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', border: '1px solid #e2e8f0', margin: '2px' }}>{c}</span>
-                    ))}
-                    {levels.map((lvl, i) => (
-                      <span key={`lvl-${i}`} style={{ display: 'inline-block', background: '#ecfdf5', color: '#047857', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', border: '1px solid #a7f3d0', margin: '2px' }}>Level {lvl}</span>
-                    ))}
-                  </td>
-                  <td style={{ padding: '16px' }}>
-                    <button onClick={() => handleEditClick(student)} style={{ padding: '8px 16px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', marginRight: '8px', fontWeight: '600' }}>Edit</button>
-                    <button onClick={() => handleDeleteClick(student.regNo)} style={{ padding: '8px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600' }}>Delete</button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                return (
+                  <tr key={index} style={{ borderBottom: '1px solid #e2e8f0', background: selectedRows.includes(student.regNo) ? '#f0f9ff' : 'transparent' }}>
+                    <td style={{ padding: '16px' }}><input type="checkbox" checked={selectedRows.includes(student.regNo)} onChange={() => toggleRowSelect(student.regNo)} style={{ accentColor: '#2563eb', width: '16px', height: '16px', cursor: 'pointer' }} /></td>
+                    <td style={{ padding: '16px', fontWeight: '600', color: '#64748b' }}>{student.rollNo || '-'}</td>
+                    <td style={{ padding: '16px', fontWeight: '600', color: '#0f172a' }}>{student.regNo}<br /><span style={{ fontSize: '12px', color: '#64748b' }}>Ad: {student.adNo}</span>{isUrdu && <span style={{ ...styles.badge, background: '#fef3c7', color: '#b45309', marginLeft: '6px' }}>URDU</span>}</td>
+                    <td style={{ padding: '16px', color: '#334155' }}>{student.firstName}</td>
+                    <td style={{ padding: '16px' }}>
+                      <span style={{ ...styles.badge, background: '#e0f2fe', color: '#0369a1', display: 'block', marginBottom: '4px', width: 'fit-content' }}>{student.department || 'GENERAL'}</span>
+                      <span style={{ ...styles.badge, background: '#f3e8ff', color: '#7e22ce', width: 'fit-content' }}>{student.madhab || 'Hanafi'}</span>
+                    </td>
+                    <td style={{ padding: '16px' }}>
+                      {(student.classes || [student.className]).map((c, i) => (
+                        <span key={i} style={{ display: 'inline-block', background: '#f1f5f9', color: '#0f172a', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', border: '1px solid #e2e8f0', margin: '2px' }}>{c}</span>
+                      ))}
+                      {levels.map((lvl, i) => (
+                        <span key={`lvl-${i}`} style={{ display: 'inline-block', background: '#ecfdf5', color: '#047857', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', border: '1px solid #a7f3d0', margin: '2px' }}>Level {lvl}</span>
+                      ))}
+                    </td>
+                    <td style={{ padding: '16px' }}>
+                      <button onClick={() => handleEditClick(student)} style={{ padding: '8px 16px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', marginRight: '8px', fontWeight: '600' }}>Edit</button>
+                      <button onClick={() => handleDeleteClick(student.regNo)} style={{ padding: '8px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600' }}>Delete</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
