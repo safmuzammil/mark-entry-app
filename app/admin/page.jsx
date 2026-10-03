@@ -1247,54 +1247,54 @@ function ReportManager() {
                     gap: '12px',
                     marginBottom: '16px'
                 }}>
-{/* Professional and High-Contrast Chat Message Rendering */}
-{chatMessages.map((msg, index) => (
-  <div
-    key={index}
-    className={`flex w-full mb-6 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-  >
+{/* Main Chat History Container - Forcing white background and dark text globally */}
+<div className="flex flex-col gap-4 p-5 h-[500px] overflow-y-auto bg-white border border-slate-300 rounded-xl shadow-inner text-slate-900 mb-4">
+  {chatMessages.map((msg, index) => (
     <div
-      className={`max-w-[90%] overflow-x-auto rounded-2xl p-5 text-sm shadow-md ${
-        msg.role === 'user'
-          ? 'bg-blue-600 text-white rounded-br-none' // User bubble stays solid blue
-          : 'bg-white border border-gray-300 rounded-bl-none' // AI bubble gets a crisp white background with a border
-      }`}
+      key={index}
+      className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
     >
-      {msg.role === 'user' ? (
-        <p className="whitespace-pre-wrap font-medium text-white">{msg.text}</p>
-      ) : (
-        // Wrapper to enforce dark text globally inside the AI bubble
-        <div className="text-gray-900">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              // Force all paragraphs (including error messages) to be dark and readable
-              p: ({ node, ...props }) => <p className="mb-3 text-gray-900 font-medium leading-relaxed" {...props} />,
-              strong: ({ node, ...props }) => <strong className="font-bold text-black" {...props} />,
-              ul: ({ node, ...props }) => <ul className="list-disc pl-5 mb-3 space-y-1 text-gray-900 font-medium" {...props} />,
-              ol: ({ node, ...props }) => <ol className="list-decimal pl-5 mb-3 space-y-1 text-gray-900 font-medium" {...props} />,
-              
-              // Professional, high-contrast Table Styling
-              table: ({ node, ...props }) => (
-                <div className="overflow-x-auto my-4 rounded-lg border border-gray-300 shadow-sm w-full bg-white">
-                  <table className="min-w-full divide-y divide-gray-300 text-left text-sm" {...props} />
-                </div>
-              ),
-              thead: ({ node, ...props }) => <thead className="bg-gray-100 border-b border-gray-300" {...props} />,
-              tbody: ({ node, ...props }) => <tbody className="divide-y divide-gray-200 bg-white" {...props} />,
-              tr: ({ node, ...props }) => <tr className="hover:bg-gray-50 transition-colors" {...props} />,
-              // Force dark text on table headers and cells
-              th: ({ node, ...props }) => <th className="px-4 py-3 font-bold tracking-wider text-gray-900 whitespace-nowrap" {...props} />,
-              td: ({ node, ...props }) => <td className="px-4 py-3 text-gray-800 align-middle font-medium" {...props} />,
-            }}
-          >
-            {msg.text}
-          </ReactMarkdown>
-        </div>
-      )}
+      {/* Individual Message Bubble */}
+      <div
+        className={`max-w-[85%] overflow-x-auto rounded-2xl p-4 text-sm shadow-md ${
+          msg.role === 'user'
+            ? 'bg-blue-600 text-white rounded-br-none' // User bubble
+            : 'bg-slate-100 border border-slate-300 text-slate-900 rounded-bl-none' // AI bubble
+        }`}
+      >
+        {msg.role === 'user' ? (
+          <p className="whitespace-pre-wrap font-medium">{msg.text}</p>
+        ) : (
+          <div className="text-slate-900">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                p: ({ node, ...props }) => <p className="mb-3 text-slate-900 font-medium leading-relaxed" {...props} />,
+                strong: ({ node, ...props }) => <strong className="font-bold text-black" {...props} />,
+                ul: ({ node, ...props }) => <ul className="list-disc pl-5 mb-3 space-y-1 text-slate-900 font-medium" {...props} />,
+                ol: ({ node, ...props }) => <ol className="list-decimal pl-5 mb-3 space-y-1 text-slate-900 font-medium" {...props} />,
+                
+                // Professional Table Styling
+                table: ({ node, ...props }) => (
+                  <div className="overflow-x-auto my-4 rounded-lg border border-slate-400 w-full bg-white">
+                    <table className="min-w-full divide-y divide-slate-400 text-left text-sm text-slate-900" {...props} />
+                  </div>
+                ),
+                thead: ({ node, ...props }) => <thead className="bg-slate-200 border-b border-slate-400 text-black" {...props} />,
+                tbody: ({ node, ...props }) => <tbody className="divide-y divide-slate-300 bg-white" {...props} />,
+                tr: ({ node, ...props }) => <tr className="hover:bg-slate-50 transition-colors" {...props} />,
+                th: ({ node, ...props }) => <th className="px-4 py-3 font-bold tracking-wider text-black whitespace-nowrap" {...props} />,
+                td: ({ node, ...props }) => <td className="px-4 py-3 text-slate-900 align-middle font-medium" {...props} />,
+              }}
+            >
+              {msg.text}
+            </ReactMarkdown>
+          </div>
+        )}
+      </div>
     </div>
-  </div>
-))}
+  ))}
+</div>
                     {isAiLoading && (
                         <div style={{
                             alignSelf: 'flex-start',
