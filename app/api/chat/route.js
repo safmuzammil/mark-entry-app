@@ -23,6 +23,24 @@ const queryStudentDatabaseDeclaration = {
   }
 };
 
+// HELPER: Safely retries the API call if the 429 rate limit is hit
+async function generateWithRetry(model, requestPayload, maxRetries = 2) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await model.generateContent(requestPayload);
+    } catch (error) {
+      const isRateLimit = error.status === 429 || String(error).includes('429') || String(error).includes('quota');
+      
+      if (isRateLimit && attempt < maxRetries) {
+        console.log(`API Rate limit hit. Pausing for 12 seconds before retry ${attempt + 1}...`);
+        await new Promise(resolve => setTimeout(resolve, 12000)); // Wait 12 seconds
+      } else {
+        throw error; // If it's not a rate limit, or we are out of retries, throw the error
+      }
+    }
+  }
+}
+
 export async function POST(request) {
   try {
     if (!process.env.GEMINI_API_KEY) {
@@ -37,7 +55,8 @@ export async function POST(request) {
       tools: [{ functionDeclarations: [queryStudentDatabaseDeclaration] }],
     });
 
-    const initialResponse = await model.generateContent(prompt);
+    // 1. Send initial prompt using the secure retry wrapper
+    const initialResponse = await generateWithRetry(model, prompt);
     const call = initialResponse.response.functionCalls()?.[0];
     const exactModelContent = initialResponse.response.candidates[0].content;
 
@@ -46,7 +65,7 @@ export async function POST(request) {
       const targetClass = (args.classGroup || '').toLowerCase();
       const category = args.analysisCategory || 'general';
       
-      // 1. Fetch Core Data
+      // Fetch Core Data
       const [sSnap, mSnap, tSnap] = await Promise.all([
         getDocs(collection(db, 'students')),
         getDocs(collection(db, 'marks')),
@@ -62,7 +81,7 @@ export async function POST(request) {
       const teachersList = [];
       tSnap.forEach(t => teachersList.push({ id: t.id, ...t.data() }));
 
-      // 2. Build Detailed Student Records with Teacher Mapping
+      // Build Detailed Student Records with Teacher Mapping
       let detailedStudents = studentsList.map(student => {
         const studentMarks = allMarks[student.regNo || student.id] || {};
         const assignedTeachers = {};
@@ -107,7 +126,7 @@ export async function POST(request) {
         detailedStudents = detailedStudents.filter(s => s.classes.some(c => c.includes(targetClass) || targetClass.includes(c)));
       }
 
-      // 3. Process Requested Analytics
+      // Process Requested Analytics
       let analyticsPayload = {};
 
       if (category === 'student_performance') {
@@ -122,7 +141,7 @@ export async function POST(request) {
         };
       } 
       else if (category === 'teacher_status' || category === 'class_status') {
-        const trackingMap = {}; // Tracks Expected vs Uploaded marks per teacher/subject/class
+        const trackingMap = {}; 
 
         detailedStudents.forEach(s => {
           Object.entries(s.teachers).forEach(([subject, teacherName]) => {
@@ -146,14 +165,12 @@ export async function POST(request) {
           const isComplete = entry.expected === entry.uploaded;
           const statusString = `${entry.subject} (${entry.uploaded}/${entry.expected} uploaded)`;
 
-          // Teacher Aggregation
           if (!teacherCompletion[entry.teacher]) teacherCompletion[entry.teacher] = { isFullyComplete: true, pendingSubjects: [] };
           if (!isComplete) {
             teacherCompletion[entry.teacher].isFullyComplete = false;
             teacherCompletion[entry.teacher].pendingSubjects.push(statusString);
           }
 
-          // Class Aggregation
           entry.affectedClasses.forEach(cls => {
             if (!classCompletion[cls]) classCompletion[cls] = { isFullyComplete: true, pendingSubjects: [] };
             if (!isComplete) {
@@ -166,11 +183,9 @@ export async function POST(request) {
         analyticsPayload = category === 'teacher_status' ? { teachers: teacherCompletion } : { classes: classCompletion };
       } 
       else {
-        // Fallback: General data, sliced to prevent timeouts
         analyticsPayload = { students: detailedStudents.slice(0, 40) };
       }
 
-      // 4. Return Data to AI
       const contents = [
         { role: 'user', parts: [{ text: prompt }] },
         exactModelContent, 
@@ -180,7 +195,8 @@ export async function POST(request) {
         }
       ];
 
-      const finalResult = await model.generateContent({ contents });
+      // 2. Send final payload using the secure retry wrapper
+      const finalResult = await generateWithRetry(model, { contents });
       return NextResponse.json({ reply: finalResult.response.text() });
     }
 
