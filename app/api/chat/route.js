@@ -1,113 +1,98 @@
 import { NextResponse } from 'next/server';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenerativeAI, FunctionDeclarationSchemaType } from '@google/generative-ai';
 import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../../../lib/firebase';
+import { db } from '../../../lib/firebase'; // Ensure this path matches your project structure
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Initialize the standard stable Google Gen AI SDK
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+// Define the tool Gemini can use to search your database
 const queryStudentDatabaseDeclaration = {
   name: "queryStudentDatabase",
   description: "Searches the school database for students and their marks. Use this whenever the user asks about student performance, specific classes, departments, or grades.",
   parameters: {
-    type: Type.OBJECT,
+    type: FunctionDeclarationSchemaType.OBJECT,
     properties: {
       department: { 
-        type: Type.STRING, 
+        type: FunctionDeclarationSchemaType.STRING, 
         description: "Optional filter for department (e.g., QURAN, HADITH, FIQH, CIVIL, LANGUAGE, AQIDAH)" 
       },
       classGroup: { 
-        type: Type.STRING, 
+        type: FunctionDeclarationSchemaType.STRING, 
         description: "Optional filter for class group (e.g., HFC3, QH1, AL1, QLA3)" 
       },
       class: { 
-        type: Type.STRING, 
+        type: FunctionDeclarationSchemaType.STRING, 
         description: "Alternative class identifier (e.g., HFC3, QLA3)" 
       }
     }
   }
 };
 
-async function callGeminiWithRetry(options, maxRetries = 3) {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await ai.models.generateContent(options);
-    } catch (err) {
-      const is503 = err.status === 503 || String(err).includes('503') || String(err).includes('UNAVAILABLE');
-      if (is503 && attempt < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, attempt * 1500));
-        continue;
-      }
-      throw err;
-    }
-  }
-}
-
 export async function POST(request) {
   try {
     const { prompt } = await request.json();
 
-    const systemInstructionText = "You are an AI assistant for a school administrator managing student records and marks stored in Firebase Firestore. You have full authorized access to the school database through the queryStudentDatabase tool. Always use this tool when asked about students, classes, departments, or marks. Never output raw JSON text; always execute the tool and reply with a natural language summary.";
-
-    // Using gemini-3.5-flash for high availability and low latency
-    const response = await callGeminiWithRetry({
-      model: 'gemini-3.5-flash',
-      contents: prompt,
-      config: { systemInstruction: systemInstructionText },
+    // 1. Initialize the model with the CORRECT model name and system instructions
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-flash", // Replaced the non-existent 3.5 model
+      systemInstruction: "You are an AI assistant for a school administrator managing student records and marks stored in Firebase Firestore. You have full authorized access to the school database through the queryStudentDatabase tool. Always use this tool when asked about students, classes, departments, or marks. Never output raw JSON text; always execute the tool and reply with a natural language summary.",
       tools: [{ functionDeclarations: [queryStudentDatabaseDeclaration] }],
     });
 
-    if (response.functionCalls && response.functionCalls.length > 0) {
-      const call = response.functionCalls[0];
+    // 2. Start a chat session (this manages the back-and-forth history for function calling)
+    const chat = model.startChat();
+    
+    // 3. Send the user's prompt to Gemini
+    const result = await chat.sendMessage(prompt);
+    
+    // Check if Gemini decided it needs to use the database tool
+    const call = result.response.functionCalls()?.[0];
+
+    if (call && call.name === 'queryStudentDatabase') {
+      const args = call.args;
+      const department = args.department;
+      const targetClass = args.classGroup || args.class;
       
-      if (call.name === 'queryStudentDatabase') {
-        const { department, classGroup, class: altClass } = call.args;
-        const targetClass = classGroup || altClass;
-        
-        const sSnap = await getDocs(collection(db, 'students'));
-        let studentsList = [];
-        sSnap.forEach(doc => studentsList.push(doc.data()));
-        
-        if (department) {
-          studentsList = studentsList.filter(s => (s.department || '').toUpperCase() === department.toUpperCase());
-        }
-        if (targetClass) {
-          studentsList = studentsList.filter(s => (s.classes || []).includes(targetClass));
-        }
-
-        const mSnap = await getDocs(collection(db, 'marks'));
-        const allMarks = {};
-        mSnap.forEach(doc => allMarks[doc.id] = doc.data());
-
-        const databaseResults = studentsList.map(s => ({
-          name: s.firstName,
-          admissionNumber: s.adNo,
-          department: s.department,
-          enrolledClasses: s.classes,
-          marks: allMarks[s.regNo] || null
-        }));
-
-        const finalResponse = await callGeminiWithRetry({
-          model: 'gemini-3.5-flash',
-          contents: [
-            { role: 'user', parts: [{ text: prompt }] },
-            { role: 'model', parts: [{ functionCall: call }] },
-            { 
-              role: 'user', 
-              parts: [{ 
-                functionResponse: { 
-                  name: call.name, 
-                  response: { result: databaseResults } 
-                } 
-              }] 
-            }
-          ],
-        });
-
-        return NextResponse.json({ reply: finalResponse.text });
+      // Fetch students from Firestore
+      const sSnap = await getDocs(collection(db, 'students'));
+      let studentsList = [];
+      sSnap.forEach(doc => studentsList.push(doc.data()));
+      
+      if (department) {
+        studentsList = studentsList.filter(s => (s.department || '').toUpperCase() === department.toUpperCase());
       }
+      if (targetClass) {
+        studentsList = studentsList.filter(s => (s.classes || []).includes(targetClass));
+      }
+
+      // Fetch marks from Firestore
+      const mSnap = await getDocs(collection(db, 'marks'));
+      const allMarks = {};
+      mSnap.forEach(doc => allMarks[doc.id] = doc.data());
+
+      // Combine the data
+      const databaseResults = studentsList.map(s => ({
+        name: s.firstName,
+        admissionNumber: s.adNo,
+        department: s.department,
+        enrolledClasses: s.classes,
+        marks: allMarks[s.regNo] || null
+      }));
+
+      // 4. Send the database results back to Gemini so it can read them and write a summary
+      const finalResult = await chat.sendMessage([{
+        functionResponse: {
+          name: 'queryStudentDatabase',
+          response: { result: databaseResults }
+        }
+      }]);
+
+      return NextResponse.json({ reply: finalResult.response.text() });
     }
 
-    return NextResponse.json({ reply: response.text });
+    // If no database search was needed, just return Gemini's normal reply
+    return NextResponse.json({ reply: result.response.text() });
 
   } catch (error) {
     console.error("Chat API Error:", error);
@@ -118,6 +103,6 @@ export async function POST(request) {
       }, { status: 503 });
     }
     
-    return NextResponse.json({ error: "Failed to process AI request." }, { status: 500 });
+    return NextResponse.json({ error: "Failed to process AI request. Check server logs." }, { status: 500 });
   }
 }
