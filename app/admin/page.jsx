@@ -937,7 +937,7 @@ function ReportManager() {
     const [chatMessages, setChatMessages] = useState([
         {
             role: 'assistant',
-            text: 'Hello! I can answer questions about students, departments, class enrollments, and marks. Ask me anything like: "List all students in HFC3 with no marks recorded" or "Which students in HADITH scored below 40%?"'
+            text: 'Hello! I can answer questions about students, departments, class enrollments, and marks. Ask me anything like: **"List all students in HFC3 with no marks recorded"** or "Which students in HADITH scored below 40%?"'
         }
     ]);
     const [chatInput, setChatInput] = useState('');
