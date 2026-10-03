@@ -33,9 +33,9 @@ export async function POST(request) {
 
     const { prompt } = await request.json();
 
-    // Initialize the model with the active successor string
+    // Initialize the model with the latest supported version
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash", // Updated to resolve the 404 error
+      model: "gemini-3.8-flash", // Updated to resolve the 404 error
       systemInstruction: "You are an AI assistant for a school administrator managing student records and marks. You have authorized access to the school database through the queryStudentDatabase tool. Always use this tool when asked about students, classes, or marks. Keep your final answers concise and helpful.",
       tools: [{ functionDeclarations: [queryStudentDatabaseDeclaration] }],
     });
