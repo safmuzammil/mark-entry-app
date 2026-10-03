@@ -1083,75 +1083,95 @@ function ReportManager() {
     // --- Add this fetch function before your component's return statement ---
     const [inspectorTeacherName, setInspectorTeacherName] = useState('');
 
-    const fetchClassSubjectMarks = async () => {
-        setIsInspecting(true);
-        try {
-            // 1. Fetch all students belonging to the selected class
-            const studentSnap = await getDocs(collection(db, 'students'));
-            const matchedStudents = [];
-            studentSnap.forEach(docSnap => {
-                const data = docSnap.data();
-                const studentObj = { id: docSnap.id, ...data };
-                if ((studentObj.classes || []).includes(inspectorClass)) {
-                    matchedStudents.push(studentObj);
-                }
-            });
-            matchedStudents.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
-
-            // 2. Fetch all teachers and map each student to their respective teacher for this subject
-            const teacherSnap = await getDocs(collection(db, 'teachers'));
-            const studentTeacherMap = {};
-
-            teacherSnap.forEach(tDoc => {
-                const tData = tDoc.data();
-                const teacherName = tData.fullName || tDoc.id;
-
-                if (tData.enrollments && Array.isArray(tData.enrollments)) {
-                    tData.enrollments.forEach(env => {
-                        const isMatchingSubject = (env.subject || '').toUpperCase() === inspectorSubject.toUpperCase();
-                        if (isMatchingSubject && env.studentIds && Array.isArray(env.studentIds)) {
-                            env.studentIds.forEach(sRegNo => {
-                                studentTeacherMap[sRegNo] = teacherName;
-                            });
-                        }
-                    });
-                }
-            });
-
-            // 3. Fetch marks for each matched student from Firestore
-            const marksRecord = {};
-            const teacherRecord = {};
-
-            for (const student of matchedStudents) {
-                let markSnap = null;
-                const possibleKeys = [student.regNo, student.id, student.adNo, student.admissionNo].filter(Boolean);
-
-                for (const key of possibleKeys) {
-                    markSnap = await getDoc(doc(db, 'marks', String(key)));
-                    if (markSnap.exists()) break;
-                }
-
-                if (markSnap && markSnap.exists()) {
-                    const studentMarksData = markSnap.data();
-                    const foundSubjectKey = Object.keys(studentMarksData).find(
-                        k => k.toUpperCase() === inspectorSubject.toUpperCase()
-                    );
-                    marksRecord[student.regNo || student.id] = foundSubjectKey ? studentMarksData[foundSubjectKey] : {};
-                } else {
-                    marksRecord[student.regNo || student.id] = {};
-                }
-
-                // Assign teacher name per student (fallback to 'Unassigned' if not mapped)
-                teacherRecord[student.regNo || student.id] = studentTeacherMap[student.regNo] || studentTeacherMap[student.adNo] || 'Unassigned';
-            }
-
-            setSubjectLevelMarks({ students: matchedStudents, records: marksRecord, teachers: teacherRecord });
-        } catch (err) {
-            console.error('Error fetching subject level marks:', err);
-        } finally {
-            setIsInspecting(false);
+  const fetchClassSubjectMarks = async () => {
+    setIsInspecting(true);
+    try {
+      // 1. Fetch all students belonging to the selected class group
+      const studentSnap = await getDocs(collection(db, 'students'));
+      const matchedStudents = [];
+      studentSnap.forEach(docSnap => {
+        const data = docSnap.data();
+        const studentObj = { id: docSnap.id, ...data };
+        if ((studentObj.classes || []).includes(inspectorClass)) {
+          matchedStudents.push(studentObj);
         }
-    };
+      });
+      matchedStudents.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
+
+      // 2. Fetch all teachers and map students to their respective teachers for this subject
+      const teacherSnap = await getDocs(collection(db, 'teachers'));
+      const studentTeacherMap = {};
+
+      teacherSnap.forEach(tDoc => {
+        const tData = tDoc.data();
+        const teacherName = tData.fullName || tDoc.id;
+        
+        if (tData.enrollments && Array.isArray(tData.enrollments)) {
+          tData.enrollments.forEach(env => {
+            const isMatchingSubject = (env.subject || '').toUpperCase() === inspectorSubject.toUpperCase();
+            
+            if (isMatchingSubject) {
+              // Check if enrollment explicitly lists student IDs
+              if (env.studentIds && Array.isArray(env.studentIds)) {
+                env.studentIds.forEach(sRegNo => {
+                  studentTeacherMap[sRegNo] = teacherName;
+                });
+              }
+
+              // Check if enrollment targets the class group (e.g. alias or grade matches inspectorClass)
+              const targetsClass = (env.alias || '').toLowerCase().includes(inspectorClass.toLowerCase()) || 
+                                   String(env.grade || '').toLowerCase().includes(inspectorClass.toLowerCase());
+              
+              if (targetsClass) {
+                matchedStudents.forEach(student => {
+                  if (student.regNo) studentTeacherMap[student.regNo] = teacherName;
+                  if (student.id) studentTeacherMap[student.id] = teacherName;
+                  if (student.adNo) studentTeacherMap[student.adNo] = teacherName;
+                });
+              }
+            }
+          });
+        }
+      });
+
+      // 3. Fetch marks and assign the resolved teacher name for each student
+      const marksRecord = {};
+      const teacherRecord = {};
+
+      for (const student of matchedStudents) {
+        let markSnap = null;
+        const possibleKeys = [student.regNo, student.id, student.adNo, student.admissionNo].filter(Boolean);
+        
+        for (const key of possibleKeys) {
+          markSnap = await getDoc(doc(db, 'marks', String(key)));
+          if (markSnap.exists()) break;
+        }
+
+        if (markSnap && markSnap.exists()) {
+          const studentMarksData = markSnap.data();
+          const foundSubjectKey = Object.keys(studentMarksData).find(
+            k => k.toUpperCase() === inspectorSubject.toUpperCase()
+          );
+          marksRecord[student.regNo || student.id] = foundSubjectKey ? studentMarksData[foundSubjectKey] : {};
+        } else {
+          marksRecord[student.regNo || student.id] = {};
+        }
+
+        // Resolve teacher name using regNo, id, or adNo
+        teacherRecord[student.regNo || student.id] = 
+          studentTeacherMap[student.regNo] || 
+          studentTeacherMap[student.id] || 
+          studentTeacherMap[student.adNo] || 
+          'Unassigned';
+      }
+
+      setSubjectLevelMarks({ students: matchedStudents, records: marksRecord, teachers: teacherRecord });
+    } catch (err) {
+      console.error('Error fetching subject level marks:', err);
+    } finally {
+      setIsInspecting(false);
+    }
+  };
 
     const handleDownloadExcel = () => {
         if (filteredResults.length === 0) return;
