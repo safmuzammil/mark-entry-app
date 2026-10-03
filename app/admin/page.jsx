@@ -1085,117 +1085,117 @@ function ReportManager() {
     // --- Add this fetch function before your component's return statement ---
     const [inspectorTeacherName, setInspectorTeacherName] = useState('');
 
-const fetchClassSubjectMarks = async () => {
-    setIsInspecting(true);
-    try {
-      // 1. Fetch all students belonging to the selected class group (e.g. QLA3)
-      const studentSnap = await getDocs(collection(db, 'students'));
-      const matchedStudents = [];
-      studentSnap.forEach(docSnap => {
-        const data = docSnap.data();
-        const studentObj = { id: docSnap.id, ...data };
-        if ((studentObj.classes || []).includes(inspectorClass)) {
-          matchedStudents.push(studentObj);
-        }
-      });
-      matchedStudents.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
+    const fetchClassSubjectMarks = async () => {
+        setIsInspecting(true);
+        try {
+            // 1. Fetch all students belonging to the selected class group (e.g. QLA3)
+            const studentSnap = await getDocs(collection(db, 'students'));
+            const matchedStudents = [];
+            studentSnap.forEach(docSnap => {
+                const data = docSnap.data();
+                const studentObj = { id: docSnap.id, ...data };
+                if ((studentObj.classes || []).includes(inspectorClass)) {
+                    matchedStudents.push(studentObj);
+                }
+            });
+            matchedStudents.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
 
-      // 2. Fetch all teachers once to avoid repeated database calls
-      const teacherSnap = await getDocs(collection(db, 'teachers'));
-      const teachersList = [];
-      teacherSnap.forEach(tDoc => {
-        teachersList.push({ id: tDoc.id, fullName: tDoc.data().fullName, enrollments: tDoc.data().enrollments || [] });
-      });
+            // 2. Fetch all teachers once to avoid repeated database calls
+            const teacherSnap = await getDocs(collection(db, 'teachers'));
+            const teachersList = [];
+            teacherSnap.forEach(tDoc => {
+                teachersList.push({ id: tDoc.id, fullName: tDoc.data().fullName, enrollments: tDoc.data().enrollments || [] });
+            });
 
-      // 3. Process each student to fetch marks AND find their specific teacher
-      const marksRecord = {};
-      const teacherRecord = {};
+            // 3. Process each student to fetch marks AND find their specific teacher
+            const marksRecord = {};
+            const teacherRecord = {};
 
-      for (const student of matchedStudents) {
-        // --- A. Fetch Marks ---
-        let markSnap = null;
-        const possibleKeys = [student.regNo, student.id, student.adNo, student.admissionNo].filter(Boolean);
-        for (const key of possibleKeys) {
-          markSnap = await getDoc(doc(db, 'marks', String(key).trim()));
-          if (markSnap.exists()) break;
-        }
+            for (const student of matchedStudents) {
+                // --- A. Fetch Marks ---
+                let markSnap = null;
+                const possibleKeys = [student.regNo, student.id, student.adNo, student.admissionNo].filter(Boolean);
+                for (const key of possibleKeys) {
+                    markSnap = await getDoc(doc(db, 'marks', String(key).trim()));
+                    if (markSnap.exists()) break;
+                }
 
-        if (markSnap && markSnap.exists()) {
-          const studentMarksData = markSnap.data();
-          const foundSubjectKey = Object.keys(studentMarksData).find(
-            k => k.trim().toUpperCase() === inspectorSubject.trim().toUpperCase()
-          );
-          marksRecord[student.regNo || student.id] = foundSubjectKey ? studentMarksData[foundSubjectKey] : {};
-        } else {
-          marksRecord[student.regNo || student.id] = {};
-        }
+                if (markSnap && markSnap.exists()) {
+                    const studentMarksData = markSnap.data();
+                    const foundSubjectKey = Object.keys(studentMarksData).find(
+                        k => k.trim().toUpperCase() === inspectorSubject.trim().toUpperCase()
+                    );
+                    marksRecord[student.regNo || student.id] = foundSubjectKey ? studentMarksData[foundSubjectKey] : {};
+                } else {
+                    marksRecord[student.regNo || student.id] = {};
+                }
 
-        // --- B. Smart Teacher Resolution ---
-        let assignedTeacher = 'Unassigned';
-        
-        // Get ALL groups this student belongs to (e.g., ["QLA3", "M10", ...])
-        const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
-        if (!studentClassesLower.includes(inspectorClass.toLowerCase())) {
-          studentClassesLower.push(inspectorClass.toLowerCase());
-        }
+                // --- B. Smart Teacher Resolution ---
+                let assignedTeacher = 'Unassigned';
 
-        const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
-        const sReg = String(student.regNo || '').trim();
-        const sAd = String(student.adNo || '').trim();
-        const sId = String(student.id || '').trim();
+                // Get ALL groups this student belongs to (e.g., ["QLA3", "M10", ...])
+                const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
+                if (!studentClassesLower.includes(inspectorClass.toLowerCase())) {
+                    studentClassesLower.push(inspectorClass.toLowerCase());
+                }
 
-        for (const teacher of teachersList) {
-          const matchingEnv = teacher.enrollments.find(env => {
-            // Must match the exact subject (e.g., "Aqidah")
-            if ((env.subject || '').trim().toUpperCase() !== inspectorSubject.trim().toUpperCase()) return false;
-            
-            // PRIORITY 1: Explicitly saved student IDs
-            if (env.studentIds && Array.isArray(env.studentIds)) {
-              const savedIds = env.studentIds.map(id => String(id).trim());
-              if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
-                return true;
-              }
+                const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
+                const sReg = String(student.regNo || '').trim();
+                const sAd = String(student.adNo || '').trim();
+                const sId = String(student.id || '').trim();
+
+                for (const teacher of teachersList) {
+                    const matchingEnv = teacher.enrollments.find(env => {
+                        // Must match the exact subject (e.g., "Aqidah")
+                        if ((env.subject || '').trim().toUpperCase() !== inspectorSubject.trim().toUpperCase()) return false;
+
+                        // PRIORITY 1: Explicitly saved student IDs
+                        if (env.studentIds && Array.isArray(env.studentIds)) {
+                            const savedIds = env.studentIds.map(id => String(id).trim());
+                            if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
+                                return true;
+                            }
+                        }
+
+                        // PRIORITY 2: Match by any of the student's assigned groups (like "M10")
+                        const envAliasLower = String(env.alias || '').trim().toLowerCase();
+                        let classMatch = studentClassesLower.includes(envAliasLower);
+
+                        if (classMatch) {
+                            // Ensure the language track matches
+                            const envLang = (env.langTag || '').toLowerCase();
+                            let langMatch = false;
+
+                            if (envLang.includes('urdu') && !envLang.includes('non')) {
+                                langMatch = isUrdu; // Urdu teachers teach Urdu students
+                            } else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
+                                langMatch = !isUrdu; // Gen/Blank teachers teach Gen students
+                            } else {
+                                langMatch = true; // Fallback
+                            }
+
+                            return langMatch;
+                        }
+
+                        return false;
+                    });
+
+                    if (matchingEnv) {
+                        assignedTeacher = teacher.fullName || teacher.id;
+                        break; // Stop looking once we find the correct teacher for this student
+                    }
+                }
+
+                teacherRecord[student.regNo || student.id] = assignedTeacher;
             }
 
-            // PRIORITY 2: Match by any of the student's assigned groups (like "M10")
-            const envAliasLower = String(env.alias || '').trim().toLowerCase();
-            let classMatch = studentClassesLower.includes(envAliasLower);
-
-            if (classMatch) {
-              // Ensure the language track matches
-              const envLang = (env.langTag || '').toLowerCase();
-              let langMatch = false;
-
-              if (envLang.includes('urdu') && !envLang.includes('non')) {
-                langMatch = isUrdu; // Urdu teachers teach Urdu students
-              } else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
-                langMatch = !isUrdu; // Gen/Blank teachers teach Gen students
-              } else {
-                langMatch = true; // Fallback
-              }
-              
-              return langMatch;
-            }
-
-            return false;
-          });
-
-          if (matchingEnv) {
-            assignedTeacher = teacher.fullName || teacher.id;
-            break; // Stop looking once we find the correct teacher for this student
-          }
+            setSubjectLevelMarks({ students: matchedStudents, records: marksRecord, teachers: teacherRecord });
+        } catch (err) {
+            console.error('Error fetching subject level marks:', err);
+        } finally {
+            setIsInspecting(false);
         }
-
-        teacherRecord[student.regNo || student.id] = assignedTeacher;
-      }
-
-      setSubjectLevelMarks({ students: matchedStudents, records: marksRecord, teachers: teacherRecord });
-    } catch (err) {
-      console.error('Error fetching subject level marks:', err);
-    } finally {
-      setIsInspecting(false);
-    }
-  };
+    };
 
     const handleDownloadExcel = () => {
         if (filteredResults.length === 0) return;
@@ -1248,39 +1248,43 @@ const fetchClassSubjectMarks = async () => {
                     marginBottom: '16px'
                 }}>
                     {/* Inside your chat message list loop */}
+                    {/* Replace your existing chat message mapping with this block */}
 {chatMessages.map((msg, index) => (
   <div
     key={index}
-    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}
+    className={`flex w-full mb-6 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
   >
     <div
-      className={`max-w-[85%] rounded-2xl p-4 text-sm shadow-sm ${
+      className={`max-w-[85%] overflow-x-auto rounded-2xl p-5 text-sm shadow-sm ${
         msg.role === 'user'
-          ? 'bg-blue-600 text-white rounded-br-none'
-          : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-slate-100'
+          ? 'bg-blue-600 text-white rounded-br-none' // User: Solid blue bubble
+          : 'bg-slate-50 border border-slate-200 text-slate-900 rounded-bl-none' // AI: Light gray bubble
       }`}
     >
       {msg.role === 'user' ? (
-        <p className="whitespace-pre-wrap">{msg.text}</p>
+        // Enforce pure white text for the user
+        <p className="whitespace-pre-wrap font-medium text-white">{msg.text}</p>
       ) : (
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
-            p: ({ node, ...props }) => <p className="mb-2 leading-relaxed" {...props} />,
-            strong: ({ node, ...props }) => <strong className="font-semibold text-slate-900" {...props} />,
-            ul: ({ node, ...props }) => <ul className="list-disc pl-5 mb-3 space-y-1" {...props} />,
-            ol: ({ node, ...props }) => <ol className="list-decimal pl-5 mb-3 space-y-1" {...props} />,
-            // Professional Table Styling
+            // Enforce explicitly dark text (text-slate-900) on all markdown elements
+            p: ({ node, ...props }) => <p className="mb-3 text-slate-900 leading-relaxed" {...props} />,
+            strong: ({ node, ...props }) => <strong className="font-bold text-black" {...props} />,
+            ul: ({ node, ...props }) => <ul className="list-disc pl-5 mb-3 space-y-1 text-slate-900" {...props} />,
+            ol: ({ node, ...props }) => <ol className="list-decimal pl-5 mb-3 space-y-1 text-slate-900" {...props} />,
+            
+            // Professional Table Styling with dark text and borders
             table: ({ node, ...props }) => (
-              <div className="overflow-x-auto my-3 rounded-lg border border-slate-200">
-                <table className="min-w-full divide-y divide-slate-200 text-left text-xs" {...props} />
+              <div className="overflow-x-auto my-4 rounded-lg border border-slate-300 w-full bg-white">
+                <table className="min-w-full divide-y divide-slate-300 text-left text-sm" {...props} />
               </div>
             ),
-            thead: ({ node, ...props }) => <thead className="bg-slate-50 font-semibold text-slate-700" {...props} />,
-            tbody: ({ node, ...props }) => <tbody className="divide-y divide-slate-100 bg-white" {...props} />,
+            thead: ({ node, ...props }) => <thead className="bg-slate-200 font-bold text-slate-900" {...props} />,
+            tbody: ({ node, ...props }) => <tbody className="divide-y divide-slate-200 bg-white" {...props} />,
             tr: ({ node, ...props }) => <tr className="hover:bg-slate-50 transition-colors" {...props} />,
-            th: ({ node, ...props }) => <th className="px-3 py-2.5 font-medium tracking-wider" {...props} />,
-            td: ({ node, ...props }) => <td className="px-3 py-2 text-slate-600 align-top" {...props} />,
+            th: ({ node, ...props }) => <th className="px-4 py-3 font-semibold tracking-wider text-slate-900 whitespace-nowrap" {...props} />,
+            td: ({ node, ...props }) => <td className="px-4 py-3 text-slate-800 align-top" {...props} />,
           }}
         >
           {msg.text}
