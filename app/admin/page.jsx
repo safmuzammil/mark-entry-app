@@ -902,14 +902,9 @@ function StudentManager() {
     );
 }
 
-// ==========================================
-// COMPONENT 3: NEW REPORT & EXPORT MANAGER
-// ==========================================
+
 // ==========================================
 // COMPONENT 3: REPORT & AI ASSISTANT MANAGER
-// ==========================================
-// ==========================================
-// COMPONENT 3: REPORT & AI ASSISTANT MANAGER (AUTO-SYNC)
 // ==========================================
 function ReportManager() {
     const [registeredStudents, setRegisteredStudents] = useState([]);
@@ -928,16 +923,17 @@ function ReportManager() {
     const [exportMetric, setExportMetric] = useState('STATUS');
     const [exportSubject, setExportSubject] = useState(DEFAULT_SUBJECTS[0]);
 
-    // --- Add these new state variables with your other useState hooks ---
     const [inspectorClass, setInspectorClass] = useState(DEFAULT_CLASSES[0]);
     const [inspectorSubject, setInspectorSubject] = useState(DEFAULT_SUBJECTS[0]);
     const [subjectLevelMarks, setSubjectLevelMarks] = useState({});
     const [isInspecting, setIsInspecting] = useState(false);
-    // AI Assistant States
+    const [inspectorTeacherName, setInspectorTeacherName] = useState('');
+
+    // AI Assistant States - Note the bold markdown markers (**) in the text
     const [chatMessages, setChatMessages] = useState([
         {
             role: 'assistant',
-            text: 'Hello! I can answer questions about students, departments, class enrollments, and marks. Ask me anything like: **"List all students in HFC3 with no marks recorded"** or "Which students in HADITH scored below 40%?"'
+            text: 'Hello! I can answer questions about students, departments, class enrollments, and marks. Ask me anything like: **"List all students in HFC3 with no marks recorded"** or **"Which students in HADITH scored below 40%?"**'
         }
     ]);
     const [chatInput, setChatInput] = useState('');
@@ -946,25 +942,22 @@ function ReportManager() {
     // --- AUTOMATED STALE-WHILE-REVALIDATE LOADER ---
     const fetchReportData = async () => {
         try {
-            // 1. Load student profiles from Firestore quickly
             const querySnapshot = await getDocs(collection(db, 'students'));
             const studentsData = [];
             querySnapshot.forEach((doc) => studentsData.push(doc.data()));
             studentsData.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
             setRegisteredStudents(studentsData);
 
-            // 2. Load cached marks from Firestore instantly for zero-wait display
             const cacheDocRef = doc(db, 'systemCache', 'adminReportCache');
             const cacheSnap = await getDoc(cacheDocRef);
 
             if (cacheSnap.exists()) {
                 setOverallMarksCache(cacheSnap.data().marksData || {});
-                setIsLoading(false); // Page is interactive immediately!
+                setIsLoading(false); 
             } else {
-                setIsLoading(true); // Only show full loader if cache is completely empty
+                setIsLoading(true); 
             }
 
-            // 3. Automatically sync with Google Sheets quietly in the background
             backgroundSyncWithGoogleSheets();
 
         } catch (err) {
@@ -981,8 +974,6 @@ function ReportManager() {
             if (result.status === 'success') {
                 const freshData = result.data || {};
                 setOverallMarksCache(freshData);
-
-                // Update Firestore cache silently
                 await setDoc(doc(db, 'systemCache', 'adminReportCache'), {
                     marksData: freshData,
                     lastUpdated: new Date().toISOString()
@@ -1026,7 +1017,7 @@ function ReportManager() {
                 const errorDetail = data?.error || data?.message || 'Failed to retrieve response.';
                 setChatMessages([
                     ...updatedHistory,
-                    { role: 'assistant', text: `⚠️ Error: ${errorDetail}` }
+                    { role: 'assistant', text: `⚠️️ Error: ${errorDetail}` }
                 ]);
             }
         } catch (err) {
@@ -1082,13 +1073,9 @@ function ReportManager() {
         else setStatusMsg(`Found ${mappedResults.length} students matching your filters.`);
     };
 
-    // --- Add this fetch function before your component's return statement ---
-    const [inspectorTeacherName, setInspectorTeacherName] = useState('');
-
     const fetchClassSubjectMarks = async () => {
         setIsInspecting(true);
         try {
-            // 1. Fetch all students belonging to the selected class group (e.g. QLA3)
             const studentSnap = await getDocs(collection(db, 'students'));
             const matchedStudents = [];
             studentSnap.forEach(docSnap => {
@@ -1100,19 +1087,16 @@ function ReportManager() {
             });
             matchedStudents.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
 
-            // 2. Fetch all teachers once to avoid repeated database calls
             const teacherSnap = await getDocs(collection(db, 'teachers'));
             const teachersList = [];
             teacherSnap.forEach(tDoc => {
                 teachersList.push({ id: tDoc.id, fullName: tDoc.data().fullName, enrollments: tDoc.data().enrollments || [] });
             });
 
-            // 3. Process each student to fetch marks AND find their specific teacher
             const marksRecord = {};
             const teacherRecord = {};
 
             for (const student of matchedStudents) {
-                // --- A. Fetch Marks ---
                 let markSnap = null;
                 const possibleKeys = [student.regNo, student.id, student.adNo, student.admissionNo].filter(Boolean);
                 for (const key of possibleKeys) {
@@ -1130,10 +1114,7 @@ function ReportManager() {
                     marksRecord[student.regNo || student.id] = {};
                 }
 
-                // --- B. Smart Teacher Resolution ---
                 let assignedTeacher = 'Unassigned';
-
-                // Get ALL groups this student belongs to (e.g., ["QLA3", "M10", ...])
                 const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
                 if (!studentClassesLower.includes(inspectorClass.toLowerCase())) {
                     studentClassesLower.push(inspectorClass.toLowerCase());
@@ -1146,10 +1127,7 @@ function ReportManager() {
 
                 for (const teacher of teachersList) {
                     const matchingEnv = teacher.enrollments.find(env => {
-                        // Must match the exact subject (e.g., "Aqidah")
                         if ((env.subject || '').trim().toUpperCase() !== inspectorSubject.trim().toUpperCase()) return false;
-
-                        // PRIORITY 1: Explicitly saved student IDs
                         if (env.studentIds && Array.isArray(env.studentIds)) {
                             const savedIds = env.studentIds.map(id => String(id).trim());
                             if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
@@ -1157,35 +1135,30 @@ function ReportManager() {
                             }
                         }
 
-                        // PRIORITY 2: Match by any of the student's assigned groups (like "M10")
                         const envAliasLower = String(env.alias || '').trim().toLowerCase();
                         let classMatch = studentClassesLower.includes(envAliasLower);
 
                         if (classMatch) {
-                            // Ensure the language track matches
                             const envLang = (env.langTag || '').toLowerCase();
                             let langMatch = false;
 
                             if (envLang.includes('urdu') && !envLang.includes('non')) {
-                                langMatch = isUrdu; // Urdu teachers teach Urdu students
+                                langMatch = isUrdu; 
                             } else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
-                                langMatch = !isUrdu; // Gen/Blank teachers teach Gen students
+                                langMatch = !isUrdu; 
                             } else {
-                                langMatch = true; // Fallback
+                                langMatch = true; 
                             }
-
                             return langMatch;
                         }
-
                         return false;
                     });
 
                     if (matchingEnv) {
                         assignedTeacher = teacher.fullName || teacher.id;
-                        break; // Stop looking once we find the correct teacher for this student
+                        break;
                     }
                 }
-
                 teacherRecord[student.regNo || student.id] = assignedTeacher;
             }
 
@@ -1228,7 +1201,7 @@ function ReportManager() {
 
     return (
         <div>
-            {/* 1. AI ASSISTANT CHAT PANEL - BULLETPROOF PRO DESIGN */}
+            {/* 1. AI ASSISTANT CHAT PANEL - STRICT INLINE DESIGN */}
             <div style={styles.card}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
                     <span style={{ fontSize: '28px' }}>🤖</span>
@@ -1238,7 +1211,6 @@ function ReportManager() {
                     </div>
                 </div>
 
-                {/* Polished, Mobile-Responsive Chat History Container */}
                 <div style={{
                     display: 'flex', flexDirection: 'column', gap: '20px', padding: '20px',
                     height: '450px', overflowY: 'auto', backgroundColor: '#f8fafc',
@@ -1253,43 +1225,43 @@ function ReportManager() {
                                 justifyContent: isUser ? 'flex-end' : 'flex-start'
                             }}>
                                 <div style={{
-                                    maxWidth: '90%', // Mobile optimized width
+                                    maxWidth: '90%', 
                                     padding: '16px 20px',
                                     borderRadius: '20px',
                                     borderBottomRightRadius: isUser ? '4px' : '20px',
                                     borderBottomLeftRadius: isUser ? '20px' : '4px',
                                     backgroundColor: isUser ? '#2563eb' : '#ffffff',
-                                    color: isUser ? '#ffffff' : '#0f172a',
+                                    color: isUser ? '#ffffff' : '#000000',
                                     boxShadow: isUser ? '0 4px 12px rgba(37, 99, 235, 0.2)' : '0 4px 12px rgba(0, 0, 0, 0.04)',
-                                    border: isUser ? 'none' : '1px solid #e2e8f0',
+                                    border: isUser ? 'none' : '1px solid #cbd5e1',
                                     fontSize: '15px',
                                     lineHeight: '1.6'
                                 }}>
                                     {isUser ? (
                                         <div style={{ whiteSpace: 'pre-wrap', fontWeight: '500' }}>{msg.text}</div>
                                     ) : (
-                                        <div style={{ color: '#0f172a' }}>
+                                        <div style={{ color: '#000000' }}>
                                             <ReactMarkdown
                                                 remarkPlugins={[remarkGfm]}
                                                 components={{
-                                                    // Strictly forcing dark text and good spacing on all text elements
-                                                    p: ({ node, ...props }) => <p style={{ margin: '0 0 12px 0', color: '#1e293b' }} {...props} />,
-                                                    strong: ({ node, ...props }) => <strong style={{ fontWeight: '800', color: '#0f172a' }} {...props} />,
-                                                    ul: ({ node, ...props }) => <ul style={{ paddingLeft: '24px', margin: '0 0 12px 0', color: '#1e293b' }} {...props} />,
-                                                    ol: ({ node, ...props }) => <ol style={{ paddingLeft: '24px', margin: '0 0 12px 0', color: '#1e293b' }} {...props} />,
-                                                    li: ({ node, ...props }) => <li style={{ marginBottom: '6px' }} {...props} />,
+                                                    // Explicitly forcing pure black text and medium weight on all tags
+                                                    p: ({ node, ...props }) => <p style={{ margin: '0 0 12px 0', color: '#000000', fontWeight: '500' }} {...props} />,
+                                                    strong: ({ node, ...props }) => <strong style={{ fontWeight: '800', color: '#000000' }} {...props} />,
+                                                    ul: ({ node, ...props }) => <ul style={{ paddingLeft: '24px', margin: '0 0 12px 0', color: '#000000', fontWeight: '500' }} {...props} />,
+                                                    ol: ({ node, ...props }) => <ol style={{ paddingLeft: '24px', margin: '0 0 12px 0', color: '#000000', fontWeight: '500' }} {...props} />,
+                                                    li: ({ node, ...props }) => <li style={{ marginBottom: '6px', color: '#000000' }} {...props} />,
                                                     
                                                     // Polished Table Styling for Mobile & Desktop
                                                     table: ({ node, ...props }) => (
                                                         <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', margin: '16px 0', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                                            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px', minWidth: '400px' }} {...props} />
+                                                            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px', minWidth: '400px', color: '#000000' }} {...props} />
                                                         </div>
                                                     ),
                                                     thead: ({ node, ...props }) => <thead style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }} {...props} />,
                                                     tbody: ({ node, ...props }) => <tbody {...props} />,
                                                     tr: ({ node, ...props }) => <tr style={{ borderBottom: '1px solid #e2e8f0' }} {...props} />,
-                                                    th: ({ node, ...props }) => <th style={{ padding: '12px 16px', fontWeight: '700', color: '#0f172a', textTransform: 'uppercase', fontSize: '11px', letterSpacing: '0.05em' }} {...props} />,
-                                                    td: ({ node, ...props }) => <td style={{ padding: '12px 16px', color: '#334155', verticalAlign: 'top' }} {...props} />,
+                                                    th: ({ node, ...props }) => <th style={{ padding: '12px 16px', fontWeight: '700', color: '#000000', textTransform: 'uppercase', fontSize: '11px', letterSpacing: '0.05em' }} {...props} />,
+                                                    td: ({ node, ...props }) => <td style={{ padding: '12px 16px', color: '#000000', verticalAlign: 'top', fontWeight: '500' }} {...props} />,
                                                 }}
                                             >
                                                 {msg.text}
@@ -1304,14 +1276,13 @@ function ReportManager() {
                     {/* Professional Loading Indicator */}
                     {isAiLoading && (
                         <div style={{ display: 'flex', justifyContent: 'flex-start', width: '100%' }}>
-                            <div style={{ background: '#ffffff', color: '#64748b', padding: '12px 20px', borderRadius: '20px', borderBottomLeftRadius: '4px', border: '1px solid #e2e8f0', fontSize: '14px', fontWeight: '600', boxShadow: '0 2px 6px rgba(0,0,0,0.02)', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ background: '#ffffff', color: '#000000', padding: '12px 20px', borderRadius: '20px', borderBottomLeftRadius: '4px', border: '1px solid #e2e8f0', fontSize: '14px', fontWeight: '600', boxShadow: '0 2px 6px rgba(0,0,0,0.02)', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                                 ⏳ Analyzing database...
                             </div>
                         </div>
                     )}
                 </div>
 
-                {/* Input Form optimized for Mobile */}
                 <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                     <input
                         type="text"
@@ -1411,7 +1382,7 @@ function ReportManager() {
 
                 {statusMsg && <div style={{ padding: '16px', background: '#e0f2fe', borderRadius: '8px', color: '#0369a1', fontWeight: '600', marginBottom: '20px' }}>{statusMsg}</div>}
 
-                {/* 3. FILTER RESULTS PREVIEW TABLE (Appears directly beneath the controls) */}
+                {/* 3. FILTER RESULTS PREVIEW TABLE */}
                 {filteredResults.length > 0 && (
                     <div style={{ border: '1px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden', marginTop: '20px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '16px', borderBottom: '1px solid #cbd5e1', flexWrap: 'wrap', gap: '10px' }}>
@@ -1506,8 +1477,6 @@ function ReportManager() {
                                 {subjectLevelMarks.students.map((student, idx) => {
                                     const studentKey = student.regNo || student.id;
                                     const recs = subjectLevelMarks.records[studentKey] || {};
-
-                                    // Get the specific teacher assigned to this student for this subject
                                     const studentTeacher = subjectLevelMarks.teachers?.[studentKey] || 'Unassigned';
 
                                     const l1 = Number(recs['15']) || 0;
@@ -1522,8 +1491,6 @@ function ReportManager() {
                                             <td style={{ padding: '14px', fontWeight: '700', color: '#0f172a' }}>{student.adNo}</td>
                                             <td style={{ padding: '14px' }}>
                                                 <div style={{ color: '#0f172a', fontWeight: '600' }}>{student.firstName}</div>
-
-                                                {/* Teacher's name styled like fading placeholder text without any prefix text */}
                                                 <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic', fontWeight: '400', marginTop: '2px' }}>
                                                     {studentTeacher}
                                                 </div>
