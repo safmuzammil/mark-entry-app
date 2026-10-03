@@ -24,13 +24,23 @@ const queryStudentDatabaseDeclaration = {
 };
 
 // HELPER: Safely retries the API call if the 429 rate limit is hit
+// HELPER: Safely handles both Per-Minute and Per-Day 429 rate limits
 async function generateWithRetry(model, requestPayload, maxRetries = 2) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await model.generateContent(requestPayload);
     } catch (error) {
-      const isRateLimit = error.status === 429 || String(error).includes('429') || String(error).includes('quota');
+      const errorStr = String(error);
+      const isRateLimit = error.status === 429 || errorStr.includes('429') || errorStr.includes('quota');
       
+      // Detect if this is a hard daily limit rather than a temporary per-minute limit
+      const isDailyLimit = errorStr.includes('GenerateRequestsPerDay') || errorStr.includes('Retry in 7h');
+
+      if (isDailyLimit) {
+        // Throw a clean error that our frontend can display natively in the chat bubble
+        throw new Error("The AI assistant has reached its maximum daily capacity. Please try again tomorrow or upgrade the Google AI billing plan.");
+      }
+
       if (isRateLimit && attempt < maxRetries) {
         console.log(`API Rate limit hit. Pausing for 12 seconds before retry ${attempt + 1}...`);
         await new Promise(resolve => setTimeout(resolve, 12000));
