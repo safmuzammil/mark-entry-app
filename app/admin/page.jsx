@@ -1098,9 +1098,10 @@ const fetchClassSubjectMarks = async () => {
       });
       matchedStudents.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
 
-      // 2. Fetch all teachers and map students to their respective teachers
+      // 2. Fetch all teachers and smartly map students to their respective teachers
       const teacherSnap = await getDocs(collection(db, 'teachers'));
       const studentTeacherMap = {};
+      const numericGrade = inspectorClass.replace(/\D/g, ''); // Extracts '3' from 'QLA3'
 
       teacherSnap.forEach(tDoc => {
         const tData = tDoc.data();
@@ -1111,31 +1112,40 @@ const fetchClassSubjectMarks = async () => {
             const isMatchingSubject = (env.subject || '').toUpperCase() === inspectorSubject.toUpperCase();
             
             if (isMatchingSubject) {
-              // Priority 1: Explicit student IDs mapping
-              if (env.studentIds && Array.isArray(env.studentIds)) {
-                env.studentIds.forEach(sRegNo => {
-                  studentTeacherMap[sRegNo] = teacherName;
-                });
-              }
-
-              // Priority 2: Class group mapping with Language Tag distinction (Urdu vs Gen)
+              // Check if the enrollment targets the class group via Alias or Grade Number
+              const envGradeNum = String(env.grade || '').replace(/\D/g, '');
               const targetsClass = (env.alias || '').toLowerCase().includes(inspectorClass.toLowerCase()) || 
-                                   String(env.grade || '').toLowerCase().includes(inspectorClass.toLowerCase());
+                                   (envGradeNum && envGradeNum === numericGrade);
               
               if (targetsClass) {
-                const envLang = (env.langTag || 'Gen').toLowerCase(); // defaults to 'gen' if missing
+                const envLang = (env.langTag || '').toLowerCase();
                 
                 matchedStudents.forEach(student => {
-                  // Determine student's language track based on Ad.No prefix
+                  // Determine student track based on Ad.No prefix 'U'
                   const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
-                  const studentLang = isUrdu ? 'urdu' : 'gen';
+                  let isLanguageMatch = false;
 
-                  // Only assign the teacher if their enrollment language matches the student's language
-                  if (envLang === studentLang || !env.langTag) {
+                  // Match Urdu teachers to Urdu students, and General/Blank teachers to Gen students
+                  if (envLang.includes('urdu')) {
+                    isLanguageMatch = isUrdu;
+                  } else if (envLang.includes('gen') || envLang === '') {
+                    isLanguageMatch = !isUrdu;
+                  } else {
+                    isLanguageMatch = true; // Fallback matches all if language tag is something else
+                  }
+
+                  if (isLanguageMatch) {
                     if (student.regNo) studentTeacherMap[student.regNo] = teacherName;
                     if (student.id) studentTeacherMap[student.id] = teacherName;
                     if (student.adNo) studentTeacherMap[student.adNo] = teacherName;
                   }
+                });
+              }
+
+              // Priority Override: If teacher explicitly has student IDs, it overrides group mapping
+              if (env.studentIds && Array.isArray(env.studentIds)) {
+                env.studentIds.forEach(sRegNo => {
+                  studentTeacherMap[sRegNo] = teacherName;
                 });
               }
             }
@@ -1143,7 +1153,7 @@ const fetchClassSubjectMarks = async () => {
         }
       });
 
-      // 3. Fetch marks and assign the resolved teacher name for each student
+      // 3. Fetch marks and assign the perfectly resolved teacher name for each student
       const marksRecord = {};
       const teacherRecord = {};
 
