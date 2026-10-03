@@ -1083,7 +1083,7 @@ function ReportManager() {
     // --- Add this fetch function before your component's return statement ---
     const [inspectorTeacherName, setInspectorTeacherName] = useState('');
 
-  const fetchClassSubjectMarks = async () => {
+const fetchClassSubjectMarks = async () => {
     setIsInspecting(true);
     try {
       // 1. Fetch all students belonging to the selected class group
@@ -1098,7 +1098,7 @@ function ReportManager() {
       });
       matchedStudents.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
 
-      // 2. Fetch all teachers and map students to their respective teachers for this subject
+      // 2. Fetch all teachers and map students to their respective teachers
       const teacherSnap = await getDocs(collection(db, 'teachers'));
       const studentTeacherMap = {};
 
@@ -1111,22 +1111,31 @@ function ReportManager() {
             const isMatchingSubject = (env.subject || '').toUpperCase() === inspectorSubject.toUpperCase();
             
             if (isMatchingSubject) {
-              // Check if enrollment explicitly lists student IDs
+              // Priority 1: Explicit student IDs mapping
               if (env.studentIds && Array.isArray(env.studentIds)) {
                 env.studentIds.forEach(sRegNo => {
                   studentTeacherMap[sRegNo] = teacherName;
                 });
               }
 
-              // Check if enrollment targets the class group (e.g. alias or grade matches inspectorClass)
+              // Priority 2: Class group mapping with Language Tag distinction (Urdu vs Gen)
               const targetsClass = (env.alias || '').toLowerCase().includes(inspectorClass.toLowerCase()) || 
                                    String(env.grade || '').toLowerCase().includes(inspectorClass.toLowerCase());
               
               if (targetsClass) {
+                const envLang = (env.langTag || 'Gen').toLowerCase(); // defaults to 'gen' if missing
+                
                 matchedStudents.forEach(student => {
-                  if (student.regNo) studentTeacherMap[student.regNo] = teacherName;
-                  if (student.id) studentTeacherMap[student.id] = teacherName;
-                  if (student.adNo) studentTeacherMap[student.adNo] = teacherName;
+                  // Determine student's language track based on Ad.No prefix
+                  const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
+                  const studentLang = isUrdu ? 'urdu' : 'gen';
+
+                  // Only assign the teacher if their enrollment language matches the student's language
+                  if (envLang === studentLang || !env.langTag) {
+                    if (student.regNo) studentTeacherMap[student.regNo] = teacherName;
+                    if (student.id) studentTeacherMap[student.id] = teacherName;
+                    if (student.adNo) studentTeacherMap[student.adNo] = teacherName;
+                  }
                 });
               }
             }
