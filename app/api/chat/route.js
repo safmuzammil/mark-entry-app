@@ -33,9 +33,9 @@ async function generateWithRetry(model, requestPayload, maxRetries = 2) {
       
       if (isRateLimit && attempt < maxRetries) {
         console.log(`API Rate limit hit. Pausing for 12 seconds before retry ${attempt + 1}...`);
-        await new Promise(resolve => setTimeout(resolve, 12000)); // Wait 12 seconds
+        await new Promise(resolve => setTimeout(resolve, 12000));
       } else {
-        throw error; // If it's not a rate limit, or we are out of retries, throw the error
+        throw error; 
       }
     }
   }
@@ -51,11 +51,10 @@ export async function POST(request) {
 
     const model = genAI.getGenerativeModel({
       model: "gemini-3.8-flash", 
-       systemInstruction: "You are an AI assistant for a school administrator. You have access to a database analytics tool. When presenting tabular data, format it using clean markdown tables. Do not use raw HTML like <br> tags inside cells; use separate table rows or bullet lists instead. Deliver concise, clear reports based on the data returned.",
+      systemInstruction: "You are an AI assistant for a school administrator. You have access to a database analytics tool. Use the 'analysisCategory' parameter to fetch aggregated data. Deliver concise, clear reports. When presenting tabular data, strictly format it using clean markdown tables. Do not use raw HTML like <br> tags inside cells; use separate table rows or standard text instead.",
       tools: [{ functionDeclarations: [queryStudentDatabaseDeclaration] }],
     });
 
-    // 1. Send initial prompt using the secure retry wrapper
     const initialResponse = await generateWithRetry(model, prompt);
     const call = initialResponse.response.functionCalls()?.[0];
     const exactModelContent = initialResponse.response.candidates[0].content;
@@ -132,7 +131,7 @@ export async function POST(request) {
       if (category === 'student_performance') {
         const ranked = detailedStudents.map(s => {
           const total = Object.values(s.marks).reduce((sum, val) => sum + (Number(val) || 0), 0);
-          return { name: s.name, classes: s.classes.join(', '), totalMarks: total };
+          return { name: s.name, classes: s.classes.join(', ').toUpperCase(), totalMarks: total };
         }).sort((a, b) => b.totalMarks - a.totalMarks);
 
         analyticsPayload = {
@@ -145,6 +144,7 @@ export async function POST(request) {
 
         detailedStudents.forEach(s => {
           Object.entries(s.teachers).forEach(([subject, teacherName]) => {
+            // Group by teacher AND subject
             const key = `${teacherName}|${subject}`;
             if (!trackingMap[key]) {
               trackingMap[key] = { teacher: teacherName, subject: subject, expected: 0, uploaded: 0, affectedClasses: new Set() };
@@ -163,7 +163,10 @@ export async function POST(request) {
 
         Object.values(trackingMap).forEach(entry => {
           const isComplete = entry.expected === entry.uploaded;
-          const statusString = `${entry.subject} (${entry.uploaded}/${entry.expected} uploaded)`;
+          
+          // FORMATTING FIX: Pull classes from the Set and bind them to the subject string
+          const classNames = Array.from(entry.affectedClasses).join(', ').toUpperCase();
+          const statusString = `${entry.subject} [Class: ${classNames}] (${entry.uploaded}/${entry.expected} uploaded)`;
 
           if (!teacherCompletion[entry.teacher]) teacherCompletion[entry.teacher] = { isFullyComplete: true, pendingSubjects: [] };
           if (!isComplete) {
@@ -172,10 +175,11 @@ export async function POST(request) {
           }
 
           entry.affectedClasses.forEach(cls => {
-            if (!classCompletion[cls]) classCompletion[cls] = { isFullyComplete: true, pendingSubjects: [] };
+            const upperCls = cls.toUpperCase();
+            if (!classCompletion[upperCls]) classCompletion[upperCls] = { isFullyComplete: true, pendingSubjects: [] };
             if (!isComplete) {
-              classCompletion[cls].isFullyComplete = false;
-              classCompletion[cls].pendingSubjects.push(`${statusString} by ${entry.teacher}`);
+              classCompletion[upperCls].isFullyComplete = false;
+              classCompletion[upperCls].pendingSubjects.push(`${statusString} by ${entry.teacher}`);
             }
           });
         });
@@ -195,7 +199,6 @@ export async function POST(request) {
         }
       ];
 
-      // 2. Send final payload using the secure retry wrapper
       const finalResult = await generateWithRetry(model, { contents });
       return NextResponse.json({ reply: finalResult.response.text() });
     }
