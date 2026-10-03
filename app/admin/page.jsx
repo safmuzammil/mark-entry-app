@@ -1101,7 +1101,7 @@ const fetchClassSubjectMarks = async () => {
       // 2. Fetch all teachers and smartly map students to their respective teachers
       const teacherSnap = await getDocs(collection(db, 'teachers'));
       const studentTeacherMap = {};
-      const numericGrade = inspectorClass.replace(/\D/g, ''); // Extracts '3' from 'QLA3'
+      const numericGrade = inspectorClass.replace(/\D/g, ''); 
 
       teacherSnap.forEach(tDoc => {
         const tData = tDoc.data();
@@ -1109,43 +1109,49 @@ const fetchClassSubjectMarks = async () => {
         
         if (tData.enrollments && Array.isArray(tData.enrollments)) {
           tData.enrollments.forEach(env => {
-            const isMatchingSubject = (env.subject || '').toUpperCase() === inspectorSubject.toUpperCase();
+            // Clean strings to ignore random spaces and casing
+            const envSubj = (env.subject || '').trim().toUpperCase();
+            const targetSubj = inspectorSubject.trim().toUpperCase();
             
-            if (isMatchingSubject) {
-              // Check if the enrollment targets the class group via Alias or Grade Number
+            if (envSubj === targetSubj) {
+              
+              // SUPER PRIORITY: Explicitly mapped student IDs (Like your M10 group of 42 students)
+              if (env.studentIds && Array.isArray(env.studentIds)) {
+                env.studentIds.forEach(id => {
+                  studentTeacherMap[String(id).trim()] = teacherName;
+                });
+              }
+
+              // Fallback: Class group mapping with Language Tag distinction
               const envGradeNum = String(env.grade || '').replace(/\D/g, '');
-              const targetsClass = (env.alias || '').toLowerCase().includes(inspectorClass.toLowerCase()) || 
+              const envAlias = (env.alias || '').toLowerCase();
+              const targetClassLower = inspectorClass.toLowerCase();
+
+              const targetsClass = envAlias.includes(targetClassLower) || 
+                                   targetClassLower.includes(envAlias) ||
                                    (envGradeNum && envGradeNum === numericGrade);
               
               if (targetsClass) {
                 const envLang = (env.langTag || '').toLowerCase();
                 
                 matchedStudents.forEach(student => {
-                  // Determine student track based on Ad.No prefix 'U'
                   const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
                   let isLanguageMatch = false;
 
-                  // Match Urdu teachers to Urdu students, and General/Blank teachers to Gen students
-                  if (envLang.includes('urdu')) {
+                  // Handle 'Gen', 'Non-Urdu', and 'Urdu' tags safely
+                  if (envLang.includes('urdu') && !envLang.includes('non')) {
                     isLanguageMatch = isUrdu;
-                  } else if (envLang.includes('gen') || envLang === '') {
+                  } else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
                     isLanguageMatch = !isUrdu;
                   } else {
-                    isLanguageMatch = true; // Fallback matches all if language tag is something else
+                    isLanguageMatch = true; 
                   }
 
                   if (isLanguageMatch) {
-                    if (student.regNo) studentTeacherMap[student.regNo] = teacherName;
-                    if (student.id) studentTeacherMap[student.id] = teacherName;
-                    if (student.adNo) studentTeacherMap[student.adNo] = teacherName;
+                    if (student.regNo) studentTeacherMap[String(student.regNo).trim()] = teacherName;
+                    if (student.id) studentTeacherMap[String(student.id).trim()] = teacherName;
+                    if (student.adNo) studentTeacherMap[String(student.adNo).trim()] = teacherName;
                   }
-                });
-              }
-
-              // Priority Override: If teacher explicitly has student IDs, it overrides group mapping
-              if (env.studentIds && Array.isArray(env.studentIds)) {
-                env.studentIds.forEach(sRegNo => {
-                  studentTeacherMap[sRegNo] = teacherName;
                 });
               }
             }
@@ -1162,25 +1168,30 @@ const fetchClassSubjectMarks = async () => {
         const possibleKeys = [student.regNo, student.id, student.adNo, student.admissionNo].filter(Boolean);
         
         for (const key of possibleKeys) {
-          markSnap = await getDoc(doc(db, 'marks', String(key)));
+          markSnap = await getDoc(doc(db, 'marks', String(key).trim()));
           if (markSnap.exists()) break;
         }
 
         if (markSnap && markSnap.exists()) {
           const studentMarksData = markSnap.data();
           const foundSubjectKey = Object.keys(studentMarksData).find(
-            k => k.toUpperCase() === inspectorSubject.toUpperCase()
+            k => k.trim().toUpperCase() === inspectorSubject.trim().toUpperCase()
           );
           marksRecord[student.regNo || student.id] = foundSubjectKey ? studentMarksData[foundSubjectKey] : {};
         } else {
           marksRecord[student.regNo || student.id] = {};
         }
 
-        // Resolve teacher name using regNo, id, or adNo
+        // Clean keys for lookup to guarantee a match
+        const sReg = String(student.regNo || '').trim();
+        const sId = String(student.id || '').trim();
+        const sAd = String(student.adNo || '').trim();
+
+        // Resolve teacher name using strict ID matching
         teacherRecord[student.regNo || student.id] = 
-          studentTeacherMap[student.regNo] || 
-          studentTeacherMap[student.id] || 
-          studentTeacherMap[student.adNo] || 
+          (sReg && studentTeacherMap[sReg]) || 
+          (sId && studentTeacherMap[sId]) || 
+          (sAd && studentTeacherMap[sAd]) || 
           'Unassigned';
       }
 
