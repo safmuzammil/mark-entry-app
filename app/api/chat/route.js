@@ -32,18 +32,20 @@ export async function POST(request) {
 
     const { prompt } = await request.json();
 
-    // 1. Initialize the correct, active model endpoint
     const model = genAI.getGenerativeModel({
       model: "gemini-3.8-flash", 
       systemInstruction: "You are an AI assistant for a school administrator managing student records and marks. You have authorized access to the school database through the queryStudentDatabase tool. Always use this tool when asked about students, classes, or marks. Keep your final answers concise and helpful.",
       tools: [{ functionDeclarations: [queryStudentDatabaseDeclaration] }],
     });
 
-    // Send the initial user prompt directly
+    // 1. Send the initial user prompt
     const initialResponse = await model.generateContent(prompt);
     const call = initialResponse.response.functionCalls()?.[0];
+    
+    // Extract the EXACT model response to preserve the thought_signature and hidden fields
+    const exactModelContent = initialResponse.response.candidates[0].content;
 
-    // Handle Database Tool Call if Gemini requests it
+    // 2. Handle Database Tool Call if Gemini requests it
     if (call && call.name === 'queryStudentDatabase') {
       const args = call.args;
       const targetClass = args.classGroup || '';
@@ -74,18 +76,15 @@ export async function POST(request) {
         marks: allMarks[s.regNo] || 'No marks recorded'
       }));
 
-      // 2. Manually construct the conversation history to ENFORCE the valid 'user' role
+      // 3. Construct history using the untouched exactModelContent
       const contents = [
         {
           role: 'user',
           parts: [{ text: prompt }]
         },
+        exactModelContent, // Placed directly into the array to keep the signature intact
         {
-          role: 'model',
-          parts: [{ functionCall: call }]
-        },
-        {
-          role: 'user', // Safely injects the tool response without triggering the 400 error
+          role: 'user',
           parts: [{
             functionResponse: {
               name: call.name,
@@ -95,7 +94,7 @@ export async function POST(request) {
         }
       ];
 
-      // Send the explicitly formatted history back to Gemini
+      // 4. Send the explicitly formatted history back to Gemini
       const finalResult = await model.generateContent({ contents });
       return NextResponse.json({ reply: finalResult.response.text() });
     }
