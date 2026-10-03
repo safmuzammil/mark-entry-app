@@ -1228,107 +1228,112 @@ function ReportManager() {
 
     return (
         <div>
-            {/* 1. AI ASSISTANT CHAT PANEL */}
+            {/* 1. AI ASSISTANT CHAT PANEL - BULLETPROOF PRO DESIGN */}
             <div style={styles.card}>
-                <h3 style={styles.sectionTitle}>🤖 AI Database Query Assistant</h3>
-                <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '20px' }}>
-                    Ask questions in natural language. Gemini will directly inspect your Firestore database and provide detailed insights.
-                </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+                    <span style={{ fontSize: '28px' }}>🤖</span>
+                    <div>
+                        <h3 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#0f172a', fontWeight: '800' }}>AI Database Query Assistant</h3>
+                        <p style={{ margin: 0, fontSize: '14px', color: '#64748b' }}>Ask natural language questions to filter and analyze the school database.</p>
+                    </div>
+                </div>
 
+                {/* Polished, Mobile-Responsive Chat History Container */}
                 <div style={{
-                    maxHeight: '320px',
-                    overflowY: 'auto',
-                    background: '#f8fafc',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: '12px',
-                    padding: '16px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '12px',
-                    marginBottom: '16px'
+                    display: 'flex', flexDirection: 'column', gap: '20px', padding: '20px',
+                    height: '450px', overflowY: 'auto', backgroundColor: '#f8fafc',
+                    border: '1px solid #e2e8f0', borderRadius: '16px', marginBottom: '20px',
+                    boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
                 }}>
-{/* Main Chat History Container - Forcing white background and dark text globally */}
-<div className="flex flex-col gap-4 p-5 h-[500px] overflow-y-auto bg-white border border-slate-300 rounded-xl shadow-inner text-slate-900 mb-4">
-  {chatMessages.map((msg, index) => (
-    <div
-      key={index}
-      className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-    >
-      {/* Individual Message Bubble */}
-      <div
-        className={`max-w-[85%] overflow-x-auto rounded-2xl p-4 text-sm shadow-md ${
-          msg.role === 'user'
-            ? 'bg-blue-600 text-white rounded-br-none' // User bubble
-            : 'bg-slate-100 border border-slate-300 text-slate-900 rounded-bl-none' // AI bubble
-        }`}
-      >
-        {msg.role === 'user' ? (
-          <p className="whitespace-pre-wrap font-medium">{msg.text}</p>
-        ) : (
-          <div className="text-slate-900">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                p: ({ node, ...props }) => <p className="mb-3 text-slate-900 font-medium leading-relaxed" {...props} />,
-                strong: ({ node, ...props }) => <strong className="font-bold text-black" {...props} />,
-                ul: ({ node, ...props }) => <ul className="list-disc pl-5 mb-3 space-y-1 text-slate-900 font-medium" {...props} />,
-                ol: ({ node, ...props }) => <ol className="list-decimal pl-5 mb-3 space-y-1 text-slate-900 font-medium" {...props} />,
-                
-                // Professional Table Styling
-                table: ({ node, ...props }) => (
-                  <div className="overflow-x-auto my-4 rounded-lg border border-slate-400 w-full bg-white">
-                    <table className="min-w-full divide-y divide-slate-400 text-left text-sm text-slate-900" {...props} />
-                  </div>
-                ),
-                thead: ({ node, ...props }) => <thead className="bg-slate-200 border-b border-slate-400 text-black" {...props} />,
-                tbody: ({ node, ...props }) => <tbody className="divide-y divide-slate-300 bg-white" {...props} />,
-                tr: ({ node, ...props }) => <tr className="hover:bg-slate-50 transition-colors" {...props} />,
-                th: ({ node, ...props }) => <th className="px-4 py-3 font-bold tracking-wider text-black whitespace-nowrap" {...props} />,
-                td: ({ node, ...props }) => <td className="px-4 py-3 text-slate-900 align-middle font-medium" {...props} />,
-              }}
-            >
-              {msg.text}
-            </ReactMarkdown>
-          </div>
-        )}
-      </div>
-    </div>
-  ))}
-</div>
+                    {chatMessages.map((msg, index) => {
+                        const isUser = msg.role === 'user';
+                        return (
+                            <div key={index} style={{
+                                display: 'flex', width: '100%',
+                                justifyContent: isUser ? 'flex-end' : 'flex-start'
+                            }}>
+                                <div style={{
+                                    maxWidth: '90%', // Mobile optimized width
+                                    padding: '16px 20px',
+                                    borderRadius: '20px',
+                                    borderBottomRightRadius: isUser ? '4px' : '20px',
+                                    borderBottomLeftRadius: isUser ? '20px' : '4px',
+                                    backgroundColor: isUser ? '#2563eb' : '#ffffff',
+                                    color: isUser ? '#ffffff' : '#0f172a',
+                                    boxShadow: isUser ? '0 4px 12px rgba(37, 99, 235, 0.2)' : '0 4px 12px rgba(0, 0, 0, 0.04)',
+                                    border: isUser ? 'none' : '1px solid #e2e8f0',
+                                    fontSize: '15px',
+                                    lineHeight: '1.6'
+                                }}>
+                                    {isUser ? (
+                                        <div style={{ whiteSpace: 'pre-wrap', fontWeight: '500' }}>{msg.text}</div>
+                                    ) : (
+                                        <div style={{ color: '#0f172a' }}>
+                                            <ReactMarkdown
+                                                remarkPlugins={[remarkGfm]}
+                                                components={{
+                                                    // Strictly forcing dark text and good spacing on all text elements
+                                                    p: ({ node, ...props }) => <p style={{ margin: '0 0 12px 0', color: '#1e293b' }} {...props} />,
+                                                    strong: ({ node, ...props }) => <strong style={{ fontWeight: '800', color: '#0f172a' }} {...props} />,
+                                                    ul: ({ node, ...props }) => <ul style={{ paddingLeft: '24px', margin: '0 0 12px 0', color: '#1e293b' }} {...props} />,
+                                                    ol: ({ node, ...props }) => <ol style={{ paddingLeft: '24px', margin: '0 0 12px 0', color: '#1e293b' }} {...props} />,
+                                                    li: ({ node, ...props }) => <li style={{ marginBottom: '6px' }} {...props} />,
+                                                    
+                                                    // Polished Table Styling for Mobile & Desktop
+                                                    table: ({ node, ...props }) => (
+                                                        <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', margin: '16px 0', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                                            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px', minWidth: '400px' }} {...props} />
+                                                        </div>
+                                                    ),
+                                                    thead: ({ node, ...props }) => <thead style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }} {...props} />,
+                                                    tbody: ({ node, ...props }) => <tbody {...props} />,
+                                                    tr: ({ node, ...props }) => <tr style={{ borderBottom: '1px solid #e2e8f0' }} {...props} />,
+                                                    th: ({ node, ...props }) => <th style={{ padding: '12px 16px', fontWeight: '700', color: '#0f172a', textTransform: 'uppercase', fontSize: '11px', letterSpacing: '0.05em' }} {...props} />,
+                                                    td: ({ node, ...props }) => <td style={{ padding: '12px 16px', color: '#334155', verticalAlign: 'top' }} {...props} />,
+                                                }}
+                                            >
+                                                {msg.text}
+                                            </ReactMarkdown>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                    
+                    {/* Professional Loading Indicator */}
                     {isAiLoading && (
-                        <div style={{
-                            alignSelf: 'flex-start',
-                            background: '#ffffff',
-                            color: '#64748b',
-                            padding: '10px 14px',
-                            borderRadius: '12px',
-                            fontSize: '13px',
-                            border: '1px solid #e2e8f0'
-                        }}>
-                            Analyzing database records...
+                        <div style={{ display: 'flex', justifyContent: 'flex-start', width: '100%' }}>
+                            <div style={{ background: '#ffffff', color: '#64748b', padding: '12px 20px', borderRadius: '20px', borderBottomLeftRadius: '4px', border: '1px solid #e2e8f0', fontSize: '14px', fontWeight: '600', boxShadow: '0 2px 6px rgba(0,0,0,0.02)', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                                ⏳ Analyzing database...
+                            </div>
                         </div>
                     )}
                 </div>
 
-                <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '12px' }}>
+                {/* Input Form optimized for Mobile */}
+                <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                     <input
                         type="text"
                         value={chatInput}
                         onChange={(e) => setChatInput(e.target.value)}
                         placeholder="e.g. Which students in HFC3 have zero marks recorded?"
                         disabled={isAiLoading}
-                        style={{ ...styles.input, flex: 1 }}
+                        style={{ ...styles.input, flex: '1 1 200px', padding: '14px 18px', borderRadius: '12px', fontSize: '15px' }}
                     />
                     <button
                         type="submit"
                         disabled={isAiLoading || !chatInput.trim()}
                         style={{
                             ...styles.buttonPrimary,
+                            flex: '0 0 auto',
+                            padding: '14px 24px',
+                            borderRadius: '12px',
                             opacity: isAiLoading || !chatInput.trim() ? 0.6 : 1,
                             whiteSpace: 'nowrap'
                         }}
                     >
-                        {isAiLoading ? 'Searching...' : 'Ask AI'}
+                        {isAiLoading ? 'Searching...' : 'Ask AI 🚀'}
                     </button>
                 </form>
             </div>
