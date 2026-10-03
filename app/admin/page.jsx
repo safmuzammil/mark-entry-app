@@ -1,6 +1,8 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { auth, db } from '../../lib/firebase';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
 // Change your existing import from this:
 // import { doc, setDoc, getDocs, collection, deleteDoc, arrayUnion } from 'firebase/firestore';
@@ -1245,29 +1247,48 @@ const fetchClassSubjectMarks = async () => {
                     gap: '12px',
                     marginBottom: '16px'
                 }}>
-                    {chatMessages.map((msg, index) => {
-                        const isUser = msg.role === 'user';
-                        return (
-                            <div
-                                key={index}
-                                style={{
-                                    alignSelf: isUser ? 'flex-end' : 'flex-start',
-                                    maxWidth: '85%',
-                                    background: isUser ? '#2563eb' : '#ffffff',
-                                    color: isUser ? '#ffffff' : '#0f172a',
-                                    padding: '12px 16px',
-                                    borderRadius: isUser ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
-                                    boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
-                                    border: isUser ? 'none' : '1px solid #e2e8f0',
-                                    fontSize: '14px',
-                                    lineHeight: '1.5',
-                                    whiteSpace: 'pre-wrap'
-                                }}
-                            >
-                                {msg.text}
-                            </div>
-                        );
-                    })}
+                    {/* Inside your chat message list loop */}
+{chatMessages.map((msg, index) => (
+  <div
+    key={index}
+    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}
+  >
+    <div
+      className={`max-w-[85%] rounded-2xl p-4 text-sm shadow-sm ${
+        msg.role === 'user'
+          ? 'bg-blue-600 text-white rounded-br-none'
+          : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-slate-100'
+      }`}
+    >
+      {msg.role === 'user' ? (
+        <p className="whitespace-pre-wrap">{msg.text}</p>
+      ) : (
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            p: ({ node, ...props }) => <p className="mb-2 leading-relaxed" {...props} />,
+            strong: ({ node, ...props }) => <strong className="font-semibold text-slate-900" {...props} />,
+            ul: ({ node, ...props }) => <ul className="list-disc pl-5 mb-3 space-y-1" {...props} />,
+            ol: ({ node, ...props }) => <ol className="list-decimal pl-5 mb-3 space-y-1" {...props} />,
+            // Professional Table Styling
+            table: ({ node, ...props }) => (
+              <div className="overflow-x-auto my-3 rounded-lg border border-slate-200">
+                <table className="min-w-full divide-y divide-slate-200 text-left text-xs" {...props} />
+              </div>
+            ),
+            thead: ({ node, ...props }) => <thead className="bg-slate-50 font-semibold text-slate-700" {...props} />,
+            tbody: ({ node, ...props }) => <tbody className="divide-y divide-slate-100 bg-white" {...props} />,
+            tr: ({ node, ...props }) => <tr className="hover:bg-slate-50 transition-colors" {...props} />,
+            th: ({ node, ...props }) => <th className="px-3 py-2.5 font-medium tracking-wider" {...props} />,
+            td: ({ node, ...props }) => <td className="px-3 py-2 text-slate-600 align-top" {...props} />,
+          }}
+        >
+          {msg.text}
+        </ReactMarkdown>
+      )}
+    </div>
+  </div>
+))}
                     {isAiLoading && (
                         <div style={{
                             alignSelf: 'flex-start',
