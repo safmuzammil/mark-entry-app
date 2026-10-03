@@ -26,16 +26,16 @@ const queryStudentDatabaseDeclaration = {
 
 export async function POST(request) {
   try {
-    // 1. Immediate check for the API key to prevent silent failures
+    // Immediate check for the API key to prevent silent failures
     if (!process.env.GEMINI_API_KEY) {
       throw new Error("GEMINI_API_KEY is missing in Vercel Environment Variables.");
     }
 
     const { prompt } = await request.json();
 
-    // 2. Initialize the model
+    // Initialize the model with the active successor string
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-flash", // Updated to resolve the 404 error
       systemInstruction: "You are an AI assistant for a school administrator managing student records and marks. You have authorized access to the school database through the queryStudentDatabase tool. Always use this tool when asked about students, classes, or marks. Keep your final answers concise and helpful.",
       tools: [{ functionDeclarations: [queryStudentDatabaseDeclaration] }],
     });
@@ -44,7 +44,7 @@ export async function POST(request) {
     const result = await chat.sendMessage(prompt);
     const call = result.response.functionCalls()?.[0];
 
-    // 3. Handle Database Tool Call if Gemini requests it
+    // Handle Database Tool Call if Gemini requests it
     if (call && call.name === 'queryStudentDatabase') {
       const args = call.args;
       const targetClass = args.classGroup || '';
