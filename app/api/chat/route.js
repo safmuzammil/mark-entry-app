@@ -32,17 +32,18 @@ export async function POST(request) {
 
     const { prompt } = await request.json();
 
+    // 1. Initialize the correct, active model endpoint
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+      model: "gemini-3.8-flash", 
       systemInstruction: "You are an AI assistant for a school administrator managing student records and marks. You have authorized access to the school database through the queryStudentDatabase tool. Always use this tool when asked about students, classes, or marks. Keep your final answers concise and helpful.",
       tools: [{ functionDeclarations: [queryStudentDatabaseDeclaration] }],
     });
 
-    // 1. Send the initial user prompt directly
+    // Send the initial user prompt directly
     const initialResponse = await model.generateContent(prompt);
     const call = initialResponse.response.functionCalls()?.[0];
 
-    // 2. Handle Database Tool Call if Gemini requests it
+    // Handle Database Tool Call if Gemini requests it
     if (call && call.name === 'queryStudentDatabase') {
       const args = call.args;
       const targetClass = args.classGroup || '';
@@ -73,7 +74,7 @@ export async function POST(request) {
         marks: allMarks[s.regNo] || 'No marks recorded'
       }));
 
-      // 3. Manually construct the conversation history to ENFORCE the 'user' role
+      // 2. Manually construct the conversation history to ENFORCE the valid 'user' role
       const contents = [
         {
           role: 'user',
@@ -84,7 +85,7 @@ export async function POST(request) {
           parts: [{ functionCall: call }]
         },
         {
-          role: 'user', // This explicit role fixes the 400 Bad Request error
+          role: 'user', // Safely injects the tool response without triggering the 400 error
           parts: [{
             functionResponse: {
               name: call.name,
@@ -94,7 +95,7 @@ export async function POST(request) {
         }
       ];
 
-      // 4. Send the explicitly formatted history back to Gemini
+      // Send the explicitly formatted history back to Gemini
       const finalResult = await model.generateContent({ contents });
       return NextResponse.json({ reply: finalResult.response.text() });
     }
