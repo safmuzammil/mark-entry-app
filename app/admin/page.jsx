@@ -1116,7 +1116,20 @@ function ReportManager() {
 
                 for (const teacher of teachersList) {
                     const matchingEnv = teacher.enrollments.find(env => {
-                        if ((env.subject || '').trim().toUpperCase() !== inspectorSubject.trim().toUpperCase()) return false;
+                        // 1. SMART SUBJECT MATCHING (Handles Mantiq to Logic renaming)
+                        const envSub = (env.subject || '').trim().toUpperCase();
+                        const inspSub = inspectorSubject.trim().toUpperCase();
+                        const envAliasUpper = String(env.alias || '').trim().toUpperCase();
+
+                        const isSubjectMatch = 
+                            (envSub === inspSub) || 
+                            (inspSub === 'LOGIC' && envSub === 'MANTIQ') || 
+                            (inspSub === 'MANTIQ' && envSub === 'LOGIC') ||
+                            envAliasUpper.includes(inspSub);
+
+                        if (!isSubjectMatch) return false;
+
+                        // PRIORITY 1: Explicitly saved student IDs
                         if (env.studentIds && Array.isArray(env.studentIds)) {
                             const savedIds = env.studentIds.map(id => String(id).trim());
                             if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
@@ -1124,10 +1137,24 @@ function ReportManager() {
                             }
                         }
 
+                        // PRIORITY 2: Match by any of the student's assigned groups
                         const envAliasLower = String(env.alias || '').trim().toLowerCase();
-                        let classMatch = studentClassesLower.includes(envAliasLower);
+                        
+                        let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
+
+                        // ---------------------------------------------------------
+                        // CUSTOM RULE: "M10" maps to ALL Non-Urdu Grade 3 students
+                        // ---------------------------------------------------------
+                        if (!classMatch && envAliasLower.includes('m10')) {
+                            // Check if student has a class with '3' in it
+                            const isGrade3 = studentClassesLower.some(cls => cls.includes('3'));
+                            if (isGrade3 && !isUrdu) {
+                                classMatch = true; // Force the match!
+                            }
+                        }
 
                         if (classMatch) {
+                            // Ensure the language track matches
                             const envLang = (env.langTag || '').toLowerCase();
                             let langMatch = false;
 
@@ -1145,7 +1172,7 @@ function ReportManager() {
 
                     if (matchingEnv) {
                         assignedTeacher = teacher.fullName || teacher.id;
-                        break;
+                        break; 
                     }
                 }
                 teacherRecord[student.regNo || student.id] = assignedTeacher;
