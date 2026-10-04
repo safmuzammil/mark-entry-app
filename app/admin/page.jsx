@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { auth, db } from '../../lib/firebase';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import InstallAppBanner from '../../components/InstallAppBanner';
 import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
 // Change your existing import from this:
 // import { doc, setDoc, getDocs, collection, deleteDoc, arrayUnion } from 'firebase/firestore';
@@ -1537,6 +1538,8 @@ export default function CentralAdminDashboard() {
     return (
         <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '40px 20px', fontFamily: 'Inter, system-ui, sans-serif' }}>
             <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+                {/* PWA Install Banner */}
+                <InstallAppBanner />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0' }}>
                     <div style={{ display: 'flex', gap: '24px', alignItems: 'center', flexWrap: 'wrap' }}>
                         <h1 style={{ margin: '0 24px 0 0', fontSize: '24px', color: '#0f172a', fontWeight: '800', borderRight: '2px solid #e2e8f0', paddingRight: '24px' }}>Dashboard</h1>

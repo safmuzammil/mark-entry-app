@@ -4,6 +4,7 @@ import { auth, db } from '../../lib/firebase';
 import { signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
 import { collection, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
+import InstallAppBanner from '../../components/InstallAppBanner';
 
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxN_z56f3Q5O3OjsKFagUSqromiH0xTKTfro0zqJZN4ZB-FJLM3jERMigPXiOkfw-4/exec';
 
@@ -389,7 +390,8 @@ export default function TeacherDashboard() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '16px 8px', fontFamily: 'Inter, system-ui, sans-serif', color: '#0f172a', boxSizing: 'border-box' }}>
       <div style={{ maxWidth: '1100px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
-        
+        {/* Install Prompt for Mobile Users */}
+         <InstallAppBanner />
         {/* Header Bar */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', background: '#ffffff', padding: '16px 20px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '12px', boxSizing: 'border-box' }}>
           <div>
