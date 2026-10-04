@@ -916,7 +916,10 @@ function ReportManager() {
     const [inspectorSubject, setInspectorSubject] = useState(DEFAULT_SUBJECTS[0]);
     const [subjectLevelMarks, setSubjectLevelMarks] = useState({});
     const [isInspecting, setIsInspecting] = useState(false);
+    const [inspectorMode, setInspectorMode] = useState('class'); // 'class' or 'teacher'
+    const [allTeachers, setAllTeachers] = useState([]);
     const [inspectorTeacherName, setInspectorTeacherName] = useState('');
+    const [inspectorTeacherEnrollmentId, setInspectorTeacherEnrollmentId] = useState('');
 
     // AI Assistant States - Note the bold markdown markers (**) in the text
     const [chatMessages, setChatMessages] = useState([
@@ -937,6 +940,17 @@ function ReportManager() {
             studentsData.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
             setRegisteredStudents(studentsData);
 
+            const tSnap = await getDocs(collection(db, 'teachers'));
+            const tData = [];
+            tSnap.forEach((doc) => tData.push(doc.data()));
+            setAllTeachers(tData);
+            if (tData.length > 0) {
+                setInspectorTeacherUsername(tData[0].username);
+                if (tData[0].enrollments?.length > 0) {
+                    setInspectorTeacherEnrollmentId(tData[0].enrollments[0].id);
+                }
+            }
+
             const cacheDocRef = doc(db, 'systemCache', 'adminReportCache');
             const cacheSnap = await getDoc(cacheDocRef);
 
@@ -944,7 +958,7 @@ function ReportManager() {
                 setOverallMarksCache(cacheSnap.data().marksData || {});
                 setIsLoading(false); 
             } else {
-                setIsLoading(true); 
+                setIsLoading(false); 
             }
 
             backgroundSyncWithGoogleSheets();
@@ -1065,23 +1079,83 @@ function ReportManager() {
     const fetchClassSubjectMarks = async () => {
         setIsInspecting(true);
         try {
+            // 1. Fetch Students
             const studentSnap = await getDocs(collection(db, 'students'));
-            const matchedStudents = [];
+            const allStudents = [];
             studentSnap.forEach(docSnap => {
-                const data = docSnap.data();
-                const studentObj = { id: docSnap.id, ...data };
-                if ((studentObj.classes || []).includes(inspectorClass)) {
-                    matchedStudents.push(studentObj);
-                }
+                allStudents.push({ id: docSnap.id, ...docSnap.data() });
             });
-            matchedStudents.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
 
+            // 2. Fetch Teachers
             const teacherSnap = await getDocs(collection(db, 'teachers'));
             const teachersList = [];
             teacherSnap.forEach(tDoc => {
-                teachersList.push({ id: tDoc.id, fullName: tDoc.data().fullName, enrollments: tDoc.data().enrollments || [] });
+                teachersList.push({ id: tDoc.id, fullName: tDoc.data().fullName, username: tDoc.data().username, enrollments: tDoc.data().enrollments || [] });
             });
 
+            let matchedStudents = [];
+            let activeSubject = '';
+
+            // ---------------------------------------------------------
+            // MODE A: Filter by Class & Subject (Original Logic)
+            // ---------------------------------------------------------
+            if (inspectorMode === 'class') {
+                activeSubject = inspectorSubject;
+                matchedStudents = allStudents.filter(s => (s.classes || []).includes(inspectorClass));
+            } 
+            // ---------------------------------------------------------
+            // MODE B: Filter by Teacher & Specific Assignment
+            // ---------------------------------------------------------
+            else if (inspectorMode === 'teacher') {
+                const selectedTeacher = teachersList.find(t => t.username === inspectorTeacherUsername);
+                const selectedEnrollment = selectedTeacher?.enrollments?.find(e => e.id === inspectorTeacherEnrollmentId);
+
+                if (!selectedEnrollment) {
+                    alert("No valid assignment selected for this teacher.");
+                    setIsInspecting(false);
+                    return;
+                }
+
+                activeSubject = selectedEnrollment.subject;
+                const envAliasLower = String(selectedEnrollment.alias || '').trim().toLowerCase();
+                const envLang = (selectedEnrollment.langTag || '').toLowerCase();
+
+                // Find all students that belong to this teacher's assignment
+                matchedStudents = allStudents.filter(student => {
+                    const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
+                    const sReg = String(student.regNo || '').trim();
+                    const sAd = String(student.adNo || '').trim();
+                    const sId = String(student.id || '').trim();
+                    const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
+
+                    // Priority 1: Explicitly saved student IDs
+                    if (selectedEnrollment.studentIds && Array.isArray(selectedEnrollment.studentIds)) {
+                        const savedIds = selectedEnrollment.studentIds.map(id => String(id).trim());
+                        if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
+                            return true;
+                        }
+                    }
+
+                    // Priority 2: Match by group alias (with M10 logic)
+                    let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
+
+                    if (!classMatch && envAliasLower.includes('m10')) {
+                        const isGrade3 = studentClassesLower.some(cls => cls.includes('3'));
+                        if (isGrade3 && !isUrdu) classMatch = true; 
+                    }
+
+                    if (classMatch) {
+                        if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
+                        if (envLang.includes('gen') || envLang.includes('non') || envLang === '') return !isUrdu;
+                        return true;
+                    }
+                    return false;
+                });
+            }
+
+            matchedStudents.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
+
+            // 3. Fetch Marks and Resolve UI Display Names
             const marksRecord = {};
             const teacherRecord = {};
 
@@ -1093,89 +1167,88 @@ function ReportManager() {
                     if (markSnap.exists()) break;
                 }
 
+                // Check against the activeSubject (determined by the mode)
                 if (markSnap && markSnap.exists()) {
                     const studentMarksData = markSnap.data();
                     const foundSubjectKey = Object.keys(studentMarksData).find(
-                        k => k.trim().toUpperCase() === inspectorSubject.trim().toUpperCase()
+                        k => k.trim().toUpperCase() === activeSubject.trim().toUpperCase()
                     );
                     marksRecord[student.regNo || student.id] = foundSubjectKey ? studentMarksData[foundSubjectKey] : {};
                 } else {
                     marksRecord[student.regNo || student.id] = {};
                 }
 
-                let assignedTeacher = 'Unassigned';
-                const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
-                if (!studentClassesLower.includes(inspectorClass.toLowerCase())) {
-                    studentClassesLower.push(inspectorClass.toLowerCase());
-                }
-
-                const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
-                const sReg = String(student.regNo || '').trim();
-                const sAd = String(student.adNo || '').trim();
-                const sId = String(student.id || '').trim();
-
-                for (const teacher of teachersList) {
-                    const matchingEnv = teacher.enrollments.find(env => {
-                        // 1. SMART SUBJECT MATCHING (Handles Mantiq to Logic renaming)
-                        const envSub = (env.subject || '').trim().toUpperCase();
-                        const inspSub = inspectorSubject.trim().toUpperCase();
-                        const envAliasUpper = String(env.alias || '').trim().toUpperCase();
-
-                        const isSubjectMatch = 
-                            (envSub === inspSub) || 
-                            (inspSub === 'LOGIC' && envSub === 'MANTIQ') || 
-                            (inspSub === 'MANTIQ' && envSub === 'LOGIC') ||
-                            envAliasUpper.includes(inspSub);
-
-                        if (!isSubjectMatch) return false;
-
-                        // PRIORITY 1: Explicitly saved student IDs
-                        if (env.studentIds && Array.isArray(env.studentIds)) {
-                            const savedIds = env.studentIds.map(id => String(id).trim());
-                            if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
-                                return true;
-                            }
-                        }
-
-                        // PRIORITY 2: Match by any of the student's assigned groups
-                        const envAliasLower = String(env.alias || '').trim().toLowerCase();
-                        
-                        let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
-
-                        // ---------------------------------------------------------
-                        // CUSTOM RULE: "M10" maps to ALL Non-Urdu Grade 3 students
-                        // ---------------------------------------------------------
-                        if (!classMatch && envAliasLower.includes('m10')) {
-                            // Check if student has a class with '3' in it
-                            const isGrade3 = studentClassesLower.some(cls => cls.includes('3'));
-                            if (isGrade3 && !isUrdu) {
-                                classMatch = true; // Force the match!
-                            }
-                        }
-
-                        if (classMatch) {
-                            // Ensure the language track matches
-                            const envLang = (env.langTag || '').toLowerCase();
-                            let langMatch = false;
-
-                            if (envLang.includes('urdu') && !envLang.includes('non')) {
-                                langMatch = isUrdu; 
-                            } else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
-                                langMatch = !isUrdu; 
-                            } else {
-                                langMatch = true; 
-                            }
-                            return langMatch;
-                        }
-                        return false;
-                    });
-
-                    if (matchingEnv) {
-                        assignedTeacher = teacher.fullName || teacher.id;
-                        break; 
+                // 4. Resolve Teacher Name for the UI Table
+                if (inspectorMode === 'teacher') {
+                    // In teacher mode, we already know exactly who the teacher is
+                    teacherRecord[student.regNo || student.id] = teachersList.find(t => t.username === inspectorTeacherUsername)?.fullName || 'Assigned';
+                } else {
+                    // In class mode, run your original smart resolution loop
+                    let assignedTeacher = 'Unassigned';
+                    const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
+                    if (!studentClassesLower.includes(inspectorClass.toLowerCase())) {
+                        studentClassesLower.push(inspectorClass.toLowerCase());
                     }
+
+                    const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
+                    const sReg = String(student.regNo || '').trim();
+                    const sAd = String(student.adNo || '').trim();
+                    const sId = String(student.id || '').trim();
+
+                    for (const teacher of teachersList) {
+                        const matchingEnv = teacher.enrollments.find(env => {
+                            const envSub = (env.subject || '').trim().toUpperCase();
+                            const inspSub = inspectorSubject.trim().toUpperCase();
+                            const envAliasUpper = String(env.alias || '').trim().toUpperCase();
+
+                            const isSubjectMatch = 
+                                (envSub === inspSub) || 
+                                (inspSub === 'LOGIC' && envSub === 'MANTIQ') || 
+                                (inspSub === 'MANTIQ' && envSub === 'LOGIC') ||
+                                envAliasUpper.includes(inspSub);
+
+                            if (!isSubjectMatch) return false;
+
+                            if (env.studentIds && Array.isArray(env.studentIds)) {
+                                const savedIds = env.studentIds.map(id => String(id).trim());
+                                if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
+                                    return true;
+                                }
+                            }
+
+                            const envAliasLower = String(env.alias || '').trim().toLowerCase();
+                            let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
+
+                            if (!classMatch && envAliasLower.includes('m10')) {
+                                const isGrade3 = studentClassesLower.some(cls => cls.includes('3'));
+                                if (isGrade3 && !isUrdu) {
+                                    classMatch = true; 
+                                }
+                            }
+
+                            if (classMatch) {
+                                const envLang = (env.langTag || '').toLowerCase();
+                                let langMatch = false;
+
+                                if (envLang.includes('urdu') && !envLang.includes('non')) {
+                                    langMatch = isUrdu; 
+                                } else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
+                                    langMatch = !isUrdu; 
+                                } else {
+                                    langMatch = true; 
+                                }
+                                return langMatch;
+                            }
+                            return false;
+                        });
+
+                        if (matchingEnv) {
+                            assignedTeacher = teacher.fullName || teacher.id;
+                            break; 
+                        }
+                    }
+                    teacherRecord[student.regNo || student.id] = assignedTeacher;
                 }
-                teacherRecord[student.regNo || student.id] = assignedTeacher;
             }
 
             setSubjectLevelMarks({ students: matchedStudents, records: marksRecord, teachers: teacherRecord });
@@ -1448,82 +1521,93 @@ function ReportManager() {
             {/* 4. CLASS & SUBJECT LEVEL-BY-LEVEL MARK INSPECTOR CARD */}
             <div style={styles.card}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
-                    <h3 style={styles.sectionTitle}>🔍 Class & Subject Level-by-Level Mark Inspector</h3>
+                    <h3 style={styles.sectionTitle}>🔍 Level-by-Level Mark Inspector</h3>
                 </div>
-                <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '20px' }}>
-                    Select a class and subject to inspect student marks across all CCE assessment levels (Level 1 to Level 4).
-                </p>
+                
+                {/* Toggle Buttons */}
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+                    <button 
+                        onClick={() => { setInspectorMode('class'); setSubjectLevelMarks({}); }}
+                        style={{ padding: '8px 16px', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', border: '1px solid #cbd5e1', background: inspectorMode === 'class' ? '#2563eb' : '#f8fafc', color: inspectorMode === 'class' ? '#ffffff' : '#334155' }}
+                    >
+                        Filter by Class & Subject
+                    </button>
+                    <button 
+                        onClick={() => { setInspectorMode('teacher'); setSubjectLevelMarks({}); }}
+                        style={{ padding: '8px 16px', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', border: '1px solid #cbd5e1', background: inspectorMode === 'teacher' ? '#2563eb' : '#f8fafc', color: inspectorMode === 'teacher' ? '#ffffff' : '#334155' }}
+                    >
+                        Filter by Teacher
+                    </button>
+                </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '20px' }}>
-                    <div>
-                        <label style={styles.label}>Select Class Group:</label>
-                        <select value={inspectorClass} onChange={(e) => setInspectorClass(e.target.value)} style={styles.input}>
-                            {DEFAULT_CLASSES.map(cls => <option key={cls} value={cls}>{cls}</option>)}
-                        </select>
-                    </div>
-                    <div>
-                        <label style={styles.label}>Select Subject:</label>
-                        <select value={inspectorSubject} onChange={(e) => setInspectorSubject(e.target.value)} style={styles.input}>
-                            {DEFAULT_SUBJECTS.map(sub => <option key={sub} value={sub}>{sub}</option>)}
-                        </select>
-                    </div>
+                    
+                    {/* MODE A: Class Dropdowns */}
+                    {inspectorMode === 'class' && (
+                        <>
+                            <div>
+                                <label style={styles.label}>Select Class Group:</label>
+                                <select value={inspectorClass} onChange={(e) => setInspectorClass(e.target.value)} style={styles.input}>
+                                    {DEFAULT_CLASSES.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={styles.label}>Select Subject:</label>
+                                <select value={inspectorSubject} onChange={(e) => setInspectorSubject(e.target.value)} style={styles.input}>
+                                    {DEFAULT_SUBJECTS.map(sub => <option key={sub} value={sub}>{sub}</option>)}
+                                </select>
+                            </div>
+                        </>
+                    )}
+
+                    {/* MODE B: Teacher Dropdowns */}
+                    {inspectorMode === 'teacher' && (
+                        <>
+                            <div>
+                                <label style={styles.label}>Select Teacher:</label>
+                                <select 
+                                    value={inspectorTeacherUsername} 
+                                    onChange={(e) => {
+                                        setInspectorTeacherUsername(e.target.value);
+                                        const teacher = allTeachers.find(t => t.username === e.target.value);
+                                        if (teacher && teacher.enrollments?.length > 0) {
+                                            setInspectorTeacherEnrollmentId(teacher.enrollments[0].id);
+                                        } else {
+                                            setInspectorTeacherEnrollmentId('');
+                                        }
+                                    }} 
+                                    style={styles.input}
+                                >
+                                    {allTeachers.map(t => <option key={t.username} value={t.username}>{t.fullName}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={styles.label}>Select Assignment:</label>
+                                <select 
+                                    value={inspectorTeacherEnrollmentId} 
+                                    onChange={(e) => setInspectorTeacherEnrollmentId(e.target.value)} 
+                                    style={styles.input}
+                                >
+                                    {allTeachers.find(t => t.username === inspectorTeacherUsername)?.enrollments?.map(env => (
+                                        <option key={env.id} value={env.id}>
+                                            {env.alias || `${env.grade} ${env.subject}`} ({env.langTag || 'Gen'})
+                                        </option>
+                                    )) || <option value="">No assignments found</option>}
+                                </select>
+                            </div>
+                        </>
+                    )}
+
                     <div style={{ display: 'flex', alignItems: 'end' }}>
-                        <button onClick={fetchClassSubjectMarks} style={{ ...styles.buttonPrimary, width: '100%', background: '#0284c7' }}>
+                        <button 
+                            onClick={fetchClassSubjectMarks} 
+                            disabled={inspectorMode === 'teacher' && !inspectorTeacherEnrollmentId}
+                            style={{ ...styles.buttonPrimary, width: '100%', background: '#0284c7', opacity: (inspectorMode === 'teacher' && !inspectorTeacherEnrollmentId) ? 0.5 : 1 }}
+                        >
                             {isInspecting ? 'Loading...' : 'Inspect Marks'}
                         </button>
                     </div>
                 </div>
-
-                {subjectLevelMarks.students && subjectLevelMarks.students.length > 0 && (
-                    <div style={{ overflowX: 'auto', marginTop: '20px', border: '1px solid #cbd5e1', borderRadius: '12px', background: '#ffffff' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '700px' }}>
-                            <thead>
-                                <tr style={{ background: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>
-                                    <th style={{ padding: '14px', color: '#0f172a', fontWeight: '700' }}>Roll</th>
-                                    <th style={{ padding: '14px', color: '#0f172a', fontWeight: '700' }}>Ad.No</th>
-                                    <th style={{ padding: '14px', color: '#0f172a', fontWeight: '700' }}>Student Name</th>
-                                    <th style={{ padding: '14px', color: '#0f172a', fontWeight: '700', textAlign: 'center' }}>Level 1 (15)</th>
-                                    <th style={{ padding: '14px', color: '#0f172a', fontWeight: '700', textAlign: 'center' }}>Level 2 (20)</th>
-                                    <th style={{ padding: '14px', color: '#0f172a', fontWeight: '700', textAlign: 'center' }}>Level 3 (25)</th>
-                                    <th style={{ padding: '14px', color: '#0f172a', fontWeight: '700', textAlign: 'center' }}>Level 4 (40)</th>
-                                    <th style={{ padding: '14px', color: '#2563eb', fontWeight: '800', textAlign: 'center' }}>Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {subjectLevelMarks.students.map((student, idx) => {
-                                    const studentKey = student.regNo || student.id;
-                                    const recs = subjectLevelMarks.records[studentKey] || {};
-                                    const studentTeacher = subjectLevelMarks.teachers?.[studentKey] || 'Unassigned';
-
-                                    const l1 = Number(recs['15']) || 0;
-                                    const l2 = Number(recs['20']) || 0;
-                                    const l3 = Number(recs['25']) || 0;
-                                    const l4 = Number(recs['40']) || 0;
-                                    const total = l1 + l2 + l3 + l4;
-
-                                    return (
-                                        <tr key={studentKey} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                                            <td style={{ padding: '14px', fontWeight: '700', color: '#475569' }}>{student.rollNo || '-'}</td>
-                                            <td style={{ padding: '14px', fontWeight: '700', color: '#0f172a' }}>{student.adNo}</td>
-                                            <td style={{ padding: '14px' }}>
-                                                <div style={{ color: '#0f172a', fontWeight: '600' }}>{student.firstName}</div>
-                                                <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic', fontWeight: '400', marginTop: '2px' }}>
-                                                    {studentTeacher}
-                                                </div>
-                                            </td>
-                                            <td style={{ padding: '14px', textAlign: 'center', color: '#334155', fontWeight: '500' }}>{recs['15'] !== undefined ? recs['15'] : '-'}</td>
-                                            <td style={{ padding: '14px', textAlign: 'center', color: '#334155', fontWeight: '500' }}>{recs['20'] !== undefined ? recs['20'] : '-'}</td>
-                                            <td style={{ padding: '14px', textAlign: 'center', color: '#334155', fontWeight: '500' }}>{recs['25'] !== undefined ? recs['25'] : '-'}</td>
-                                            <td style={{ padding: '14px', textAlign: 'center', color: '#334155', fontWeight: '500' }}>{recs['40'] !== undefined ? recs['40'] : '-'}</td>
-                                            <td style={{ padding: '14px', textAlign: 'center', fontWeight: '800', color: '#2563eb', fontSize: '15px' }}>{total > 0 ? total : '-'}</td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
         </div>
     );
 }
