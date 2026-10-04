@@ -1,13 +1,10 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { auth, db } from '../../lib/firebase';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
 import { doc, setDoc, getDoc, getDocs, collection, deleteDoc, arrayUnion } from 'firebase/firestore';
 import { getApp, initializeApp } from 'firebase/app';
 
-// FIXED: Correct path based on your VS Code screenshot!
 import InstallAppBanner from '../components/InstallAppBanner';
 
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxN_z56f3Q5O3OjsKFagUSqromiH0xTKTfro0zqJZN4ZB-FJLM3jERMigPXiOkfw-4/exec';
@@ -678,7 +675,7 @@ function StudentManager() {
             </div>
 
             <div style={{ ...styles.card, borderLeft: isEditing ? '6px solid #f59e0b' : '1px solid #f1f5f9' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'gap', gap: '10px' }}>
                     <h3 style={styles.sectionTitle}>{isEditing ? `Editing Student: ${regNo}` : 'Register Student'}</h3>
                     {isEditing && <button type="button" onClick={resetForm} style={{ padding: '8px 16px', background: '#e2e8f0', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>}
                 </div>
@@ -845,9 +842,8 @@ function StudentManager() {
     );
 }
 
-
 // ==========================================
-// COMPONENT 3: REPORT & AI ASSISTANT MANAGER
+// COMPONENT 3: REPORT & ADVANCED FILTER AUDITOR (REPLACED AI)
 // ==========================================
 function ReportManager() {
     const [registeredStudents, setRegisteredStudents] = useState([]);
@@ -858,32 +854,25 @@ function ReportManager() {
     const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
     const [statusMsg, setStatusMsg] = useState('');
 
-    const [thresholdScore, setThresholdScore] = useState(40);
-    const [thresholdCondition, setThresholdCondition] = useState('Below');
+    // Native Smart Audit Filters
+    const [searchQuery, setSearchQuery] = useState('');
+    const [auditPreset, setAuditPreset] = useState('ALL'); // 'ALL', 'MISSING', 'FAIL', 'TOP'
     const [exportDepartment, setExportDepartment] = useState('All');
     const [exportClassFilter, setExportClassFilter] = useState('All');
     const [exportMetric, setExportMetric] = useState('STATUS');
     const [exportSubject, setExportSubject] = useState(DEFAULT_SUBJECTS[0]);
+    const [thresholdCondition, setThresholdCondition] = useState('Below');
+    const [thresholdScore, setThresholdScore] = useState(40);
 
+    // Inspector States
     const [inspectorClass, setInspectorClass] = useState(DEFAULT_CLASSES[0]);
     const [inspectorSubject, setInspectorSubject] = useState(DEFAULT_SUBJECTS[0]);
     const [subjectLevelMarks, setSubjectLevelMarks] = useState({});
     const [isInspecting, setIsInspecting] = useState(false);
-    
-    // NEW STATES WITH CORRECTED NAMES
     const [inspectorMode, setInspectorMode] = useState('class'); 
     const [allTeachers, setAllTeachers] = useState([]);
     const [inspectorTeacherUsername, setInspectorTeacherUsername] = useState('');
     const [inspectorTeacherEnrollmentId, setInspectorTeacherEnrollmentId] = useState('');
-
-    const [chatMessages, setChatMessages] = useState([
-        {
-            role: 'assistant',
-            text: 'Hello! I can answer questions about students, departments, class enrollments, and marks. Ask me anything like: **"List all students in HFC3 with no marks recorded"** or **"Which students in HADITH scored below 40%?"**'
-        }
-    ]);
-    const [chatInput, setChatInput] = useState('');
-    const [isAiLoading, setIsAiLoading] = useState(false);
 
     const fetchReportData = async () => {
         try {
@@ -947,50 +936,32 @@ function ReportManager() {
         fetchReportData();
     }, []);
 
-    const handleSendMessage = async (e) => {
-        e.preventDefault();
-        const promptText = chatInput.trim();
-        if (!promptText || isAiLoading) return;
-
-        const updatedHistory = [...chatMessages, { role: 'user', text: promptText }];
-        setChatMessages(updatedHistory);
-        setChatInput('');
-        setIsAiLoading(true);
-
-        try {
-            const res = await fetch('/api/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt: promptText })
-            });
-
-            const data = await res.json();
-
-            if (res.ok && data && data.reply) {
-                setChatMessages([...updatedHistory, { role: 'assistant', text: data.reply }]);
-            } else {
-                const errorDetail = data?.error || data?.message || 'Failed to retrieve response.';
-                setChatMessages([
-                    ...updatedHistory,
-                    { role: 'assistant', text: `⚠ Error: ${errorDetail}` }
-                ]);
-            }
-        } catch (err) {
-            setChatMessages([
-                ...updatedHistory,
-                { role: 'assistant', text: '⚠ Network or parsing error communicating with the AI service.' }
-            ]);
-        } finally {
-            setIsAiLoading(false);
-        }
-    };
-
+    // Instant Client-Side Filter Engine
     const generateFilteredList = () => {
         const filtered = registeredStudents.filter((student) => {
+            // Text Search
+            if (searchQuery.trim()) {
+                const query = searchQuery.trim().toLowerCase();
+                const name = (student.firstName || '').toLowerCase();
+                const adNo = (student.adNo || '').toLowerCase();
+                const regNo = (student.regNo || '').toLowerCase();
+                if (!name.includes(query) && !adNo.includes(query) && !regNo.includes(query)) {
+                    return false;
+                }
+            }
+
+            // Department & Class
             if (exportDepartment !== 'All' && (student.department || '').toUpperCase() !== exportDepartment.toUpperCase()) return false;
             if (exportClassFilter !== 'All' && !(student.classes || []).includes(exportClassFilter)) return false;
 
             const marksInfo = overallMarksCache[student.regNo];
+
+            // Preset Filters
+            if (auditPreset === 'MISSING') {
+                if (!marksInfo || !marksInfo.overall || !marksInfo.overall['STATUS'] || marksInfo.overall['STATUS'] === '-' || marksInfo.overall['STATUS'] === '') return true;
+                return false;
+            }
+
             if (!marksInfo) return false;
 
             let scoreToCompareStr = '';
@@ -1000,32 +971,45 @@ function ReportManager() {
             else if (exportMetric === 'SUBJECT') scoreToCompareStr = marksInfo.subjects?.[exportSubject.toUpperCase()];
 
             if (!scoreToCompareStr || scoreToCompareStr === '-' || scoreToCompareStr === '') return false;
-
             const score = parseFloat(String(scoreToCompareStr).replace('%', ''));
             if (isNaN(score)) return false;
 
-            if (thresholdCondition === 'Below' && score >= Number(thresholdScore)) return false;
-            if (thresholdCondition === 'Above' && score < Number(thresholdScore)) return false;
+            if (auditPreset === 'FAIL' && score >= 40) return false;
+            if (auditPreset === 'TOP' && score < 80) return false;
+
+            // Manual Threshold Range
+            if (auditPreset === 'CUSTOM') {
+                if (thresholdCondition === 'Below' && score >= Number(thresholdScore)) return false;
+                if (thresholdCondition === 'Above' && score < Number(thresholdScore)) return false;
+            }
 
             return true;
         });
 
         const mappedResults = filtered.map((s) => {
-            let printedMetric = 'N/A';
+            let printedMetric = 'Missing / -';
             const info = overallMarksCache[s.regNo];
             if (info) {
-                if (exportMetric === 'STATUS') printedMetric = info.overall?.['STATUS'];
-                else if (exportMetric === '1400') printedMetric = info.overall?.['1400'];
-                else if (exportMetric === '420') printedMetric = info.overall?.['420'];
-                else if (exportMetric === 'SUBJECT') printedMetric = info.subjects?.[exportSubject.toUpperCase()];
+                if (exportMetric === 'STATUS') printedMetric = info.overall?.['STATUS'] || 'Missing';
+                else if (exportMetric === '1400') printedMetric = info.overall?.['1400'] || 'Missing';
+                else if (exportMetric === '420') printedMetric = info.overall?.['420'] || 'Missing';
+                else if (exportMetric === 'SUBJECT') printedMetric = info.subjects?.[exportSubject.toUpperCase()] || 'Missing';
             }
             return { ...s, displayMetric: printedMetric };
         });
 
         setFilteredResults(mappedResults);
-        if (mappedResults.length === 0) setStatusMsg(`No students match the criteria (${thresholdCondition} ${thresholdScore}).`);
-        else setStatusMsg(`Found ${mappedResults.length} students matching your filters.`);
+        if (mappedResults.length === 0) setStatusMsg(`No students match the criteria.`);
+        else setStatusMsg(`Found ${mappedResults.length} students matching your filter criteria.`);
     };
+
+    // Calculate Summary Stats from Cache
+    const totalStudentsCount = registeredStudents.length;
+    const studentsWithMarks = registeredStudents.filter(s => {
+        const info = overallMarksCache[s.regNo];
+        return info && info.overall && info.overall['STATUS'] && info.overall['STATUS'] !== '-';
+    }).length;
+    const missingMarksCount = totalStudentsCount - studentsWithMarks;
 
     const fetchClassSubjectMarks = async () => {
         setIsInspecting(true);
@@ -1225,188 +1209,132 @@ function ReportManager() {
 
     return (
         <div>
-            {/* 1. AI ASSISTANT CHAT PANEL */}
+            {/* 1. INSTANT SMART AUDIT BAR (REPLACED AI - 100% FREE & INSTANT) */}
             <div style={styles.card}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-                    <span style={{ fontSize: '28px' }}>🤖</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '15px' }}>
                     <div>
-                        <h3 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#0f172a', fontWeight: '800' }}>AI Database Query Assistant</h3>
-                        <p style={{ margin: 0, fontSize: '14px', color: '#64748b' }}>Ask natural language questions to filter and analyze the school database.</p>
+                        <h3 style={{ margin: '0 0 6px 0', fontSize: '20px', color: '#0f172a', fontWeight: '800' }}>⚡ Student Marks Auditor & Filter</h3>
+                        <p style={{ margin: 0, fontSize: '14px', color: '#64748b' }}>Instant multi-parameter audit across all registered students without external quotas.</p>
+                    </div>
+                    <span style={{ fontSize: '13px', color: '#047857', background: '#ecfdf5', padding: '6px 14px', borderRadius: '20px', fontWeight: '700', border: '1px solid #a7f3d0' }}>
+                        ⚡ 100% Free & Realtime
+                    </span>
+                </div>
+
+                {/* KPI Overview Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+                    <div style={{ padding: '16px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '700', color: '#64748b' }}>TOTAL ENROLLED</span>
+                        <div style={{ fontSize: '24px', fontWeight: '800', color: '#0f172a', marginTop: '4px' }}>{totalStudentsCount}</div>
+                    </div>
+                    <div style={{ padding: '16px', borderRadius: '12px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '700', color: '#047857' }}>MARKS RECORDED</span>
+                        <div style={{ fontSize: '24px', fontWeight: '800', color: '#047857', marginTop: '4px' }}>{studentsWithMarks}</div>
+                    </div>
+                    <div style={{ padding: '16px', borderRadius: '12px', background: '#fee2e2', border: '1px solid #fecaca', textAlign: 'center' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '700', color: '#991b1b' }}>MISSING / INCOMPLETE</span>
+                        <div style={{ fontSize: '24px', fontWeight: '800', color: '#dc2626', marginTop: '4px' }}>{missingMarksCount}</div>
+                    </div>
+                    <div style={{ padding: '16px', borderRadius: '12px', background: '#eff6ff', border: '1px solid #bfdbfe', textAlign: 'center' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '700', color: '#1e40af' }}>COMPLETION RATE</span>
+                        <div style={{ fontSize: '24px', fontWeight: '800', color: '#2563eb', marginTop: '4px' }}>
+                            {totalStudentsCount > 0 ? `${((studentsWithMarks / totalStudentsCount) * 100).toFixed(0)}%` : '0%'}
+                        </div>
                     </div>
                 </div>
 
-                <div style={{
-                    display: 'flex', flexDirection: 'column', gap: '20px', padding: '20px',
-                    height: '450px', overflowY: 'auto', backgroundColor: '#f8fafc',
-                    border: '1px solid #e2e8f0', borderRadius: '16px', marginBottom: '20px',
-                    boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
-                }}>
-                    {chatMessages.map((msg, index) => {
-                        const isUser = msg.role === 'user';
-                        return (
-                            <div key={index} style={{
-                                display: 'flex', width: '100%',
-                                justifyContent: isUser ? 'flex-end' : 'flex-start'
-                            }}>
-                                <div style={{
-                                    maxWidth: '90%', 
-                                    padding: '16px 20px',
-                                    borderRadius: '20px',
-                                    borderBottomRightRadius: isUser ? '4px' : '20px',
-                                    borderBottomLeftRadius: isUser ? '20px' : '4px',
-                                    backgroundColor: isUser ? '#2563eb' : '#ffffff',
-                                    color: isUser ? '#ffffff' : '#000000',
-                                    boxShadow: isUser ? '0 4px 12px rgba(37, 99, 235, 0.2)' : '0 4px 12px rgba(0, 0, 0, 0.04)',
-                                    border: isUser ? 'none' : '1px solid #cbd5e1',
-                                    fontSize: '15px',
-                                    lineHeight: '1.6'
-                                }}>
-                                    {isUser ? (
-                                        <div style={{ whiteSpace: 'pre-wrap', fontWeight: '500' }}>{msg.text}</div>
-                                    ) : (
-                                        <div style={{ color: '#000000' }}>
-                                            <ReactMarkdown
-                                                remarkPlugins={[remarkGfm]}
-                                                components={{
-                                                    p: ({ node, ...props }) => <p style={{ margin: '0 0 12px 0', color: '#000000', fontWeight: '500' }} {...props} />,
-                                                    strong: ({ node, ...props }) => <strong style={{ fontWeight: '800', color: '#000000' }} {...props} />,
-                                                    ul: ({ node, ...props }) => <ul style={{ paddingLeft: '24px', margin: '0 0 12px 0', color: '#000000', fontWeight: '500' }} {...props} />,
-                                                    ol: ({ node, ...props }) => <ol style={{ paddingLeft: '24px', margin: '0 0 12px 0', color: '#000000', fontWeight: '500' }} {...props} />,
-                                                    li: ({ node, ...props }) => <li style={{ marginBottom: '6px', color: '#000000' }} {...props} />,
-                                                    table: ({ node, ...props }) => (
-                                                        <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', margin: '16px 0', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                                            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px', minWidth: '400px', color: '#000000' }} {...props} />
-                                                        </div>
-                                                    ),
-                                                    thead: ({ node, ...props }) => <thead style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }} {...props} />,
-                                                    tbody: ({ node, ...props }) => <tbody {...props} />,
-                                                    tr: ({ node, ...props }) => <tr style={{ borderBottom: '1px solid #e2e8f0' }} {...props} />,
-                                                    th: ({ node, ...props }) => <th style={{ padding: '12px 16px', fontWeight: '700', color: '#000000', textTransform: 'uppercase', fontSize: '11px', letterSpacing: '0.05em' }} {...props} />,
-                                                    td: ({ node, ...props }) => <td style={{ padding: '12px 16px', color: '#000000', verticalAlign: 'top', fontWeight: '500' }} {...props} />,
-                                                }}
-                                            >
-                                                {msg.text}
-                                            </ReactMarkdown>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })}
-                    
-                    {isAiLoading && (
-                        <div style={{ display: 'flex', justifyContent: 'flex-start', width: '100%' }}>
-                            <div style={{ background: '#ffffff', color: '#000000', padding: '12px 20px', borderRadius: '20px', borderBottomLeftRadius: '4px', border: '1px solid #e2e8f0', fontSize: '14px', fontWeight: '600', boxShadow: '0 2px 6px rgba(0,0,0,0.02)', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                                ⏳ Analyzing database...
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                    <input
-                        type="text"
-                        value={chatInput}
-                        onChange={(e) => setChatInput(e.target.value)}
-                        placeholder="e.g. Which students in HFC3 have zero marks recorded?"
-                        disabled={isAiLoading}
-                        style={{ ...styles.input, flex: '1 1 200px', padding: '14px 18px', borderRadius: '12px', fontSize: '15px' }}
-                    />
-                    <button
-                        type="submit"
-                        disabled={isAiLoading || !chatInput.trim()}
-                        style={{
-                            ...styles.buttonPrimary,
-                            flex: '0 0 auto',
-                            padding: '14px 24px',
-                            borderRadius: '12px',
-                            opacity: isAiLoading || !chatInput.trim() ? 0.6 : 1,
-                            whiteSpace: 'nowrap'
-                        }}
-                    >
-                        {isAiLoading ? 'Searching...' : 'Ask AI 🚀'}
-                    </button>
-                </form>
-            </div>
-
-            {/* 2. MANUAL EXPORT CARD */}
-            <div style={styles.card}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px', flexWrap: 'wrap', gap: '15px' }}>
+                {/* Filter Controls */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '16px' }}>
                     <div>
-                        <h3 style={{ margin: 0, fontSize: '20px', color: '#0f172a', fontWeight: '700' }}>Manual Custom Reports & Export</h3>
-                        <p style={{ margin: '4px 0 0 0', fontSize: '14px', color: '#64748b' }}>
-                            {isBackgroundSyncing ? '🔄 Automatically syncing with Google Sheets...' : '✅ Data up to date with Google Sheets'}
-                        </p>
+                        <label style={styles.label}>Quick Status Preset:</label>
+                        <select value={auditPreset} onChange={(e) => setAuditPreset(e.target.value)} style={{ ...styles.input, fontWeight: '700' }}>
+                            <option value="ALL">Show All Students</option>
+                            <option value="MISSING">⚠ Missing / Zero Marks Only</option>
+                            <option value="FAIL">📉 Needs Attention (&lt; 40%)</option>
+                            <option value="TOP">⭐ Top Achievers (&ge; 80%)</option>
+                            <option value="CUSTOM">⚙ Custom Score Threshold</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style={styles.label}>Search by Name / Ad.No:</label>
+                        <input 
+                            type="text" 
+                            value={searchQuery} 
+                            onChange={(e) => setSearchQuery(e.target.value)} 
+                            placeholder="Type student name or Ad.No..." 
+                            style={styles.input} 
+                        />
+                    </div>
+
+                    <div>
+                        <label style={styles.label}>Class Filter:</label>
+                        <select value={exportClassFilter} onChange={(e) => setExportClassFilter(e.target.value)} style={styles.input}>
+                            <option value="All">All Classes</option>
+                            {DEFAULT_CLASSES.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style={styles.label}>Department:</label>
+                        <select value={exportDepartment} onChange={(e) => setExportDepartment(e.target.value)} style={styles.input}>
+                            <option value="All">All Departments</option>
+                            {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
                     </div>
                 </div>
 
-                {isLoading ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Loading report cache...</div>
-                ) : (
-                    <>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '15px' }}>
+                {/* Conditional Custom Threshold Settings */}
+                {auditPreset === 'CUSTOM' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', padding: '16px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+                        <div>
+                            <label style={styles.label}>Metric:</label>
+                            <select value={exportMetric} onChange={(e) => setExportMetric(e.target.value)} style={styles.input}>
+                                <option value="STATUS">Overall Percentage (%)</option>
+                                <option value="1400">Total out of 1400</option>
+                                <option value="420">Total out of 420</option>
+                                <option value="SUBJECT">Specific Subject</option>
+                            </select>
+                        </div>
+                        {exportMetric === 'SUBJECT' && (
                             <div>
-                                <label style={styles.label}>Metric to Evaluate:</label>
-                                <select value={exportMetric} onChange={(e) => setExportMetric(e.target.value)} style={{ ...styles.input, background: '#f8fafc' }}>
-                                    <option value="STATUS">Overall Percentage (%)</option>
-                                    <option value="1400">Total out of 1400</option>
-                                    <option value="420">Total out of 420</option>
-                                    <option value="SUBJECT">Specific Subject Score</option>
+                                <label style={styles.label}>Subject:</label>
+                                <select value={exportSubject} onChange={(e) => setExportSubject(e.target.value)} style={styles.input}>
+                                    {DEFAULT_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
                                 </select>
                             </div>
-
-                            {exportMetric === 'SUBJECT' && (
-                                <div>
-                                    <label style={styles.label}>Select Subject:</label>
-                                    <select value={exportSubject} onChange={(e) => setExportSubject(e.target.value)} style={styles.input}>
-                                        {DEFAULT_SUBJECTS.map((sub) => <option key={sub} value={sub}>{sub}</option>)}
-                                    </select>
-                                </div>
-                            )}
-
-                            <div>
-                                <label style={styles.label}>Threshold Rule:</label>
-                                <div style={{ display: 'flex', gap: '10px' }}>
-                                    <select value={thresholdCondition} onChange={(e) => setThresholdCondition(e.target.value)} style={{ ...styles.input, flex: 1 }}>
-                                        <option value="Below">Below</option>
-                                        <option value="Above">Above or Equal to</option>
-                                    </select>
-                                    <input type="number" value={thresholdScore} onChange={(e) => setThresholdScore(e.target.value)} placeholder="Score" style={{ ...styles.input, flex: 1 }} />
-                                </div>
+                        )}
+                        <div>
+                            <label style={styles.label}>Rule:</label>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <select value={thresholdCondition} onChange={(e) => setThresholdCondition(e.target.value)} style={{ ...styles.input, flex: 1 }}>
+                                    <option value="Below">Below</option>
+                                    <option value="Above">Above or Equal</option>
+                                </select>
+                                <input type="number" value={thresholdScore} onChange={(e) => setThresholdScore(e.target.value)} style={{ ...styles.input, flex: 1 }} />
                             </div>
                         </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', alignItems: 'end', marginBottom: '24px' }}>
-                            <div>
-                                <label style={styles.label}>Target Department:</label>
-                                <select value={exportDepartment} onChange={(e) => setExportDepartment(e.target.value)} style={styles.input}>
-                                    <option value="All">All Departments</option>
-                                    {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <label style={styles.label}>Target Class Group:</label>
-                                <select value={exportClassFilter} onChange={(e) => setExportClassFilter(e.target.value)} style={styles.input}>
-                                    <option value="All">All Classes</option>
-                                    {DEFAULT_CLASSES.map((cls) => <option key={cls} value={cls}>{cls}</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <button onClick={generateFilteredList} style={{ ...styles.buttonPrimary, background: '#2563eb', width: '100%' }}>
-                                    🔍 Generate Preview
-                                </button>
-                            </div>
-                        </div>
-                    </>
+                    </div>
                 )}
 
-                {statusMsg && <div style={{ padding: '16px', background: '#e0f2fe', borderRadius: '8px', color: '#0369a1', fontWeight: '600', marginBottom: '20px' }}>{statusMsg}</div>}
+                <button 
+                    onClick={generateFilteredList} 
+                    style={{ ...styles.buttonPrimary, width: '100%', background: '#2563eb', padding: '14px', fontSize: '16px', fontWeight: '700' }}
+                >
+                    🔍 Run Filter & Audit List
+                </button>
 
-                {/* FILTER RESULTS PREVIEW TABLE */}
+                {statusMsg && (
+                    <div style={{ marginTop: '16px', padding: '12px 16px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', color: '#166534', fontWeight: '600' }}>
+                        {statusMsg}
+                    </div>
+                )}
+
+                {/* Filter Results Table */}
                 {filteredResults.length > 0 && (
                     <div style={{ border: '1px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden', marginTop: '20px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '16px', borderBottom: '1px solid #cbd5e1', flexWrap: 'wrap', gap: '10px' }}>
-                            <h4 style={{ margin: 0, color: '#0f172a' }}>Filter Results ({filteredResults.length} records)</h4>
+                            <h4 style={{ margin: 0, color: '#0f172a', fontWeight: '800' }}>Audit Results ({filteredResults.length} students)</h4>
                             <div style={{ display: 'flex', gap: '10px' }}>
                                 <button onClick={handleCopyToClipboard} style={{ padding: '8px 16px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
                                     📋 Copy Table
@@ -1420,26 +1348,34 @@ function ReportManager() {
                         <div style={{ overflowX: 'auto', maxHeight: '400px' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
                                 <thead style={{ position: 'sticky', top: 0, background: '#ffffff', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-                                    <tr>
-                                        <th style={{ padding: '12px', color: '#334155' }}>Ad.No</th>
-                                        <th style={{ padding: '12px', color: '#334155' }}>Name</th>
-                                        <th style={{ padding: '12px', color: '#334155' }}>Department</th>
-                                        <th style={{ padding: '12px', color: '#334155' }}>Class</th>
-                                        <th style={{ padding: '12px', color: '#0f172a', fontWeight: '900' }}>Score</th>
+                                    <tr style={{ borderBottom: '2px solid #cbd5e1' }}>
+                                        <th style={{ padding: '12px', color: '#0f172a', fontWeight: '800' }}>Ad.No</th>
+                                        <th style={{ padding: '12px', color: '#0f172a', fontWeight: '800' }}>Name</th>
+                                        <th style={{ padding: '12px', color: '#0f172a', fontWeight: '800' }}>Department</th>
+                                        <th style={{ padding: '12px', color: '#0f172a', fontWeight: '800' }}>Class</th>
+                                        <th style={{ padding: '12px', color: '#0f172a', fontWeight: '800' }}>Score / Status</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {filteredResults.map((student, idx) => (
                                         <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                                            <td style={{ padding: '12px', fontWeight: '600', color: '#0f172a' }}>{student.adNo}</td>
-                                            <td style={{ padding: '12px', color: '#334155' }}>{student.firstName}</td>
+                                            <td style={{ padding: '12px', fontWeight: '800', color: '#0f172a' }}>{student.adNo}</td>
+                                            <td style={{ padding: '12px', color: '#0f172a', fontWeight: '700' }}>{student.firstName}</td>
                                             <td style={{ padding: '12px' }}>
-                                                <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>
+                                                <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '800' }}>
                                                     {student.department || 'GENERAL'}
                                                 </span>
                                             </td>
-                                            <td style={{ padding: '12px', color: '#64748b', fontWeight: '600' }}>{(student.classes || []).join(', ')}</td>
-                                            <td style={{ padding: '12px', color: '#10b981', fontWeight: '900', fontSize: '16px' }}>{student.displayMetric}</td>
+                                            <td style={{ padding: '12px', color: '#334155', fontWeight: '700' }}>{(student.classes || []).join(', ')}</td>
+                                            <td style={{ padding: '12px' }}>
+                                                <span style={{
+                                                    color: String(student.displayMetric).includes('Missing') ? '#dc2626' : '#047857',
+                                                    fontWeight: '800',
+                                                    fontSize: '15px'
+                                                }}>
+                                                    {student.displayMetric}
+                                                </span>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -1449,23 +1385,23 @@ function ReportManager() {
                 )}
             </div>
 
-            {/* 4. CLASS & SUBJECT LEVEL-BY-LEVEL MARK INSPECTOR CARD */}
+            {/* 2. HIGH-CONTRAST LEVEL-BY-LEVEL MARK INSPECTOR CARD */}
             <div style={styles.card}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
                     <h3 style={styles.sectionTitle}>🔍 Level-by-Level Mark Inspector</h3>
                 </div>
                 
-                {/* Toggle Buttons */}
+                {/* Mode Toggle Buttons */}
                 <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
                     <button 
                         onClick={() => { setInspectorMode('class'); setSubjectLevelMarks({}); }}
-                        style={{ padding: '8px 16px', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', border: '1px solid #cbd5e1', background: inspectorMode === 'class' ? '#2563eb' : '#f8fafc', color: inspectorMode === 'class' ? '#ffffff' : '#334155' }}
+                        style={{ padding: '10px 18px', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', border: '1px solid #cbd5e1', background: inspectorMode === 'class' ? '#2563eb' : '#f8fafc', color: inspectorMode === 'class' ? '#ffffff' : '#334155' }}
                     >
                         Filter by Class & Subject
                     </button>
                     <button 
                         onClick={() => { setInspectorMode('teacher'); setSubjectLevelMarks({}); }}
-                        style={{ padding: '8px 16px', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', border: '1px solid #cbd5e1', background: inspectorMode === 'teacher' ? '#2563eb' : '#f8fafc', color: inspectorMode === 'teacher' ? '#ffffff' : '#334155' }}
+                        style={{ padding: '10px 18px', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', border: '1px solid #cbd5e1', background: inspectorMode === 'teacher' ? '#2563eb' : '#f8fafc', color: inspectorMode === 'teacher' ? '#ffffff' : '#334155' }}
                     >
                         Filter by Teacher
                     </button>
@@ -1540,21 +1476,21 @@ function ReportManager() {
                     </div>
                 </div>
 
-                {/* RESTORED: THE MARK INSPECTOR TABLE THAT WAS MISSING! */}
+                {/* HIGH-CONTRAST MARKS TABLE */}
                 {subjectLevelMarks.students && subjectLevelMarks.students.length > 0 && (
                     <div style={{ marginTop: '20px', overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '800px' }}>
                             <thead>
                                 <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
-                                    <th style={{ padding: '12px', color: '#334155' }}>Roll</th>
-                                    <th style={{ padding: '12px', color: '#334155' }}>Ad.No</th>
-                                    <th style={{ padding: '12px', color: '#334155' }}>Student Name</th>
-                                    <th style={{ padding: '12px', color: '#334155' }}>Level 1 (15)</th>
-                                    <th style={{ padding: '12px', color: '#334155' }}>Level 2 (20)</th>
-                                    <th style={{ padding: '12px', color: '#334155' }}>Level 3 (25)</th>
-                                    <th style={{ padding: '12px', color: '#334155' }}>Level 4 (40)</th>
-                                    <th style={{ padding: '12px', color: '#2563eb' }}>Total</th>
-                                    {inspectorMode === 'class' && <th style={{ padding: '12px', color: '#64748b' }}>Assigned Teacher</th>}
+                                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Roll</th>
+                                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Ad.No</th>
+                                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Student Name</th>
+                                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Level 1 (15)</th>
+                                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Level 2 (20)</th>
+                                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Level 3 (25)</th>
+                                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Level 4 (40)</th>
+                                    <th style={{ padding: '14px 16px', color: '#1e40af', fontWeight: '800' }}>Total Score</th>
+                                    {inspectorMode === 'class' && <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Assigned Teacher</th>}
                                 </tr>
                             </thead>
                             <tbody>
@@ -1569,20 +1505,55 @@ function ReportManager() {
 
                                     return (
                                         <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                                            <td style={{ padding: '12px', fontWeight: 'bold', color: '#64748b' }}>{student.rollNo || '-'}</td>
-                                            <td style={{ padding: '12px', fontWeight: 'bold', color: '#0f172a' }}>{student.adNo}</td>
-                                            <td style={{ padding: '12px', color: '#334155' }}>
+                                            <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>{student.rollNo || '-'}</td>
+                                            <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>{student.adNo}</td>
+                                            <td style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '700' }}>
                                                 {student.firstName}
                                                 <br/>
-                                                <span style={{ fontSize: '11px', color: '#94a3b8' }}>{student.regNo}</span>
+                                                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '500' }}>{student.regNo}</span>
                                             </td>
-                                            <td style={{ padding: '12px' }}>{marks['15'] !== undefined ? marks['15'] : '-'}</td>
-                                            <td style={{ padding: '12px' }}>{marks['20'] !== undefined ? marks['20'] : '-'}</td>
-                                            <td style={{ padding: '12px' }}>{marks['25'] !== undefined ? marks['25'] : '-'}</td>
-                                            <td style={{ padding: '12px' }}>{marks['40'] !== undefined ? marks['40'] : '-'}</td>
-                                            <td style={{ padding: '12px', fontWeight: 'bold', color: '#2563eb' }}>{total > 0 ? total : '-'}</td>
+                                            
+                                            {/* Level 1 (15) - High Contrast */}
+                                            <td style={{ padding: '14px 16px' }}>
+                                                <span style={{ fontSize: '15px', fontWeight: '800', color: marks['15'] !== undefined ? '#0f172a' : '#cbd5e1' }}>
+                                                    {marks['15'] !== undefined ? marks['15'] : '-'}
+                                                </span>
+                                            </td>
+
+                                            {/* Level 2 (20) - High Contrast */}
+                                            <td style={{ padding: '14px 16px' }}>
+                                                <span style={{ fontSize: '15px', fontWeight: '800', color: marks['20'] !== undefined ? '#0f172a' : '#cbd5e1' }}>
+                                                    {marks['20'] !== undefined ? marks['20'] : '-'}
+                                                </span>
+                                            </td>
+
+                                            {/* Level 3 (25) - High Contrast */}
+                                            <td style={{ padding: '14px 16px' }}>
+                                                <span style={{ fontSize: '15px', fontWeight: '800', color: marks['25'] !== undefined ? '#0f172a' : '#cbd5e1' }}>
+                                                    {marks['25'] !== undefined ? marks['25'] : '-'}
+                                                </span>
+                                            </td>
+
+                                            {/* Level 4 (40) - High Contrast */}
+                                            <td style={{ padding: '14px 16px' }}>
+                                                <span style={{ fontSize: '15px', fontWeight: '800', color: marks['40'] !== undefined ? '#0f172a' : '#cbd5e1' }}>
+                                                    {marks['40'] !== undefined ? marks['40'] : '-'}
+                                                </span>
+                                            </td>
+
+                                            {/* Total Score - Clear Badge */}
+                                            <td style={{ padding: '14px 16px' }}>
+                                                {total > 0 ? (
+                                                    <span style={{ background: '#dbeafe', color: '#1e40af', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '15px' }}>
+                                                        {total}
+                                                    </span>
+                                                ) : (
+                                                    <span style={{ color: '#94a3b8', fontWeight: '700' }}>-</span>
+                                                )}
+                                            </td>
+
                                             {inspectorMode === 'class' && (
-                                                <td style={{ padding: '12px', color: teacherName === 'Unassigned' ? '#ef4444' : '#10b981', fontWeight: '600' }}>
+                                                <td style={{ padding: '14px 16px', color: teacherName === 'Unassigned' ? '#dc2626' : '#047857', fontWeight: '700' }}>
                                                     {teacherName}
                                                 </td>
                                             )}
@@ -1635,7 +1606,6 @@ export default function CentralAdminDashboard() {
     return (
         <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '40px 20px', fontFamily: 'Inter, system-ui, sans-serif' }}>
             <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
-                {/* PWA Install Banner */}
                 <InstallAppBanner />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0' }}>
                     <div style={{ display: 'flex', gap: '24px', alignItems: 'center', flexWrap: 'wrap' }}>
