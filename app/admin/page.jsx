@@ -918,7 +918,7 @@ function ReportManager() {
     const [isInspecting, setIsInspecting] = useState(false);
     const [inspectorMode, setInspectorMode] = useState('class'); // 'class' or 'teacher'
     const [allTeachers, setAllTeachers] = useState([]);
-    const [inspectorTeacherName, setInspectorTeacherName] = useState('');
+    const [inspectorTeacherUsername, setInspectorTeacherUsername] = useState('');
     const [inspectorTeacherEnrollmentId, setInspectorTeacherEnrollmentId] = useState('');
 
     // AI Assistant States - Note the bold markdown markers (**) in the text
