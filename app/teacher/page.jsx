@@ -337,6 +337,17 @@ export default function TeacherDashboard() {
     const currentEnrollment = loggedInTeacher.enrollments.find(e => e.id === selectedEnrollmentId);
     const maxNumber = Number(assessmentMaxMark);
 
+    // ---------------------------------------------------------
+    // GOOGLE SHEETS MAPPER: Standardize subject names
+    // ---------------------------------------------------------
+    let sheetReadySubject = currentEnrollment.subject.trim();
+    
+    // Catch the known renaming issue so the Google Sheet doesn't break.
+    // If a teacher's old profile says "Mantiq", send "Logic" to the Google Sheet instead.
+    if (sheetReadySubject.toUpperCase() === 'MANTIQ') {
+        sheetReadySubject = 'Logic';
+    }
+
     setStatusMsg('Syncing marks to high-speed database...');
     
     const firestorePromises = [];
@@ -345,13 +356,15 @@ export default function TeacherDashboard() {
       if (val !== undefined && val !== '') {
         if (parseFloat(val) > maxNumber) return alert(`Marks for ${student.firstName} exceed limit!`);
         
+        // Push the sanitized subject to Google Sheets
         marksPayload.push({
           studentId: student.regNo,
-          subject: currentEnrollment.subject,
+          subject: sheetReadySubject, // This uses the corrected name (e.g., Logic)
           maxMarks: assessmentMaxMark, 
           marksObtained: val
         });
 
+        // Save to Firebase using the original enrollment subject to maintain database consistency
         firestorePromises.push(
           setDoc(doc(db, 'marks', student.regNo), {
             [currentEnrollment.subject]: {
@@ -361,6 +374,8 @@ export default function TeacherDashboard() {
         );
       }
     }
+
+    // ... rest of the try/catch block remains exactly the same ...
 
     try {
       await Promise.all(firestorePromises);
