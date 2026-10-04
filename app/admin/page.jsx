@@ -937,9 +937,10 @@ function ReportManager() {
     }, []);
 
     // Instant Client-Side Filter Engine
+   // Instant Client-Side Filter Engine
     const generateFilteredList = () => {
         const filtered = registeredStudents.filter((student) => {
-            // Text Search
+            // 1. Text Search Filter
             if (searchQuery.trim()) {
                 const query = searchQuery.trim().toLowerCase();
                 const name = (student.firstName || '').toLowerCase();
@@ -950,18 +951,23 @@ function ReportManager() {
                 }
             }
 
-            // Department & Class
+            // 2. Department & Class Filters
             if (exportDepartment !== 'All' && (student.department || '').toUpperCase() !== exportDepartment.toUpperCase()) return false;
             if (exportClassFilter !== 'All' && !(student.classes || []).includes(exportClassFilter)) return false;
 
+            // 🌟 THE FIX: If 'Show All Students' is selected, include them immediately! 
+            // We don't care if they have marks or not.
+            if (auditPreset === 'ALL') return true;
+
             const marksInfo = overallMarksCache[student.regNo];
 
-            // Preset Filters
+            // 3. Preset Filter: Missing Marks
             if (auditPreset === 'MISSING') {
                 if (!marksInfo || !marksInfo.overall || !marksInfo.overall['STATUS'] || marksInfo.overall['STATUS'] === '-' || marksInfo.overall['STATUS'] === '') return true;
                 return false;
             }
 
+            // For FAIL, TOP, and CUSTOM presets, the student MUST have a recorded mark to be evaluated
             if (!marksInfo) return false;
 
             let scoreToCompareStr = '';
@@ -970,10 +976,13 @@ function ReportManager() {
             else if (exportMetric === '420') scoreToCompareStr = marksInfo.overall?.['420'];
             else if (exportMetric === 'SUBJECT') scoreToCompareStr = marksInfo.subjects?.[exportSubject.toUpperCase()];
 
+            // If the specific metric being requested is empty, hide the student
             if (!scoreToCompareStr || scoreToCompareStr === '-' || scoreToCompareStr === '') return false;
+            
             const score = parseFloat(String(scoreToCompareStr).replace('%', ''));
             if (isNaN(score)) return false;
 
+            // 4. Evaluate specific numerical thresholds
             if (auditPreset === 'FAIL' && score >= 40) return false;
             if (auditPreset === 'TOP' && score < 80) return false;
 
@@ -990,10 +999,10 @@ function ReportManager() {
             let printedMetric = 'Missing / -';
             const info = overallMarksCache[s.regNo];
             if (info) {
-                if (exportMetric === 'STATUS') printedMetric = info.overall?.['STATUS'] || 'Missing';
-                else if (exportMetric === '1400') printedMetric = info.overall?.['1400'] || 'Missing';
-                else if (exportMetric === '420') printedMetric = info.overall?.['420'] || 'Missing';
-                else if (exportMetric === 'SUBJECT') printedMetric = info.subjects?.[exportSubject.toUpperCase()] || 'Missing';
+                if (exportMetric === 'STATUS') printedMetric = info.overall?.['STATUS'] || 'Missing / -';
+                else if (exportMetric === '1400') printedMetric = info.overall?.['1400'] || 'Missing / -';
+                else if (exportMetric === '420') printedMetric = info.overall?.['420'] || 'Missing / -';
+                else if (exportMetric === 'SUBJECT') printedMetric = info.subjects?.[exportSubject.toUpperCase()] || 'Missing / -';
             }
             return { ...s, displayMetric: printedMetric };
         });
