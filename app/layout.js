@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 export const metadata = {
   title: 'School Mark Portal',
   description: 'Teacher and Admin Management Portal',
-  manifest: '/manifest.json',
+  manifest: '/manifest.json?v=2',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
