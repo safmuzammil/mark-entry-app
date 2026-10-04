@@ -214,10 +214,39 @@ export default function TeacherDashboard() {
     fetchExistingMarksFromFirebase();
   }, [isAuthenticated, selectedEnrollmentId, assessmentMaxMark, classStudents, loggedInTeacher]);
 
-  const handleMarkChange = (studentRegNo, value) => {
-    setStudentMarks({ ...studentMarks, [studentRegNo]: value });
+ const handleMarkChange = (studentRegNo, value) => {
+    const updatedMarks = { ...studentMarks, [studentRegNo]: value };
+    setStudentMarks(updatedMarks);
+    
+    // NEW: Auto-save draft to device memory
+    if (selectedEnrollmentId) {
+        localStorage.setItem(`draft_marks_${selectedEnrollmentId}`, JSON.stringify(updatedMarks));
+    }
   };
 
+  // NEW: Excel-style "Enter" key navigation
+  const handleKeyDown = (e, currentIndex) => {
+    if (e.key === 'Enter' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      // Find the next input box by its data-index attribute and focus it
+      const nextInput = document.querySelector(`input[data-index="${currentIndex + 1}"]`);
+      if (nextInput) nextInput.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prevInput = document.querySelector(`input[data-index="${currentIndex - 1}"]`);
+      if (prevInput) prevInput.focus();
+    }
+  };
+
+  // NEW: Load drafts when a class is selected
+  useEffect(() => {
+      if (selectedEnrollmentId) {
+          const savedDraft = localStorage.getItem(`draft_marks_${selectedEnrollmentId}`);
+          if (savedDraft) {
+              setStudentMarks(JSON.parse(savedDraft));
+          }
+      }
+  }, [selectedEnrollmentId]);
   const handleDownloadMarksTemplate = () => {
     if (classStudents.length === 0) return alert('No students found in this class to generate a template.');
     
@@ -339,7 +368,11 @@ export default function TeacherDashboard() {
       
       const res = await fetch(WEB_APP_URL, { method: 'POST', body: JSON.stringify({ marks: marksPayload }) });
       const result = await res.json();
-      if (result.status === 'success') setStatusMsg('Marks saved successfully everywhere!');
+      if (result.status === 'success') {
+          setStatusMsg('Marks saved successfully everywhere!');
+          // NEW: Clear the draft since we saved successfully!
+          localStorage.removeItem(`draft_marks_${selectedEnrollmentId}`);
+      }
       else setStatusMsg('Saved to Firebase, but Sheets backup error: ' + result.message);
     } catch (err) { setStatusMsg('Network error: ' + err.message); }
   };
@@ -501,8 +534,10 @@ export default function TeacherDashboard() {
                                   max={assessmentMaxMark} 
                                   min="0" 
                                   step="0.1"
+                                  data-index={index} // NEW: Assigns an index for keyboard navigation
                                   value={studentMarks[student.regNo] !== undefined ? studentMarks[student.regNo] : ''} 
                                   onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
+                                  onKeyDown={(e) => handleKeyDown(e, index)} // NEW: Triggers the jump
                                   placeholder={`/ ${assessmentMaxMark}`}
                                   style={{ padding: '8px 12px', width: '110px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '14px', color: '#0f172a', backgroundColor: '#ffffff' }}
                                 />

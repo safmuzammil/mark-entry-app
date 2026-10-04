@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 export const metadata = {
   title: 'School Mark Portal',
   description: 'Teacher and Admin Management Portal',
-  manifest: '/manifest.json?v=2',
+  manifest: '/manifest.json?v=3', // version bump
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
@@ -27,7 +27,23 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <head>
         <meta name="theme-color" content="#2563eb" />
-        <link rel="apple-touch-icon" href="/icon-192.png" />
+        <link rel="apple-touch-icon" href="/icon-192.png?v=3" />
+        {/* Register the Service Worker to unlock Android Installation */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                  navigator.serviceWorker.register('/sw.js').then(function(registration) {
+                    console.log('ServiceWorker registration successful');
+                  }, function(err) {
+                    console.log('ServiceWorker registration failed: ', err);
+                  });
+                });
+              }
+            `,
+          }}
+        />
       </head>
       <body>{children}</body>
     </html>
