@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { auth, db } from '../../lib/firebase';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import InstallAppBanner from '../../components/InstallAppBanner';
+import InstallAppBanner from '../components/InstallAppBanner';
 import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
 // Change your existing import from this:
 // import { doc, setDoc, getDocs, collection, deleteDoc, arrayUnion } from 'firebase/firestore';

@@ -4,7 +4,7 @@ import { auth, db } from '../../lib/firebase';
 import { signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
 import { collection, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
-import InstallAppBanner from '../../components/InstallAppBanner';
+import InstallAppBanner from '../components/InstallAppBanner';
 
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxN_z56f3Q5O3OjsKFagUSqromiH0xTKTfro0zqJZN4ZB-FJLM3jERMigPXiOkfw-4/exec';
 
