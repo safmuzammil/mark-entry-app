@@ -3,14 +3,12 @@ import { useState, useEffect } from 'react';
 import { auth, db } from '../../lib/firebase';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import InstallAppBanner from '../components/InstallAppBanner';
 import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
-// Change your existing import from this:
-// import { doc, setDoc, getDocs, collection, deleteDoc, arrayUnion } from 'firebase/firestore';
-
-// To this (adding getDoc):
 import { doc, setDoc, getDoc, getDocs, collection, deleteDoc, arrayUnion } from 'firebase/firestore';
 import { getApp, initializeApp } from 'firebase/app';
+
+// FIXED: Correct path based on your VS Code screenshot!
+import InstallAppBanner from '../components/InstallAppBanner';
 
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxN_z56f3Q5O3OjsKFagUSqromiH0xTKTfro0zqJZN4ZB-FJLM3jERMigPXiOkfw-4/exec';
 
@@ -19,7 +17,6 @@ const DEFAULT_CLASSES = ["QH1", "AL1", "FC1", "QH2", "AL2", "FC2", "QLA3", "HFC3
 const GRADES = ["1", "2", "3"];
 const DEPARTMENTS = ["QURAN", "LANGUAGE", "AQIDAH", "HADITH", "FIQH", "CIVIL"];
 const MADHABS = ["Hanafi", "Shafi", "General"];
-
 
 const parseCSVLine = (str) => {
     let arr = [];
@@ -50,11 +47,11 @@ const styles = {
 };
 
 // ==========================================
-// COMPONENT 1: TEACHER MANAGEMENT TAB (WITH USERNAME & PASSWORD EDITING)
+// COMPONENT 1: TEACHER MANAGEMENT TAB
 // ==========================================
 function TeacherManager() {
     const [username, setUsername] = useState('');
-    const [originalUsername, setOriginalUsername] = useState(''); // Tracks previous username for renames
+    const [originalUsername, setOriginalUsername] = useState('');
     const [fullName, setFullName] = useState('');
     const [password, setPassword] = useState('123sms');
     const [showTeacherPassword, setShowTeacherPassword] = useState(false);
@@ -100,9 +97,9 @@ function TeacherManager() {
     const handleEditClick = (teacher) => {
         setIsEditing(true);
         setUsername(teacher.username);
-        setOriginalUsername(teacher.username); // Store the original username
+        setOriginalUsername(teacher.username);
         setFullName(teacher.fullName);
-        setPassword(''); // Blank indicates "keep existing password unless typed"
+        setPassword('');
         setSubjectEnrollments(teacher.enrollments || []);
         setEditingEnrollmentId(null);
         setStatusMsg(`Editing profile for ${teacher.fullName}. You can update name, username, or set a new password.`);
@@ -128,7 +125,6 @@ function TeacherManager() {
         const safeUsername = username.toLowerCase().replace(/[^a-z0-9_.-]/g, '');
         const fakeEmail = `${safeUsername}@school.com`;
 
-        // Secondary Auth instance prevents the admin from being signed out
         const primaryApp = getApp();
         let secondaryApp;
         try { secondaryApp = getApp("SecondaryApp"); } 
@@ -137,37 +133,27 @@ function TeacherManager() {
 
         try {
             if (!isEditing) {
-                // 1. New Registration
                 await createUserWithEmailAndPassword(secondaryAuth, fakeEmail, password);
                 await setDoc(doc(db, 'teachers', safeUsername), {
-                    fullName,
-                    username: safeUsername,
-                    enrollments: subjectEnrollments
+                    fullName, username: safeUsername, enrollments: subjectEnrollments
                 }, { merge: true });
                 setStatusMsg('Teacher successfully registered!');
             } else {
-                // 2. Profile / Credential Update
                 const isUsernameChanged = safeUsername !== originalUsername;
 
-                // If username changed or a new password was provided, register/update the auth account
                 if (isUsernameChanged || (password && password.trim().length > 0)) {
                     const activePassword = password && password.trim().length >= 6 ? password.trim() : '123sms';
                     try {
                         await createUserWithEmailAndPassword(secondaryAuth, fakeEmail, activePassword);
                     } catch (authErr) {
-                        // Ignore if account already exists under this email
                         if (authErr.code !== 'auth/email-already-in-use') throw authErr;
                     }
                 }
 
-                // Update Firestore document
                 await setDoc(doc(db, 'teachers', safeUsername), {
-                    fullName,
-                    username: safeUsername,
-                    enrollments: subjectEnrollments
+                    fullName, username: safeUsername, enrollments: subjectEnrollments
                 }, { merge: true });
 
-                // If the username changed, delete the old document
                 if (isUsernameChanged && originalUsername) {
                     await deleteDoc(doc(db, 'teachers', originalUsername));
                 }
@@ -191,13 +177,10 @@ function TeacherManager() {
                 await deleteDoc(doc(db, 'teachers', teacherUsername)); 
                 fetchTeachersAndStudents(); 
                 setStatusMsg(`${teacherUsername} deleted.`); 
-            } catch (err) { 
-                alert("Failed to delete teacher."); 
-            }
+            } catch (err) { alert("Failed to delete teacher."); }
         }
     };
 
-    // Keep helper functions (handleAddSubject, handleRemoveSubject, openStudentPicker, etc.) as they are...
     const handleAddSubject = () => {
         const newId = Date.now().toString();
         setSubjectEnrollments([...subjectEnrollments, {
@@ -298,41 +281,19 @@ function TeacherManager() {
                             <label style={styles.label}>
                                 Username {isEditing && <span style={{ color: '#2563eb', fontSize: '12px' }}>(Editable)</span>}
                             </label>
-                            {/* Username is now editable during edit mode */}
-                            <input 
-                                type="text" 
-                                value={username} 
-                                onChange={(e) => setUsername(e.target.value)} 
-                                placeholder="e.g. muzammil" 
-                                required 
-                                style={styles.input} 
-                            />
+                            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. muzammil" required style={styles.input} />
                         </div>
                         <div>
                             <label style={styles.label}>
                                 {isEditing ? 'New Password (Leave blank to keep unchanged)' : 'Initial Password'}
                             </label>
                             <div style={{ display: 'flex', position: 'relative' }}>
-                                <input 
-                                    type={showTeacherPassword ? "text" : "password"} 
-                                    value={password} 
-                                    onChange={(e) => setPassword(e.target.value)} 
-                                    placeholder={isEditing ? "Enter new password (min 6 chars)" : "Password"}
-                                    required={!isEditing} 
-                                    style={styles.input} 
-                                />
-                                <button 
-                                    type="button" 
-                                    onClick={() => setShowTeacherPassword(!showTeacherPassword)} 
-                                    style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#2563eb', fontWeight: '600', cursor: 'pointer' }}
-                                >
-                                    {showTeacherPassword ? "Hide" : "Show"}
-                                </button>
+                                <input type={showTeacherPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={isEditing ? "Enter new password (min 6 chars)" : "Password"} required={!isEditing} style={styles.input} />
+                                <button type="button" onClick={() => setShowTeacherPassword(!showTeacherPassword)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#2563eb', fontWeight: '600', cursor: 'pointer' }}>{showTeacherPassword ? "Hide" : "Show"}</button>
                             </div>
                         </div>
                     </div>
 
-                    {/* Subject Assignment Area */}
                     <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                         <h4 style={{ margin: '0 0 16px 0', fontSize: '16px', color: '#1e293b' }}>1. Add Teaching Subjects</h4>
                         <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
@@ -363,7 +324,6 @@ function TeacherManager() {
                                         </div>
                                     </div>
 
-                                    {/* Student Picker Drawer */}
                                     {editingEnrollmentId === enroll.id && (
                                         <div style={{ background: '#f1f5f9', padding: '20px', borderTop: '1px solid #cbd5e1' }}>
                                             <div style={{ padding: '15px', background: '#e0f2fe', borderRadius: '8px', marginBottom: '15px', border: '1px solid #bae6fd' }}>
@@ -445,7 +405,6 @@ function TeacherManager() {
                 )}
             </div>
 
-            {/* Teachers Directory */}
             <div style={styles.card}>
                 <h3 style={styles.sectionTitle}>Teachers Directory</h3>
                 <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
@@ -709,7 +668,6 @@ function StudentManager() {
 
     return (
         <div>
-            {/* 1. MASS UPLOAD CARD */}
             <div style={styles.card}>
                 <h3 style={styles.sectionTitle}>Mass Upload Students</h3>
                 <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '20px' }}>Upload CSV columns: <strong>rollNo, regNo, adNo, firstName, classes, department, madhab</strong>.</p>
@@ -719,7 +677,6 @@ function StudentManager() {
                 </div>
             </div>
 
-            {/* 2. REGISTER / EDIT STUDENT FORM CARD */}
             <div style={{ ...styles.card, borderLeft: isEditing ? '6px solid #f59e0b' : '1px solid #f1f5f9' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
                     <h3 style={styles.sectionTitle}>{isEditing ? `Editing Student: ${regNo}` : 'Register Student'}</h3>
@@ -727,7 +684,6 @@ function StudentManager() {
                 </div>
 
                 <form onSubmit={handleAddOrUpdateStudent} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    {/* Responsive form grid */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
                         <div>
                             <label style={styles.label}>Sn (Roll No)</label>
@@ -790,7 +746,6 @@ function StudentManager() {
                 {statusMsg && <div style={{ marginTop: '20px', padding: '16px', background: statusMsg.includes('Error') ? '#fee2e2' : '#ecfdf5', border: `1px solid ${statusMsg.includes('Error') ? '#fecaca' : '#a7f3d0'}`, borderRadius: '8px', color: statusMsg.includes('Error') ? '#991b1b' : '#065f46', fontWeight: '600' }}>{statusMsg}</div>}
             </div>
 
-            {/* 3. STUDENTS DIRECTORY CARD WITH SCROLLABLE TABLE */}
             <div style={styles.card}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px', marginBottom: '20px' }}>
                     <div>
@@ -840,7 +795,6 @@ function StudentManager() {
                     </div>
                 )}
 
-                {/* Mobile-friendly scrollable wrapper for the directory table */}
                 <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px', minWidth: '750px' }}>
                         <thead>
@@ -904,7 +858,6 @@ function ReportManager() {
     const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
     const [statusMsg, setStatusMsg] = useState('');
 
-    // Filter States
     const [thresholdScore, setThresholdScore] = useState(40);
     const [thresholdCondition, setThresholdCondition] = useState('Below');
     const [exportDepartment, setExportDepartment] = useState('All');
@@ -916,12 +869,13 @@ function ReportManager() {
     const [inspectorSubject, setInspectorSubject] = useState(DEFAULT_SUBJECTS[0]);
     const [subjectLevelMarks, setSubjectLevelMarks] = useState({});
     const [isInspecting, setIsInspecting] = useState(false);
-    const [inspectorMode, setInspectorMode] = useState('class'); // 'class' or 'teacher'
+    
+    // NEW STATES WITH CORRECTED NAMES
+    const [inspectorMode, setInspectorMode] = useState('class'); 
     const [allTeachers, setAllTeachers] = useState([]);
     const [inspectorTeacherUsername, setInspectorTeacherUsername] = useState('');
     const [inspectorTeacherEnrollmentId, setInspectorTeacherEnrollmentId] = useState('');
 
-    // AI Assistant States - Note the bold markdown markers (**) in the text
     const [chatMessages, setChatMessages] = useState([
         {
             role: 'assistant',
@@ -931,7 +885,6 @@ function ReportManager() {
     const [chatInput, setChatInput] = useState('');
     const [isAiLoading, setIsAiLoading] = useState(false);
 
-    // --- AUTOMATED STALE-WHILE-REVALIDATE LOADER ---
     const fetchReportData = async () => {
         try {
             const querySnapshot = await getDocs(collection(db, 'students'));
@@ -994,7 +947,6 @@ function ReportManager() {
         fetchReportData();
     }, []);
 
-    // --- AI Chat Handler ---
     const handleSendMessage = async (e) => {
         e.preventDefault();
         const promptText = chatInput.trim();
@@ -1020,20 +972,19 @@ function ReportManager() {
                 const errorDetail = data?.error || data?.message || 'Failed to retrieve response.';
                 setChatMessages([
                     ...updatedHistory,
-                    { role: 'assistant', text: `⚠️️ Error: ${errorDetail}` }
+                    { role: 'assistant', text: `⚠ Error: ${errorDetail}` }
                 ]);
             }
         } catch (err) {
             setChatMessages([
                 ...updatedHistory,
-                { role: 'assistant', text: '⚠️ Network or parsing error communicating with the AI service.' }
+                { role: 'assistant', text: '⚠ Network or parsing error communicating with the AI service.' }
             ]);
         } finally {
             setIsAiLoading(false);
         }
     };
 
-    // --- Manual Filter Handler ---
     const generateFilteredList = () => {
         const filtered = registeredStudents.filter((student) => {
             if (exportDepartment !== 'All' && (student.department || '').toUpperCase() !== exportDepartment.toUpperCase()) return false;
@@ -1079,14 +1030,12 @@ function ReportManager() {
     const fetchClassSubjectMarks = async () => {
         setIsInspecting(true);
         try {
-            // 1. Fetch Students
             const studentSnap = await getDocs(collection(db, 'students'));
             const allStudents = [];
             studentSnap.forEach(docSnap => {
                 allStudents.push({ id: docSnap.id, ...docSnap.data() });
             });
 
-            // 2. Fetch Teachers
             const teacherSnap = await getDocs(collection(db, 'teachers'));
             const teachersList = [];
             teacherSnap.forEach(tDoc => {
@@ -1096,16 +1045,10 @@ function ReportManager() {
             let matchedStudents = [];
             let activeSubject = '';
 
-            // ---------------------------------------------------------
-            // MODE A: Filter by Class & Subject (Original Logic)
-            // ---------------------------------------------------------
             if (inspectorMode === 'class') {
                 activeSubject = inspectorSubject;
                 matchedStudents = allStudents.filter(s => (s.classes || []).includes(inspectorClass));
             } 
-            // ---------------------------------------------------------
-            // MODE B: Filter by Teacher & Specific Assignment
-            // ---------------------------------------------------------
             else if (inspectorMode === 'teacher') {
                 const selectedTeacher = teachersList.find(t => t.username === inspectorTeacherUsername);
                 const selectedEnrollment = selectedTeacher?.enrollments?.find(e => e.id === inspectorTeacherEnrollmentId);
@@ -1120,7 +1063,6 @@ function ReportManager() {
                 const envAliasLower = String(selectedEnrollment.alias || '').trim().toLowerCase();
                 const envLang = (selectedEnrollment.langTag || '').toLowerCase();
 
-                // Find all students that belong to this teacher's assignment
                 matchedStudents = allStudents.filter(student => {
                     const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
                     const sReg = String(student.regNo || '').trim();
@@ -1128,7 +1070,6 @@ function ReportManager() {
                     const sId = String(student.id || '').trim();
                     const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
 
-                    // Priority 1: Explicitly saved student IDs
                     if (selectedEnrollment.studentIds && Array.isArray(selectedEnrollment.studentIds)) {
                         const savedIds = selectedEnrollment.studentIds.map(id => String(id).trim());
                         if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
@@ -1136,7 +1077,6 @@ function ReportManager() {
                         }
                     }
 
-                    // Priority 2: Match by group alias (with M10 logic)
                     let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
 
                     if (!classMatch && envAliasLower.includes('m10')) {
@@ -1155,7 +1095,6 @@ function ReportManager() {
 
             matchedStudents.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
 
-            // 3. Fetch Marks and Resolve UI Display Names
             const marksRecord = {};
             const teacherRecord = {};
 
@@ -1167,7 +1106,6 @@ function ReportManager() {
                     if (markSnap.exists()) break;
                 }
 
-                // Check against the activeSubject (determined by the mode)
                 if (markSnap && markSnap.exists()) {
                     const studentMarksData = markSnap.data();
                     const foundSubjectKey = Object.keys(studentMarksData).find(
@@ -1178,12 +1116,9 @@ function ReportManager() {
                     marksRecord[student.regNo || student.id] = {};
                 }
 
-                // 4. Resolve Teacher Name for the UI Table
                 if (inspectorMode === 'teacher') {
-                    // In teacher mode, we already know exactly who the teacher is
                     teacherRecord[student.regNo || student.id] = teachersList.find(t => t.username === inspectorTeacherUsername)?.fullName || 'Assigned';
                 } else {
-                    // In class mode, run your original smart resolution loop
                     let assignedTeacher = 'Unassigned';
                     const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
                     if (!studentClassesLower.includes(inspectorClass.toLowerCase())) {
@@ -1290,7 +1225,7 @@ function ReportManager() {
 
     return (
         <div>
-            {/* 1. AI ASSISTANT CHAT PANEL - STRICT INLINE DESIGN */}
+            {/* 1. AI ASSISTANT CHAT PANEL */}
             <div style={styles.card}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
                     <span style={{ fontSize: '28px' }}>🤖</span>
@@ -1333,14 +1268,11 @@ function ReportManager() {
                                             <ReactMarkdown
                                                 remarkPlugins={[remarkGfm]}
                                                 components={{
-                                                    // Explicitly forcing pure black text and medium weight on all tags
                                                     p: ({ node, ...props }) => <p style={{ margin: '0 0 12px 0', color: '#000000', fontWeight: '500' }} {...props} />,
                                                     strong: ({ node, ...props }) => <strong style={{ fontWeight: '800', color: '#000000' }} {...props} />,
                                                     ul: ({ node, ...props }) => <ul style={{ paddingLeft: '24px', margin: '0 0 12px 0', color: '#000000', fontWeight: '500' }} {...props} />,
                                                     ol: ({ node, ...props }) => <ol style={{ paddingLeft: '24px', margin: '0 0 12px 0', color: '#000000', fontWeight: '500' }} {...props} />,
                                                     li: ({ node, ...props }) => <li style={{ marginBottom: '6px', color: '#000000' }} {...props} />,
-                                                    
-                                                    // Polished Table Styling for Mobile & Desktop
                                                     table: ({ node, ...props }) => (
                                                         <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', margin: '16px 0', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                                                             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px', minWidth: '400px', color: '#000000' }} {...props} />
@@ -1362,7 +1294,6 @@ function ReportManager() {
                         );
                     })}
                     
-                    {/* Professional Loading Indicator */}
                     {isAiLoading && (
                         <div style={{ display: 'flex', justifyContent: 'flex-start', width: '100%' }}>
                             <div style={{ background: '#ffffff', color: '#000000', padding: '12px 20px', borderRadius: '20px', borderBottomLeftRadius: '4px', border: '1px solid #e2e8f0', fontSize: '14px', fontWeight: '600', boxShadow: '0 2px 6px rgba(0,0,0,0.02)', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
@@ -1398,7 +1329,7 @@ function ReportManager() {
                 </form>
             </div>
 
-            {/* 2. MANUAL EXPORT CARD WITH AUTO-SYNC STATUS & FILTER CONTROLS */}
+            {/* 2. MANUAL EXPORT CARD */}
             <div style={styles.card}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px', flexWrap: 'wrap', gap: '15px' }}>
                     <div>
@@ -1471,7 +1402,7 @@ function ReportManager() {
 
                 {statusMsg && <div style={{ padding: '16px', background: '#e0f2fe', borderRadius: '8px', color: '#0369a1', fontWeight: '600', marginBottom: '20px' }}>{statusMsg}</div>}
 
-                {/* 3. FILTER RESULTS PREVIEW TABLE */}
+                {/* FILTER RESULTS PREVIEW TABLE */}
                 {filteredResults.length > 0 && (
                     <div style={{ border: '1px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden', marginTop: '20px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '16px', borderBottom: '1px solid #cbd5e1', flexWrap: 'wrap', gap: '10px' }}>
@@ -1608,6 +1539,61 @@ function ReportManager() {
                         </button>
                     </div>
                 </div>
+
+                {/* RESTORED: THE MARK INSPECTOR TABLE THAT WAS MISSING! */}
+                {subjectLevelMarks.students && subjectLevelMarks.students.length > 0 && (
+                    <div style={{ marginTop: '20px', overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '800px' }}>
+                            <thead>
+                                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
+                                    <th style={{ padding: '12px', color: '#334155' }}>Roll</th>
+                                    <th style={{ padding: '12px', color: '#334155' }}>Ad.No</th>
+                                    <th style={{ padding: '12px', color: '#334155' }}>Student Name</th>
+                                    <th style={{ padding: '12px', color: '#334155' }}>Level 1 (15)</th>
+                                    <th style={{ padding: '12px', color: '#334155' }}>Level 2 (20)</th>
+                                    <th style={{ padding: '12px', color: '#334155' }}>Level 3 (25)</th>
+                                    <th style={{ padding: '12px', color: '#334155' }}>Level 4 (40)</th>
+                                    <th style={{ padding: '12px', color: '#2563eb' }}>Total</th>
+                                    {inspectorMode === 'class' && <th style={{ padding: '12px', color: '#64748b' }}>Assigned Teacher</th>}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {subjectLevelMarks.students.map((student, idx) => {
+                                    const marks = subjectLevelMarks.records[student.regNo || student.id] || {};
+                                    const teacherName = subjectLevelMarks.teachers[student.regNo || student.id] || 'Unassigned';
+                                    const m1 = parseFloat(marks['15']) || 0;
+                                    const m2 = parseFloat(marks['20']) || 0;
+                                    const m3 = parseFloat(marks['25']) || 0;
+                                    const m4 = parseFloat(marks['40']) || 0;
+                                    const total = m1 + m2 + m3 + m4;
+
+                                    return (
+                                        <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                                            <td style={{ padding: '12px', fontWeight: 'bold', color: '#64748b' }}>{student.rollNo || '-'}</td>
+                                            <td style={{ padding: '12px', fontWeight: 'bold', color: '#0f172a' }}>{student.adNo}</td>
+                                            <td style={{ padding: '12px', color: '#334155' }}>
+                                                {student.firstName}
+                                                <br/>
+                                                <span style={{ fontSize: '11px', color: '#94a3b8' }}>{student.regNo}</span>
+                                            </td>
+                                            <td style={{ padding: '12px' }}>{marks['15'] !== undefined ? marks['15'] : '-'}</td>
+                                            <td style={{ padding: '12px' }}>{marks['20'] !== undefined ? marks['20'] : '-'}</td>
+                                            <td style={{ padding: '12px' }}>{marks['25'] !== undefined ? marks['25'] : '-'}</td>
+                                            <td style={{ padding: '12px' }}>{marks['40'] !== undefined ? marks['40'] : '-'}</td>
+                                            <td style={{ padding: '12px', fontWeight: 'bold', color: '#2563eb' }}>{total > 0 ? total : '-'}</td>
+                                            {inspectorMode === 'class' && (
+                                                <td style={{ padding: '12px', color: teacherName === 'Unassigned' ? '#ef4444' : '#10b981', fontWeight: '600' }}>
+                                                    {teacherName}
+                                                </td>
+                                            )}
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
