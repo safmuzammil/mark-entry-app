@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { auth, db } from '../../lib/firebase';
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
 import { collection, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 
@@ -39,6 +39,85 @@ const parseCSVLine = (str) => {
   return arr;
 };
 
+// ==========================================
+// NEW: TEACHER SETTINGS COMPONENT
+// ==========================================
+function TeacherPasswordSettings() {
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [status, setStatus] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const handlePasswordChange = async (e) => {
+        e.preventDefault();
+        if (newPassword.length < 6) return setStatus('Password must be at least 6 characters.');
+        if (newPassword !== confirmPassword) return setStatus('Passwords do not match.');
+
+        setLoading(true);
+        setStatus('');
+        try {
+            const user = auth.currentUser;
+            if (!user) throw new Error("No active user session found. Please log in again.");
+            
+            await updatePassword(user, newPassword);
+            setStatus('Password updated successfully!');
+            setNewPassword('');
+            setConfirmPassword('');
+        } catch (err) {
+            if (err.code === 'auth/requires-recent-login') {
+                setStatus('For security, please log out and log back in before changing your password.');
+            } else {
+                setStatus('Error: ' + err.message);
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div style={{ ...styles.card, maxWidth: '450px', margin: '0 auto' }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', color: '#0f172a' }}>🔒 Change Your Password</h3>
+            <p style={{ margin: '0 0 20px 0', fontSize: '14px', color: '#64748b' }}>Update your account password. You will use this new password the next time you log in.</p>
+            
+            <form onSubmit={handlePasswordChange} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div>
+                    <label style={styles.label}>New Password</label>
+                    <input 
+                        type="password" 
+                        value={newPassword} 
+                        onChange={(e) => setNewPassword(e.target.value)} 
+                        placeholder="At least 6 characters" 
+                        required 
+                        style={styles.input}
+                    />
+                </div>
+                <div>
+                    <label style={styles.label}>Confirm New Password</label>
+                    <input 
+                        type="password" 
+                        value={confirmPassword} 
+                        onChange={(e) => setConfirmPassword(e.target.value)} 
+                        placeholder="Re-type new password" 
+                        required 
+                        style={styles.input}
+                    />
+                </div>
+                <button type="submit" disabled={loading} style={styles.buttonPrimary}>
+                    {loading ? 'Updating...' : 'Update Password'}
+                </button>
+            </form>
+            {status && (
+                <div style={{ marginTop: '16px', padding: '12px', borderRadius: '8px', fontSize: '14px', fontWeight: '600', backgroundColor: status.includes('Error') || status.includes('must') || status.includes('not match') ? '#fee2e2' : '#d1fae5', color: status.includes('Error') || status.includes('must') || status.includes('not match') ? '#ef4444' : '#10b981' }}>
+                    {status}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ==========================================
+// MAIN TEACHER DASHBOARD
+// ==========================================
 export default function TeacherDashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loggedInTeacher, setLoggedInTeacher] = useState(null);
@@ -46,6 +125,9 @@ export default function TeacherDashboard() {
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  // Toggle between Mark Entry view and Settings view
+  const [activeView, setActiveView] = useState('marks'); 
 
   const [selectedEnrollmentId, setSelectedEnrollmentId] = useState('');
   const [cceLevel, setCceLevel] = useState('Level 1');
@@ -92,6 +174,7 @@ export default function TeacherDashboard() {
     setLoggedInTeacher(null);
     setUsername(''); setPassword('');
     setClassStudents([]); setAllStudentsCache([]);
+    setActiveView('marks');
   };
 
   useEffect(() => {
@@ -156,7 +239,6 @@ export default function TeacherDashboard() {
     document.body.removeChild(link);
   };
 
-  // --- UNIVERSAL SPREADSHEET UPLOAD (.csv, .xls, .xlsx) ---
   const handleUniversalUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -274,7 +356,7 @@ export default function TeacherDashboard() {
   const passingCount = validMarks.filter(m => m >= passingThreshold).length;
   const passPercentage = totalStudentsWithMarks > 0 ? ((passingCount / totalStudentsWithMarks) * 100).toFixed(0) : 0;
 
- if (!isAuthenticated) {
+  if (!isAuthenticated) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f0f2f5', fontFamily: 'Inter, system-ui, sans-serif', padding: '16px', boxSizing: 'border-box' }}>
         <div style={{ background: '#ffffff', padding: '36px 20px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', width: '100%', maxWidth: '420px', border: '1px solid #e2e8f0', boxSizing: 'border-box' }}>
@@ -304,128 +386,143 @@ export default function TeacherDashboard() {
 
   const currentEnrollment = loggedInTeacher?.enrollments?.find(e => e.id === selectedEnrollmentId);
 
- return (
+  return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '16px 8px', fontFamily: 'Inter, system-ui, sans-serif', color: '#0f172a', boxSizing: 'border-box' }}>
       <div style={{ maxWidth: '1100px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
         
         {/* Header Bar */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', background: '#ffffff', padding: '16px 20px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '12px', boxSizing: 'border-box' }}>
           <div>
-            <h1 style={{ margin: '0 0 4px 0', fontSize: '22px', color: '#0f172a', fontWeight: '800' }}>Teacher Mark Entry</h1>
+            <h1 style={{ margin: '0 0 4px 0', fontSize: '22px', color: '#0f172a', fontWeight: '800' }}>Teacher Portal</h1>
             <p style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>Welcome back, <strong style={{ color: '#0f172a' }}>{loggedInTeacher?.fullName}</strong></p>
           </div>
-          <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button 
+                onClick={() => setActiveView(activeView === 'marks' ? 'settings' : 'marks')} 
+                style={{ padding: '8px 14px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}
+            >
+                {activeView === 'marks' ? '⚙️ Settings' : '⬅️ Back to Marks'}
+            </button>
+            <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
+          </div>
         </div>
         
-        {/* Selectors Card */}
-        <div style={styles.card}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
-            <div>
-              <label style={styles.label}>Select Assigned Subject:</label>
-              <select value={selectedEnrollmentId} onChange={(e) => setSelectedEnrollmentId(e.target.value)} style={{ ...styles.input, cursor: 'pointer' }}>
-                {(loggedInTeacher?.enrollments || []).map(env => (
-                  <option key={env.id} value={env.id}>
-                    {env.alias || `Grade ${env.grade} ${env.subject}`} ({env.langTag || 'Gen'})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label style={styles.label}>Select Task Level:</label>
-              <select value={cceLevel} onChange={(e) => setCceLevel(e.target.value)} style={{ ...styles.input, cursor: 'pointer' }}>
-                {Object.keys(CCE_LEVELS).map(level => (
-                  <option key={level} value={level}>{level} (Max {CCE_LEVELS[level]} Marks)</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
+        {/* Dynamic Views: Settings vs Mark Entry */}
+        {activeView === 'settings' ? (
+            <TeacherPasswordSettings />
+        ) : (
+            <>
+                {/* Selectors Card */}
+                <div style={styles.card}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+                    <div>
+                      <label style={styles.label}>Select Assigned Subject:</label>
+                      <select value={selectedEnrollmentId} onChange={(e) => setSelectedEnrollmentId(e.target.value)} style={{ ...styles.input, cursor: 'pointer' }}>
+                        {(loggedInTeacher?.enrollments || []).map(env => (
+                          <option key={env.id} value={env.id}>
+                            {env.alias || `Grade ${env.grade} ${env.subject}`} ({env.langTag || 'Gen'})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={styles.label}>Select Task Level:</label>
+                      <select value={cceLevel} onChange={(e) => setCceLevel(e.target.value)} style={{ ...styles.input, cursor: 'pointer' }}>
+                        {Object.keys(CCE_LEVELS).map(level => (
+                          <option key={level} value={level}>{level} (Max {CCE_LEVELS[level]} Marks)</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
 
-        {/* Statistics Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '20px' }}>
-          <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
-            <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>CLASS AVERAGE</span>
-            <div style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a', marginTop: '4px' }}>{classAverage} / {assessmentMaxMark}</div>
-          </div>
-          <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
-            <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>HIGHEST SCORE</span>
-            <div style={{ fontSize: '22px', fontWeight: '800', color: '#10b981', marginTop: '4px' }}>{highestScore} / {assessmentMaxMark}</div>
-          </div>
-          <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
-            <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>PASSING RATE</span>
-            <div style={{ fontSize: '22px', fontWeight: '800', color: '#2563eb', marginTop: '4px' }}>{passPercentage}%</div>
-          </div>
-        </div>
+                {/* Statistics Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+                  <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+                    <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>CLASS AVERAGE</span>
+                    <div style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a', marginTop: '4px' }}>{classAverage} / {assessmentMaxMark}</div>
+                  </div>
+                  <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+                    <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>HIGHEST SCORE</span>
+                    <div style={{ fontSize: '22px', fontWeight: '800', color: '#10b981', marginTop: '4px' }}>{highestScore} / {assessmentMaxMark}</div>
+                  </div>
+                  <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+                    <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>PASSING RATE</span>
+                    <div style={{ fontSize: '22px', fontWeight: '800', color: '#2563eb', marginTop: '4px' }}>{passPercentage}%</div>
+                  </div>
+                </div>
 
-        {/* Mark Entry Form & Table Card */}
-        <form onSubmit={handleBulkSubmit} style={styles.card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px', marginBottom: '20px', gap: '12px' }}>
-            <h3 style={{ margin: 0, fontSize: '18px', color: '#0f172a', fontWeight: '700' }}>
-              Enrolled Students: {currentEnrollment?.alias || `Grade ${currentEnrollment?.grade} ${currentEnrollment?.subject}`} 
-              <sub style={{ color: '#64748b', marginLeft: '6px', fontWeight: 'bold' }}>{currentEnrollment?.langTag || 'Gen'}</sub>
-              <span style={{ fontSize: '13px', color: '#64748b', marginLeft: '8px' }}>({classStudents.length} students)</span>
-            </h3>
+                {/* Mark Entry Form & Table Card */}
+                <form onSubmit={handleBulkSubmit} style={styles.card}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px', marginBottom: '20px', gap: '12px' }}>
+                    <h3 style={{ margin: 0, fontSize: '18px', color: '#0f172a', fontWeight: '700' }}>
+                      Enrolled Students: {currentEnrollment?.alias || `Grade ${currentEnrollment?.grade} ${currentEnrollment?.subject}`} 
+                      <sub style={{ color: '#64748b', marginLeft: '6px', fontWeight: 'bold' }}>{currentEnrollment?.langTag || 'Gen'}</sub>
+                      <span style={{ fontSize: '13px', color: '#64748b', marginLeft: '8px' }}>({classStudents.length} students)</span>
+                    </h3>
 
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <button type="button" onClick={handleDownloadMarksTemplate} style={{ padding: '8px 14px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}>
-                📥 Download Template
-              </button>
-              <label style={{ padding: '8px 14px', background: '#0284c7', color: '#ffffff', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center' }}>
-                📂 Upload Spreadsheet (.csv, .xls, .xlsx)
-                <input type="file" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" onChange={handleUniversalUpload} style={{ display: 'none' }} />
-              </label>
-            </div>
-          </div>
-          
-          {classStudents.length === 0 ? (
-            <div style={{ padding: '30px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '12px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
-              No students have been assigned to this subject. Please ask the Admin to map students in the Admin Portal.
-            </div>
-          ) : (
-            <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', marginBottom: '20px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '550px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
-                    <th style={{ padding: '12px', color: '#334155', width: '60px' }}>Sn</th>
-                    <th style={{ padding: '12px', color: '#334155' }}>Ad.No</th>
-                    <th style={{ padding: '12px', color: '#334155' }}>Student Name</th>
-                    <th style={{ padding: '12px', color: '#334155' }}>Marks Obtained (Max: {assessmentMaxMark})</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {classStudents.map((student, index) => (
-                    <tr key={student.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                      <td style={{ padding: '12px', fontWeight: '600', color: '#64748b' }}>{student.rollNo || '-'}</td>
-                      <td style={{ padding: '12px', fontWeight: '600', color: '#0f172a' }}>{student.adNo}</td>
-                      <td style={{ padding: '12px', color: '#334155' }}>{student.firstName}</td>
-                      <td style={{ padding: '12px' }}>
-                        <input 
-                          type="number" 
-                          max={assessmentMaxMark} 
-                          min="0" 
-                          step="0.1"
-                          value={studentMarks[student.regNo] !== undefined ? studentMarks[student.regNo] : ''} 
-                          onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
-                          placeholder={`/ ${assessmentMaxMark}`}
-                          style={{ padding: '8px 12px', width: '110px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '14px', color: '#0f172a', backgroundColor: '#ffffff' }}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <button type="button" onClick={handleDownloadMarksTemplate} style={{ padding: '8px 14px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}>
+                        📥 Download Template
+                      </button>
+                      <label style={{ padding: '8px 14px', background: '#0284c7', color: '#ffffff', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center' }}>
+                        📂 Upload Spreadsheet (.csv, .xls, .xlsx)
+                        <input type="file" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" onChange={handleUniversalUpload} style={{ display: 'none' }} />
+                      </label>
+                    </div>
+                  </div>
+                  
+                  {classStudents.length === 0 ? (
+                    <div style={{ padding: '30px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '12px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
+                      No students have been assigned to this subject. Please ask the Admin to map students in the Admin Portal.
+                    </div>
+                  ) : (
+                    <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', marginBottom: '20px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '550px' }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
+                            <th style={{ padding: '12px', color: '#334155', width: '60px' }}>Sn</th>
+                            <th style={{ padding: '12px', color: '#334155' }}>Ad.No</th>
+                            <th style={{ padding: '12px', color: '#334155' }}>Student Name</th>
+                            <th style={{ padding: '12px', color: '#334155' }}>Marks Obtained (Max: {assessmentMaxMark})</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {classStudents.map((student, index) => (
+                            <tr key={student.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                              <td style={{ padding: '12px', fontWeight: '600', color: '#64748b' }}>{student.rollNo || '-'}</td>
+                              <td style={{ padding: '12px', fontWeight: '600', color: '#0f172a' }}>{student.adNo}</td>
+                              <td style={{ padding: '12px', color: '#334155' }}>{student.firstName}</td>
+                              <td style={{ padding: '12px' }}>
+                                <input 
+                                  type="number" 
+                                  max={assessmentMaxMark} 
+                                  min="0" 
+                                  step="0.1"
+                                  value={studentMarks[student.regNo] !== undefined ? studentMarks[student.regNo] : ''} 
+                                  onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
+                                  placeholder={`/ ${assessmentMaxMark}`}
+                                  style={{ padding: '8px 12px', width: '110px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '14px', color: '#0f172a', backgroundColor: '#ffffff' }}
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
 
-          <button type="submit" disabled={classStudents.length === 0} style={{ ...styles.buttonSuccess, opacity: classStudents.length === 0 ? 0.5 : 1 }}>
-            Save / Update All Marks
-          </button>
-        </form>
+                  <button type="submit" disabled={classStudents.length === 0} style={{ ...styles.buttonSuccess, opacity: classStudents.length === 0 ? 0.5 : 1 }}>
+                    Save / Update All Marks
+                  </button>
+                </form>
 
-        {statusMsg && (
-          <div style={{ padding: '14px', background: statusMsg.includes('Error') ? '#fee2e2' : '#ecfdf5', border: `1px solid ${statusMsg.includes('Error') ? '#fecaca' : '#a7f3d0'}`, borderRadius: '8px', color: statusMsg.includes('Error') ? '#991b1b' : '#065f46', fontWeight: '600', textAlign: 'center' }}>
-            {statusMsg}
-          </div>
+                {statusMsg && (
+                  <div style={{ padding: '14px', background: statusMsg.includes('Error') ? '#fee2e2' : '#ecfdf5', border: `1px solid ${statusMsg.includes('Error') ? '#fecaca' : '#a7f3d0'}`, borderRadius: '8px', color: statusMsg.includes('Error') ? '#991b1b' : '#065f46', fontWeight: '600', textAlign: 'center' }}>
+                    {statusMsg}
+                  </div>
+                )}
+            </>
         )}
       </div>
     </div>
