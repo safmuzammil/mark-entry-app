@@ -14,7 +14,7 @@ import { getApp, initializeApp } from 'firebase/app';
 
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxN_z56f3Q5O3OjsKFagUSqromiH0xTKTfro0zqJZN4ZB-FJLM3jERMigPXiOkfw-4/exec';
 
-const DEFAULT_SUBJECTS = ["Thafseer", "Hadith", "Fiqh", "Aqidah", "Balagha", "Logic", "English", "Adab", "Urdu", "Social Science", "Thamadun", "Hifz"];
+const DEFAULT_SUBJECTS = ["Thafseer", "Hadith", "Fiqh", "U :FIQH", "Aqidah", "Balagha", "Logic", "English", "Adab", "Urdu", "Social Science", "Thamadun", "Hifz"];
 const DEFAULT_CLASSES = ["QH1", "AL1", "FC1", "QH2", "AL2", "FC2", "QLA3", "HFC3"];
 const GRADES = ["1", "2", "3"];
 const DEPARTMENTS = ["QURAN", "LANGUAGE", "AQIDAH", "HADITH", "FIQH", "CIVIL"];
