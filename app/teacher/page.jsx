@@ -26,23 +26,78 @@ const styles = {
   tableWrapper: { width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', marginBottom: '16px' }
 };
 
-const parseCSVLine = (str) => {
-  let arr = [];
-  let quote = false;
-  let current = '';
-  for (let i = 0; i < str.length; i++) {
-    let char = str[i];
-    if (char === '"') quote = !quote;
-    else if (char === ',' && !quote) { arr.push(current); current = ''; } 
-    else current += char;
-  }
-  arr.push(current);
-  return arr;
+// --- SMART MIXED-CLASS SORTER ---
+// --- SMART MIXED-CLASS SORTER (MULTI-TIERED) ---
+const sortStudentsByDepartment = (studentsList, classNameAlias) => {
+    const classLower = String(classNameAlias || '').toLowerCase();
+    let deptOrder = [];
+    let classOrder = []; // NEW: Defines the base class grouping hierarchy
+
+    // 1. Assign exact class groups and department hierarchies based on the alias
+    if (classLower.includes('qhf')) {
+        deptOrder = ['QURAN', 'HADITH', 'FIQH'];
+    } else if (classLower.includes('alc')) {
+        deptOrder = ['AQIDAH', 'LANGUAGE', 'CIVIL'];
+    } else if (classLower.includes('m10') || classLower.includes('u10')) {
+        classOrder = ['qla3', 'hfc3']; // Group QLA3 first, then HFC3
+        deptOrder = ['QURAN', 'LANGUAGE', 'AQIDAH', 'HADITH', 'FIQH', 'CIVIL'];
+    } else if (classLower.includes('fcl')) {
+        deptOrder = ['FIQH', 'CIVIL', 'LANGUAGE'];
+    } else if (classLower.includes('qha')) {
+        deptOrder = ['QURAN', 'HADITH', 'AQIDAH'];
+    } else if (classLower.includes('u8') || classLower.includes('u9')) {
+        classOrder = ['qh', 'fc', 'al']; // Group QH first, FC second, AL third
+        deptOrder = ['QURAN', 'HADITH', 'FIQH', 'CIVIL', 'AQIDAH', 'LANGUAGE'];
+    }
+
+    // FALLBACK: If no custom sorting rules apply, sort by Roll No
+    if (deptOrder.length === 0 && classOrder.length === 0) {
+        return [...studentsList].sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
+    }
+
+    return [...studentsList].sort((a, b) => {
+        // --- LEVEL 1: Sort by Base Class Order ---
+        if (classOrder.length > 0) {
+            // Safely grab the student's assigned classes
+            const aClasses = (a.classes || [a.className] || []).map(c => String(c).toLowerCase());
+            const bClasses = (b.classes || [b.className] || []).map(c => String(c).toLowerCase());
+            
+            let classIndexA = 999;
+            let classIndexB = 999;
+            
+            // Check which prefix matches the student's class
+            classOrder.forEach((prefix, i) => {
+                if (classIndexA === 999 && aClasses.some(c => c.includes(prefix))) classIndexA = i;
+                if (classIndexB === 999 && bClasses.some(c => c.includes(prefix))) classIndexB = i;
+            });
+            
+            // If they belong to different class groups, order them by the class rules
+            if (classIndexA !== classIndexB) {
+                return classIndexA - classIndexB;
+            }
+        }
+
+        // --- LEVEL 2: Sort by Department Order (if they are in the same class group) ---
+        if (deptOrder.length > 0) {
+            const deptA = String(a.department || '').toUpperCase();
+            const deptB = String(b.department || '').toUpperCase();
+            
+            let indexA = deptOrder.indexOf(deptA);
+            let indexB = deptOrder.indexOf(deptB);
+            
+            if (indexA === -1) indexA = 999;
+            if (indexB === -1) indexB = 999;
+            
+            if (indexA !== indexB) {
+                return indexA - indexB;
+            }
+        }
+
+        // --- LEVEL 3: Sort by Roll No (if class group and department are identical) ---
+        return (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999);
+    });
 };
 
-// ==========================================
-// NEW: TEACHER SETTINGS COMPONENT
-// ==========================================
 function TeacherPasswordSettings() {
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -116,9 +171,6 @@ function TeacherPasswordSettings() {
     );
 }
 
-// ==========================================
-// MAIN TEACHER DASHBOARD
-// ==========================================
 export default function TeacherDashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loggedInTeacher, setLoggedInTeacher] = useState(null);
@@ -127,9 +179,7 @@ export default function TeacherDashboard() {
   const [loginError, setLoginError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  // Toggle between Mark Entry view and Settings view
   const [activeView, setActiveView] = useState('marks'); 
-
   const [selectedEnrollmentId, setSelectedEnrollmentId] = useState('');
   const [cceLevel, setCceLevel] = useState('Level 1');
   const assessmentMaxMark = CCE_LEVELS[cceLevel];
@@ -164,7 +214,6 @@ export default function TeacherDashboard() {
         const sData = [];
         sSnap.forEach((doc) => sData.push(doc.data()));
         setAllStudentsCache(sData);
-
       } else { setLoginError('Teacher profile not found.'); }
     } catch (err) { setLoginError('Invalid username or password.'); }
   };
@@ -183,12 +232,14 @@ export default function TeacherDashboard() {
     const currentEnrollment = loggedInTeacher.enrollments.find(e => e.id === selectedEnrollmentId);
     if (!currentEnrollment) return;
 
+    // Filter Students
     const matchedStudents = allStudentsCache.filter(student => 
       currentEnrollment.studentIds.includes(student.regNo)
     );
     
-    matchedStudents.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
-    setClassStudents(matchedStudents);
+    // Sort students using our Custom Smart Hierarchy Sorter
+    const sortedStudents = sortStudentsByDepartment(matchedStudents, currentEnrollment.alias || `Grade ${currentEnrollment.grade} ${currentEnrollment.subject}`);
+    setClassStudents(sortedStudents);
   }, [isAuthenticated, selectedEnrollmentId, allStudentsCache, loggedInTeacher]);
 
   useEffect(() => {
@@ -214,21 +265,19 @@ export default function TeacherDashboard() {
     fetchExistingMarksFromFirebase();
   }, [isAuthenticated, selectedEnrollmentId, assessmentMaxMark, classStudents, loggedInTeacher]);
 
- const handleMarkChange = (studentRegNo, value) => {
-    const updatedMarks = { ...studentMarks, [studentRegNo]: value };
-    setStudentMarks(updatedMarks);
-    
-    // NEW: Auto-save draft to device memory
-    if (selectedEnrollmentId) {
-        localStorage.setItem(`draft_marks_${selectedEnrollmentId}`, JSON.stringify(updatedMarks));
+  const handleMarkChange = (studentRegNo, value) => {
+    if (value === '' || /^\d*(\.\d{0,1})?$/.test(value)) {
+        const updatedMarks = { ...studentMarks, [studentRegNo]: value };
+        setStudentMarks(updatedMarks);
+        if (selectedEnrollmentId) {
+            localStorage.setItem(`draft_marks_${selectedEnrollmentId}`, JSON.stringify(updatedMarks));
+        }
     }
   };
 
-  // NEW: Excel-style "Enter" key navigation
   const handleKeyDown = (e, currentIndex) => {
     if (e.key === 'Enter' || e.key === 'ArrowDown') {
       e.preventDefault();
-      // Find the next input box by its data-index attribute and focus it
       const nextInput = document.querySelector(`input[data-index="${currentIndex + 1}"]`);
       if (nextInput) nextInput.focus();
     } else if (e.key === 'ArrowUp') {
@@ -238,7 +287,6 @@ export default function TeacherDashboard() {
     }
   };
 
-  // NEW: Load drafts when a class is selected
   useEffect(() => {
       if (selectedEnrollmentId) {
           const savedDraft = localStorage.getItem(`draft_marks_${selectedEnrollmentId}`);
@@ -247,6 +295,7 @@ export default function TeacherDashboard() {
           }
       }
   }, [selectedEnrollmentId]);
+
   const handleDownloadMarksTemplate = () => {
     if (classStudents.length === 0) return alert('No students found in this class to generate a template.');
     
@@ -303,7 +352,6 @@ export default function TeacherDashboard() {
       });
       
       setStudentMarks(newMarks);
-      
       if (errorCount > 0) {
         alert(`Extracted marks for ${updatedCount} students, but skipped ${errorCount} invalid marks. Review table and click 'Save All Marks'.`);
       } else {
@@ -327,7 +375,6 @@ export default function TeacherDashboard() {
       };
       reader.readAsArrayBuffer(file);
     }
-
     e.target.value = null; 
   };
 
@@ -337,13 +384,7 @@ export default function TeacherDashboard() {
     const currentEnrollment = loggedInTeacher.enrollments.find(e => e.id === selectedEnrollmentId);
     const maxNumber = Number(assessmentMaxMark);
 
-    // ---------------------------------------------------------
-    // GOOGLE SHEETS MAPPER: Standardize subject names
-    // ---------------------------------------------------------
     let sheetReadySubject = currentEnrollment.subject.trim();
-    
-    // Catch the known renaming issue so the Google Sheet doesn't break.
-    // If a teacher's old profile says "Mantiq", send "Logic" to the Google Sheet instead.
     if (sheetReadySubject.toUpperCase() === 'MANTIQ') {
         sheetReadySubject = 'Logic';
     }
@@ -356,15 +397,13 @@ export default function TeacherDashboard() {
       if (val !== undefined && val !== '') {
         if (parseFloat(val) > maxNumber) return alert(`Marks for ${student.firstName} exceed limit!`);
         
-        // Push the sanitized subject to Google Sheets
         marksPayload.push({
           studentId: student.regNo,
-          subject: sheetReadySubject, // This uses the corrected name (e.g., Logic)
+          subject: sheetReadySubject,
           maxMarks: assessmentMaxMark, 
           marksObtained: val
         });
 
-        // Save to Firebase using the original enrollment subject to maintain database consistency
         firestorePromises.push(
           setDoc(doc(db, 'marks', student.regNo), {
             [currentEnrollment.subject]: {
@@ -375,8 +414,6 @@ export default function TeacherDashboard() {
       }
     }
 
-    // ... rest of the try/catch block remains exactly the same ...
-
     try {
       await Promise.all(firestorePromises);
       setStatusMsg('Firebase updated! Backing up to Google Sheets...');
@@ -385,7 +422,6 @@ export default function TeacherDashboard() {
       const result = await res.json();
       if (result.status === 'success') {
           setStatusMsg('Marks saved successfully everywhere!');
-          // NEW: Clear the draft since we saved successfully!
           localStorage.removeItem(`draft_marks_${selectedEnrollmentId}`);
       }
       else setStatusMsg('Saved to Firebase, but Sheets backup error: ' + result.message);
@@ -438,9 +474,7 @@ export default function TeacherDashboard() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '16px 8px', fontFamily: 'Inter, system-ui, sans-serif', color: '#0f172a', boxSizing: 'border-box' }}>
       <div style={{ maxWidth: '1100px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
-        {/* Install Prompt for Mobile Users */}
          <InstallAppBanner />
-        {/* Header Bar */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', background: '#ffffff', padding: '16px 20px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '12px', boxSizing: 'border-box' }}>
           <div>
             <h1 style={{ margin: '0 0 4px 0', fontSize: '22px', color: '#0f172a', fontWeight: '800' }}>Teacher Portal</h1>
@@ -457,12 +491,10 @@ export default function TeacherDashboard() {
           </div>
         </div>
         
-        {/* Dynamic Views: Settings vs Mark Entry */}
         {activeView === 'settings' ? (
             <TeacherPasswordSettings />
         ) : (
             <>
-                {/* Selectors Card */}
                 <div style={styles.card}>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
                     <div>
@@ -486,7 +518,6 @@ export default function TeacherDashboard() {
                   </div>
                 </div>
 
-                {/* Statistics Cards */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '20px' }}>
                   <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
                     <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>CLASS AVERAGE</span>
@@ -502,7 +533,6 @@ export default function TeacherDashboard() {
                   </div>
                 </div>
 
-                {/* Mark Entry Form & Table Card */}
                 <form onSubmit={handleBulkSubmit} style={styles.card}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px', marginBottom: '20px', gap: '12px' }}>
                     <h3 style={{ margin: 0, fontSize: '18px', color: '#0f172a', fontWeight: '700' }}>
@@ -516,7 +546,7 @@ export default function TeacherDashboard() {
                         📥 Download Template
                       </button>
                       <label style={{ padding: '8px 14px', background: '#0284c7', color: '#ffffff', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center' }}>
-                        📂 Upload Spreadsheet (.csv, .xls, .xlsx)
+                        📂 Upload Spreadsheet
                         <input type="file" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" onChange={handleUniversalUpload} style={{ display: 'none' }} />
                       </label>
                     </div>
@@ -534,6 +564,7 @@ export default function TeacherDashboard() {
                             <th style={{ padding: '12px', color: '#334155', width: '60px' }}>Sn</th>
                             <th style={{ padding: '12px', color: '#334155' }}>Ad.No</th>
                             <th style={{ padding: '12px', color: '#334155' }}>Student Name</th>
+                            <th style={{ padding: '12px', color: '#334155' }}>Department</th>
                             <th style={{ padding: '12px', color: '#334155' }}>Marks Obtained (Max: {assessmentMaxMark})</th>
                           </tr>
                         </thead>
@@ -542,17 +573,18 @@ export default function TeacherDashboard() {
                             <tr key={student.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
                               <td style={{ padding: '12px', fontWeight: '600', color: '#64748b' }}>{student.rollNo || '-'}</td>
                               <td style={{ padding: '12px', fontWeight: '600', color: '#0f172a' }}>{student.adNo}</td>
-                              <td style={{ padding: '12px', color: '#334155' }}>{student.firstName}</td>
+                              <td style={{ padding: '12px', color: '#334155', fontWeight: '700' }}>{student.firstName}</td>
+                              <td style={{ padding: '12px', color: '#0369a1', fontSize: '12px', fontWeight: 'bold' }}>{student.department}</td>
                               <td style={{ padding: '12px' }}>
                                 <input 
                                   type="number" 
                                   max={assessmentMaxMark} 
                                   min="0" 
                                   step="0.1"
-                                  data-index={index} // NEW: Assigns an index for keyboard navigation
+                                  data-index={index} 
                                   value={studentMarks[student.regNo] !== undefined ? studentMarks[student.regNo] : ''} 
                                   onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
-                                  onKeyDown={(e) => handleKeyDown(e, index)} // NEW: Triggers the jump
+                                  onKeyDown={(e) => handleKeyDown(e, index)}
                                   placeholder={`/ ${assessmentMaxMark}`}
                                   style={{ padding: '8px 12px', width: '110px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '14px', color: '#0f172a', backgroundColor: '#ffffff' }}
                                 />

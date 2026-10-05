@@ -9,9 +9,7 @@ import InstallAppBanner from '../components/InstallAppBanner';
 
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxN_z56f3Q5O3OjsKFagUSqromiH0xTKTfro0zqJZN4ZB-FJLM3jERMigPXiOkfw-4/exec';
 
-const DEFAULT_SUBJECTS = ["Thafseer", "Hadith", "Fiqh", "U :FIQH", "Aqidah", "Balagha", 
-    "Logic", "English", "Adab", "Urdu", "Social Science", 
-    "Thamadun", "Specialization", "Hifz"];
+const DEFAULT_SUBJECTS = ["Thafseer", "Hadith", "Fiqh", "U :FIQH", "Aqidah", "Balagha", "Logic", "English", "Adab", "Urdu", "Social Science", "Thamadun", "Specialization", "Hifz"];
 const DEFAULT_CLASSES = ["QH1", "AL1", "FC1", "QH2", "AL2", "FC2", "QLA3", "HFC3"];
 const GRADES = ["1", "2", "3"];
 const DEPARTMENTS = ["QURAN", "LANGUAGE", "AQIDAH", "HADITH", "FIQH", "CIVIL"];
@@ -44,7 +42,77 @@ const styles = {
     badge: { display: 'inline-block', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' },
     filterSelect: { padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '13px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '600', cursor: 'pointer' }
 };
+// --- SMART MIXED-CLASS SORTER (MULTI-TIERED) ---
+// --- SMART MIXED-CLASS SORTER (MULTI-TIERED) ---
+const sortStudentsByDepartment = (studentsList, classNameAlias) => {
+    const classLower = String(classNameAlias || '').toLowerCase();
+    let deptOrder = [];
+    let classOrder = []; // NEW: Defines the base class grouping hierarchy
 
+    // 1. Assign exact class groups and department hierarchies based on the alias
+    if (classLower.includes('qhf')) {
+        deptOrder = ['QURAN', 'HADITH', 'FIQH'];
+    } else if (classLower.includes('alc')) {
+        deptOrder = ['AQIDAH', 'LANGUAGE', 'CIVIL'];
+    } else if (classLower.includes('m10') || classLower.includes('u10')) {
+        classOrder = ['qla3', 'hfc3']; // Group QLA3 first, then HFC3
+        deptOrder = ['QURAN', 'LANGUAGE', 'AQIDAH', 'HADITH', 'FIQH', 'CIVIL'];
+    } else if (classLower.includes('fcl')) {
+        deptOrder = ['FIQH', 'CIVIL', 'LANGUAGE'];
+    } else if (classLower.includes('qha')) {
+        deptOrder = ['QURAN', 'HADITH', 'AQIDAH'];
+    } else if (classLower.includes('u8') || classLower.includes('u9')) {
+        classOrder = ['qh', 'fc', 'al']; // Group QH first, FC second, AL third
+        deptOrder = ['QURAN', 'HADITH', 'FIQH', 'CIVIL', 'AQIDAH', 'LANGUAGE'];
+    }
+
+    // FALLBACK: If no custom sorting rules apply, sort by Roll No
+    if (deptOrder.length === 0 && classOrder.length === 0) {
+        return [...studentsList].sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
+    }
+
+    return [...studentsList].sort((a, b) => {
+        // --- LEVEL 1: Sort by Base Class Order ---
+        if (classOrder.length > 0) {
+            // Safely grab the student's assigned classes
+            const aClasses = (a.classes || [a.className] || []).map(c => String(c).toLowerCase());
+            const bClasses = (b.classes || [b.className] || []).map(c => String(c).toLowerCase());
+            
+            let classIndexA = 999;
+            let classIndexB = 999;
+            
+            // Check which prefix matches the student's class
+            classOrder.forEach((prefix, i) => {
+                if (classIndexA === 999 && aClasses.some(c => c.includes(prefix))) classIndexA = i;
+                if (classIndexB === 999 && bClasses.some(c => c.includes(prefix))) classIndexB = i;
+            });
+            
+            // If they belong to different class groups, order them by the class rules
+            if (classIndexA !== classIndexB) {
+                return classIndexA - classIndexB;
+            }
+        }
+
+        // --- LEVEL 2: Sort by Department Order (if they are in the same class group) ---
+        if (deptOrder.length > 0) {
+            const deptA = String(a.department || '').toUpperCase();
+            const deptB = String(b.department || '').toUpperCase();
+            
+            let indexA = deptOrder.indexOf(deptA);
+            let indexB = deptOrder.indexOf(deptB);
+            
+            if (indexA === -1) indexA = 999;
+            if (indexB === -1) indexB = 999;
+            
+            if (indexA !== indexB) {
+                return indexA - indexB;
+            }
+        }
+
+        // --- LEVEL 3: Sort by Roll No (if class group and department are identical) ---
+        return (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999);
+    });
+};
 // ==========================================
 // COMPONENT 1: TEACHER MANAGEMENT TAB
 // ==========================================
@@ -228,12 +296,12 @@ function TeacherManager() {
     };
 
     const autoGenerateSmartName = () => {
-        const currentEnroll = subjectEnrollments.find(e => e.id === editingEnrollmentId);
-        if (!currentEnroll) return;
+        const currentEnrollment = subjectEnrollments.find(e => e.id === editingEnrollmentId);
+        if (!currentEnrollment) return;
         const deptPrefix = filterDepartments.length > 0 ? filterDepartments.map(d => d[0]).join('') : 'ALL';
-        const gradeString = filterGrade !== 'All' ? filterGrade : currentEnroll.grade;
+        const gradeString = filterGrade !== 'All' ? filterGrade : currentEnrollment.grade;
         const madhabString = filterMadhab !== 'All' ? `${filterMadhab} ` : '';
-        setGroupAlias(`${madhabString}${deptPrefix}${gradeString} ${currentEnroll.subject}`);
+        setGroupAlias(`${madhabString}${deptPrefix}${gradeString} ${currentEnrollment.subject}`);
         setGroupLangTag(filterUrdu === 'All' ? 'Gen' : filterUrdu);
     };
 
@@ -677,7 +745,7 @@ function StudentManager() {
             </div>
 
             <div style={{ ...styles.card, borderLeft: isEditing ? '6px solid #f59e0b' : '1px solid #f1f5f9' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'gap', gap: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
                     <h3 style={styles.sectionTitle}>{isEditing ? `Editing Student: ${regNo}` : 'Register Student'}</h3>
                     {isEditing && <button type="button" onClick={resetForm} style={{ padding: '8px 16px', background: '#e2e8f0', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>}
                 </div>
@@ -845,7 +913,7 @@ function StudentManager() {
 }
 
 // ==========================================
-// COMPONENT 3: REPORT & ADVANCED FILTER AUDITOR (REPLACED AI)
+// COMPONENT 3: REPORT & ADVANCED FILTER AUDITOR
 // ==========================================
 function ReportManager() {
     const [registeredStudents, setRegisteredStudents] = useState([]);
@@ -856,9 +924,8 @@ function ReportManager() {
     const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
     const [statusMsg, setStatusMsg] = useState('');
 
-    // Native Smart Audit Filters
     const [searchQuery, setSearchQuery] = useState('');
-    const [auditPreset, setAuditPreset] = useState('ALL'); // 'ALL', 'MISSING', 'FAIL', 'TOP'
+    const [auditPreset, setAuditPreset] = useState('ALL'); 
     const [exportDepartment, setExportDepartment] = useState('All');
     const [exportClassFilter, setExportClassFilter] = useState('All');
     const [exportMetric, setExportMetric] = useState('STATUS');
@@ -866,7 +933,6 @@ function ReportManager() {
     const [thresholdCondition, setThresholdCondition] = useState('Below');
     const [thresholdScore, setThresholdScore] = useState(40);
 
-    // Inspector States
     const [inspectorClass, setInspectorClass] = useState(DEFAULT_CLASSES[0]);
     const [inspectorSubject, setInspectorSubject] = useState(DEFAULT_SUBJECTS[0]);
     const [subjectLevelMarks, setSubjectLevelMarks] = useState({});
@@ -938,11 +1004,8 @@ function ReportManager() {
         fetchReportData();
     }, []);
 
-    // Instant Client-Side Filter Engine
-   // Instant Client-Side Filter Engine
     const generateFilteredList = () => {
         const filtered = registeredStudents.filter((student) => {
-            // 1. Text Search Filter
             if (searchQuery.trim()) {
                 const query = searchQuery.trim().toLowerCase();
                 const name = (student.firstName || '').toLowerCase();
@@ -953,23 +1016,18 @@ function ReportManager() {
                 }
             }
 
-            // 2. Department & Class Filters
             if (exportDepartment !== 'All' && (student.department || '').toUpperCase() !== exportDepartment.toUpperCase()) return false;
             if (exportClassFilter !== 'All' && !(student.classes || []).includes(exportClassFilter)) return false;
 
-            // 🌟 THE FIX: If 'Show All Students' is selected, include them immediately! 
-            // We don't care if they have marks or not.
             if (auditPreset === 'ALL') return true;
 
             const marksInfo = overallMarksCache[student.regNo];
 
-            // 3. Preset Filter: Missing Marks
             if (auditPreset === 'MISSING') {
                 if (!marksInfo || !marksInfo.overall || !marksInfo.overall['STATUS'] || marksInfo.overall['STATUS'] === '-' || marksInfo.overall['STATUS'] === '') return true;
                 return false;
             }
 
-            // For FAIL, TOP, and CUSTOM presets, the student MUST have a recorded mark to be evaluated
             if (!marksInfo) return false;
 
             let scoreToCompareStr = '';
@@ -978,17 +1036,13 @@ function ReportManager() {
             else if (exportMetric === '420') scoreToCompareStr = marksInfo.overall?.['420'];
             else if (exportMetric === 'SUBJECT') scoreToCompareStr = marksInfo.subjects?.[exportSubject.toUpperCase()];
 
-            // If the specific metric being requested is empty, hide the student
             if (!scoreToCompareStr || scoreToCompareStr === '-' || scoreToCompareStr === '') return false;
-            
             const score = parseFloat(String(scoreToCompareStr).replace('%', ''));
             if (isNaN(score)) return false;
 
-            // 4. Evaluate specific numerical thresholds
             if (auditPreset === 'FAIL' && score >= 40) return false;
             if (auditPreset === 'TOP' && score < 80) return false;
 
-            // Manual Threshold Range
             if (auditPreset === 'CUSTOM') {
                 if (thresholdCondition === 'Below' && score >= Number(thresholdScore)) return false;
                 if (thresholdCondition === 'Above' && score < Number(thresholdScore)) return false;
@@ -1001,20 +1055,27 @@ function ReportManager() {
             let printedMetric = 'Missing / -';
             const info = overallMarksCache[s.regNo];
             if (info) {
-                if (exportMetric === 'STATUS') printedMetric = info.overall?.['STATUS'] || 'Missing / -';
-                else if (exportMetric === '1400') printedMetric = info.overall?.['1400'] || 'Missing / -';
-                else if (exportMetric === '420') printedMetric = info.overall?.['420'] || 'Missing / -';
-                else if (exportMetric === 'SUBJECT') printedMetric = info.subjects?.[exportSubject.toUpperCase()] || 'Missing / -';
+                if (exportMetric === 'STATUS') printedMetric = info.overall?.['STATUS'] || 'Missing';
+                else if (exportMetric === '1400') printedMetric = info.overall?.['1400'] || 'Missing';
+                else if (exportMetric === '420') printedMetric = info.overall?.['420'] || 'Missing';
+                else if (exportMetric === 'SUBJECT') printedMetric = info.subjects?.[exportSubject.toUpperCase()] || 'Missing';
             }
             return { ...s, displayMetric: printedMetric };
         });
 
-        setFilteredResults(mappedResults);
-        if (mappedResults.length === 0) setStatusMsg(`No students match the criteria.`);
-        else setStatusMsg(`Found ${mappedResults.length} students matching your filter criteria.`);
+        // APPLY SMART MIXED CLASS SORTER TO THE FILTERED LIST
+        let sortedMappedResults = [...mappedResults];
+        if (exportClassFilter !== 'All') {
+            sortedMappedResults = sortStudentsByDepartment(sortedMappedResults, exportClassFilter);
+        } else {
+            sortedMappedResults.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
+        }
+
+        setFilteredResults(sortedMappedResults);
+        if (sortedMappedResults.length === 0) setStatusMsg(`No students match the criteria.`);
+        else setStatusMsg(`Found ${sortedMappedResults.length} students matching your filter criteria.`);
     };
 
-    // Calculate Summary Stats from Cache
     const totalStudentsCount = registeredStudents.length;
     const studentsWithMarks = registeredStudents.filter(s => {
         const info = overallMarksCache[s.regNo];
@@ -1039,9 +1100,11 @@ function ReportManager() {
 
             let matchedStudents = [];
             let activeSubject = '';
+            let sorterAlias = ''; // Helps decide how to sort later
 
             if (inspectorMode === 'class') {
                 activeSubject = inspectorSubject;
+                sorterAlias = inspectorClass;
                 matchedStudents = allStudents.filter(s => (s.classes || []).includes(inspectorClass));
             } 
             else if (inspectorMode === 'teacher') {
@@ -1055,6 +1118,7 @@ function ReportManager() {
                 }
 
                 activeSubject = selectedEnrollment.subject;
+                sorterAlias = selectedEnrollment.alias || '';
                 const envAliasLower = String(selectedEnrollment.alias || '').trim().toLowerCase();
                 const envLang = (selectedEnrollment.langTag || '').toLowerCase();
 
@@ -1088,7 +1152,8 @@ function ReportManager() {
                 });
             }
 
-            matchedStudents.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
+            // APPLY SMART MIXED CLASS SORTER TO THE MARK INSPECTOR TABLE
+            matchedStudents = sortStudentsByDepartment(matchedStudents, sorterAlias);
 
             const marksRecord = {};
             const teacherRecord = {};
@@ -1220,7 +1285,7 @@ function ReportManager() {
 
     return (
         <div>
-            {/* 1. INSTANT SMART AUDIT BAR (REPLACED AI - 100% FREE & INSTANT) */}
+            {/* 1. INSTANT SMART AUDIT BAR */}
             <div style={styles.card}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '15px' }}>
                     <div>
@@ -1232,7 +1297,6 @@ function ReportManager() {
                     </span>
                 </div>
 
-                {/* KPI Overview Cards */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
                     <div style={{ padding: '16px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center' }}>
                         <span style={{ fontSize: '12px', fontWeight: '700', color: '#64748b' }}>TOTAL ENROLLED</span>
@@ -1254,7 +1318,6 @@ function ReportManager() {
                     </div>
                 </div>
 
-                {/* Filter Controls */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '16px' }}>
                     <div>
                         <label style={styles.label}>Quick Status Preset:</label>
@@ -1295,7 +1358,6 @@ function ReportManager() {
                     </div>
                 </div>
 
-                {/* Conditional Custom Threshold Settings */}
                 {auditPreset === 'CUSTOM' && (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', padding: '16px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
                         <div>
@@ -1341,7 +1403,6 @@ function ReportManager() {
                     </div>
                 )}
 
-                {/* Filter Results Table */}
                 {filteredResults.length > 0 && (
                     <div style={{ border: '1px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden', marginTop: '20px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '16px', borderBottom: '1px solid #cbd5e1', flexWrap: 'wrap', gap: '10px' }}>
@@ -1402,7 +1463,6 @@ function ReportManager() {
                     <h3 style={styles.sectionTitle}>🔍 Level-by-Level Mark Inspector</h3>
                 </div>
                 
-                {/* Mode Toggle Buttons */}
                 <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
                     <button 
                         onClick={() => { setInspectorMode('class'); setSubjectLevelMarks({}); }}
@@ -1419,8 +1479,6 @@ function ReportManager() {
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '20px' }}>
-                    
-                    {/* MODE A: Class Dropdowns */}
                     {inspectorMode === 'class' && (
                         <>
                             <div>
@@ -1438,7 +1496,6 @@ function ReportManager() {
                         </>
                     )}
 
-                    {/* MODE B: Teacher Dropdowns */}
                     {inspectorMode === 'teacher' && (
                         <>
                             <div>
@@ -1487,7 +1544,6 @@ function ReportManager() {
                     </div>
                 </div>
 
-                {/* HIGH-CONTRAST MARKS TABLE */}
                 {subjectLevelMarks.students && subjectLevelMarks.students.length > 0 && (
                     <div style={{ marginTop: '20px', overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '800px' }}>
@@ -1523,36 +1579,26 @@ function ReportManager() {
                                                 <br/>
                                                 <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '500' }}>{student.regNo}</span>
                                             </td>
-                                            
-                                            {/* Level 1 (15) - High Contrast */}
                                             <td style={{ padding: '14px 16px' }}>
                                                 <span style={{ fontSize: '15px', fontWeight: '800', color: marks['15'] !== undefined ? '#0f172a' : '#cbd5e1' }}>
                                                     {marks['15'] !== undefined ? marks['15'] : '-'}
                                                 </span>
                                             </td>
-
-                                            {/* Level 2 (20) - High Contrast */}
                                             <td style={{ padding: '14px 16px' }}>
                                                 <span style={{ fontSize: '15px', fontWeight: '800', color: marks['20'] !== undefined ? '#0f172a' : '#cbd5e1' }}>
                                                     {marks['20'] !== undefined ? marks['20'] : '-'}
                                                 </span>
                                             </td>
-
-                                            {/* Level 3 (25) - High Contrast */}
                                             <td style={{ padding: '14px 16px' }}>
                                                 <span style={{ fontSize: '15px', fontWeight: '800', color: marks['25'] !== undefined ? '#0f172a' : '#cbd5e1' }}>
                                                     {marks['25'] !== undefined ? marks['25'] : '-'}
                                                 </span>
                                             </td>
-
-                                            {/* Level 4 (40) - High Contrast */}
                                             <td style={{ padding: '14px 16px' }}>
                                                 <span style={{ fontSize: '15px', fontWeight: '800', color: marks['40'] !== undefined ? '#0f172a' : '#cbd5e1' }}>
                                                     {marks['40'] !== undefined ? marks['40'] : '-'}
                                                 </span>
                                             </td>
-
-                                            {/* Total Score - Clear Badge */}
                                             <td style={{ padding: '14px 16px' }}>
                                                 {total > 0 ? (
                                                     <span style={{ background: '#dbeafe', color: '#1e40af', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '15px' }}>
@@ -1562,7 +1608,6 @@ function ReportManager() {
                                                     <span style={{ color: '#94a3b8', fontWeight: '700' }}>-</span>
                                                 )}
                                             </td>
-
                                             {inspectorMode === 'class' && (
                                                 <td style={{ padding: '14px 16px', color: teacherName === 'Unassigned' ? '#dc2626' : '#047857', fontWeight: '700' }}>
                                                     {teacherName}
@@ -1621,7 +1666,7 @@ export default function CentralAdminDashboard() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0' }}>
                     <div style={{ display: 'flex', gap: '24px', alignItems: 'center', flexWrap: 'wrap' }}>
                         <h1 style={{ margin: '0 24px 0 0', fontSize: '24px', color: '#0f172a', fontWeight: '800', borderRight: '2px solid #e2e8f0', paddingRight: '24px' }}>Dashboard</h1>
-                        <button onClick={() => setActiveTab('teachers')} style={{ padding: '10px 20px', background: activeTab === 'teachers' ? '#2563eb' : 'transparent', color: activeTab === 'teachers' ? '#ffffff' : '#64748b', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '15px' }}>👨‍🏫 Manage Teachers</button>
+                        <button onClick={() => setActiveTab('teachers')} style={{ padding: '10px 20px', background: activeTab === 'teachers' ? '#2563eb' : 'transparent', color: activeTab === 'teachers' ? '#ffffff' : '#64748b', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '15px' }}>👨‍‍🏫 Manage Teachers</button>
                         <button onClick={() => setActiveTab('students')} style={{ padding: '10px 20px', background: activeTab === 'students' ? '#2563eb' : 'transparent', color: activeTab === 'students' ? '#ffffff' : '#64748b', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '15px' }}>👨‍🎓 Manage Students</button>
                         <button onClick={() => setActiveTab('reports')} style={{ padding: '10px 20px', background: activeTab === 'reports' ? '#2563eb' : 'transparent', color: activeTab === 'reports' ? '#ffffff' : '#64748b', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '15px' }}>📊 Reports & Export</button>
                     </div>
