@@ -2,18 +2,11 @@
 import { useState, useEffect } from 'react';
 import { auth, db } from '../lib/firebase';
 import { signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
-import { collection, getDocs, doc, getDoc, setDoc, deleteDoc, arrayUnion } from 'firebase/firestore';
-import { getApp, initializeApp } from 'firebase/app';
+import { collection, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 import InstallAppBanner from './components/InstallAppBanner';
 
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxN_z56f3Q5O3OjsKFagUSqromiH0xTKTfro0zqJZN4ZB-FJLM3jERMigPXiOkfw-4/exec';
-
-const DEFAULT_SUBJECTS = ["Thafseer", "Hadith", "Fiqh", "U :FIQH", "Aqidah", "Balagha", "Logic", "English", "Adab", "Urdu", "Social Science", "Thamadun", "Specialization", "Hifz"];
-const DEFAULT_CLASSES = ["QH1", "AL1", "FC1", "QH2", "AL2", "FC2", "QLA3", "HFC3"];
-const GRADES = ["1", "2", "3"];
-const DEPARTMENTS = ["QURAN", "LANGUAGE", "AQIDAH", "HADITH", "FIQH", "CIVIL"];
-const MADHABS = ["Hanafi", "Shafi", "General"];
 
 const CCE_LEVELS = {
   "Level 1": "15",
@@ -22,33 +15,13 @@ const CCE_LEVELS = {
   "Level 4": "40"
 };
 
-const parseCSVLine = (str) => {
-    let arr = [];
-    let quote = false;
-    let current = '';
-    for (let i = 0; i < str.length; i++) {
-        let char = str[i];
-        if (char === '"') quote = !quote;
-        else if (char === ',' && !quote) { arr.push(current); current = ''; }
-        else current += char;
-    }
-    arr.push(current);
-    return arr;
-};
-
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const styles = {
     card: { background: '#ffffff', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9', marginBottom: '24px', boxSizing: 'border-box' },
     input: { width: '100%', padding: '12px 16px', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', color: '#0f172a', fontSize: '15px', outline: 'none', boxSizing: 'border-box' },
     label: { display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '8px' },
     buttonPrimary: { padding: '12px 24px', background: '#2563eb', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '15px' },
     buttonSuccess: { padding: '14px 24px', background: '#10b981', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '16px', width: '100%', marginTop: '10px' },
-    buttonWarning: { padding: '14px 24px', background: '#f59e0b', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '16px', width: '100%', marginTop: '10px' },
-    buttonDanger: { padding: '8px 14px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '13px' },
-    sectionTitle: { margin: '0 0 20px 0', fontSize: '20px', color: '#0f172a', fontWeight: '700', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px' },
-    badge: { display: 'inline-block', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' },
-    filterSelect: { padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '13px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '600', cursor: 'pointer' }
+    buttonDanger: { padding: '8px 14px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '13px' }
 };
 
 // --- TEACHER ONLY: Smart Mixed-Class Sorter (Multi-Tiered) ---
@@ -103,9 +76,6 @@ const sortStudentsByDepartment = (studentsList, classNameAlias) => {
     });
 };
 
-// ==========================================
-// 1. TEACHER PASSWORD SETTINGS SUB-COMPONENT
-// ==========================================
 function TeacherPasswordSettings() {
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -149,9 +119,6 @@ function TeacherPasswordSettings() {
     );
 }
 
-// ==========================================
-// 2. TEACHER DASHBOARD VIEW
-// ==========================================
 function TeacherPortalView({ loggedInTeacher, onLogout }) {
     const [activeView, setActiveView] = useState('marks');
     const [selectedEnrollmentId, setSelectedEnrollmentId] = useState(loggedInTeacher?.enrollments?.[0]?.id || '');
@@ -182,7 +149,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
           currentEnrollment.studentIds.includes(student.regNo)
         );
         
-        // Apply Teacher Department Sorting
+        // Apply Custom Teacher Department Sorting
         const sortedStudents = sortStudentsByDepartment(matchedStudents, currentEnrollment.alias || `Grade ${currentEnrollment.grade} ${currentEnrollment.subject}`);
         setClassStudents(sortedStudents);
     }, [selectedEnrollmentId, allStudentsCache, loggedInTeacher]);
@@ -231,13 +198,6 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
           if (prevInput) prevInput.focus();
         }
     };
-
-    useEffect(() => {
-        if (selectedEnrollmentId) {
-            const savedDraft = localStorage.getItem(`draft_marks_${selectedEnrollmentId}`);
-            if (savedDraft) setStudentMarks(JSON.parse(savedDraft));
-        }
-    }, [selectedEnrollmentId]);
 
     const handleBulkSubmit = async (e) => {
         e.preventDefault();
@@ -373,35 +333,21 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     );
 }
 
-// ==========================================
-// 3. ADMIN PORTAL VIEW (Standard Roll No sorting)
-// ==========================================
 function AdminPortalView({ onLogout }) {
-    const [activeTab, setActiveTab] = useState('reports');
-    // Include all your Admin components here (TeacherManager, StudentManager, ReportManager)
-    // For brevity, we render the main admin shell navigation:
     return (
         <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', background: '#ffffff', padding: '20px 24px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '15px' }}>
-                <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '800' }}>Admin Dashboard</h1>
-                    <button onClick={() => setActiveTab('reports')} style={{ padding: '8px 16px', background: activeTab === 'reports' ? '#2563eb' : '#f8fafc', color: activeTab === 'reports' ? '#fff' : '#334155', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>📊 Reports & Auditor</button>
-                    <button onClick={() => setActiveTab('teachers')} style={{ padding: '8px 16px', background: activeTab === 'teachers' ? '#2563eb' : '#f8fafc', color: activeTab === 'teachers' ? '#fff' : '#334155', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>👨‍🏫 Teachers</button>
-                    <button onClick={() => setActiveTab('students')} style={{ padding: '8px 16px', background: activeTab === 'students' ? '#2563eb' : '#f8fafc', color: activeTab === 'students' ? '#fff' : '#334155', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>👨‍🎓 Students</button>
-                </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', background: '#ffffff', padding: '20px 24px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+                <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '800' }}>Admin Dashboard (Standard Roll Sorting)</h1>
                 <button onClick={onLogout} style={styles.buttonDanger}>Logout</button>
             </div>
-            
-            {activeTab === 'reports' && <div style={styles.card}><h3>Admin Reports & Audit Suite Active</h3><p>Manage reports and audits here without custom teacher department sorting.</p></div>}
-            {activeTab === 'teachers' && <div style={styles.card}><h3>Teacher Management Active</h3></div>}
-            {activeTab === 'students' && <div style={styles.card}><h3>Student Management Active</h3></div>}
+            <div style={styles.card}>
+                <h3>Welcome Admin</h3>
+                <p>You have full access to manage records with standard sorting order.</p>
+            </div>
         </div>
     );
 }
 
-// ==========================================
-// 4. MAIN UNIFIED LOGIN & ROUTER SCREEN
-// ==========================================
 export default function UnifiedSchoolPortal() {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -409,8 +355,7 @@ export default function UnifiedSchoolPortal() {
     const [loginError, setLoginError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
-    // Session State
-    const [userRole, setUserRole] = useState(null); // 'admin' | 'teacher' | null
+    const [userRole, setUserRole] = useState(null); 
     const [loggedInTeacherData, setLoggedInTeacherData] = useState(null);
 
     const handleLogin = async (e) => {
@@ -419,14 +364,12 @@ export default function UnifiedSchoolPortal() {
         setIsLoading(true);
         const cleanUsername = username.trim().toLowerCase();
 
-        // 1. Check Master Admin Credentials
         if (cleanUsername === 'admin' && password === 'admin123') {
             setUserRole('admin');
             setIsLoading(false);
             return;
         }
 
-        // 2. Check Teacher Credentials via Firebase Auth
         try {
             const fakeEmail = `${cleanUsername}@school.com`;
             await signInWithEmailAndPassword(auth, fakeEmail, password.trim());
@@ -454,7 +397,6 @@ export default function UnifiedSchoolPortal() {
         setUsername(''); setPassword('');
     };
 
-    // If logged in as Admin
     if (userRole === 'admin') {
         return (
             <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '24px 16px', fontFamily: 'Inter, system-ui, sans-serif' }}>
@@ -466,7 +408,6 @@ export default function UnifiedSchoolPortal() {
         );
     }
 
-    // If logged in as Teacher
     if (userRole === 'teacher') {
         return (
             <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '24px 16px', fontFamily: 'Inter, system-ui, sans-serif' }}>
@@ -478,7 +419,6 @@ export default function UnifiedSchoolPortal() {
         );
     }
 
-    // Login Screen Gateway
     return (
         <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f0f2f5', fontFamily: 'Inter, system-ui, sans-serif', padding: '16px', boxSizing: 'border-box' }}>
             <div style={{ width: '100%', maxWidth: '420px' }}>
