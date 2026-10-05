@@ -1,12 +1,12 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { auth, db } from '../../lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { createUserWithEmailAndPassword, getAuth, signOut, updatePassword } from 'firebase/auth';
 import { doc, setDoc, getDoc, getDocs, collection, deleteDoc, arrayUnion } from 'firebase/firestore';
 import { getApp, initializeApp } from 'firebase/app';
 import * as XLSX from 'xlsx';
-import InstallAppBanner from '../components/InstallAppBanner';
+import InstallAppBanner from '@/components/InstallAppBanner';
 
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxN_z56f3Q5O3OjsKFagUSqromiH0xTKTfro0zqJZN4ZB-FJLM3jERMigPXiOkfw-4/exec';
 
@@ -395,16 +395,16 @@ export default function UnifiedSchoolPortal() {
     const [userRole, setUserRole] = useState(null); 
     const [loggedInTeacherData, setLoggedInTeacherData] = useState(null);
 
-    const handleLogin = async (e) => {
+const handleLogin = async (e) => {
         e.preventDefault();
         setLoginError('');
         setIsLoading(true);
         const cleanUsername = username.trim().toLowerCase();
 
-        // 🌟 Dedicated Admin Routing
+        // 🌟 FIXED: Explicitly use router.push to navigate to your admin page route
         if (cleanUsername === 'admin' && password === 'admin123') {
             localStorage.setItem('isAdminAuth', 'true');
-            router.push('/admin'); // Routes directly to your dedicated admin page
+            router.push('/admin');
             return;
         }
 
