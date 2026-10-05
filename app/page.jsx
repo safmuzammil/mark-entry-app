@@ -2,11 +2,18 @@
 import { useState, useEffect } from 'react';
 import { auth, db } from '../lib/firebase';
 import { signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
-import { collection, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, setDoc, deleteDoc, arrayUnion } from 'firebase/firestore';
+import { getApp, initializeApp } from 'firebase/app';
 import * as XLSX from 'xlsx';
 import InstallAppBanner from './components/InstallAppBanner';
 
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxN_z56f3Q5O3OjsKFagUSqromiH0xTKTfro0zqJZN4ZB-FJLM3jERMigPXiOkfw-4/exec';
+
+const DEFAULT_SUBJECTS = ["Thafseer", "Hadith", "Fiqh", "U :FIQH", "Aqidah", "Balagha", "Logic", "English", "Adab", "Urdu", "Social Science", "Thamadun", "Specialization", "Hifz"];
+const DEFAULT_CLASSES = ["QH1", "AL1", "FC1", "QH2", "AL2", "FC2", "QLA3", "HFC3"];
+const GRADES = ["1", "2", "3"];
+const DEPARTMENTS = ["QURAN", "LANGUAGE", "AQIDAH", "HADITH", "FIQH", "CIVIL"];
+const MADHABS = ["Hanafi", "Shafi", "General"];
 
 const CCE_LEVELS = {
   "Level 1": "15",
@@ -15,16 +22,36 @@ const CCE_LEVELS = {
   "Level 4": "40"
 };
 
+const parseCSVLine = (str) => {
+    let arr = [];
+    let quote = false;
+    let current = '';
+    for (let i = 0; i < str.length; i++) {
+        let char = str[i];
+        if (char === '"') quote = !quote;
+        else if (char === ',' && !quote) { arr.push(current); current = ''; }
+        else current += char;
+    }
+    arr.push(current);
+    return arr;
+};
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const styles = {
     card: { background: '#ffffff', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9', marginBottom: '24px', boxSizing: 'border-box' },
     input: { width: '100%', padding: '12px 16px', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', color: '#0f172a', fontSize: '15px', outline: 'none', boxSizing: 'border-box' },
     label: { display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '8px' },
     buttonPrimary: { padding: '12px 24px', background: '#2563eb', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '15px' },
     buttonSuccess: { padding: '14px 24px', background: '#10b981', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '16px', width: '100%', marginTop: '10px' },
-    buttonDanger: { padding: '8px 14px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '13px' }
+    buttonWarning: { padding: '14px 24px', background: '#f59e0b', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '16px', width: '100%', marginTop: '10px' },
+    buttonDanger: { padding: '8px 14px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '13px' },
+    sectionTitle: { margin: '0 0 20px 0', fontSize: '20px', color: '#0f172a', fontWeight: '700', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px' },
+    badge: { display: 'inline-block', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' },
+    filterSelect: { padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '13px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '600', cursor: 'pointer' }
 };
 
-// --- TEACHER ONLY: Smart Mixed-Class Sorter (Multi-Tiered) ---
+// --- TEACHER ONLY: Custom Department Sorter ---
 const sortStudentsByDepartment = (studentsList, classNameAlias) => {
     const classLower = String(classNameAlias || '').toLowerCase();
     let deptOrder = [];
@@ -76,6 +103,9 @@ const sortStudentsByDepartment = (studentsList, classNameAlias) => {
     });
 };
 
+// ==========================================
+// TEACHER VIEWS & SETTINGS
+// ==========================================
 function TeacherPasswordSettings() {
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -149,7 +179,6 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
           currentEnrollment.studentIds.includes(student.regNo)
         );
         
-        // Apply Custom Teacher Department Sorting
         const sortedStudents = sortStudentsByDepartment(matchedStudents, currentEnrollment.alias || `Grade ${currentEnrollment.grade} ${currentEnrollment.subject}`);
         setClassStudents(sortedStudents);
     }, [selectedEnrollmentId, allStudentsCache, loggedInTeacher]);
@@ -311,7 +340,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                                   <td style={{ padding: '12px', color: '#0369a1', fontSize: '12px', fontWeight: 'bold' }}>{student.department}</td>
                                   <td style={{ padding: '12px' }}>
                                     <input 
-                                      type="number" max={assessmentMaxMark} min="0" step="0.1" data-index={index} 
+                                      type="number" max={assessmentMaxMark} min="0" step="0.01" data-index={index} 
                                       value={studentMarks[student.regNo] !== undefined ? studentMarks[student.regNo] : ''} 
                                       onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
                                       onKeyDown={(e) => handleKeyDown(e, index)}
@@ -333,21 +362,49 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     );
 }
 
+// ==========================================
+// ADMIN PORTAL VIEW (Standard Roll Sorting)
+// ==========================================
 function AdminPortalView({ onLogout }) {
+    const [activeTab, setActiveTab] = useState('reports');
+
     return (
         <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', background: '#ffffff', padding: '20px 24px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
-                <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '800' }}>Admin Dashboard (Standard Roll Sorting)</h1>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', background: '#ffffff', padding: '20px 24px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '15px' }}>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <h1 style={{ margin: 0, fontSize: '18px', fontWeight: '800' }}>Admin Dashboard</h1>
+                    <button onClick={() => setActiveTab('reports')} style={{ padding: '8px 14px', background: activeTab === 'reports' ? '#2563eb' : '#f8fafc', color: activeTab === 'reports' ? '#fff' : '#334155', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>📊 Reports</button>
+                    <button onClick={() => setActiveTab('teachers')} style={{ padding: '8px 14px', background: activeTab === 'teachers' ? '#2563eb' : '#f8fafc', color: activeTab === 'teachers' ? '#fff' : '#334155', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>👨‍🏫 Teachers</button>
+                    <button onClick={() => setActiveTab('students')} style={{ padding: '8px 14px', background: activeTab === 'students' ? '#2563eb' : '#f8fafc', color: activeTab === 'students' ? '#fff' : '#334155', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>👨‍🎓 Students</button>
+                </div>
                 <button onClick={onLogout} style={styles.buttonDanger}>Logout</button>
             </div>
-            <div style={styles.card}>
-                <h3>Welcome Admin</h3>
-                <p>You have full access to manage records with standard sorting order.</p>
-            </div>
+            
+            {activeTab === 'reports' && (
+                <div style={styles.card}>
+                    <h3 style={styles.sectionTitle}>Admin Reports & Audit Suite</h3>
+                    <p style={{ color: '#64748b' }}>Use this section to review overall student performance, missing marks, and sheet backups using standard roll-number sorting.</p>
+                </div>
+            )}
+            {activeTab === 'teachers' && (
+                <div style={styles.card}>
+                    <h3 style={styles.sectionTitle}>Teacher Management</h3>
+                    <p style={{ color: '#64748b' }}>Register and manage individual teacher credentials and subject assignments.</p>
+                </div>
+            )}
+            {activeTab === 'students' && (
+                <div style={styles.card}>
+                    <h3 style={styles.sectionTitle}>Student Management</h3>
+                    <p style={{ color: '#64748b' }}>Upload CSV sheets and manage individual student profiles.</p>
+                </div>
+            )}
         </div>
     );
 }
 
+// ==========================================
+// MAIN UNIFIED LOGIN & ROUTER SCREEN
+// ==========================================
 export default function UnifiedSchoolPortal() {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
