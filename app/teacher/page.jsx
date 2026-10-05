@@ -266,7 +266,7 @@ export default function TeacherDashboard() {
   }, [isAuthenticated, selectedEnrollmentId, assessmentMaxMark, classStudents, loggedInTeacher]);
 
   const handleMarkChange = (studentRegNo, value) => {
-    if (value === '' || /^\d*(\.\d{0,1})?$/.test(value)) {
+    if (value === '' || /^\d*(\.\d{0,2})?$/.test(value)) {
         const updatedMarks = { ...studentMarks, [studentRegNo]: value };
         setStudentMarks(updatedMarks);
         if (selectedEnrollmentId) {
@@ -580,7 +580,7 @@ export default function TeacherDashboard() {
                                   type="number" 
                                   max={assessmentMaxMark} 
                                   min="0" 
-                                  step="0.1"
+                                  step="0.01"
                                   data-index={index} 
                                   value={studentMarks[student.regNo] !== undefined ? studentMarks[student.regNo] : ''} 
                                   onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
