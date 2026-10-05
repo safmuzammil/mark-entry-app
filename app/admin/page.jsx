@@ -42,77 +42,45 @@ const styles = {
     badge: { display: 'inline-block', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' },
     filterSelect: { padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '13px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '600', cursor: 'pointer' }
 };
-// --- SMART MIXED-CLASS SORTER (MULTI-TIERED) ---
-// --- SMART MIXED-CLASS SORTER (MULTI-TIERED) ---
+
+// --- SMART MIXED-CLASS SORTER ---
 const sortStudentsByDepartment = (studentsList, classNameAlias) => {
     const classLower = String(classNameAlias || '').toLowerCase();
     let deptOrder = [];
-    let classOrder = []; // NEW: Defines the base class grouping hierarchy
 
-    // 1. Assign exact class groups and department hierarchies based on the alias
     if (classLower.includes('qhf')) {
         deptOrder = ['QURAN', 'HADITH', 'FIQH'];
     } else if (classLower.includes('alc')) {
         deptOrder = ['AQIDAH', 'LANGUAGE', 'CIVIL'];
     } else if (classLower.includes('m10') || classLower.includes('u10')) {
-        classOrder = ['qla3', 'hfc3']; // Group QLA3 first, then HFC3
         deptOrder = ['QURAN', 'LANGUAGE', 'AQIDAH', 'HADITH', 'FIQH', 'CIVIL'];
     } else if (classLower.includes('fcl')) {
         deptOrder = ['FIQH', 'CIVIL', 'LANGUAGE'];
     } else if (classLower.includes('qha')) {
         deptOrder = ['QURAN', 'HADITH', 'AQIDAH'];
     } else if (classLower.includes('u8') || classLower.includes('u9')) {
-        classOrder = ['qh', 'fc', 'al']; // Group QH first, FC second, AL third
         deptOrder = ['QURAN', 'HADITH', 'FIQH', 'CIVIL', 'AQIDAH', 'LANGUAGE'];
     }
 
-    // FALLBACK: If no custom sorting rules apply, sort by Roll No
-    if (deptOrder.length === 0 && classOrder.length === 0) {
+    if (deptOrder.length === 0) {
         return [...studentsList].sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
     }
 
     return [...studentsList].sort((a, b) => {
-        // --- LEVEL 1: Sort by Base Class Order ---
-        if (classOrder.length > 0) {
-            // Safely grab the student's assigned classes
-            const aClasses = (a.classes || [a.className] || []).map(c => String(c).toLowerCase());
-            const bClasses = (b.classes || [b.className] || []).map(c => String(c).toLowerCase());
-            
-            let classIndexA = 999;
-            let classIndexB = 999;
-            
-            // Check which prefix matches the student's class
-            classOrder.forEach((prefix, i) => {
-                if (classIndexA === 999 && aClasses.some(c => c.includes(prefix))) classIndexA = i;
-                if (classIndexB === 999 && bClasses.some(c => c.includes(prefix))) classIndexB = i;
-            });
-            
-            // If they belong to different class groups, order them by the class rules
-            if (classIndexA !== classIndexB) {
-                return classIndexA - classIndexB;
-            }
-        }
-
-        // --- LEVEL 2: Sort by Department Order (if they are in the same class group) ---
-        if (deptOrder.length > 0) {
-            const deptA = String(a.department || '').toUpperCase();
-            const deptB = String(b.department || '').toUpperCase();
-            
-            let indexA = deptOrder.indexOf(deptA);
-            let indexB = deptOrder.indexOf(deptB);
-            
-            if (indexA === -1) indexA = 999;
-            if (indexB === -1) indexB = 999;
-            
-            if (indexA !== indexB) {
-                return indexA - indexB;
-            }
-        }
-
-        // --- LEVEL 3: Sort by Roll No (if class group and department are identical) ---
+        const deptA = String(a.department || '').toUpperCase();
+        const deptB = String(b.department || '').toUpperCase();
+        
+        let indexA = deptOrder.indexOf(deptA);
+        let indexB = deptOrder.indexOf(deptB);
+        
+        if (indexA === -1) indexA = 999;
+        if (indexB === -1) indexB = 999;
+        
+        if (indexA !== indexB) return indexA - indexB;
         return (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999);
     });
 };
+
 // ==========================================
 // COMPONENT 1: TEACHER MANAGEMENT TAB
 // ==========================================
