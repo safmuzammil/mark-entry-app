@@ -178,7 +178,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     }, [selectedEnrollmentId, assessmentMaxMark, classStudents, loggedInTeacher]);
 
     const handleMarkChange = (studentRegNo, value) => {
-        if (value === '' || /^\d*(\.\d{0,1})?$/.test(value)) {
+        if (value === '' || /^\d*(\.\d{0,2})?$/.test(value)) {
             const updatedMarks = { ...studentMarks, [studentRegNo]: value };
             setStudentMarks(updatedMarks);
             if (selectedEnrollmentId) {
