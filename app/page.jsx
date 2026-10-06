@@ -691,7 +691,6 @@
 
                 {subjectEnrollments.map(enroll => (
                   <div key={enroll.id} style={{ border: '1px solid #cbd5e1', borderRadius: '12px', marginBottom: '12px', background: '#ffffff', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-                    {/* 🌟 UPGRADED HIGH-CONTRAST HEADER ROW */}
                     <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                         <span style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>
@@ -707,10 +706,29 @@
                       </div>
                     </div>
 
-                    {/* Keep your existing editingEnrollmentId conditional block below this */}
                     {editingEnrollmentId === enroll.id && (
-            // ... your student picker form ...
-        )}
+                      <div style={{ padding: '20px', background: '#f8fafc', borderTop: '1px solid #cbd5e1', borderBottomLeftRadius: '12px', borderBottomRightRadius: '12px' }}>
+                        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                          <input type="text" value={groupAlias} onChange={e => setGroupAlias(e.target.value)} placeholder="Display Name" style={{ ...styles.input, flex: 2 }} />
+                          <button type="button" onClick={autoGenerateSmartName} style={{ padding: '10px 16px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>Auto-Fill Name</button>
+                        </div>
+                        <div style={{ maxHeight: '240px', overflowY: 'auto', background: '#fff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '12px' }}>
+                          <label style={{ display: 'block', padding: '8px', fontWeight: '700', borderBottom: '2px solid #e2e8f0', cursor: 'pointer', color: '#0f172a' }}>
+                            <input type="checkbox" onChange={() => toggleSelectAllFiltered(filteredPickerStudents)} checked={filteredPickerStudents.length > 0 && filteredPickerStudents.every(s => tempSelectedStudents.includes(s.regNo))} style={{ marginRight: '10px', width: '16px', height: '16px' }} />
+                            Select All ({filteredPickerStudents.length})
+                          </label>
+                          {filteredPickerStudents.map(s => (
+                            <label key={s.regNo} style={{ display: 'block', padding: '8px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', fontSize: '14px', color: '#334155', fontWeight: '600' }}>
+                              <input type="checkbox" checked={tempSelectedStudents.includes(s.regNo)} onChange={() => toggleStudentInSubject(s.regNo)} style={{ marginRight: '10px', width: '15px', height: '15px' }} />
+                              {s.adNo} - {s.firstName} ({s.department || 'GENERAL'})
+                            </label>
+                          ))}
+                        </div>
+                        <div style={{ marginTop: '16px', textAlign: 'right' }}>
+                          <button type="button" onClick={saveStudentAssignments} style={{ padding: '10px 20px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>Done Selecting</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
                       </div>
