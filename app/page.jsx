@@ -399,19 +399,28 @@ const handleLogin = async (e) => {
         e.preventDefault();
         setLoginError('');
         setIsLoading(true);
-        const cleanUsername = username.trim().toLowerCase();
 
-        // 🌟 FIXED: Explicitly use router.push to navigate to your admin page route
-        if (cleanUsername === 'admin' && password === 'admin123') {
+        // 1. Get the raw typed username
+        const rawUsername = username.trim().toLowerCase();
+        
+        // 🌟 2. THE FIX: Remove all spaces and invalid characters so it perfectly matches the database
+        const safeUsername = rawUsername.replace(/[^a-z0-9_.-]/g, '');
+
+        // 3. Admin Check
+        if (rawUsername === 'admin' && password === 'admin123') {
             localStorage.setItem('isAdminAuth', 'true');
             router.push('/admin');
             return;
         }
 
+        // 4. Teacher Check
         try {
-            const fakeEmail = `${cleanUsername}@school.com`;
+            // 🌟 Use the safeUsername to create the email
+            const fakeEmail = `${safeUsername}@school.com`;
             await signInWithEmailAndPassword(auth, fakeEmail, password.trim());
-            const docRef = doc(db, "teachers", cleanUsername);
+            
+            // 🌟 Use the safeUsername to look up the document
+            const docRef = doc(db, "teachers", safeUsername);
             const docSnap = await getDoc(docRef);
 
             if (docSnap.exists()) {
@@ -422,7 +431,15 @@ const handleLogin = async (e) => {
                 await signOut(auth);
             }
         } catch (err) {
-            setLoginError('Invalid username or password.');
+            console.error("Login Error:", err);
+            // 🌟 SMART ERRORS: This will now explicitly tell you if the password is wrong or the user doesn't exist
+            if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+                setLoginError('Incorrect password or username.');
+            } else if (err.code === 'auth/user-not-found') {
+                setLoginError('Username does not exist in the database.');
+            } else {
+                setLoginError(`Login failed: ${err.message}`);
+            }
         } finally {
             setIsLoading(false);
         }
