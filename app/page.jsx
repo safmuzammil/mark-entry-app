@@ -1343,176 +1343,195 @@
       }).length;
       const missingMarksCount = totalStudentsCount - studentsWithMarks;
 
-      const fetchClassSubjectMarks = async () => {
-          setIsInspecting(true);
-          try {
-              const studentSnap = await getDocs(collection(db, 'students'));
-              const allStudents = [];
-              studentSnap.forEach(docSnap => {
-                  allStudents.push({ id: docSnap.id, ...docSnap.data() });
-              });
+      // 🌟 UPGRADED fetchClassSubjectMarks inside ReportManager
+const fetchClassSubjectMarks = async () => {
+    setIsInspecting(true);
+    try {
+        const studentSnap = await getDocs(collection(db, 'students'));
+        const allStudents = [];
+        studentSnap.forEach(docSnap => {
+            allStudents.push({ id: docSnap.id, ...docSnap.data() });
+        });
 
-              const teacherSnap = await getDocs(collection(db, 'teachers'));
-              const teachersList = [];
-              teacherSnap.forEach(tDoc => {
-                  teachersList.push({ id: tDoc.id, fullName: tDoc.data().fullName, username: tDoc.data().username, enrollments: tDoc.data().enrollments || [] });
-              });
+        const teacherSnap = await getDocs(collection(db, 'teachers'));
+        const teachersList = [];
+        teacherSnap.forEach(tDoc => {
+            teachersList.push({ id: tDoc.id, fullName: tDoc.data().fullName, username: tDoc.data().username, enrollments: tDoc.data().enrollments || [] });
+        });
 
-              let matchedStudents = [];
-              let activeSubject = '';
-              let sorterAlias = ''; 
+        let matchedStudents = [];
+        let activeSubject = '';
+        let sorterAlias = ''; 
 
-              if (inspectorMode === 'class') {
-                  activeSubject = inspectorSubject;
-                  sorterAlias = inspectorClass;
-                  matchedStudents = allStudents.filter(s => (s.classes || []).includes(inspectorClass));
-              } 
-              else if (inspectorMode === 'teacher') {
-                  const selectedTeacher = teachersList.find(t => t.username === inspectorTeacherUsername);
-                  const selectedEnrollment = selectedTeacher?.enrollments?.find(e => e.id === inspectorTeacherEnrollmentId);
+        if (inspectorMode === 'class') {
+            activeSubject = inspectorSubject;
+            sorterAlias = inspectorClass;
+            matchedStudents = allStudents.filter(s => (s.classes || []).includes(inspectorClass));
+        } 
+        else if (inspectorMode === 'teacher') {
+            const selectedTeacher = teachersList.find(t => t.username === inspectorTeacherUsername);
+            const selectedEnrollment = selectedTeacher?.enrollments?.find(e => e.id === inspectorTeacherEnrollmentId);
 
-                  if (!selectedEnrollment) {
-                      alert("No valid assignment selected for this teacher.");
-                      setIsInspecting(false);
-                      return;
-                  }
+            if (!selectedEnrollment) {
+                alert("No valid assignment selected for this teacher.");
+                setIsInspecting(false);
+                return;
+            }
 
-                  activeSubject = selectedEnrollment.subject;
-                  sorterAlias = selectedEnrollment.alias || '';
-                  const envAliasLower = String(selectedEnrollment.alias || '').trim().toLowerCase();
-                  const envLang = (selectedEnrollment.langTag || '').toLowerCase();
+            activeSubject = selectedEnrollment.subject;
+            sorterAlias = selectedEnrollment.alias || '';
+            const envAliasLower = String(selectedEnrollment.alias || '').trim().toLowerCase();
+            const envLang = (selectedEnrollment.langTag || '').toLowerCase();
 
-                  matchedStudents = allStudents.filter(student => {
-                      const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
-                      const sReg = String(student.regNo || '').trim();
-                      const sAd = String(student.adNo || '').trim();
-                      const sId = String(student.id || '').trim();
-                      const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
+            matchedStudents = allStudents.filter(student => {
+                const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
+                const sReg = String(student.regNo || '').trim();
+                const sAd = String(student.adNo || '').trim();
+                const sId = String(student.id || '').trim();
+                const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
 
-                      if (selectedEnrollment.studentIds && Array.isArray(selectedEnrollment.studentIds)) {
-                          const savedIds = selectedEnrollment.studentIds.map(id => String(id).trim());
-                          if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
-                              return true;
-                          }
-                      }
+                if (selectedEnrollment.studentIds && Array.isArray(selectedEnrollment.studentIds)) {
+                    const savedIds = selectedEnrollment.studentIds.map(id => String(id).trim());
+                    if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
+                        return true;
+                    }
+                }
 
-                      let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
+                let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
 
-                      if (!classMatch && envAliasLower.includes('m10')) {
-                          const isGrade3 = studentClassesLower.some(cls => cls.includes('3'));
-                          if (isGrade3 && !isUrdu) classMatch = true; 
-                      }
+                if (!classMatch && envAliasLower.includes('m10')) {
+                    const isGrade3 = studentClassesLower.some(cls => cls.includes('3'));
+                    if (isGrade3 && !isUrdu) classMatch = true; 
+                }
 
-                      if (classMatch) {
-                          if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
-                          if (envLang.includes('gen') || envLang.includes('non') || envLang === '') return !isUrdu;
-                          return true;
-                      }
-                      return false;
-                  });
-              }
+                if (classMatch) {
+                    if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
+                    if (envLang.includes('gen') || envLang.includes('non') || envLang === '') return !isUrdu;
+                    return true;
+                }
+                return false;
+            });
+        }
 
-              matchedStudents = sortStudentsByDepartment(matchedStudents, sorterAlias);
+        matchedStudents = sortStudentsByDepartment(matchedStudents, sorterAlias);
 
-              const marksRecord = {};
-              const teacherRecord = {};
+        const marksRecord = {};
+        const teacherRecord = {};
 
-              for (const student of matchedStudents) {
-                  let markSnap = null;
-                  const possibleKeys = [student.regNo, student.id, student.adNo, student.admissionNo].filter(Boolean);
-                  for (const key of possibleKeys) {
-                      markSnap = await getDoc(doc(db, 'marks', String(key).trim()));
-                      if (markSnap.exists()) break;
-                  }
+        for (const student of matchedStudents) {
+            let markSnap = null;
+            const possibleKeys = [student.regNo, student.id, student.adNo, student.admissionNo].filter(Boolean);
+            for (const key of possibleKeys) {
+                markSnap = await getDoc(doc(db, 'marks', String(key).trim()));
+                if (markSnap.exists()) break;
+            }
 
-                  if (markSnap && markSnap.exists()) {
-                      const studentMarksData = markSnap.data();
-                      const foundSubjectKey = Object.keys(studentMarksData).find(
-                          k => k.trim().toUpperCase() === activeSubject.trim().toUpperCase()
-                      );
-                      marksRecord[student.regNo || student.id] = foundSubjectKey ? studentMarksData[foundSubjectKey] : {};
-                  } else {
-                      marksRecord[student.regNo || student.id] = {};
-                  }
+            if (markSnap && markSnap.exists()) {
+                const studentMarksData = markSnap.data();
+                
+                // 🌟 Smart Subject Key Lookup (Prevents Fiqh vs U :Fiqh overlap)
+                const foundSubjectKey = Object.keys(studentMarksData).find(k => {
+                    const kUp = k.trim().toUpperCase();
+                    const actUp = activeSubject.trim().toUpperCase();
+                    if (actUp.includes('U :FIQH') || actUp.includes('U:FIQH')) {
+                        return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
+                    }
+                    if (actUp === 'FIQH') {
+                        return kUp === 'FIQH';
+                    }
+                    return kUp === actUp;
+                });
 
-                  if (inspectorMode === 'teacher') {
-                      teacherRecord[student.regNo || student.id] = teachersList.find(t => t.username === inspectorTeacherUsername)?.fullName || 'Assigned';
-                  } else {
-                      let assignedTeacher = 'Unassigned';
-                      const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
-                      if (!studentClassesLower.includes(inspectorClass.toLowerCase())) {
-                          studentClassesLower.push(inspectorClass.toLowerCase());
-                      }
+                marksRecord[student.regNo || student.id] = foundSubjectKey ? studentMarksData[foundSubjectKey] : {};
+            } else {
+                marksRecord[student.regNo || student.id] = {};
+            }
 
-                      const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
-                      const sReg = String(student.regNo || '').trim();
-                      const sAd = String(student.adNo || '').trim();
-                      const sId = String(student.id || '').trim();
+            if (inspectorMode === 'teacher') {
+                teacherRecord[student.regNo || student.id] = teachersList.find(t => t.username === inspectorTeacherUsername)?.fullName || 'Assigned';
+            } else {
+                let assignedTeacher = 'Unassigned';
+                const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
+                if (!studentClassesLower.includes(inspectorClass.toLowerCase())) {
+                    studentClassesLower.push(inspectorClass.toLowerCase());
+                }
 
-                      for (const teacher of teachersList) {
-                          const matchingEnv = teacher.enrollments.find(env => {
-                              const envSub = (env.subject || '').trim().toUpperCase();
-                              const inspSub = inspectorSubject.trim().toUpperCase();
-                              const envAliasUpper = String(env.alias || '').trim().toUpperCase();
+                const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
+                const sReg = String(student.regNo || '').trim();
+                const sAd = String(student.adNo || '').trim();
+                const sId = String(student.id || '').trim();
 
-                              // 🌟 REPLACE THIS ENTIRE isSubjectMatch BLOCK
-                            const isSubjectMatch =
-                              (envSub === inspSub) ||
-                              (inspSub === 'LOGIC' && envSub === 'MANTIQ') ||
-                              (inspSub === 'MANTIQ' && envSub === 'LOGIC');
+                for (const teacher of teachersList) {
+                    const matchingEnv = teacher.enrollments.find(env => {
+                        const envSub = (env.subject || '').trim().toUpperCase();
+                        const inspSub = inspectorSubject.trim().toUpperCase();
+                        const envAliasUpper = String(env.alias || '').trim().toUpperCase();
 
-                              if (!isSubjectMatch) return false;
+                        // 🌟 Precise Subject Matching Logic
+                        let isSubjectMatch = false;
+                        if (inspSub.includes('U :FIQH') || inspSub.includes('U:FIQH')) {
+                            isSubjectMatch = (envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH'));
+                        } else if (inspSub === 'FIQH') {
+                            const isUrduEnrollment = (envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH'));
+                            isSubjectMatch = ((envSub === 'FIQH' || envAliasUpper === 'FIQH') && !isUrduEnrollment);
+                        } else {
+                            isSubjectMatch = (envSub === inspSub) || 
+                                (inspSub === 'LOGIC' && envSub === 'MANTIQ') || 
+                                (inspSub === 'MANTIQ' && envSub === 'LOGIC') ||
+                                envAliasUpper.includes(inspSub);
+                        }
 
-                              if (env.studentIds && Array.isArray(env.studentIds)) {
-                                  const savedIds = env.studentIds.map(id => String(id).trim());
-                                  if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
-                                      return true;
-                                  }
-                              }
+                        if (!isSubjectMatch) return false;
 
-                              const envAliasLower = String(env.alias || '').trim().toLowerCase();
-                              let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
+                        if (env.studentIds && Array.isArray(env.studentIds)) {
+                            const savedIds = env.studentIds.map(id => String(id).trim());
+                            if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
+                                return true;
+                            }
+                        }
 
-                              if (!classMatch && envAliasLower.includes('m10')) {
-                                  const isGrade3 = studentClassesLower.some(cls => cls.includes('3'));
-                                  if (isGrade3 && !isUrdu) {
-                                      classMatch = true; 
-                                  }
-                              }
+                        const envAliasLower = String(env.alias || '').trim().toLowerCase();
+                        let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
 
-                              if (classMatch) {
-                                  const envLang = (env.langTag || '').toLowerCase();
-                                  let langMatch = false;
+                        if (!classMatch && envAliasLower.includes('m10')) {
+                            const isGrade3 = studentClassesLower.some(cls => cls.includes('3'));
+                            if (isGrade3 && !isUrdu) {
+                                classMatch = true; 
+                            }
+                        }
 
-                                  if (envLang.includes('urdu') && !envLang.includes('non')) {
-                                      langMatch = isUrdu; 
-                                  } else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
-                                      langMatch = !isUrdu; 
-                                  } else {
-                                      langMatch = true; 
-                                  }
-                                  return langMatch;
-                              }
-                              return false;
-                          });
+                        if (classMatch) {
+                            const envLang = (env.langTag || '').toLowerCase();
+                            let langMatch = false;
 
-                          if (matchingEnv) {
-                              assignedTeacher = teacher.fullName || teacher.id;
-                              break; 
-                          }
-                      }
-                      teacherRecord[student.regNo || student.id] = assignedTeacher;
-                  }
-              }
+                            if (envLang.includes('urdu') && !envLang.includes('non')) {
+                                langMatch = isUrdu; 
+                            } else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
+                                langMatch = !isUrdu; 
+                            } else {
+                                langMatch = true; 
+                            }
+                            return langMatch;
+                        }
+                        return false;
+                    });
 
-              setSubjectLevelMarks({ students: matchedStudents, records: marksRecord, teachers: teacherRecord });
-          } catch (err) {
-              console.error('Error fetching subject level marks:', err);
-          } finally {
-              setIsInspecting(false);
-          }
-      };
+                    if (matchingEnv) {
+                        assignedTeacher = teacher.fullName || teacher.id;
+                        break; 
+                    }
+                }
+                teacherRecord[student.regNo || student.id] = assignedTeacher;
+            }
+        }
 
+        setSubjectLevelMarks({ students: matchedStudents, records: marksRecord, teachers: teacherRecord });
+    } catch (err) {
+        console.error('Error fetching subject level marks:', err);
+    } finally {
+        setIsInspecting(false);
+    }
+};
       const handleDownloadExcel = () => {
           if (filteredResults.length === 0) return;
           let csvContent = 'data:text/csv;charset=utf-8,Roll No,Ad.No,First Name,Department,Class,Metric Value\n';
