@@ -342,7 +342,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                                   <td style={{ padding: '12px', color: '#0369a1', fontSize: '12px', fontWeight: 'bold' }}>{student.department}</td>
                                   <td style={{ padding: '12px' }}>
                                     <input 
-                                      type="number" max={assessmentMaxMark} min="0" step="0.01" data-index={index} 
+                                      type="number" max={assessmentMaxMark} min="0" step="any" data-index={index} 
                                       value={studentMarks[student.regNo] !== undefined ? studentMarks[student.regNo] : ''} 
                                       onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
                                       onKeyDown={(e) => handleKeyDown(e, index)}

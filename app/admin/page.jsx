@@ -1602,9 +1602,31 @@ export default function CentralAdminDashboard() {
     const [showAdminPassword, setShowAdminPassword] = useState(false);
     const [activeTab, setActiveTab] = useState('reports');
 
+    // 🌟 Check if the admin already logged in from the main page
+    useEffect(() => {
+        if (localStorage.getItem('isAdminAuth') === 'true') {
+            setIsAdminAuth(true);
+        }
+    }, []);
+
+    // 🌟 FIXED: Now saves the session to localStorage so it persists
     const handleAdminLogin = (e) => {
         e.preventDefault();
-        if (adminPassword === 'admin123') setIsAdminAuth(true); else alert('Incorrect Admin Password');
+        if (adminPassword === 'admin123') {
+            localStorage.setItem('isAdminAuth', 'true');
+            setIsAdminAuth(true);
+        } else {
+            alert('Incorrect Admin Password');
+        }
+    };
+    
+    // 🌟 FIXED: Completely clears the session and redirects to the home page
+    const handleLogout = async () => {
+        const authInstance = getAuth();
+        await signOut(authInstance); // Clears any underlying firebase session
+        localStorage.removeItem('isAdminAuth'); // Destroys the admin token
+        setIsAdminAuth(false);
+        window.location.href = '/'; // Redirects to the main login portal
     };
 
     if (!isAdminAuth) {
@@ -1638,7 +1660,8 @@ export default function CentralAdminDashboard() {
                         <button onClick={() => setActiveTab('students')} style={{ padding: '10px 20px', background: activeTab === 'students' ? '#2563eb' : 'transparent', color: activeTab === 'students' ? '#ffffff' : '#64748b', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '15px' }}>👨‍🎓 Manage Students</button>
                         <button onClick={() => setActiveTab('reports')} style={{ padding: '10px 20px', background: activeTab === 'reports' ? '#2563eb' : 'transparent', color: activeTab === 'reports' ? '#ffffff' : '#64748b', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '15px' }}>📊 Reports & Export</button>
                     </div>
-                    <button onClick={() => setIsAdminAuth(false)} style={{ padding: '10px 20px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>Logout</button>
+                    {/* 🌟 FIXED: Calls the new handleLogout function */}
+                    <button onClick={handleLogout} style={{ padding: '10px 20px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>Logout</button>
                 </div>
 
                 {activeTab === 'teachers' && <TeacherManager />}
