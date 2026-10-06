@@ -1,12 +1,12 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { auth, db } from '../lib/firebase';
+import { auth, db } from './lib/firebase'; // Ensure path matches your setup
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, getAuth, signOut, updatePassword, onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, getDoc, getDocs, collection, deleteDoc, arrayUnion } from 'firebase/firestore';
 import { getApp, initializeApp } from 'firebase/app';
 import * as XLSX from 'xlsx';
-import InstallAppBanner from './components/InstallAppBanner';
+import InstallAppBanner from './components/InstallAppBanner'; // Ensure path matches your setup
 
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxN_z56f3Q5O3OjsKFagUSqromiH0xTKTfro0zqJZN4ZB-FJLM3jERMigPXiOkfw-4/exec';
 
@@ -94,9 +94,6 @@ const sortStudentsByDepartment = (studentsList, classNameAlias) => {
     });
 };
 
-// ==========================================
-// 1. TEACHER COMPONENTS
-// ==========================================
 function TeacherPasswordSettings() {
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -140,7 +137,9 @@ function TeacherPasswordSettings() {
     );
 }
 
-// 🌟 UPGRADED TEACHER PORTAL VIEW
+// ==========================================
+// 🌟 FULLY UPGRADED TEACHER PORTAL VIEW
+// ==========================================
 function TeacherPortalView({ loggedInTeacher, onLogout }) {
     const [activeView, setActiveView] = useState('marks');
     const [selectedEnrollmentId, setSelectedEnrollmentId] = useState(loggedInTeacher?.enrollments?.[0]?.id || '');
@@ -149,7 +148,9 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     
     const [allStudentsCache, setAllStudentsCache] = useState([]);
     const [classStudents, setClassStudents] = useState([]);
-    const [studentMarks, setStudentMarks] = useState({}); // 🌟 Stores nested marks: { regNo: { "15": "12", "20": "18" } }
+    
+    // 🌟 Nested State for 4 levels
+    const [studentMarks, setStudentMarks] = useState({});
     const [statusMsg, setStatusMsg] = useState('');
 
     useEffect(() => {
@@ -172,7 +173,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
         setClassStudents(sortedStudents);
     }, [selectedEnrollmentId, allStudentsCache, loggedInTeacher]);
 
-    // 🌟 FAST LOADING UPGRADE: Fetches all students simultaneously
+    // 🌟 PERFORMANCE UPGRADE: Fast Concurrent Fetching
     useEffect(() => {
         if (!selectedEnrollmentId || classStudents.length === 0) return;
         const currentEnrollment = loggedInTeacher.enrollments.find(e => e.id === selectedEnrollmentId);
@@ -207,7 +208,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                 ...studentMarks,
                 [studentRegNo]: {
                     ...(studentMarks[studentRegNo] || {}),
-                    [assessmentMaxMark]: value // Only updates the active dropdown level
+                    [assessmentMaxMark]: value
                 }
             };
             setStudentMarks(updatedMarks);
@@ -342,7 +343,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
         <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', background: '#ffffff', padding: '16px 20px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '12px' }}>
               <div>
-                <h1 style={{ margin: '0 0 4px 0', fontSize: '22px', fontWeight: '800' }}>Teacher Portal</h1>
+                <h1 style={{ margin: '0 0 4px 0', fontSize: '22px', fontWeight: '800', color: '#0f172a' }}>Teacher Portal</h1>
                 <p style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>Welcome, <strong>{loggedInTeacher?.fullName}</strong></p>
               </div>
               <div style={{ display: 'flex', gap: '10px' }}>
@@ -377,7 +378,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '20px' }}>
                       <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
                         <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>CLASS AVERAGE</span>
-                        <div style={{ fontSize: '22px', fontWeight: '800', marginTop: '4px' }}>{classAverage} / {assessmentMaxMark}</div>
+                        <div style={{ fontSize: '22px', color: '#0f172a', fontWeight: '800', marginTop: '4px' }}>{classAverage} / {assessmentMaxMark}</div>
                       </div>
                       <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
                         <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>HIGHEST SCORE</span>
@@ -391,7 +392,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
 
                     <form onSubmit={handleBulkSubmit} style={styles.card}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px', marginBottom: '20px', gap: '12px' }}>
-                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700' }}>Enrolled Students ({classStudents.length})</h3>
+                        <h3 style={{ margin: 0, fontSize: '18px', color: '#0f172a', fontWeight: '700' }}>Enrolled Students ({classStudents.length})</h3>
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                           <button type="button" onClick={handleDownloadMarksTemplate} style={{ padding: '8px 14px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}>📥 Download Template</button>
                           <label style={{ padding: '8px 14px', background: '#0284c7', color: '#ffffff', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}>📂 Upload Spreadsheet<input type="file" accept=".csv, .xlsx" onChange={handleUniversalUpload} style={{ display: 'none' }} /></label>
@@ -402,51 +403,75 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                         <div style={{ padding: '30px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '12px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>No students assigned to this subject.</div>
                       ) : (
                         <div style={{ width: '100%', overflowX: 'auto', marginBottom: '20px' }}>
-                          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '700px' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '750px' }}>
                             <thead>
                               <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
-                                <th style={{ padding: '12px', width: '40px' }}>Sn</th>
-                                <th style={{ padding: '12px', width: '80px' }}>Ad.No</th>
-                                <th style={{ padding: '12px', width: '180px' }}>Student Name</th>
+                                {/* 🌟 HIGH CONTRAST HEADERS */}
+                                <th style={{ padding: '12px', width: '40px', color: '#0f172a', fontWeight: 'bold' }}>Sn</th>
+                                <th style={{ padding: '12px', width: '80px', color: '#0f172a', fontWeight: 'bold' }}>Ad.No</th>
+                                <th style={{ padding: '12px', width: '180px', color: '#0f172a', fontWeight: 'bold' }}>Student Name</th>
+                                
                                 {/* 🌟 4 LEVEL HEADERS */}
-                                <th style={{ padding: '12px', background: assessmentMaxMark === '15' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '15' ? '#0369a1' : '#334155' }}>Level 1 (15)</th>
-                                <th style={{ padding: '12px', background: assessmentMaxMark === '20' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '20' ? '#0369a1' : '#334155' }}>Level 2 (20)</th>
-                                <th style={{ padding: '12px', background: assessmentMaxMark === '25' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '25' ? '#0369a1' : '#334155' }}>Level 3 (25)</th>
-                                <th style={{ padding: '12px', background: assessmentMaxMark === '40' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '40' ? '#0369a1' : '#334155' }}>Level 4 (40)</th>
+                                <th style={{ padding: '12px', background: assessmentMaxMark === '15' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '15' ? '#0369a1' : '#0f172a', fontWeight: 'bold' }}>Level 1 (15)</th>
+                                <th style={{ padding: '12px', background: assessmentMaxMark === '20' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '20' ? '#0369a1' : '#0f172a', fontWeight: 'bold' }}>Level 2 (20)</th>
+                                <th style={{ padding: '12px', background: assessmentMaxMark === '25' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '25' ? '#0369a1' : '#0f172a', fontWeight: 'bold' }}>Level 3 (25)</th>
+                                <th style={{ padding: '12px', background: assessmentMaxMark === '40' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '40' ? '#0369a1' : '#0f172a', fontWeight: 'bold' }}>Level 4 (40)</th>
                               </tr>
                             </thead>
                             <tbody>
                               {classStudents.map((student, index) => (
-                                <tr key={student.regNo} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                  <td style={{ padding: '12px', fontWeight: '600', color: '#64748b' }}>{student.rollNo || '-'}</td>
-                                  <td style={{ padding: '12px', fontWeight: '600' }}>{student.adNo}</td>
+                                <tr key={student.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: '#ffffff' }}>
                                   
-                                  {/* 🌟 Removed student.regNo here */}
+                                  {/* 🌟 HIGH CONTRAST ROWS */}
+                                  <td style={{ padding: '12px', fontWeight: '800', color: '#0f172a' }}>{student.rollNo || '-'}</td>
+                                  <td style={{ padding: '12px', fontWeight: '800', color: '#0f172a' }}>{student.adNo}</td>
+                                  
+                                  {/* 🌟 RegNo completely deleted from here */}
                                   <td style={{ padding: '14px 12px', color: '#0f172a', fontWeight: '800', fontSize: '15px' }}>{student.firstName}</td>
                                   
-                                  {/* 🌟 ALL 4 LEVEL COLUMNS Render conditionally */}
-                                  <td style={{ padding: '12px', background: assessmentMaxMark === '15' ? '#f0f9ff' : 'transparent' }}>
+                                  {/* 🌟 ALL 4 LEVEL COLUMNS Render Conditionally */}
+                                  <td style={{ padding: '12px', background: assessmentMaxMark === '15' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
                                     {assessmentMaxMark === '15' ? (
-                                        <input type="number" max="15" min="0" step="any" data-index={index} value={studentMarks[student.regNo]?.['15'] ?? ''} onChange={(e) => handleMarkChange(student.regNo, e.target.value)} onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 15" style={{ padding: '6px 8px', width: '70px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '14px' }} />
-                                    ) : ( <span style={{ fontWeight: 'bold', color: studentMarks[student.regNo]?.['15'] ? '#0f172a' : '#cbd5e1' }}>{studentMarks[student.regNo]?.['15'] || '-'}</span> )}
+                                        <input type="number" max="15" min="0" step="any" data-index={index} 
+                                            value={studentMarks[student.regNo]?.['15'] ?? ''} 
+                                            onChange={(e) => handleMarkChange(student.regNo, e.target.value)} 
+                                            onKeyDown={(e) => handleKeyDown(e, index)} 
+                                            placeholder="/ 15" 
+                                            style={{ padding: '6px 8px', width: '70px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '14px', backgroundColor: '#ffffff', color: '#0f172a' }} />
+                                    ) : ( <span style={{ fontWeight: 'bold' }}>{studentMarks[student.regNo]?.['15'] || '-'}</span> )}
                                   </td>
 
-                                  <td style={{ padding: '12px', background: assessmentMaxMark === '20' ? '#f0f9ff' : 'transparent' }}>
+                                  <td style={{ padding: '12px', background: assessmentMaxMark === '20' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
                                     {assessmentMaxMark === '20' ? (
-                                        <input type="number" max="20" min="0" step="any" data-index={index} value={studentMarks[student.regNo]?.['20'] ?? ''} onChange={(e) => handleMarkChange(student.regNo, e.target.value)} onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 20" style={{ padding: '6px 8px', width: '70px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '14px' }} />
-                                    ) : ( <span style={{ fontWeight: 'bold', color: studentMarks[student.regNo]?.['20'] ? '#0f172a' : '#cbd5e1' }}>{studentMarks[student.regNo]?.['20'] || '-'}</span> )}
+                                        <input type="number" max="20" min="0" step="any" data-index={index} 
+                                            value={studentMarks[student.regNo]?.['20'] ?? ''} 
+                                            onChange={(e) => handleMarkChange(student.regNo, e.target.value)} 
+                                            onKeyDown={(e) => handleKeyDown(e, index)} 
+                                            placeholder="/ 20" 
+                                            style={{ padding: '6px 8px', width: '70px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '14px', backgroundColor: '#ffffff', color: '#0f172a' }} />
+                                    ) : ( <span style={{ fontWeight: 'bold' }}>{studentMarks[student.regNo]?.['20'] || '-'}</span> )}
                                   </td>
 
-                                  <td style={{ padding: '12px', background: assessmentMaxMark === '25' ? '#f0f9ff' : 'transparent' }}>
+                                  <td style={{ padding: '12px', background: assessmentMaxMark === '25' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
                                     {assessmentMaxMark === '25' ? (
-                                        <input type="number" max="25" min="0" step="any" data-index={index} value={studentMarks[student.regNo]?.['25'] ?? ''} onChange={(e) => handleMarkChange(student.regNo, e.target.value)} onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 25" style={{ padding: '6px 8px', width: '70px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '14px' }} />
-                                    ) : ( <span style={{ fontWeight: 'bold', color: studentMarks[student.regNo]?.['25'] ? '#0f172a' : '#cbd5e1' }}>{studentMarks[student.regNo]?.['25'] || '-'}</span> )}
+                                        <input type="number" max="25" min="0" step="any" data-index={index} 
+                                            value={studentMarks[student.regNo]?.['25'] ?? ''} 
+                                            onChange={(e) => handleMarkChange(student.regNo, e.target.value)} 
+                                            onKeyDown={(e) => handleKeyDown(e, index)} 
+                                            placeholder="/ 25" 
+                                            style={{ padding: '6px 8px', width: '70px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '14px', backgroundColor: '#ffffff', color: '#0f172a' }} />
+                                    ) : ( <span style={{ fontWeight: 'bold' }}>{studentMarks[student.regNo]?.['25'] || '-'}</span> )}
                                   </td>
 
-                                  <td style={{ padding: '12px', background: assessmentMaxMark === '40' ? '#f0f9ff' : 'transparent' }}>
+                                  <td style={{ padding: '12px', background: assessmentMaxMark === '40' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
                                     {assessmentMaxMark === '40' ? (
-                                        <input type="number" max="40" min="0" step="any" data-index={index} value={studentMarks[student.regNo]?.['40'] ?? ''} onChange={(e) => handleMarkChange(student.regNo, e.target.value)} onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 40" style={{ padding: '6px 8px', width: '70px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '14px' }} />
-                                    ) : ( <span style={{ fontWeight: 'bold', color: studentMarks[student.regNo]?.['40'] ? '#0f172a' : '#cbd5e1' }}>{studentMarks[student.regNo]?.['40'] || '-'}</span> )}
+                                        <input type="number" max="40" min="0" step="any" data-index={index} 
+                                            value={studentMarks[student.regNo]?.['40'] ?? ''} 
+                                            onChange={(e) => handleMarkChange(student.regNo, e.target.value)} 
+                                            onKeyDown={(e) => handleKeyDown(e, index)} 
+                                            placeholder="/ 40" 
+                                            style={{ padding: '6px 8px', width: '70px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '14px', backgroundColor: '#ffffff', color: '#0f172a' }} />
+                                    ) : ( <span style={{ fontWeight: 'bold' }}>{studentMarks[student.regNo]?.['40'] || '-'}</span> )}
                                   </td>
 
                                 </tr>
@@ -465,7 +490,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
 }
 
 // ==========================================
-// 2. ADMIN COMPONENTS
+// ADMIN COMPONENTS
 // ==========================================
 function TeacherManager() {
     const [username, setUsername] = useState('');
@@ -1850,6 +1875,7 @@ export default function UnifiedSchoolPortal() {
     const [userRole, setUserRole] = useState(null); 
     const [loggedInTeacherData, setLoggedInTeacherData] = useState(null);
 
+    // 🌟 Ensure session persists if teacher reloads the page
     useEffect(() => {
         if (localStorage.getItem('isAdminAuth') === 'true') {
             setUserRole('admin');
@@ -1875,6 +1901,8 @@ export default function UnifiedSchoolPortal() {
         setIsLoading(true);
 
         const rawUsername = username.trim().toLowerCase();
+        
+        // 🌟 Sanitizes login exactly like registration so spaces don't break the database match
         const safeUsername = rawUsername.replace(/[^a-z0-9_.-]/g, '');
 
         if (rawUsername === 'admin' && password === 'admin123') {
@@ -1900,6 +1928,7 @@ export default function UnifiedSchoolPortal() {
             }
         } catch (err) {
             console.error("Login Error:", err);
+            // 🌟 Provides smart error messaging to help you debug
             if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
                 setLoginError('Incorrect password or username.');
             } else if (err.code === 'auth/user-not-found') {
@@ -1917,8 +1946,7 @@ export default function UnifiedSchoolPortal() {
         localStorage.removeItem('isAdminAuth');
         setUserRole(null);
         setLoggedInTeacherData(null);
-        setUsername(''); 
-        setPassword('');
+        setUsername(''); setPassword('');
     };
 
     if (userRole === 'admin') {
@@ -1934,6 +1962,7 @@ export default function UnifiedSchoolPortal() {
                         <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
                     </div>
 
+                    {/* Renders the full admin tabs */}
                     <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
                         <button onClick={() => window.scrollTo(0, document.getElementById('teachers').offsetTop)} style={{ padding: '10px 18px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Manage Teachers</button>
                         <button onClick={() => window.scrollTo(0, document.getElementById('students').offsetTop)} style={{ padding: '10px 18px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Manage Students</button>
