@@ -1874,16 +1874,19 @@
       );
   }
 
-  export default function UnifiedSchoolPortal() {
-      const [username, setUsername] = useState('');
-      const [password, setPassword] = useState('');
-      const [showPassword, setShowPassword] = useState(false);
-      const [loginError, setLoginError] = useState('');
-      const [isLoading, setIsLoading] = useState(false);
-      const router = useRouter();
+ export default function UnifiedSchoolPortal() {
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [loginError, setLoginError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const router = useRouter();
 
-      const [userRole, setUserRole] = useState(null); 
-      const [loggedInTeacherData, setLoggedInTeacherData] = useState(null);
+    const [userRole, setUserRole] = useState(null); 
+    const [loggedInTeacherData, setLoggedInTeacherData] = useState(null);
+    
+    // 🌟 MOVED HERE: Hook is now at the top level of the component!
+    const [activeAdminTab, setActiveAdminTab] = useState('teachers');
 
       // 🌟 Ensure session persists if teacher reloads the page
       useEffect(() => {
@@ -1960,19 +1963,17 @@
       };
 
       if (userRole === 'admin') {
-        const [activeAdminTab, setActiveAdminTab] = useState('teachers');
-
         return (
             <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '32px 20px', fontFamily: 'Inter, system-ui, sans-serif' }}>
                 <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
                     <InstallAppBanner />
                     
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
                         <h1 style={{ margin: 0, fontSize: '26px', fontWeight: '800', color: '#0f172a' }}>Admin Dashboard</h1>
                         <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
                     </div>
 
-                    {/* 🌟 Tab Navigation Buttons */}
+                    {/* Tab Navigation Buttons */}
                     <div style={{ display: 'flex', gap: '12px', marginBottom: '28px', flexWrap: 'wrap' }}>
                         <button 
                             onClick={() => setActiveAdminTab('teachers')} 
@@ -1991,7 +1992,7 @@
                         </button>
                     </div>
 
-                    {/* 🌟 Renders only the active tab view */}
+                    {/* Active Tab Component Rendering */}
                     {activeAdminTab === 'teachers' && <TeacherManager />}
                     {activeAdminTab === 'students' && <StudentManager />}
                     {activeAdminTab === 'reports' && <ReportManager />}
