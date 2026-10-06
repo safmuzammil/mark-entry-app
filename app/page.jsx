@@ -1,12 +1,12 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { auth, db } from './lib/firebase'; // Ensure path matches your setup
+import { auth, db } from '../lib/firebase';// Ensure path matches your setup
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, getAuth, signOut, updatePassword, onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, getDoc, getDocs, collection, deleteDoc, arrayUnion } from 'firebase/firestore';
 import { getApp, initializeApp } from 'firebase/app';
 import * as XLSX from 'xlsx';
-import InstallAppBanner from './components/InstallAppBanner'; // Ensure path matches your setup
+import InstallAppBanner from '../components/InstallAppBanner'; // Ensure path matches your setup
 
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxN_z56f3Q5O3OjsKFagUSqromiH0xTKTfro0zqJZN4ZB-FJLM3jERMigPXiOkfw-4/exec';
 
