@@ -341,7 +341,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
               </div>
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button onClick={() => setActiveView(activeView === 'marks' ? 'settings' : 'marks')} style={{ padding: '8px 14px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}>
-                    {activeView === 'marks' ? '⚙️ Settings' : '⬅️ Back to Marks'}
+                    {activeView === 'marks' ? '⚙️ Settings' : '⬅️️ Back to Marks'}
                 </button>
                 <button onClick={onLogout} style={styles.buttonDanger}>Logout</button>
               </div>
