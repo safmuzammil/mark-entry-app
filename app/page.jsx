@@ -1960,33 +1960,46 @@
       };
 
       if (userRole === 'admin') {
-          return (
-              <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '24px 16px', fontFamily: 'Inter, system-ui, sans-serif' }}>
-                  <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
-                      <InstallAppBanner />
-                      
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: '#ffffff', padding: '20px 24px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '15px' }}>
-                          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-                              <h1 style={{ margin: '0 15px 0 0', fontSize: '20px', fontWeight: '800' }}>Admin Dashboard</h1>
-                          </div>
-                          <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
-                      </div>
+        const [activeAdminTab, setActiveAdminTab] = useState('teachers');
 
-                      {/* Renders the full admin tabs */}
-                <div style={{ display: 'flex', gap: '12px', marginBottom: '28px', flexWrap: 'nowrap', overflowX: 'auto', paddingBottom: '4px' }}>
-                  <button onClick={() => window.scrollTo(0, document.getElementById('teachers').offsetTop)} style={{ padding: '12px 22px', background: '#ffffff', color: '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', whiteSpace: 'nowrap', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>👥 Manage Teachers</button>
-                  <button onClick={() => window.scrollTo(0, document.getElementById('students').offsetTop)} style={{ padding: '12px 22px', background: '#ffffff', color: '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', whiteSpace: 'nowrap', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>🎓 Manage Students</button>
-                  <button onClick={() => window.scrollTo(0, document.getElementById('reports').offsetTop)} style={{ padding: '12px 22px', background: '#ffffff', color: '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', whiteSpace: 'nowrap', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>📊 Reports & Export</button>
+        return (
+            <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '32px 20px', fontFamily: 'Inter, system-ui, sans-serif' }}>
+                <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+                    <InstallAppBanner />
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
+                        <h1 style={{ margin: 0, fontSize: '26px', fontWeight: '800', color: '#0f172a' }}>Admin Dashboard</h1>
+                        <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
+                    </div>
+
+                    {/* 🌟 Tab Navigation Buttons */}
+                    <div style={{ display: 'flex', gap: '12px', marginBottom: '28px', flexWrap: 'wrap' }}>
+                        <button 
+                            onClick={() => setActiveAdminTab('teachers')} 
+                            style={{ padding: '12px 22px', background: activeAdminTab === 'teachers' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'teachers' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                            👥 Manage Teachers
+                        </button>
+                        <button 
+                            onClick={() => setActiveAdminTab('students')} 
+                            style={{ padding: '12px 22px', background: activeAdminTab === 'students' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'students' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                            🎓 Manage Students
+                        </button>
+                        <button 
+                            onClick={() => setActiveAdminTab('reports')} 
+                            style={{ padding: '12px 22px', background: activeAdminTab === 'reports' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'reports' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                            📊 Reports & Export
+                        </button>
+                    </div>
+
+                    {/* 🌟 Renders only the active tab view */}
+                    {activeAdminTab === 'teachers' && <TeacherManager />}
+                    {activeAdminTab === 'students' && <StudentManager />}
+                    {activeAdminTab === 'reports' && <ReportManager />}
+
                 </div>
-
-                      <div id="teachers"><TeacherManager /></div>
-                      <div id="students"><StudentManager /></div>
-                      <div id="reports"><ReportManager /></div>
-
-                  </div>
-              </div>
-          );
-      }
+            </div>
+        );
+    }
 
       if (userRole === 'teacher') {
           return (
