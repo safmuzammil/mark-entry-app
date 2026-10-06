@@ -1,12 +1,12 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { auth, db } from '../lib/firebase';// Ensure path matches your setup
+import { auth, db } from '../lib/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, getAuth, signOut, updatePassword, onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, getDoc, getDocs, collection, deleteDoc, arrayUnion } from 'firebase/firestore';
 import { getApp, initializeApp } from 'firebase/app';
 import * as XLSX from 'xlsx';
-import InstallAppBanner from './components/InstallAppBanner'; // Ensure path matches your setup
+import InstallAppBanner from './components/InstallAppBanner';
 
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxN_z56f3Q5O3OjsKFagUSqromiH0xTKTfro0zqJZN4ZB-FJLM3jERMigPXiOkfw-4/exec';
 
@@ -137,9 +137,6 @@ function TeacherPasswordSettings() {
     );
 }
 
-// ==========================================
-// 🌟 FULLY UPGRADED TEACHER PORTAL VIEW
-// ==========================================
 function TeacherPortalView({ loggedInTeacher, onLogout }) {
     const [activeView, setActiveView] = useState('marks');
     const [selectedEnrollmentId, setSelectedEnrollmentId] = useState(loggedInTeacher?.enrollments?.[0]?.id || '');
@@ -148,8 +145,6 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     
     const [allStudentsCache, setAllStudentsCache] = useState([]);
     const [classStudents, setClassStudents] = useState([]);
-    
-    // 🌟 Nested State for 4 levels
     const [studentMarks, setStudentMarks] = useState({});
     const [statusMsg, setStatusMsg] = useState('');
 
@@ -173,7 +168,6 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
         setClassStudents(sortedStudents);
     }, [selectedEnrollmentId, allStudentsCache, loggedInTeacher]);
 
-    // 🌟 PERFORMANCE UPGRADE: Fast Concurrent Fetching
     useEffect(() => {
         if (!selectedEnrollmentId || classStudents.length === 0) return;
         const currentEnrollment = loggedInTeacher.enrollments.find(e => e.id === selectedEnrollmentId);
@@ -190,7 +184,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                   const mData = docSnap.data();
                   const studentRegNo = classStudents[index].regNo;
                   if(mData[currentEnrollment.subject]) {
-                     newMarks[studentRegNo] = mData[currentEnrollment.subject]; // Loads ALL 4 levels from DB
+                     newMarks[studentRegNo] = mData[currentEnrollment.subject]; 
                   } else {
                      newMarks[studentRegNo] = {};
                   }
@@ -337,8 +331,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     const highestScore = validMarks.length > 0 ? Math.max(...validMarks) : 0;
     const classAverage = validMarks.length > 0 ? (validMarks.reduce((a, b) => a + b, 0) / validMarks.length).toFixed(1) : 0;
     const passPercentage = validMarks.length > 0 ? ((validMarks.filter(m => m >= Number(assessmentMaxMark) * 0.4).length / validMarks.length) * 100).toFixed(0) : 0;
-    const currentEnrollment = loggedInTeacher?.enrollments?.find(e => e.id === selectedEnrollmentId);
-
+    
     return (
         <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', background: '#ffffff', padding: '16px 20px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '12px' }}>
@@ -406,12 +399,10 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '750px' }}>
                             <thead>
                               <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
-                                {/* 🌟 HIGH CONTRAST HEADERS */}
                                 <th style={{ padding: '12px', width: '40px', color: '#0f172a', fontWeight: 'bold' }}>Sn</th>
                                 <th style={{ padding: '12px', width: '80px', color: '#0f172a', fontWeight: 'bold' }}>Ad.No</th>
                                 <th style={{ padding: '12px', width: '180px', color: '#0f172a', fontWeight: 'bold' }}>Student Name</th>
                                 
-                                {/* 🌟 4 LEVEL HEADERS */}
                                 <th style={{ padding: '12px', background: assessmentMaxMark === '15' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '15' ? '#0369a1' : '#0f172a', fontWeight: 'bold' }}>Level 1 (15)</th>
                                 <th style={{ padding: '12px', background: assessmentMaxMark === '20' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '20' ? '#0369a1' : '#0f172a', fontWeight: 'bold' }}>Level 2 (20)</th>
                                 <th style={{ padding: '12px', background: assessmentMaxMark === '25' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '25' ? '#0369a1' : '#0f172a', fontWeight: 'bold' }}>Level 3 (25)</th>
@@ -421,15 +412,10 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                             <tbody>
                               {classStudents.map((student, index) => (
                                 <tr key={student.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: '#ffffff' }}>
-                                  
-                                  {/* 🌟 HIGH CONTRAST ROWS */}
                                   <td style={{ padding: '12px', fontWeight: '800', color: '#0f172a' }}>{student.rollNo || '-'}</td>
                                   <td style={{ padding: '12px', fontWeight: '800', color: '#0f172a' }}>{student.adNo}</td>
-                                  
-                                  {/* 🌟 RegNo completely deleted from here */}
                                   <td style={{ padding: '14px 12px', color: '#0f172a', fontWeight: '800', fontSize: '15px' }}>{student.firstName}</td>
                                   
-                                  {/* 🌟 ALL 4 LEVEL COLUMNS Render Conditionally */}
                                   <td style={{ padding: '12px', background: assessmentMaxMark === '15' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
                                     {assessmentMaxMark === '15' ? (
                                         <input type="number" max="15" min="0" step="any" data-index={index} 
@@ -489,9 +475,6 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     );
 }
 
-// ==========================================
-// ADMIN COMPONENTS
-// ==========================================
 function TeacherManager() {
     const [username, setUsername] = useState('');
     const [originalUsername, setOriginalUsername] = useState('');
@@ -1875,7 +1858,6 @@ export default function UnifiedSchoolPortal() {
     const [userRole, setUserRole] = useState(null); 
     const [loggedInTeacherData, setLoggedInTeacherData] = useState(null);
 
-    // 🌟 Ensure session persists if teacher reloads the page
     useEffect(() => {
         if (localStorage.getItem('isAdminAuth') === 'true') {
             setUserRole('admin');
@@ -1901,8 +1883,6 @@ export default function UnifiedSchoolPortal() {
         setIsLoading(true);
 
         const rawUsername = username.trim().toLowerCase();
-        
-        // 🌟 Sanitizes login exactly like registration so spaces don't break the database match
         const safeUsername = rawUsername.replace(/[^a-z0-9_.-]/g, '');
 
         if (rawUsername === 'admin' && password === 'admin123') {
@@ -1928,7 +1908,6 @@ export default function UnifiedSchoolPortal() {
             }
         } catch (err) {
             console.error("Login Error:", err);
-            // 🌟 Provides smart error messaging to help you debug
             if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
                 setLoginError('Incorrect password or username.');
             } else if (err.code === 'auth/user-not-found') {
@@ -1962,7 +1941,6 @@ export default function UnifiedSchoolPortal() {
                         <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
                     </div>
 
-                    {/* Renders the full admin tabs */}
                     <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
                         <button onClick={() => window.scrollTo(0, document.getElementById('teachers').offsetTop)} style={{ padding: '10px 18px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Manage Teachers</button>
                         <button onClick={() => window.scrollTo(0, document.getElementById('students').offsetTop)} style={{ padding: '10px 18px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Manage Students</button>
