@@ -22,14 +22,30 @@ export default function UnifiedSchoolPortal() {
     const [isLoading, setIsLoading] = useState(false);
     const router = useRouter();
 
+    const [userRole, setUserRole] = useState(null); 
+    const [loggedInTeacherData, setLoggedInTeacherData] = useState(null);
+
+    // 🌟 FIXED: Now checks for BOTH Admin and Teacher persistent sessions
     useEffect(() => {
+        // 1. Check if admin is already logged in
+        if (localStorage.getItem('isAdminAuth') === 'true') {
+            setUserRole('admin');
+        }
+
+        // 2. Check if teacher is already logged in
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
             if (user && user.email && user.email.endsWith('@school.com')) {
-                router.push('/teacher');
+                const safeUsername = user.email.split('@')[0];
+                const docRef = doc(db, "teachers", safeUsername);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    setLoggedInTeacherData(docSnap.data());
+                    setUserRole('teacher');
+                }
             }
         });
         return () => unsubscribe();
-    }, [router]);
+    }, []);
 
     const handleLogin = async (e) => {
         e.preventDefault();
@@ -39,9 +55,11 @@ export default function UnifiedSchoolPortal() {
         const rawUsername = username.trim().toLowerCase();
         const safeUsername = rawUsername.replace(/[^a-z0-9_.-]/g, '');
 
+        // 🌟 FIXED: Instantly load the Admin Dashboard without redirecting to a broken URL
         if (rawUsername === 'admin' && password === 'admin123') {
             localStorage.setItem('isAdminAuth', 'true');
-            router.push('/admin'); 
+            setUserRole('admin'); 
+            setIsLoading(false);
             return;
         }
 
@@ -53,7 +71,8 @@ export default function UnifiedSchoolPortal() {
             const docSnap = await getDoc(docRef);
 
             if (docSnap.exists()) {
-                router.push('/teacher');
+                setLoggedInTeacherData(docSnap.data());
+                setUserRole('teacher');
             } else {
                 setLoginError('Teacher profile data not found.');
                 await signOut(auth);
@@ -72,11 +91,60 @@ export default function UnifiedSchoolPortal() {
         }
     };
 
+    // 🌟 FIXED: Ensures the admin local storage is cleared when logging out
+    const handleLogout = async () => {
+        await signOut(auth);
+        localStorage.removeItem('isAdminAuth');
+        setUserRole(null);
+        setLoggedInTeacherData(null);
+        setUsername(''); 
+        setPassword('');
+    };
+
+    if (userRole === 'admin') {
+        return (
+            <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '24px 16px', fontFamily: 'Inter, system-ui, sans-serif' }}>
+                <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+                    <InstallAppBanner />
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: '#ffffff', padding: '20px 24px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '15px' }}>
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                            <h1 style={{ margin: '0 15px 0 0', fontSize: '20px', fontWeight: '800' }}>Admin Dashboard</h1>
+                        </div>
+                        <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
+                        <button onClick={() => window.scrollTo(0, document.getElementById('teachers').offsetTop)} style={{ padding: '10px 18px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Manage Teachers</button>
+                        <button onClick={() => window.scrollTo(0, document.getElementById('students').offsetTop)} style={{ padding: '10px 18px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Manage Students</button>
+                        <button onClick={() => window.scrollTo(0, document.getElementById('reports').offsetTop)} style={{ padding: '10px 18px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Reports & Export</button>
+                    </div>
+
+                    <div id="teachers"><TeacherManager /></div>
+                    <div id="students"><StudentManager /></div>
+                    <div id="reports"><ReportManager /></div>
+
+                </div>
+            </div>
+        );
+    }
+
+    if (userRole === 'teacher') {
+        return (
+            <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '24px 16px', fontFamily: 'Inter, system-ui, sans-serif' }}>
+                <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+                    <InstallAppBanner />
+                    <TeacherPortalView loggedInTeacher={loggedInTeacherData} onLogout={handleLogout} />
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f0f2f5', fontFamily: 'Inter, system-ui, sans-serif', padding: '16px', boxSizing: 'border-box' }}>
             <div style={{ width: '100%', maxWidth: '420px' }}>
                 <InstallAppBanner />
-                <div style={styles.card}>
+                <div style={{ background: '#ffffff', padding: '40px 24px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', border: '1px solid #e2e8f0', boxSizing: 'border-box' }}>
                     <div style={{ textAlign: 'center', marginBottom: '28px' }}>
                         <span style={{ fontSize: '36px', display: 'block', marginBottom: '8px' }}>🏫</span>
                         <h2 style={{ color: '#0f172a', margin: '0 0 8px 0', fontSize: '24px', fontWeight: '800' }}>School Portal</h2>
@@ -98,7 +166,7 @@ export default function UnifiedSchoolPortal() {
 
                         {loginError && <div style={{ padding: '10px', background: '#fef2f2', color: '#b91c1c', borderRadius: '8px', fontSize: '13px', fontWeight: '600', textAlign: 'center' }}>{loginError}</div>}
 
-                        <button type="submit" disabled={isLoading} style={{ ...styles.buttonPrimary, opacity: isLoading ? 0.7 : 1 }}>
+                        <button type="submit" disabled={isLoading} style={{ ...styles.buttonPrimary, width: '100%', opacity: isLoading ? 0.7 : 1 }}>
                             {isLoading ? 'Signing In...' : 'Sign In'}
                         </button>
                     </form>
