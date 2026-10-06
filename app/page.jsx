@@ -689,40 +689,30 @@
                               <button type="button" onClick={handleAddSubject} style={styles.buttonPrimary}>+ Add Subject</button>
                           </div>
 
-                          {subjectEnrollments.map(enroll => (
-                              <div key={enroll.id} style={{ border: '1px solid #cbd5e1', borderRadius: '8px', marginBottom: '10px', background: '#fff' }}>
-                                  <div style={{ padding: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                                      <strong>{enroll.alias}</strong> ({enroll.studentIds?.length || 0} students)
-                                      <div>
-                                          <button type="button" onClick={() => openStudentPicker(enroll)} style={{ padding: '6px 12px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', marginRight: '8px' }}>Assign Students</button>
-                                          <button type="button" onClick={() => handleRemoveSubject(enroll.id)} style={{ padding: '6px 10px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>X</button>
-                                      </div>
-                                  </div>
-                                  {editingEnrollmentId === enroll.id && (
-                                      <div style={{ padding: '15px', background: '#f1f5f9', borderTop: '1px solid #cbd5e1' }}>
-                                          <div style={{ display: 'flex', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
-                                              <input type="text" value={groupAlias} onChange={e => setGroupAlias(e.target.value)} placeholder="Display Name" style={{ ...styles.input, flex: 2 }} />
-                                              <button type="button" onClick={autoGenerateSmartName} style={{ padding: '8px 12px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Auto-Fill Name</button>
-                                          </div>
-                                          <div style={{ maxHeight: '200px', overflowY: 'auto', background: '#fff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '8px' }}>
-                                              <label style={{ display: 'block', padding: '6px', fontWeight: 'bold', borderBottom: '1px solid #e2e8f0', cursor: 'pointer' }}>
-                                                  <input type="checkbox" onChange={() => toggleSelectAllFiltered(filteredPickerStudents)} checked={filteredPickerStudents.length > 0 && filteredPickerStudents.every(s => tempSelectedStudents.includes(s.regNo))} style={{ marginRight: '8px' }} />
-                                                  Select All ({filteredPickerStudents.length})
-                                              </label>
-                                              {filteredPickerStudents.map(s => (
-                                                  <label key={s.regNo} style={{ display: 'block', padding: '6px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', fontSize: '14px' }}>
-                                                      <input type="checkbox" checked={tempSelectedStudents.includes(s.regNo)} onChange={() => toggleStudentInSubject(s.regNo)} style={{ marginRight: '8px' }} />
-                                                      {s.adNo} - {s.firstName} ({s.department || 'GENERAL'})
-                                                  </label>
-                                              ))}
-                                          </div>
-                                          <div style={{ marginTop: '10px', textAlign: 'right' }}>
-                                              <button type="button" onClick={saveStudentAssignments} style={{ padding: '8px 16px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Done</button>
-                                          </div>
-                                      </div>
-                                  )}
-                              </div>
-                          ))}
+                {subjectEnrollments.map(enroll => (
+                  <div key={enroll.id} style={{ border: '1px solid #cbd5e1', borderRadius: '12px', marginBottom: '12px', background: '#ffffff', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                    {/* 🌟 UPGRADED HIGH-CONTRAST HEADER ROW */}
+                    <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>
+                          {enroll.alias}
+                        </span>
+                        <span style={{ fontSize: '13px', color: '#334155', fontWeight: '700', background: '#f1f5f9', padding: '4px 10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                          {enroll.studentIds?.length || 0} students
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button type="button" onClick={() => openStudentPicker(enroll)} style={{ padding: '8px 14px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: '700', cursor: 'pointer', fontSize: '13px' }}>Assign Students</button>
+                        <button type="button" onClick={() => handleRemoveSubject(enroll.id)} style={{ padding: '8px 12px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '6px', fontWeight: '700', cursor: 'pointer', fontSize: '13px' }}>Remove</button>
+                      </div>
+                    </div>
+
+                    {/* Keep your existing editingEnrollmentId conditional block below this */}
+                    {editingEnrollmentId === enroll.id && (
+            // ... your student picker form ...
+        )}
+                  </div>
+                ))}
                       </div>
 
                       <button type="submit" disabled={isLoading} style={isEditing ? styles.buttonWarning : styles.buttonSuccess}>
@@ -1447,11 +1437,11 @@
                               const inspSub = inspectorSubject.trim().toUpperCase();
                               const envAliasUpper = String(env.alias || '').trim().toUpperCase();
 
-                              const isSubjectMatch = 
-                                  (envSub === inspSub) || 
-                                  (inspSub === 'LOGIC' && envSub === 'MANTIQ') || 
-                                  (inspSub === 'MANTIQ' && envSub === 'LOGIC') ||
-                                  envAliasUpper.includes(inspSub);
+                              // 🌟 REPLACE THIS ENTIRE isSubjectMatch BLOCK
+                            const isSubjectMatch =
+                              (envSub === inspSub) ||
+                              (inspSub === 'LOGIC' && envSub === 'MANTIQ') ||
+                              (inspSub === 'MANTIQ' && envSub === 'LOGIC');
 
                               if (!isSubjectMatch) return false;
 
