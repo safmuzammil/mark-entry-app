@@ -1461,66 +1461,74 @@ const fetchClassSubjectMarks = async () => {
                 const sAd = String(student.adNo || '').trim();
                 const sId = String(student.id || '').trim();
 
-                for (const teacher of teachersList) {
-                    const matchingEnv = teacher.enrollments.find(env => {
-                        const envSub = (env.subject || '').trim().toUpperCase();
-                        const inspSub = inspectorSubject.trim().toUpperCase();
-                        const envAliasUpper = String(env.alias || '').trim().toUpperCase();
+                // 🌟 REPLACE the teacher loop inside ReportManager -> fetchClassSubjectMarks
+              for (const teacher of teachersList) {
+                const matchingEnv = teacher.enrollments.find(env => {
+                  // 🌟 When in 'teacher' mode, match strictly using the selected enrollment ID!
+                  if (inspectorMode === 'teacher') {
+                    return env.id === inspectorTeacherEnrollmentId;
+                  }
 
-                        // 🌟 Precise Subject Matching Logic
-                        let isSubjectMatch = false;
-                        if (inspSub.includes('U :FIQH') || inspSub.includes('U:FIQH')) {
-                            isSubjectMatch = (envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH'));
-                        } else if (inspSub === 'FIQH') {
-                            const isUrduEnrollment = (envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH'));
-                            isSubjectMatch = ((envSub === 'FIQH' || envAliasUpper === 'FIQH') && !isUrduEnrollment);
-                        } else {
-                            isSubjectMatch = (envSub === inspSub) || 
-                                (inspSub === 'LOGIC' && envSub === 'MANTIQ') || 
-                                (inspSub === 'MANTIQ' && envSub === 'LOGIC') ||
-                                envAliasUpper.includes(inspSub);
-                        }
+                  // 🌟 When in 'class' mode, use our robust subject matching logic
+                  const envSub = (env.subject || '').trim().toUpperCase();
+                  const inspSub = inspectorSubject.trim().toUpperCase();
+                  const envAliasUpper = String(env.alias || '').trim().toUpperCase();
 
-                        if (!isSubjectMatch) return false;
+                  let isSubjectMatch = false;
+                  if (inspSub.includes('U :FIQH') || inspSub.includes('U:FIQH')) {
+                    isSubjectMatch = (envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH'));
+                  } else if (inspSub === 'FIQH') {
+                    const isUrduEnrollment = (envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH'));
+                    isSubjectMatch = ((envSub === 'FIQH' || envAliasUpper === 'FIQH') && !isUrduEnrollment);
+                  } else {
+                    isSubjectMatch = (envSub === inspSub) ||
+                      (inspSub === 'LOGIC' && envSub === 'MANTIQ') ||
+                      (inspSub === 'MANTIQ' && envSub === 'LOGIC') ||
+                      envAliasUpper.includes(inspSub);
+                  }
 
-                        if (env.studentIds && Array.isArray(env.studentIds)) {
-                            const savedIds = env.studentIds.map(id => String(id).trim());
-                            if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
-                                return true;
-                            }
-                        }
+                  if (!isSubjectMatch) return false;
 
-                        const envAliasLower = String(env.alias || '').trim().toLowerCase();
-                        let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
-
-                        if (!classMatch && envAliasLower.includes('m10')) {
-                            const isGrade3 = studentClassesLower.some(cls => cls.includes('3'));
-                            if (isGrade3 && !isUrdu) {
-                                classMatch = true; 
-                            }
-                        }
-
-                        if (classMatch) {
-                            const envLang = (env.langTag || '').toLowerCase();
-                            let langMatch = false;
-
-                            if (envLang.includes('urdu') && !envLang.includes('non')) {
-                                langMatch = isUrdu; 
-                            } else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
-                                langMatch = !isUrdu; 
-                            } else {
-                                langMatch = true; 
-                            }
-                            return langMatch;
-                        }
-                        return false;
-                    });
-
-                    if (matchingEnv) {
-                        assignedTeacher = teacher.fullName || teacher.id;
-                        break; 
+                  if (env.studentIds && Array.isArray(env.studentIds)) {
+                    const savedIds = env.studentIds.map(id => String(id).trim());
+                    if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
+                      return true;
                     }
+                  }
+
+                  const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
+                  const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
+                  const envAliasLower = String(env.alias || '').trim().toLowerCase();
+                  let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
+
+                  if (!classMatch && envAliasLower.includes('m10')) {
+                    const isGrade3 = studentClassesLower.some(cls => cls.includes('3'));
+                    if (isGrade3 && !isUrdu) {
+                      classMatch = true;
+                    }
+                  }
+
+                  if (classMatch) {
+                    const envLang = (env.langTag || '').toLowerCase();
+                    let langMatch = false;
+
+                    if (envLang.includes('urdu') && !envLang.includes('non')) {
+                      langMatch = isUrdu;
+                    } else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
+                      langMatch = !isUrdu;
+                    } else {
+                      langMatch = true;
+                    }
+                    return langMatch;
+                  }
+                  return false;
+                });
+
+                if (matchingEnv) {
+                  assignedTeacher = teacher.fullName || teacher.id;
+                  break;
                 }
+              }
                 teacherRecord[student.regNo || student.id] = assignedTeacher;
             }
         }
