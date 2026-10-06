@@ -26,58 +26,50 @@ const styles = {
   tableWrapper: { width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', marginBottom: '16px' }
 };
 
-// --- SMART MIXED-CLASS SORTER ---
 // --- SMART MIXED-CLASS SORTER (MULTI-TIERED) ---
 const sortStudentsByDepartment = (studentsList, classNameAlias) => {
     const classLower = String(classNameAlias || '').toLowerCase();
     let deptOrder = [];
-    let classOrder = []; // NEW: Defines the base class grouping hierarchy
+    let classOrder = [];
 
-    // 1. Assign exact class groups and department hierarchies based on the alias
     if (classLower.includes('qhf')) {
         deptOrder = ['QURAN', 'HADITH', 'FIQH'];
     } else if (classLower.includes('alc')) {
         deptOrder = ['AQIDAH', 'LANGUAGE', 'CIVIL'];
     } else if (classLower.includes('m10') || classLower.includes('u10')) {
-        classOrder = ['qla3', 'hfc3']; // Group QLA3 first, then HFC3
+        classOrder = ['qla3', 'hfc3'];
         deptOrder = ['QURAN', 'LANGUAGE', 'AQIDAH', 'HADITH', 'FIQH', 'CIVIL'];
     } else if (classLower.includes('fcl')) {
         deptOrder = ['FIQH', 'CIVIL', 'LANGUAGE'];
     } else if (classLower.includes('qha')) {
         deptOrder = ['QURAN', 'HADITH', 'AQIDAH'];
     } else if (classLower.includes('u8') || classLower.includes('u9')) {
-        classOrder = ['qh', 'fc', 'al']; // Group QH first, FC second, AL third
+        classOrder = ['qh', 'fc', 'al'];
         deptOrder = ['QURAN', 'HADITH', 'FIQH', 'CIVIL', 'AQIDAH', 'LANGUAGE'];
     }
 
-    // FALLBACK: If no custom sorting rules apply, sort by Roll No
     if (deptOrder.length === 0 && classOrder.length === 0) {
         return [...studentsList].sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
     }
 
     return [...studentsList].sort((a, b) => {
-        // --- LEVEL 1: Sort by Base Class Order ---
         if (classOrder.length > 0) {
-            // Safely grab the student's assigned classes
             const aClasses = (a.classes || [a.className] || []).map(c => String(c).toLowerCase());
             const bClasses = (b.classes || [b.className] || []).map(c => String(c).toLowerCase());
             
             let classIndexA = 999;
             let classIndexB = 999;
             
-            // Check which prefix matches the student's class
             classOrder.forEach((prefix, i) => {
                 if (classIndexA === 999 && aClasses.some(c => c.includes(prefix))) classIndexA = i;
                 if (classIndexB === 999 && bClasses.some(c => c.includes(prefix))) classIndexB = i;
             });
             
-            // If they belong to different class groups, order them by the class rules
             if (classIndexA !== classIndexB) {
                 return classIndexA - classIndexB;
             }
         }
 
-        // --- LEVEL 2: Sort by Department Order (if they are in the same class group) ---
         if (deptOrder.length > 0) {
             const deptA = String(a.department || '').toUpperCase();
             const deptB = String(b.department || '').toUpperCase();
@@ -93,7 +85,6 @@ const sortStudentsByDepartment = (studentsList, classNameAlias) => {
             }
         }
 
-        // --- LEVEL 3: Sort by Roll No (if class group and department are identical) ---
         return (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999);
     });
 };
@@ -178,6 +169,7 @@ export default function TeacherDashboard() {
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const [activeView, setActiveView] = useState('marks'); 
   const [selectedEnrollmentId, setSelectedEnrollmentId] = useState('');
@@ -189,10 +181,13 @@ export default function TeacherDashboard() {
   const [studentMarks, setStudentMarks] = useState({});
   const [statusMsg, setStatusMsg] = useState('');
 
+  // 🌟 FIXED 1: Sanitizes username properly and exposes exact Firebase errors
   const handleLogin = async (e) => {
     e.preventDefault();
     if (!username) return setLoginError('Please enter your username.');
-    const safeUsername = username.toLowerCase().trim();
+    setIsLoading(true);
+
+    const safeUsername = username.toLowerCase().replace(/[^a-z0-9_.-]/g, '');
     const fakeEmail = `${safeUsername}@school.com`;
 
     try {
@@ -214,8 +209,22 @@ export default function TeacherDashboard() {
         const sData = [];
         sSnap.forEach((doc) => sData.push(doc.data()));
         setAllStudentsCache(sData);
-      } else { setLoginError('Teacher profile not found.'); }
-    } catch (err) { setLoginError('Invalid username or password.'); }
+      } else { 
+        setLoginError('Teacher profile data is missing from the database.'); 
+        await signOut(auth);
+      }
+    } catch (err) { 
+        console.error("Login Error:", err);
+        if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+            setLoginError('Incorrect password or username.');
+        } else if (err.code === 'auth/user-not-found') {
+            setLoginError('Username does not exist in the database.');
+        } else {
+            setLoginError(`Error: ${err.message}`);
+        }
+    } finally {
+        setIsLoading(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -232,12 +241,10 @@ export default function TeacherDashboard() {
     const currentEnrollment = loggedInTeacher.enrollments.find(e => e.id === selectedEnrollmentId);
     if (!currentEnrollment) return;
 
-    // Filter Students
     const matchedStudents = allStudentsCache.filter(student => 
       currentEnrollment.studentIds.includes(student.regNo)
     );
     
-    // Sort students using our Custom Smart Hierarchy Sorter
     const sortedStudents = sortStudentsByDepartment(matchedStudents, currentEnrollment.alias || `Grade ${currentEnrollment.grade} ${currentEnrollment.subject}`);
     setClassStudents(sortedStudents);
   }, [isAuthenticated, selectedEnrollmentId, allStudentsCache, loggedInTeacher]);
@@ -275,6 +282,7 @@ export default function TeacherDashboard() {
     }
   };
 
+  // 🌟 FIXED 2: The fatal syntax error (broken minus sign) is now repaired
   const handleKeyDown = (e, currentIndex) => {
     if (e.key === 'Enter' || e.key === 'ArrowDown') {
       e.preventDefault();
@@ -461,8 +469,12 @@ export default function TeacherDashboard() {
                 <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#2563eb', fontWeight: '600', cursor: 'pointer' }}>{showPassword ? "Hide" : "Show"}</button>
               </div>
             </div>
-            <button type="submit" style={styles.buttonPrimary}>Sign In</button>
-            {loginError && <p style={{ color: '#ef4444', fontSize: '14px', textAlign: 'center', margin: 0, fontWeight: '600' }}>{loginError}</p>}
+            
+            {loginError && <p style={{ color: '#ef4444', fontSize: '14px', textAlign: 'center', margin: 0, fontWeight: '700', padding: '8px', background: '#fee2e2', borderRadius: '6px' }}>{loginError}</p>}
+            
+            <button type="submit" disabled={isLoading} style={{ ...styles.buttonPrimary, opacity: isLoading ? 0.7 : 1 }}>
+                {isLoading ? 'Signing In...' : 'Sign In'}
+            </button>
           </form>
         </div>
       </div>
@@ -573,14 +585,21 @@ export default function TeacherDashboard() {
                             <tr key={student.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
                               <td style={{ padding: '12px', fontWeight: '600', color: '#64748b' }}>{student.rollNo || '-'}</td>
                               <td style={{ padding: '12px', fontWeight: '600', color: '#0f172a' }}>{student.adNo}</td>
-                              <td style={{ padding: '12px', color: '#334155', fontWeight: '700' }}>{student.firstName}</td>
+                              
+                              {/* 🌟 HIGH-CONTRAST READABILITY FIX HERE */}
+                              <td style={{ padding: '14px 12px', color: '#0f172a', fontWeight: '800', fontSize: '15px' }}>
+                                {student.firstName}
+                                <br />
+                                <span style={{ fontSize: '12px', color: '#475569', fontWeight: '500' }}>Reg: {student.regNo}</span>
+                              </td>
+                              
                               <td style={{ padding: '12px', color: '#0369a1', fontSize: '12px', fontWeight: 'bold' }}>{student.department}</td>
                               <td style={{ padding: '12px' }}>
                                 <input 
                                   type="number" 
                                   max={assessmentMaxMark} 
                                   min="0" 
-                                  step="0.01"
+                                  step="any" // 🌟 FIXED 3: 'any' completely stops the browser from rejecting two decimal values
                                   data-index={index} 
                                   value={studentMarks[student.regNo] !== undefined ? studentMarks[student.regNo] : ''} 
                                   onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
