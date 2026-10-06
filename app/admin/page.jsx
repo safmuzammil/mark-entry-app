@@ -1,10 +1,11 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { auth, db } from '../../lib/firebase';
 import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
 import { doc, setDoc, getDoc, getDocs, collection, deleteDoc, arrayUnion } from 'firebase/firestore';
 import { getApp, initializeApp } from 'firebase/app';
-
+import * as XLSX from 'xlsx';
 import InstallAppBanner from '../components/InstallAppBanner';
 
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxN_z56f3Q5O3OjsKFagUSqromiH0xTKTfro0zqJZN4ZB-FJLM3jERMigPXiOkfw-4/exec';
@@ -38,75 +39,54 @@ const styles = {
     buttonPrimary: { padding: '12px 24px', background: '#2563eb', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '15px', transition: '0.2s' },
     buttonSuccess: { padding: '14px 24px', background: '#10b981', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '16px', width: '100%', marginTop: '10px' },
     buttonWarning: { padding: '14px 24px', background: '#f59e0b', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '16px', width: '100%', marginTop: '10px' },
+    buttonDanger: { padding: '10px 20px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' },
     sectionTitle: { margin: '0 0 20px 0', fontSize: '20px', color: '#0f172a', fontWeight: '700', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px' },
-    badge: { display: 'inline-block', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' },
     filterSelect: { padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '13px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '600', cursor: 'pointer' }
 };
 
-// --- SMART MIXED-CLASS SORTER ---
 const sortStudentsByDepartment = (studentsList, classNameAlias) => {
     const classLower = String(classNameAlias || '').toLowerCase();
     let deptOrder = [];
 
-    if (classLower.includes('qhf')) {
-        deptOrder = ['QURAN', 'HADITH', 'FIQH'];
-    } else if (classLower.includes('alc')) {
-        deptOrder = ['AQIDAH', 'LANGUAGE', 'CIVIL'];
-    } else if (classLower.includes('m10') || classLower.includes('u10')) {
-        deptOrder = ['QURAN', 'LANGUAGE', 'AQIDAH', 'HADITH', 'FIQH', 'CIVIL'];
-    } else if (classLower.includes('fcl')) {
-        deptOrder = ['FIQH', 'CIVIL', 'LANGUAGE'];
-    } else if (classLower.includes('qha')) {
-        deptOrder = ['QURAN', 'HADITH', 'AQIDAH'];
-    } else if (classLower.includes('u8') || classLower.includes('u9')) {
-        deptOrder = ['QURAN', 'HADITH', 'FIQH', 'CIVIL', 'AQIDAH', 'LANGUAGE'];
-    }
+    if (classLower.includes('qhf')) deptOrder = ['QURAN', 'HADITH', 'FIQH'];
+    else if (classLower.includes('alc')) deptOrder = ['AQIDAH', 'LANGUAGE', 'CIVIL'];
+    else if (classLower.includes('m10') || classLower.includes('u10')) deptOrder = ['QURAN', 'LANGUAGE', 'AQIDAH', 'HADITH', 'FIQH', 'CIVIL'];
+    else if (classLower.includes('fcl')) deptOrder = ['FIQH', 'CIVIL', 'LANGUAGE'];
+    else if (classLower.includes('qha')) deptOrder = ['QURAN', 'HADITH', 'AQIDAH'];
+    else if (classLower.includes('u8') || classLower.includes('u9')) deptOrder = ['QURAN', 'HADITH', 'FIQH', 'CIVIL', 'AQIDAH', 'LANGUAGE'];
 
-    if (deptOrder.length === 0) {
-        return [...studentsList].sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
-    }
+    if (deptOrder.length === 0) return [...studentsList].sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
 
     return [...studentsList].sort((a, b) => {
         const deptA = String(a.department || '').toUpperCase();
         const deptB = String(b.department || '').toUpperCase();
-        
         let indexA = deptOrder.indexOf(deptA);
         let indexB = deptOrder.indexOf(deptB);
-        
         if (indexA === -1) indexA = 999;
         if (indexB === -1) indexB = 999;
-        
         if (indexA !== indexB) return indexA - indexB;
         return (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999);
     });
 };
 
-// ==========================================
-// COMPONENT 1: TEACHER MANAGEMENT TAB
-// ==========================================
 function TeacherManager() {
     const [username, setUsername] = useState('');
     const [originalUsername, setOriginalUsername] = useState('');
     const [fullName, setFullName] = useState('');
     const [password, setPassword] = useState('123sms');
     const [showTeacherPassword, setShowTeacherPassword] = useState(false);
-
     const [subjectEnrollments, setSubjectEnrollments] = useState([]);
     const [newGrade, setNewGrade] = useState('1');
     const [newSubject, setNewSubject] = useState(DEFAULT_SUBJECTS[0]);
-
     const [allStudents, setAllStudents] = useState([]);
     const [editingEnrollmentId, setEditingEnrollmentId] = useState(null);
     const [tempSelectedStudents, setTempSelectedStudents] = useState([]);
-
     const [groupAlias, setGroupAlias] = useState('');
     const [groupLangTag, setGroupLangTag] = useState('Gen');
-
     const [filterGrade, setFilterGrade] = useState('All');
     const [filterMadhab, setFilterMadhab] = useState('All');
     const [filterUrdu, setFilterUrdu] = useState('All');
     const [filterDepartments, setFilterDepartments] = useState([]);
-
     const [registeredTeachers, setRegisteredTeachers] = useState([]);
     const [isEditing, setIsEditing] = useState(false);
     const [statusMsg, setStatusMsg] = useState('');
@@ -137,26 +117,20 @@ function TeacherManager() {
         setPassword('');
         setSubjectEnrollments(teacher.enrollments || []);
         setEditingEnrollmentId(null);
-        setStatusMsg(`Editing profile for ${teacher.fullName}. You can update name, username, or set a new password.`);
+        setStatusMsg(`Editing profile for ${teacher.fullName}.`);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     const resetForm = () => {
         setIsEditing(false);
-        setUsername('');
-        setOriginalUsername('');
-        setFullName('');
-        setPassword('123sms');
-        setSubjectEnrollments([]);
-        setEditingEnrollmentId(null);
-        setStatusMsg('');
+        setUsername(''); setOriginalUsername(''); setFullName('');
+        setPassword('123sms'); setSubjectEnrollments([]); setEditingEnrollmentId(null); setStatusMsg('');
     };
 
     const handleAddOrUpdateTeacher = async (e) => {
         e.preventDefault();
         setIsLoading(true);
         setStatusMsg(isEditing ? 'Updating teacher credentials...' : 'Registering teacher securely...');
-
         const safeUsername = username.toLowerCase().replace(/[^a-z0-9_.-]/g, '');
         const fakeEmail = `${safeUsername}@school.com`;
 
@@ -169,66 +143,42 @@ function TeacherManager() {
         try {
             if (!isEditing) {
                 await createUserWithEmailAndPassword(secondaryAuth, fakeEmail, password);
-                await setDoc(doc(db, 'teachers', safeUsername), {
-                    fullName, username: safeUsername, enrollments: subjectEnrollments
-                }, { merge: true });
+                await setDoc(doc(db, 'teachers', safeUsername), { fullName, username: safeUsername, enrollments: subjectEnrollments }, { merge: true });
                 setStatusMsg('Teacher successfully registered!');
             } else {
                 const isUsernameChanged = safeUsername !== originalUsername;
-
                 if (isUsernameChanged || (password && password.trim().length > 0)) {
                     const activePassword = password && password.trim().length >= 6 ? password.trim() : '123sms';
-                    try {
-                        await createUserWithEmailAndPassword(secondaryAuth, fakeEmail, activePassword);
-                    } catch (authErr) {
-                        if (authErr.code !== 'auth/email-already-in-use') throw authErr;
-                    }
+                    try { await createUserWithEmailAndPassword(secondaryAuth, fakeEmail, activePassword); } catch (authErr) { if (authErr.code !== 'auth/email-already-in-use') throw authErr; }
                 }
-
-                await setDoc(doc(db, 'teachers', safeUsername), {
-                    fullName, username: safeUsername, enrollments: subjectEnrollments
-                }, { merge: true });
-
-                if (isUsernameChanged && originalUsername) {
-                    await deleteDoc(doc(db, 'teachers', originalUsername));
-                }
-
-                setStatusMsg(`Teacher ${safeUsername} updated successfully!`);
+                await setDoc(doc(db, 'teachers', safeUsername), { fullName, username: safeUsername, enrollments: subjectEnrollments }, { merge: true });
+                if (isUsernameChanged && originalUsername) { await deleteDoc(doc(db, 'teachers', originalUsername)); }
+                setStatusMsg(`Teacher updated successfully!`);
             }
-
             await signOut(secondaryAuth);
             setIsLoading(false);
             fetchTeachersAndStudents();
             resetForm();
         } catch (err) {
             setIsLoading(false);
-            setStatusMsg('Error updating teacher: ' + err.message);
+            setStatusMsg('Error: ' + err.message);
         }
     };
 
     const handleDeleteClick = async (teacherUsername) => {
         if (window.confirm(`Delete ${teacherUsername}?`)) {
-            try { 
-                await deleteDoc(doc(db, 'teachers', teacherUsername)); 
-                fetchTeachersAndStudents(); 
-                setStatusMsg(`${teacherUsername} deleted.`); 
-            } catch (err) { alert("Failed to delete teacher."); }
+            try { await deleteDoc(doc(db, 'teachers', teacherUsername)); fetchTeachersAndStudents(); } catch (err) { alert("Failed to delete."); }
         }
     };
 
     const handleAddSubject = () => {
         const newId = Date.now().toString();
-        setSubjectEnrollments([...subjectEnrollments, {
-            id: newId, grade: newGrade, subject: newSubject,
-            alias: `Grade ${newGrade} ${newSubject}`, langTag: 'Gen', studentIds: []
-        }]);
+        setSubjectEnrollments([...subjectEnrollments, { id: newId, grade: newGrade, subject: newSubject, alias: `Grade ${newGrade} ${newSubject}`, langTag: 'Gen', studentIds: [] }]);
     };
 
     const handleRemoveSubject = (id) => {
-        if (window.confirm("Remove this subject assignment?")) {
-            setSubjectEnrollments(subjectEnrollments.filter(e => e.id !== id));
-            if (editingEnrollmentId === id) setEditingEnrollmentId(null);
-        }
+        setSubjectEnrollments(subjectEnrollments.filter(e => e.id !== id));
+        if (editingEnrollmentId === id) setEditingEnrollmentId(null);
     };
 
     const openStudentPicker = (enrollment) => {
@@ -240,22 +190,15 @@ function TeacherManager() {
     };
 
     const toggleStudentInSubject = (regNo) => {
-        if (tempSelectedStudents.includes(regNo)) {
-            setTempSelectedStudents(tempSelectedStudents.filter(id => id !== regNo));
-        } else {
-            setTempSelectedStudents([...tempSelectedStudents, regNo]);
-        }
+        if (tempSelectedStudents.includes(regNo)) setTempSelectedStudents(tempSelectedStudents.filter(id => id !== regNo));
+        else setTempSelectedStudents([...tempSelectedStudents, regNo]);
     };
 
     const toggleSelectAllFiltered = (filteredList) => {
         const allFilteredIds = filteredList.map(s => s.regNo);
         const areAllSelected = allFilteredIds.every(id => tempSelectedStudents.includes(id));
-        if (areAllSelected) {
-            setTempSelectedStudents(tempSelectedStudents.filter(id => !allFilteredIds.includes(id)));
-        } else {
-            const newSelections = new Set([...tempSelectedStudents, ...allFilteredIds]);
-            setTempSelectedStudents(Array.from(newSelections));
-        }
+        if (areAllSelected) setTempSelectedStudents(tempSelectedStudents.filter(id => !allFilteredIds.includes(id)));
+        else setTempSelectedStudents(Array.from(new Set([...tempSelectedStudents, ...allFilteredIds])));
     };
 
     const toggleFilterDepartment = (dept) => {
@@ -268,15 +211,12 @@ function TeacherManager() {
         if (!currentEnrollment) return;
         const deptPrefix = filterDepartments.length > 0 ? filterDepartments.map(d => d[0]).join('') : 'ALL';
         const gradeString = filterGrade !== 'All' ? filterGrade : currentEnrollment.grade;
-        const madhabString = filterMadhab !== 'All' ? `${filterMadhab} ` : '';
-        setGroupAlias(`${madhabString}${deptPrefix}${gradeString} ${currentEnrollment.subject}`);
+        setGroupAlias(`${deptPrefix}${gradeString} ${currentEnrollment.subject}`);
         setGroupLangTag(filterUrdu === 'All' ? 'Gen' : filterUrdu);
     };
 
     const saveStudentAssignments = () => {
-        setSubjectEnrollments(subjectEnrollments.map(env =>
-            env.id === editingEnrollmentId ? { ...env, studentIds: tempSelectedStudents, alias: groupAlias, langTag: groupLangTag } : env
-        ));
+        setSubjectEnrollments(subjectEnrollments.map(env => env.id === editingEnrollmentId ? { ...env, studentIds: tempSelectedStudents, alias: groupAlias, langTag: groupLangTag } : env));
         setEditingEnrollmentId(null);
     };
 
@@ -297,179 +237,97 @@ function TeacherManager() {
     return (
         <div>
             <div style={{ ...styles.card, borderLeft: isEditing ? '6px solid #f59e0b' : '1px solid #f1f5f9' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <h3 style={styles.sectionTitle}>{isEditing ? `Editing Teacher: ${originalUsername}` : 'Register Individual Teacher'}</h3>
-                    {isEditing && (
-                        <button type="button" onClick={resetForm} style={{ padding: '8px 16px', background: '#e2e8f0', color: '#334155', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
-                            Cancel Edit
-                        </button>
-                    )}
-                </div>
-
-                <form onSubmit={handleAddOrUpdateTeacher} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '24px' }}>
+                <h3 style={styles.sectionTitle}>{isEditing ? `Editing Teacher: ${originalUsername}` : 'Register Individual Teacher'}</h3>
+                <form onSubmit={handleAddOrUpdateTeacher} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
                         <div>
                             <label style={styles.label}>Full Name</label>
                             <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. Muzammil Hudawi" required style={styles.input} />
                         </div>
                         <div>
-                            <label style={styles.label}>
-                                Username {isEditing && <span style={{ color: '#2563eb', fontSize: '12px' }}>(Editable)</span>}
-                            </label>
+                            <label style={styles.label}>Username</label>
                             <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. muzammil" required style={styles.input} />
                         </div>
                         <div>
-                            <label style={styles.label}>
-                                {isEditing ? 'New Password (Leave blank to keep unchanged)' : 'Initial Password'}
-                            </label>
-                            <div style={{ display: 'flex', position: 'relative' }}>
-                                <input type={showTeacherPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={isEditing ? "Enter new password (min 6 chars)" : "Password"} required={!isEditing} style={styles.input} />
-                                <button type="button" onClick={() => setShowTeacherPassword(!showTeacherPassword)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#2563eb', fontWeight: '600', cursor: 'pointer' }}>{showTeacherPassword ? "Hide" : "Show"}</button>
-                            </div>
+                            <label style={styles.label}>Password</label>
+                            <input type={showTeacherPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" required={!isEditing} style={styles.input} />
                         </div>
                     </div>
 
-                    <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                        <h4 style={{ margin: '0 0 16px 0', fontSize: '16px', color: '#1e293b' }}>1. Add Teaching Subjects</h4>
-                        <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
-                            <select value={newGrade} onChange={(e) => setNewGrade(e.target.value)} style={{ ...styles.input, width: '150px', cursor: 'pointer' }}>
+                    <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px' }}>
+                        <h4 style={{ margin: '0 0 12px 0' }}>Assign Teaching Subjects</h4>
+                        <div style={{ display: 'flex', gap: '15px', marginBottom: '15px', flexWrap: 'wrap' }}>
+                            <select value={newGrade} onChange={(e) => setNewGrade(e.target.value)} style={{ ...styles.input, width: '130px' }}>
                                 {GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}
                             </select>
-                            <select value={newSubject} onChange={(e) => setNewSubject(e.target.value)} style={{ ...styles.input, flex: 1, cursor: 'pointer' }}>
+                            <select value={newSubject} onChange={(e) => setNewSubject(e.target.value)} style={{ ...styles.input, flex: 1 }}>
                                 {DEFAULT_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
                             </select>
-                            <button type="button" onClick={handleAddSubject} style={{ ...styles.buttonPrimary, background: '#3b82f6' }}>+ Add Subject</button>
+                            <button type="button" onClick={handleAddSubject} style={styles.buttonPrimary}>+ Add Subject</button>
                         </div>
 
-                        <h4 style={{ margin: '0 0 12px 0', fontSize: '15px', color: '#334155' }}>2. Assign Students to Subjects</h4>
-                        {subjectEnrollments.length === 0 && <p style={{ fontSize: '14px', color: '#64748b' }}>No subjects added yet.</p>}
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            {subjectEnrollments.map(enroll => (
-                                <div key={enroll.id} style={{ border: '1px solid #cbd5e1', borderRadius: '8px', overflow: 'hidden' }}>
-                                    <div style={{ background: '#ffffff', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                                        <div>
-                                            <strong style={{ fontSize: '16px', color: '#0f172a' }}>{enroll.alias || `Grade ${enroll.grade} ${enroll.subject}`}</strong>
-                                            <sub style={{ marginLeft: '4px', color: '#64748b', fontWeight: 'bold' }}>{enroll.langTag || 'Gen'}</sub>
-                                            <span style={{ marginLeft: '15px', fontSize: '13px', color: '#64748b', fontWeight: 'bold' }}>({enroll.studentIds?.length || 0} Students Assigned)</span>
+                        {subjectEnrollments.map(enroll => (
+                            <div key={enroll.id} style={{ border: '1px solid #cbd5e1', borderRadius: '8px', marginBottom: '10px', background: '#fff' }}>
+                                <div style={{ padding: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                                    <strong>{enroll.alias}</strong> ({enroll.studentIds?.length || 0} students)
+                                    <div>
+                                        <button type="button" onClick={() => openStudentPicker(enroll)} style={{ padding: '6px 12px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', marginRight: '8px' }}>Assign Students</button>
+                                        <button type="button" onClick={() => handleRemoveSubject(enroll.id)} style={{ padding: '6px 10px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>X</button>
+                                    </div>
+                                </div>
+                                {editingEnrollmentId === enroll.id && (
+                                    <div style={{ padding: '15px', background: '#f1f5f9', borderTop: '1px solid #cbd5e1' }}>
+                                        <div style={{ display: 'flex', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
+                                            <input type="text" value={groupAlias} onChange={e => setGroupAlias(e.target.value)} placeholder="Display Name" style={{ ...styles.input, flex: 2 }} />
+                                            <button type="button" onClick={autoGenerateSmartName} style={{ padding: '8px 12px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Auto-Fill Name</button>
                                         </div>
-                                        <div style={{ display: 'flex', gap: '10px' }}>
-                                            <button type="button" onClick={() => openStudentPicker(enroll)} style={{ padding: '8px 16px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Assign Students</button>
-                                            <button type="button" onClick={() => handleRemoveSubject(enroll.id)} style={{ padding: '8px 12px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>X</button>
+                                        <div style={{ maxHeight: '200px', overflowY: 'auto', background: '#fff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '8px' }}>
+                                            <label style={{ display: 'block', padding: '6px', fontWeight: 'bold', borderBottom: '1px solid #e2e8f0', cursor: 'pointer' }}>
+                                                <input type="checkbox" onChange={() => toggleSelectAllFiltered(filteredPickerStudents)} checked={filteredPickerStudents.length > 0 && filteredPickerStudents.every(s => tempSelectedStudents.includes(s.regNo))} style={{ marginRight: '8px' }} />
+                                                Select All ({filteredPickerStudents.length})
+                                            </label>
+                                            {filteredPickerStudents.map(s => (
+                                                <label key={s.regNo} style={{ display: 'block', padding: '6px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', fontSize: '14px' }}>
+                                                    <input type="checkbox" checked={tempSelectedStudents.includes(s.regNo)} onChange={() => toggleStudentInSubject(s.regNo)} style={{ marginRight: '8px' }} />
+                                                    {s.adNo} - {s.firstName} ({s.department || 'GENERAL'})
+                                                </label>
+                                            ))}
+                                        </div>
+                                        <div style={{ marginTop: '10px', textAlign: 'right' }}>
+                                            <button type="button" onClick={saveStudentAssignments} style={{ padding: '8px 16px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Done</button>
                                         </div>
                                     </div>
-
-                                    {editingEnrollmentId === enroll.id && (
-                                        <div style={{ background: '#f1f5f9', padding: '20px', borderTop: '1px solid #cbd5e1' }}>
-                                            <div style={{ padding: '15px', background: '#e0f2fe', borderRadius: '8px', marginBottom: '15px', border: '1px solid #bae6fd' }}>
-                                                <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', color: '#0369a1', marginBottom: '8px' }}>Display Name in Teacher Dashboard:</label>
-                                                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                                                    <input type="text" value={groupAlias} onChange={e => setGroupAlias(e.target.value)} placeholder="e.g. QHF1 Thafseer" style={{ ...styles.input, flex: 2 }} />
-                                                    <input type="text" value={groupLangTag} onChange={e => setGroupLangTag(e.target.value)} placeholder="Subscript (e.g. Urdu)" style={{ ...styles.input, flex: 1 }} />
-                                                    <button type="button" onClick={autoGenerateSmartName} style={{ padding: '8px 16px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                                                        ✨ Auto-Fill from Filters
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '15px', alignItems: 'center' }}>
-                                                <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#334155', marginRight: '5px' }}>Filter Depts:</span>
-                                                {DEPARTMENTS.map(d => (
-                                                    <label key={d} style={{ display: 'flex', alignItems: 'center', fontSize: '12px', color: '#0f172a', background: filterDepartments.includes(d) ? '#dbeafe' : '#ffffff', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', border: filterDepartments.includes(d) ? '2px solid #3b82f6' : '1px solid #cbd5e1', fontWeight: '600' }}>
-                                                        <input type="checkbox" checked={filterDepartments.includes(d)} onChange={() => toggleFilterDepartment(d)} style={{ display: 'none' }} />
-                                                        {d}
-                                                    </label>
-                                                ))}
-                                                {filterDepartments.length > 0 && (
-                                                    <button type="button" onClick={() => setFilterDepartments([])} style={{ fontSize: '12px', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 'bold', marginLeft: '5px' }}>Clear Depts</button>
-                                                )}
-                                            </div>
-
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '15px' }}>
-                                                <select value={filterGrade} onChange={e => setFilterGrade(e.target.value)} style={styles.filterSelect}>
-                                                    <option value="All">All Grades</option>
-                                                    <option value="1">Grade 1</option><option value="2">Grade 2</option><option value="3">Grade 3</option>
-                                                </select>
-                                                <select value={filterMadhab} onChange={e => setFilterMadhab(e.target.value)} style={styles.filterSelect}>
-                                                    <option value="All">All Madhabs</option>
-                                                    {MADHABS.map(m => <option key={m} value={m}>{m}</option>)}
-                                                </select>
-                                                <select value={filterUrdu} onChange={e => setFilterUrdu(e.target.value)} style={styles.filterSelect}>
-                                                    <option value="All">All Languages</option>
-                                                    <option value="Urdu">Urdu (U)</option><option value="Non-Urdu">Non-Urdu</option>
-                                                </select>
-                                            </div>
-
-                                            <div style={{ maxHeight: '300px', overflowY: 'auto', background: '#fff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '10px' }}>
-                                                <label style={{ display: 'block', padding: '10px', borderBottom: '2px solid #e2e8f0', cursor: 'pointer', fontWeight: 'bold', color: '#2563eb' }}>
-                                                    <input type="checkbox" onChange={() => toggleSelectAllFiltered(filteredPickerStudents)} checked={filteredPickerStudents.length > 0 && filteredPickerStudents.every(s => tempSelectedStudents.includes(s.regNo))} style={{ marginRight: '10px', accentColor: '#2563eb' }} />
-                                                    Select/Deselect All in Current View ({filteredPickerStudents.length} Students)
-                                                </label>
-                                                {filteredPickerStudents.map(student => (
-                                                    <label key={student.regNo} style={{ display: 'block', padding: '10px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', fontSize: '14px', color: '#334155' }}>
-                                                        <input type="checkbox" checked={tempSelectedStudents.includes(student.regNo)} onChange={() => toggleStudentInSubject(student.regNo)} style={{ marginRight: '10px', accentColor: '#2563eb' }} />
-                                                        <strong>{student.adNo}</strong> - {student.firstName}
-                                                        <span style={{ fontSize: '11px', color: '#0369a1', background: '#e0f2fe', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold', marginLeft: '8px' }}>{student.department || 'GENERAL'}</span>
-                                                        <span style={{ fontSize: '11px', color: '#7e22ce', background: '#f3e8ff', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold', marginLeft: '6px' }}>{student.madhab || 'General'}</span>
-                                                        {isUrduStudent(student.adNo) && <span style={{ fontSize: '11px', color: '#b45309', background: '#fef3c7', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold', marginLeft: '6px' }}>URDU</span>}
-                                                    </label>
-                                                ))}
-                                            </div>
-
-                                            <div style={{ marginTop: '15px', textAlign: 'right' }}>
-                                                <button type="button" onClick={saveStudentAssignments} style={{ padding: '10px 20px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-                                                    Save Enrollments
-                                                </button>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
+                                )}
+                            </div>
+                        ))}
                     </div>
 
                     <button type="submit" disabled={isLoading} style={isEditing ? styles.buttonWarning : styles.buttonSuccess}>
-                        {isLoading ? 'Processing...' : isEditing ? 'Update Teacher Credentials' : 'Register Teacher'}
+                        {isLoading ? 'Saving...' : isEditing ? 'Update Teacher' : 'Register Teacher'}
                     </button>
                 </form>
-
-                {statusMsg && (
-                    <div style={{ marginTop: '20px', padding: '16px', background: statusMsg.includes('Error') ? '#fee2e2' : '#ecfdf5', border: `1px solid ${statusMsg.includes('Error') ? '#fecaca' : '#a7f3d0'}`, borderRadius: '8px', color: statusMsg.includes('Error') ? '#991b1b' : '#065f46', fontWeight: '600' }}>
-                        {statusMsg}
-                    </div>
-                )}
+                {statusMsg && <div style={{ marginTop: '15px', padding: '12px', background: '#ecfdf5', borderRadius: '8px', color: '#065f46', fontWeight: '600' }}>{statusMsg}</div>}
             </div>
 
             <div style={styles.card}>
                 <h3 style={styles.sectionTitle}>Teachers Directory</h3>
-                <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px' }}>
+                <div style={{ width: '100%', overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
                         <thead>
                             <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
-                                <th style={{ padding: '16px', color: '#334155' }}>Name & Username</th>
-                                <th style={{ padding: '16px', color: '#334155' }}>Assigned Subject Groups</th>
-                                <th style={{ padding: '16px', color: '#334155' }}>Actions</th>
+                                <th style={{ padding: '12px' }}>Name & Username</th>
+                                <th style={{ padding: '12px' }}>Enrollments</th>
+                                <th style={{ padding: '12px' }}>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {registeredTeachers.map((teacher, index) => (
-                                <tr key={index} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                    <td style={{ padding: '16px' }}>
-                                        <strong style={{ color: '#0f172a' }}>{teacher.fullName}</strong><br />
-                                        <span style={{ color: '#64748b', fontSize: '13px' }}>@{teacher.username}</span>
-                                    </td>
-                                    <td style={{ padding: '16px' }}>
-                                        {teacher.enrollments?.map((e, i) => (
-                                            <div key={i} style={{ display: 'inline-block', background: '#f1f5f9', color: '#0f172a', padding: '6px 10px', borderRadius: '6px', margin: '4px', fontSize: '13px', border: '1px solid #e2e8f0' }}>
-                                                <strong>{e.alias || `Grade ${e.grade} ${e.subject}`}</strong>
-                                                <sub style={{ color: '#64748b', marginLeft: '4px', fontWeight: 'bold' }}>{e.langTag || 'Gen'}</sub>
-                                                <span style={{ color: '#2563eb', marginLeft: '6px' }}>({e.studentIds?.length || 0})</span>
-                                            </div>
-                                        ))}
-                                    </td>
-                                    <td style={{ padding: '16px' }}>
-                                        <button onClick={() => handleEditClick(teacher)} style={{ padding: '8px 16px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', marginRight: '8px', fontWeight: '600' }}>Edit</button>
-                                        <button onClick={() => handleDeleteClick(teacher.username)} style={{ padding: '8px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600' }}>Delete</button>
+                            {registeredTeachers.map((t, idx) => (
+                                <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                    <td style={{ padding: '12px' }}><strong>{t.fullName}</strong><br />@{t.username}</td>
+                                    <td style={{ padding: '12px' }}>{t.enrollments?.map((e, i) => <span key={i} style={{ display: 'inline-block', background: '#f1f5f9', padding: '4px 8px', borderRadius: '4px', margin: '2px', fontSize: '12px' }}>{e.alias}</span>)}</td>
+                                    <td style={{ padding: '12px' }}>
+                                        <button onClick={() => handleEditClick(t)} style={{ padding: '6px 12px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', marginRight: '6px' }}>Edit</button>
+                                        <button onClick={() => handleDeleteClick(t.username)} style={{ padding: '6px 12px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Delete</button>
                                     </td>
                                 </tr>
                             ))}
@@ -481,9 +339,6 @@ function TeacherManager() {
     );
 }
 
-// ==========================================
-// COMPONENT 2: STUDENT MANAGEMENT TAB
-// ==========================================
 function StudentManager() {
     const [rollNo, setRollNo] = useState('');
     const [regNo, setRegNo] = useState('');
@@ -880,9 +735,6 @@ function StudentManager() {
     );
 }
 
-// ==========================================
-// COMPONENT 3: REPORT & ADVANCED FILTER AUDITOR
-// ==========================================
 function ReportManager() {
     const [registeredStudents, setRegisteredStudents] = useState([]);
     const [overallMarksCache, setOverallMarksCache] = useState({});
@@ -1031,7 +883,6 @@ function ReportManager() {
             return { ...s, displayMetric: printedMetric };
         });
 
-        // APPLY SMART MIXED CLASS SORTER TO THE FILTERED LIST
         let sortedMappedResults = [...mappedResults];
         if (exportClassFilter !== 'All') {
             sortedMappedResults = sortStudentsByDepartment(sortedMappedResults, exportClassFilter);
@@ -1068,7 +919,7 @@ function ReportManager() {
 
             let matchedStudents = [];
             let activeSubject = '';
-            let sorterAlias = ''; // Helps decide how to sort later
+            let sorterAlias = ''; 
 
             if (inspectorMode === 'class') {
                 activeSubject = inspectorSubject;
@@ -1120,7 +971,6 @@ function ReportManager() {
                 });
             }
 
-            // APPLY SMART MIXED CLASS SORTER TO THE MARK INSPECTOR TABLE
             matchedStudents = sortStudentsByDepartment(matchedStudents, sorterAlias);
 
             const marksRecord = {};
@@ -1253,7 +1103,6 @@ function ReportManager() {
 
     return (
         <div>
-            {/* 1. INSTANT SMART AUDIT BAR */}
             <div style={styles.card}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '15px' }}>
                     <div>
@@ -1425,7 +1274,6 @@ function ReportManager() {
                 )}
             </div>
 
-            {/* 2. HIGH-CONTRAST LEVEL-BY-LEVEL MARK INSPECTOR CARD */}
             <div style={styles.card}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
                     <h3 style={styles.sectionTitle}>🔍 Level-by-Level Mark Inspector</h3>
@@ -1593,80 +1441,156 @@ function ReportManager() {
     );
 }
 
-// ==========================================
-// MAIN DASHBOARD COMPONENT (WRAPPER)
-// ==========================================
-export default function CentralAdminDashboard() {
-    const [isAdminAuth, setIsAdminAuth] = useState(false);
-    const [adminPassword, setAdminPassword] = useState('');
-    const [showAdminPassword, setShowAdminPassword] = useState(false);
-    const [activeTab, setActiveTab] = useState('reports');
+export default function UnifiedSchoolPortal() {
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [loginError, setLoginError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const router = useRouter();
 
-    // 🌟 Check if the admin already logged in from the main page
+    const [userRole, setUserRole] = useState(null); 
+    const [loggedInTeacherData, setLoggedInTeacherData] = useState(null);
+
+    // 🌟 Ensure session persists if teacher reloads the page
     useEffect(() => {
-        if (localStorage.getItem('isAdminAuth') === 'true') {
-            setIsAdminAuth(true);
-        }
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+            if (user && user.email && user.email.endsWith('@school.com')) {
+                const safeUsername = user.email.split('@')[0];
+                const docRef = doc(db, "teachers", safeUsername);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    setLoggedInTeacherData(docSnap.data());
+                    setUserRole('teacher');
+                }
+            }
+        });
+        return () => unsubscribe();
     }, []);
 
-    // 🌟 FIXED: Now saves the session to localStorage so it persists
-    const handleAdminLogin = (e) => {
+    const handleLogin = async (e) => {
         e.preventDefault();
-        if (adminPassword === 'admin123') {
+        setLoginError('');
+        setIsLoading(true);
+
+        const rawUsername = username.trim().toLowerCase();
+        
+        // 🌟 Sanitizes login exactly like registration so spaces don't break the database match
+        const safeUsername = rawUsername.replace(/[^a-z0-9_.-]/g, '');
+
+        if (rawUsername === 'admin' && password === 'admin123') {
             localStorage.setItem('isAdminAuth', 'true');
-            setIsAdminAuth(true);
-        } else {
-            alert('Incorrect Admin Password');
+            router.push('/admin'); 
+            return;
+        }
+
+        try {
+            const fakeEmail = `${safeUsername}@school.com`;
+            await signInWithEmailAndPassword(auth, fakeEmail, password.trim());
+            
+            const docRef = doc(db, "teachers", safeUsername);
+            const docSnap = await getDoc(docRef);
+
+            if (docSnap.exists()) {
+                setLoggedInTeacherData(docSnap.data());
+                setUserRole('teacher');
+            } else {
+                setLoginError('Teacher profile data not found.');
+                await signOut(auth);
+            }
+        } catch (err) {
+            console.error("Login Error:", err);
+            // 🌟 Provides smart error messaging to help you debug
+            if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+                setLoginError('Incorrect password or username.');
+            } else if (err.code === 'auth/user-not-found') {
+                setLoginError('Username does not exist in the database.');
+            } else {
+                setLoginError('Login failed. Please check credentials.');
+            }
+        } finally {
+            setIsLoading(false);
         }
     };
-    
-    // 🌟 FIXED: Completely clears the session and redirects to the home page
+
     const handleLogout = async () => {
-        const authInstance = getAuth();
-        await signOut(authInstance); // Clears any underlying firebase session
-        localStorage.removeItem('isAdminAuth'); // Destroys the admin token
-        setIsAdminAuth(false);
-        window.location.href = '/'; // Redirects to the main login portal
+        await signOut(auth);
+        setUserRole(null);
+        setLoggedInTeacherData(null);
+        setUsername(''); setPassword('');
     };
 
-    if (!isAdminAuth) {
+    if (userRole === 'admin') {
         return (
-            <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f0f2f5', fontFamily: 'Inter, system-ui, sans-serif' }}>
-                <div style={{ background: '#ffffff', padding: '48px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', width: '100%', maxWidth: '420px', border: '1px solid #e2e8f0' }}>
-                    <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-                        <h2 style={{ color: '#0f172a', margin: '0 0 12px 0', fontSize: '28px', fontWeight: '800', letterSpacing: '-0.5px' }}>Admin Portal</h2>
-                        <p style={{ color: '#64748b', fontSize: '15px', margin: 0 }}>Enter master password</p>
-                    </div>
-                    <form onSubmit={handleAdminLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                        <div style={{ display: 'flex', position: 'relative' }}>
-                            <input type={showAdminPassword ? "text" : "password"} value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} required style={styles.input} />
-                            <button type="button" onClick={() => setShowAdminPassword(!showAdminPassword)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#2563eb', fontWeight: '600', cursor: 'pointer', fontSize: '14px' }}>{showAdminPassword ? "Hide" : "Show"}</button>
+            <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '24px 16px', fontFamily: 'Inter, system-ui, sans-serif' }}>
+                <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+                    <InstallAppBanner />
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: '#ffffff', padding: '20px 24px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '15px' }}>
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                            <h1 style={{ margin: '0 15px 0 0', fontSize: '20px', fontWeight: '800' }}>Admin Dashboard</h1>
                         </div>
-                        <button type="submit" style={styles.buttonPrimary}>Access System</button>
-                    </form>
+                        <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
+                    </div>
+
+                    {/* Renders the full admin tabs */}
+                    <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
+                        <button onClick={() => window.scrollTo(0, document.getElementById('teachers').offsetTop)} style={{ padding: '10px 18px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Manage Teachers</button>
+                        <button onClick={() => window.scrollTo(0, document.getElementById('students').offsetTop)} style={{ padding: '10px 18px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Manage Students</button>
+                        <button onClick={() => window.scrollTo(0, document.getElementById('reports').offsetTop)} style={{ padding: '10px 18px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Reports & Export</button>
+                    </div>
+
+                    <div id="teachers"><TeacherManager /></div>
+                    <div id="students"><StudentManager /></div>
+                    <div id="reports"><ReportManager /></div>
+
+                </div>
+            </div>
+        );
+    }
+
+    if (userRole === 'teacher') {
+        return (
+            <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '24px 16px', fontFamily: 'Inter, system-ui, sans-serif' }}>
+                <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+                    <InstallAppBanner />
+                    <TeacherPortalView loggedInTeacher={loggedInTeacherData} onLogout={handleLogout} />
                 </div>
             </div>
         );
     }
 
     return (
-        <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '40px 20px', fontFamily: 'Inter, system-ui, sans-serif' }}>
-            <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f0f2f5', fontFamily: 'Inter, system-ui, sans-serif', padding: '16px', boxSizing: 'border-box' }}>
+            <div style={{ width: '100%', maxWidth: '420px' }}>
                 <InstallAppBanner />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0' }}>
-                    <div style={{ display: 'flex', gap: '24px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <h1 style={{ margin: '0 24px 0 0', fontSize: '24px', color: '#0f172a', fontWeight: '800', borderRight: '2px solid #e2e8f0', paddingRight: '24px' }}>Dashboard</h1>
-                        <button onClick={() => setActiveTab('teachers')} style={{ padding: '10px 20px', background: activeTab === 'teachers' ? '#2563eb' : 'transparent', color: activeTab === 'teachers' ? '#ffffff' : '#64748b', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '15px' }}>👨‍‍🏫 Manage Teachers</button>
-                        <button onClick={() => setActiveTab('students')} style={{ padding: '10px 20px', background: activeTab === 'students' ? '#2563eb' : 'transparent', color: activeTab === 'students' ? '#ffffff' : '#64748b', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '15px' }}>👨‍🎓 Manage Students</button>
-                        <button onClick={() => setActiveTab('reports')} style={{ padding: '10px 20px', background: activeTab === 'reports' ? '#2563eb' : 'transparent', color: activeTab === 'reports' ? '#ffffff' : '#64748b', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '15px' }}>📊 Reports & Export</button>
+                <div style={{ background: '#ffffff', padding: '40px 24px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', border: '1px solid #e2e8f0', boxSizing: 'border-box' }}>
+                    <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+                        <span style={{ fontSize: '36px', display: 'block', marginBottom: '8px' }}>🏫</span>
+                        <h2 style={{ color: '#0f172a', margin: '0 0 8px 0', fontSize: '24px', fontWeight: '800' }}>School Portal</h2>
+                        <p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>Sign in with your Admin or Teacher account</p>
                     </div>
-                    {/* 🌟 FIXED: Calls the new handleLogout function */}
-                    <button onClick={handleLogout} style={{ padding: '10px 20px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>Logout</button>
-                </div>
 
-                {activeTab === 'teachers' && <TeacherManager />}
-                {activeTab === 'students' && <StudentManager />}
-                {activeTab === 'reports' && <ReportManager />}
+                    <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                        <div>
+                            <label style={styles.label}>Username</label>
+                            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. admin or username" required style={styles.input} />
+                        </div>
+                        <div>
+                            <label style={styles.label}>Password</label>
+                            <div style={{ display: 'flex', position: 'relative' }}>
+                                <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required style={styles.input} />
+                                <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#2563eb', fontWeight: '600', cursor: 'pointer' }}>{showPassword ? "Hide" : "Show"}</button>
+                            </div>
+                        </div>
+
+                        {loginError && <div style={{ padding: '10px', background: '#fef2f2', color: '#b91c1c', borderRadius: '8px', fontSize: '13px', fontWeight: '600', textAlign: 'center' }}>{loginError}</div>}
+
+                        <button type="submit" disabled={isLoading} style={{ ...styles.buttonPrimary, width: '100%', opacity: isLoading ? 0.7 : 1 }}>
+                            {isLoading ? 'Signing In...' : 'Sign In'}
+                        </button>
+                    </form>
+                </div>
             </div>
         </div>
     );
