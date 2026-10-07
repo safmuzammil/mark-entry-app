@@ -152,16 +152,55 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
   const [studentMarks, setStudentMarks] = useState({});
   const [statusMsg, setStatusMsg] = useState('');
   const [weeklyReminder, setWeeklyReminder] = useState(null);
+  const [reminderChecklist, setReminderChecklist] = useState([]);
 
+  // 🌟 REPLACE the existing weeklyReminder useEffect with this one
   useEffect(() => {
-    async function fetchReminder() {
+    async function fetchReminderAndChecklist() {
       const snap = await getDoc(doc(db, 'systemCache', 'activeReminder'));
       if (snap.exists() && snap.data().active) {
-        setWeeklyReminder(snap.data());
+        const reminderData = snap.data();
+        setWeeklyReminder(reminderData);
+
+        if (allStudentsCache.length > 0) {
+          const checklist = [];
+          for (const env of loggedInTeacher.enrollments) {
+            const exactSubject = (env.alias?.toUpperCase().includes('U :FIQH') || env.subject?.toUpperCase().includes('U :FIQH')) ? 'U :FIQH' : (env.subject || '');
+
+            // Skip if the reminder is for a specific subject and this isn't it
+            if (reminderData.targetSubject !== 'All' && exactSubject.toUpperCase() !== reminderData.targetSubject.toUpperCase()) {
+              continue;
+            }
+
+            const matchedStudents = allStudentsCache.filter(student => env.studentIds.includes(student.regNo));
+            if (matchedStudents.length === 0) continue;
+
+            let missingCount = 0;
+            const markPromises = matchedStudents.map(st => getDoc(doc(db, 'marks', st.regNo)));
+            const markDocs = await Promise.all(markPromises);
+
+            markDocs.forEach(docSnap => {
+              let hasMark = false;
+              if (docSnap.exists()) {
+                const mData = docSnap.data();
+                const foundKey = Object.keys(mData).find(k => k.trim().toUpperCase() === exactSubject.toUpperCase());
+                if (foundKey && mData[foundKey] && mData[foundKey][reminderData.level] !== undefined && mData[foundKey][reminderData.level] !== '') {
+                  hasMark = true;
+                }
+              }
+              if (!hasMark) missingCount++;
+            });
+
+            checklist.push({ alias: env.alias, isComplete: missingCount === 0, missing: missingCount });
+          }
+          setReminderChecklist(checklist);
+        }
+      } else {
+        setWeeklyReminder(null);
       }
     }
-    fetchReminder();
-  }, []);
+    fetchReminderAndChecklist();
+  }, [loggedInTeacher, allStudentsCache, studentMarks]); // Updates live when they save marks!
 
   useEffect(() => {
     async function fetchStudents() {
@@ -363,12 +402,29 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
       </div>
 
       {/* 🌟 ADD THIS just above {activeView === 'settings' ? ...} */}
-      {weeklyReminder && (
-        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '16px 20px', borderRadius: '12px', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
-          <span style={{ fontSize: '28px' }}>🔔</span>
-          <div>
-            <h4 style={{ margin: '0 0 4px 0', color: '#1e40af', fontSize: '16px', fontWeight: '800' }}>Action Required: Mark Entry for Level {weeklyReminder.level}</h4>
-            <p style={{ margin: 0, color: '#1e3a8a', fontSize: '14px', fontWeight: '600' }}>{weeklyReminder.message}</p>
+      {/* 🌟 REPLACE your current {weeklyReminder && (...)} banner with this enhanced version */}
+      {weeklyReminder && reminderChecklist.length > 0 && (
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '20px', borderRadius: '12px', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <span style={{ fontSize: '28px' }}>🔔</span>
+            <div>
+              <h4 style={{ margin: '0 0 4px 0', color: '#1e40af', fontSize: '16px', fontWeight: '800' }}>
+                Action Required: Mark Entry for {weeklyReminder.targetSubject !== 'All' ? weeklyReminder.targetSubject : 'All Subjects'} (Level {weeklyReminder.level})
+              </h4>
+              <p style={{ margin: 0, color: '#1e3a8a', fontSize: '14px', fontWeight: '600' }}>{weeklyReminder.message}</p>
+            </div>
+          </div>
+
+          <div style={{ marginTop: '8px', background: '#ffffff', padding: '16px', borderRadius: '8px', border: '1px solid #dbeafe' }}>
+            <h5 style={{ margin: '0 0 12px 0', color: '#0f172a', fontSize: '14px', fontWeight: '800' }}>Your Task Checklist:</h5>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+              {reminderChecklist.map((item, idx) => (
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: '700', color: item.isComplete ? '#047857' : '#dc2626' }}>
+                  {item.isComplete ? '✅' : '❌'} {item.alias}
+                  {!item.isComplete && <span style={{ fontSize: '12px', fontWeight: '600', color: '#ef4444' }}>({item.missing} students missing)</span>}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -1589,22 +1645,15 @@ function ReportManager() {
   };
 
   // 🌟 NEW: FUNCTION TO GENERATE CLASS OR TEACHER AVERAGES ANALYTICS
+ // 🌟 REPLACE the entire generateAnalytics function inside ReportManager
   const generateAnalytics = async () => {
     setIsFetchingAnalytics(true);
     try {
-      const studentSnap = await getDocs(collection(db, 'students'));
-      const allStudents = [];
-      studentSnap.forEach(doc => allStudents.push({ id: doc.id, ...doc.data() }));
-
-      const teacherSnap = await getDocs(collection(db, 'teachers'));
-      const totalEnrolled = matchedStudents.length;
-      const allTeachersList = [];
-      teacherSnap.forEach(doc => allTeachersList.push({ id: doc.id, ...doc.data() }));
-
       let targetEnrollments = [];
 
+      // 1. Gather the target subjects based on class or teacher
       if (analyticsMode === 'class') {
-        allTeachersList.forEach(t => {
+        allTeachers.forEach(t => {
           (t.enrollments || []).forEach(env => {
             const envAliasLower = String(env.alias || '').trim().toLowerCase();
             if (envAliasLower.includes(analyticsClass.toLowerCase())) {
@@ -1613,24 +1662,20 @@ function ReportManager() {
           });
         });
       } else {
-        const t = allTeachersList.find(x => x.username === analyticsTeacherUsername);
+        const t = allTeachers.find(x => x.username === analyticsTeacherUsername);
         if (t) {
           targetEnrollments = (t.enrollments || []).map(env => ({ ...env, teacherName: t.fullName }));
         }
       }
 
       const results = [];
-      const marksSnap = await getDocs(collection(db, 'marks'));
-      const allMarks = {};
-      marksSnap.forEach(doc => {
-        allMarks[doc.id] = doc.data();
-      });
 
+      // 2. Safely fetch marks and calculate averages
       for (const env of targetEnrollments) {
         const envAliasLower = String(env.alias || '').trim().toLowerCase();
         const envLang = (env.langTag || '').toLowerCase();
 
-        const matchedStudents = allStudents.filter(student => {
+        const matchedStudents = registeredStudents.filter(student => {
           const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
           const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
 
@@ -1652,11 +1697,7 @@ function ReportManager() {
           return false;
         });
 
-        let sum15 = 0, count15 = 0;
-        let sum20 = 0, count20 = 0;
-        let sum25 = 0, count25 = 0;
-        let sum40 = 0, count40 = 0;
-        let sum100 = 0, count100 = 0;
+        let sum15 = 0, sum20 = 0, sum25 = 0, sum40 = 0, sum100 = 0;
 
         const rawSub = (env.subject || '').trim();
         const rawAlias = (env.alias || '').trim();
@@ -1665,9 +1706,13 @@ function ReportManager() {
           exactSubject = 'U :FIQH';
         }
 
-        matchedStudents.forEach(st => {
-          const stMarksData = allMarks[st.regNo] || allMarks[st.id] || allMarks[st.adNo];
-          if (stMarksData) {
+        // Safely fetch individual marks instead of the entire collection to prevent Firebase crashes
+        const markPromises = matchedStudents.map(st => getDoc(doc(db, 'marks', String(st.regNo || st.id).trim())));
+        const markDocs = await Promise.all(markPromises);
+
+        markDocs.forEach(docSnap => {
+          if (docSnap.exists()) {
+            const stMarksData = docSnap.data();
             const foundSubjectKey = Object.keys(stMarksData).find(k => {
               const kUp = k.trim().toUpperCase();
               const actUp = exactSubject.trim().toUpperCase();
@@ -1679,30 +1724,29 @@ function ReportManager() {
             if (foundSubjectKey && stMarksData[foundSubjectKey]) {
               const m = stMarksData[foundSubjectKey];
               let t100 = 0;
-              let hasAnyMark = false;
 
-              if (m['15'] !== undefined && m['15'] !== '') { sum15 += parseFloat(m['15']); count15++; t100 += parseFloat(m['15']); hasAnyMark = true; }
-              if (m['20'] !== undefined && m['20'] !== '') { sum20 += parseFloat(m['20']); count20++; t100 += parseFloat(m['20']); hasAnyMark = true; }
-              if (m['25'] !== undefined && m['25'] !== '') { sum25 += parseFloat(m['25']); count25++; t100 += parseFloat(m['25']); hasAnyMark = true; }
-              if (m['40'] !== undefined && m['40'] !== '') { sum40 += parseFloat(m['40']); count40++; t100 += parseFloat(m['40']); hasAnyMark = true; }
+              if (m['15'] !== undefined && m['15'] !== '') { sum15 += parseFloat(m['15']); t100 += parseFloat(m['15']); }
+              if (m['20'] !== undefined && m['20'] !== '') { sum20 += parseFloat(m['20']); t100 += parseFloat(m['20']); }
+              if (m['25'] !== undefined && m['25'] !== '') { sum25 += parseFloat(m['25']); t100 += parseFloat(m['25']); }
+              if (m['40'] !== undefined && m['40'] !== '') { sum40 += parseFloat(m['40']); t100 += parseFloat(m['40']); }
 
-              if (hasAnyMark) {
-                sum100 += t100;
-                count100++;
-              }
+              sum100 += t100;
             }
           }
         });
+
+        // 🌟 Averages now strictly divide by TOTAL enrolled (missing marks drag the average down)
+        const totalEnrolled = matchedStudents.length;
 
         results.push({
           id: env.id,
           subjectName: env.alias || env.subject,
           teacherName: env.teacherName,
-          avg15: count15 > 0 ? (sum15 / count15).toFixed(1) : '-',
-          avg20: count20 > 0 ? (sum20 / count20).toFixed(1) : '-',
-          avg25: count25 > 0 ? (sum25 / count25).toFixed(1) : '-',
-          avg40: count40 > 0 ? (sum40 / count40).toFixed(1) : '-',
-          avg100: count100 > 0 ? (sum100 / count100).toFixed(1) : '-',
+          avg15: totalEnrolled > 0 ? (sum15 / totalEnrolled).toFixed(1) : '-',
+          avg20: totalEnrolled > 0 ? (sum20 / totalEnrolled).toFixed(1) : '-',
+          avg25: totalEnrolled > 0 ? (sum25 / totalEnrolled).toFixed(1) : '-',
+          avg40: totalEnrolled > 0 ? (sum40 / totalEnrolled).toFixed(1) : '-',
+          avg100: totalEnrolled > 0 ? (sum100 / totalEnrolled).toFixed(1) : '-',
           avg30: totalEnrolled > 0 ? (((sum100 / totalEnrolled) / 100) * 30).toFixed(1) : '-',
           studentCount: totalEnrolled
         });
@@ -1711,7 +1755,7 @@ function ReportManager() {
       setAnalyticsData(results);
     } catch (error) {
       console.error(error);
-      alert("Failed to load averages.");
+      alert("Failed to load averages. Error: " + error.message);
     } finally {
       setIsFetchingAnalytics(false);
     }
@@ -2169,7 +2213,9 @@ function ReportManager() {
 }
 // 🌟 PASTE THIS right above export default function UnifiedSchoolPortal()
 function ReminderManager() {
+    
     const [targetLevel, setTargetLevel] = useState('15');
+    const [targetSubject, setTargetSubject] = useState('All');
     const [message, setMessage] = useState('Please complete your mark entry for this week.');
     const [isActive, setIsActive] = useState(false);
     const [trackerData, setTrackerData] = useState([]);
@@ -2189,6 +2235,7 @@ function ReminderManager() {
                 setTargetLevel(cacheSnap.data().level || '15');
                 setMessage(cacheSnap.data().message || '');
                 setIsActive(cacheSnap.data().active || false);
+                setTargetSubject(cacheSnap.data().targetSubject || 'All');
             }
 
             const students = []; sSnap.forEach(d => students.push({id: d.id, ...d.data()}));
@@ -2223,6 +2270,12 @@ function ReminderManager() {
 
                     let missingCount = 0;
                     const exactSubject = (env.alias?.toUpperCase().includes('U :FIQH') || env.subject?.toUpperCase().includes('U :FIQH')) ? 'U :FIQH' : (env.subject || '');
+                  const activeSub = cacheSnap.exists() ? (cacheSnap.data().targetSubject || 'All') : targetSubject;
+                  if (activeSub !== 'All') {
+                    const actUp = activeSub.trim().toUpperCase();
+                    const envUp = exactSubject.trim().toUpperCase();
+                    if (actUp !== envUp) return; // Skip tracking this subject for this reminder
+                  }
                     const activeLvl = cacheSnap.exists() ? cacheSnap.data().level : targetLevel;
 
                     matchedStudents.forEach(st => {
@@ -2265,6 +2318,7 @@ function ReminderManager() {
         setIsLoading(true);
         await setDoc(doc(db, 'systemCache', 'activeReminder'), {
             level: targetLevel,
+            targetSubject: targetSubject,
             message: message,
             active: isActive,
             updatedAt: new Date().toISOString()
@@ -2277,13 +2331,14 @@ function ReminderManager() {
         <div style={styles.card}>
             <h3 style={styles.sectionTitle}>🔔 Weekly Mark Entry Reminder & Tracker</h3>
             
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', marginBottom: '24px', background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                <div style={{ flex: '1 1 200px' }}>
-                    <label style={styles.label}>Target Level for the Week:</label>
-                    <select value={targetLevel} onChange={(e) => setTargetLevel(e.target.value)} style={styles.input}>
-                        {Object.values(CCE_LEVELS).map(lvl => <option key={lvl} value={lvl}>Level max {lvl}</option>)}
-                    </select>
-                </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', marginBottom: '24px', background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+          <div style={{ flex: '1 1 200px' }}>
+            <label style={styles.label}>Target Subject:</label>
+            <select value={targetSubject} onChange={(e) => setTargetSubject(e.target.value)} style={styles.input}>
+              <option value="All">All Subjects</option>
+              {DEFAULT_SUBJECTS.map(sub => <option key={sub} value={sub}>{sub}</option>)}
+            </select>
+          </div>
                 <div style={{ flex: '2 1 300px' }}>
                     <label style={styles.label}>Reminder Message for Teachers:</label>
                     <input type="text" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="e.g. Please enter Level 15 marks before Friday." style={styles.input} />
