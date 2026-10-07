@@ -2034,6 +2034,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
         alert('Failed to copy to clipboard: ' + err);
       });
     };
+    
 
     return (
       <div>
