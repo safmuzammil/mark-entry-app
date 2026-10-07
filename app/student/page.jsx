@@ -58,6 +58,7 @@ export default function StudentDashboard() {
         
         const studentClassesLower = (studentData.classes || []).map(c => String(c).trim().toLowerCase());
         const isUrdu = String(studentData.adNo || '').toUpperCase().startsWith('U');
+        const safeAdNoFromDB = String(studentData.adNo || '').trim();
         
         const tSnap = await getDocs(collection(db, 'teachers'));
         const mySubjectsMap = new Map(); 
@@ -70,9 +71,15 @@ export default function StudentDashboard() {
             
             let isMatched = false;
             
-            if (env.studentIds && env.studentIds.includes(safeRegNo)) {
-              isMatched = true;
-            } else {
+            // 🌟 PARITY FIX: Match against BOTH Registration Number and Admission Number
+            if (env.studentIds && Array.isArray(env.studentIds)) {
+              const savedIds = env.studentIds.map(id => String(id).trim());
+              if (savedIds.includes(safeRegNo) || savedIds.includes(safeAdNoFromDB)) {
+                  isMatched = true;
+              }
+            } 
+            
+            if (!isMatched) {
               let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
               if (!classMatch && envAliasLower.includes('m10')) {
                 if (studentClassesLower.some(cls => cls.includes('3')) && !isUrdu) classMatch = true; 
@@ -88,8 +95,7 @@ export default function StudentDashboard() {
               const exactSubject = (env.alias?.toUpperCase().includes('U :FIQH') || env.subject?.toUpperCase().includes('U :FIQH')) ? 'U :FIQH' : (env.subject || '');
               if (exactSubject) {
                 mySubjectsMap.set(exactSubject.toUpperCase(), {
-                  subject: exactSubject,
-                  teacherName: tData.fullName || tData.username
+                  subject: exactSubject
                 });
               }
             }
@@ -126,14 +132,26 @@ export default function StudentDashboard() {
       const docSnap = await getDoc(doc(db, 'marks', studentRegNo));
       const marksData = docSnap.exists() ? docSnap.data() : {};
 
+      // 🌟 FAILSAFE: If a mark exists in the DB, forcefully render it even if teacher logic missed it
+      const existingKeysMap = new Map();
+      expectedSubjects.forEach(s => existingKeysMap.set(s.subject.toUpperCase(), true));
+
+      Object.keys(marksData).forEach(subKey => {
+          const cleanSub = subKey.trim();
+          if (cleanSub && !existingKeysMap.has(cleanSub.toUpperCase())) {
+              expectedSubjects.push({ subject: cleanSub });
+              existingKeysMap.set(cleanSub.toUpperCase(), true);
+          }
+      });
+
       const allMarksSnap = await getDocs(collection(db, 'marks'));
       let allScores = [];
-      const allMarksData = {}; // 🌟 Capture global marks to check for teacher activity
+      const allMarksData = {}; 
       
       allMarksSnap.forEach(d => {
          let sTotal = 0;
          const data = d.data();
-         allMarksData[d.id] = data; // Store full data for comparison
+         allMarksData[d.id] = data; 
          
          Object.keys(data).forEach(sub => {
             if (typeof data[sub] === 'object') {
@@ -145,7 +163,6 @@ export default function StudentDashboard() {
       allScores.sort((a,b) => b.total - a.total);
       let myRank = allScores.findIndex(s => s.id === studentRegNo) + 1;
 
-      // 🌟 Pass global data into processing
       processMarksLocally(marksData, expectedSubjects, myRank, allMarksData);
 
     } catch (err) {
@@ -163,8 +180,9 @@ export default function StudentDashboard() {
 
     expectedSubjects.forEach(subObj => {
       const sub = subObj.subject;
-      const teacher = subObj.teacherName;
-      const normKey = sub.charAt(0).toUpperCase() + sub.slice(1).toLowerCase(); 
+      
+      // Makes it look nice (e.g. "Social Science" instead of "SOCIAL SCIENCE")
+      const normKey = sub.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
       
       const foundSubjectKey = Object.keys(marksData).find(k => {
           const kUp = k.trim().toUpperCase(); 
@@ -222,7 +240,6 @@ export default function StudentDashboard() {
 
       subjectList.push({
         subject: normKey,
-        teacher: teacher, 
         assessments: { '15': l1, '20': l2, '25': l3, '40': l4 },
         total100: total100,
         total30: sem30,
@@ -385,15 +402,15 @@ export default function StudentDashboard() {
                       
                       <td style={{ padding: '16px', textAlign: 'left' }}>
                         <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '15px' }}>{data.subject}</div>
-                        <div style={{ fontSize: '13px', color: '#64748b', fontWeight: '600', marginTop: '4px' }}>👨‍🏫 {data.teacher}</div>
                       </td>
                       
                       {!data.hasData ? (
+                        // 🌟 VISUAL INDICATOR ONLY: ⚠️ Icon if grading started, ⏳ if not started yet. No teacher name.
                         <td colSpan="7" style={{ padding: '16px', textAlign: 'center', fontWeight: '600', background: data.isGradingStarted ? '#fffbeb' : '#f8fafc', color: data.isGradingStarted ? '#b45309' : '#94a3b8' }}>
                            {data.isGradingStarted ? (
-                             <>⚠️ Mark Missing / Not Submitted - Contact <strong style={{color: '#92400e'}}>{data.teacher}</strong></>
+                             <span title="Marks have been updated for others in this subject">⚠️ Action Required: Missing Mark</span>
                            ) : (
-                             <>⏳ Pending upload by <strong style={{color: '#64748b'}}>{data.teacher}</strong></>
+                             <span>⏳ Pending Upload</span>
                            )}
                         </td>
                       ) : (
