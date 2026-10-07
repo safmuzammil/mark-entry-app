@@ -151,6 +151,17 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
 
   const [studentMarks, setStudentMarks] = useState({});
   const [statusMsg, setStatusMsg] = useState('');
+  const [weeklyReminder, setWeeklyReminder] = useState(null);
+
+  useEffect(() => {
+    async function fetchReminder() {
+      const snap = await getDoc(doc(db, 'systemCache', 'activeReminder'));
+      if (snap.exists() && snap.data().active) {
+        setWeeklyReminder(snap.data());
+      }
+    }
+    fetchReminder();
+  }, []);
 
   useEffect(() => {
     async function fetchStudents() {
@@ -350,6 +361,17 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
           <button onClick={onLogout} style={styles.buttonDanger}>Logout</button>
         </div>
       </div>
+
+      {/* 🌟 ADD THIS just above {activeView === 'settings' ? ...} */}
+      {weeklyReminder && (
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '16px 20px', borderRadius: '12px', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+          <span style={{ fontSize: '28px' }}>🔔</span>
+          <div>
+            <h4 style={{ margin: '0 0 4px 0', color: '#1e40af', fontSize: '16px', fontWeight: '800' }}>Action Required: Mark Entry for Level {weeklyReminder.level}</h4>
+            <p style={{ margin: 0, color: '#1e3a8a', fontSize: '14px', fontWeight: '600' }}>{weeklyReminder.message}</p>
+          </div>
+        </div>
+      )}
 
       {activeView === 'settings' ? <TeacherPasswordSettings /> : (
         <>
@@ -1575,6 +1597,7 @@ function ReportManager() {
       studentSnap.forEach(doc => allStudents.push({ id: doc.id, ...doc.data() }));
 
       const teacherSnap = await getDocs(collection(db, 'teachers'));
+      const totalEnrolled = matchedStudents.length;
       const allTeachersList = [];
       teacherSnap.forEach(doc => allTeachersList.push({ id: doc.id, ...doc.data() }));
 
@@ -1680,8 +1703,8 @@ function ReportManager() {
           avg25: count25 > 0 ? (sum25 / count25).toFixed(1) : '-',
           avg40: count40 > 0 ? (sum40 / count40).toFixed(1) : '-',
           avg100: count100 > 0 ? (sum100 / count100).toFixed(1) : '-',
-          avg30: count100 > 0 ? (((sum100 / count100) / 100) * 30).toFixed(1) : '-',
-          studentCount: matchedStudents.length
+          avg30: totalEnrolled > 0 ? (((sum100 / totalEnrolled) / 100) * 30).toFixed(1) : '-',
+          studentCount: totalEnrolled
         });
       }
 
@@ -2144,6 +2167,172 @@ function ReportManager() {
     </div>
   );
 }
+// 🌟 PASTE THIS right above export default function UnifiedSchoolPortal()
+function ReminderManager() {
+    const [targetLevel, setTargetLevel] = useState('15');
+    const [message, setMessage] = useState('Please complete your mark entry for this week.');
+    const [isActive, setIsActive] = useState(false);
+    const [trackerData, setTrackerData] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+
+    const fetchTrackerData = async () => {
+        setIsLoading(true);
+        try {
+            const [tSnap, sSnap, mSnap, cacheSnap] = await Promise.all([
+                getDocs(collection(db, 'teachers')),
+                getDocs(collection(db, 'students')),
+                getDocs(collection(db, 'marks')),
+                getDoc(doc(db, 'systemCache', 'activeReminder'))
+            ]);
+
+            if (cacheSnap.exists()) {
+                setTargetLevel(cacheSnap.data().level || '15');
+                setMessage(cacheSnap.data().message || '');
+                setIsActive(cacheSnap.data().active || false);
+            }
+
+            const students = []; sSnap.forEach(d => students.push({id: d.id, ...d.data()}));
+            const marks = {}; mSnap.forEach(d => marks[d.id] = d.data());
+            const trackList = [];
+
+            tSnap.forEach(tDoc => {
+                const teacher = tDoc.data();
+                if (!teacher.enrollments) return;
+                teacher.enrollments.forEach(env => {
+                    const envAliasLower = String(env.alias || '').trim().toLowerCase();
+                    const envLang = (env.langTag || '').toLowerCase();
+                    
+                    const matchedStudents = students.filter(student => {
+                        const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
+                        const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
+                        if (env.studentIds && Array.isArray(env.studentIds)) {
+                            const savedIds = env.studentIds.map(id => String(id).trim());
+                            if (savedIds.includes(student.regNo) || savedIds.includes(student.adNo)) return true;
+                        }
+                        let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
+                        if (!classMatch && envAliasLower.includes('m10')) {
+                            if (studentClassesLower.some(cls => cls.includes('3')) && !isUrdu) classMatch = true; 
+                        }
+                        if (classMatch) {
+                            if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
+                            if (envLang.includes('gen') || envLang.includes('non') || envLang === '') return !isUrdu;
+                            return true;
+                        }
+                        return false;
+                    });
+
+                    let missingCount = 0;
+                    const exactSubject = (env.alias?.toUpperCase().includes('U :FIQH') || env.subject?.toUpperCase().includes('U :FIQH')) ? 'U :FIQH' : (env.subject || '');
+                    const activeLvl = cacheSnap.exists() ? cacheSnap.data().level : targetLevel;
+
+                    matchedStudents.forEach(st => {
+                        const stMarks = marks[st.regNo] || marks[st.id] || marks[st.adNo];
+                        let hasMark = false;
+                        if (stMarks) {
+                            const foundKey = Object.keys(stMarks).find(k => {
+                                const kUp = k.trim().toUpperCase();
+                                const actUp = exactSubject.trim().toUpperCase();
+                                if (actUp.includes('U :FIQH') || actUp.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
+                                if (actUp === 'FIQH') return kUp === 'FIQH';
+                                return kUp === actUp;
+                            });
+                            if (foundKey && stMarks[foundKey] && stMarks[foundKey][activeLvl] !== undefined && stMarks[foundKey][activeLvl] !== '') {
+                                hasMark = true;
+                            }
+                        }
+                        if (!hasMark) missingCount++;
+                    });
+
+                    if (matchedStudents.length > 0) {
+                        trackList.push({
+                            teacherName: teacher.fullName,
+                            subject: env.alias || env.subject,
+                            totalEnrolled: matchedStudents.length,
+                            missingCount: missingCount,
+                            isComplete: missingCount === 0
+                        });
+                    }
+                });
+            });
+            setTrackerData(trackList);
+        } catch (err) { console.error(err); }
+        setIsLoading(false);
+    };
+
+    useEffect(() => { fetchTrackerData(); }, []);
+
+    const handleSave = async () => {
+        setIsLoading(true);
+        await setDoc(doc(db, 'systemCache', 'activeReminder'), {
+            level: targetLevel,
+            message: message,
+            active: isActive,
+            updatedAt: new Date().toISOString()
+        });
+        alert('Reminder settings updated and broadcasted to teachers!');
+        fetchTrackerData();
+    };
+
+    return (
+        <div style={styles.card}>
+            <h3 style={styles.sectionTitle}>🔔 Weekly Mark Entry Reminder & Tracker</h3>
+            
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', marginBottom: '24px', background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <div style={{ flex: '1 1 200px' }}>
+                    <label style={styles.label}>Target Level for the Week:</label>
+                    <select value={targetLevel} onChange={(e) => setTargetLevel(e.target.value)} style={styles.input}>
+                        {Object.values(CCE_LEVELS).map(lvl => <option key={lvl} value={lvl}>Level max {lvl}</option>)}
+                    </select>
+                </div>
+                <div style={{ flex: '2 1 300px' }}>
+                    <label style={styles.label}>Reminder Message for Teachers:</label>
+                    <input type="text" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="e.g. Please enter Level 15 marks before Friday." style={styles.input} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '700', color: isActive ? '#047857' : '#64748b', background: isActive ? '#d1fae5' : '#e2e8f0', padding: '12px 16px', borderRadius: '8px', cursor: 'pointer', border: `1px solid ${isActive ? '#34d399' : '#cbd5e1'}` }}>
+                        <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} style={{ width: '18px', height: '18px' }} />
+                        {isActive ? 'Reminder is ACTIVE' : 'Reminder is OFF'}
+                    </label>
+                    <button onClick={handleSave} disabled={isLoading} style={{ ...styles.buttonPrimary, padding: '12px 24px', margin: 0 }}>
+                        {isLoading ? 'Saving...' : 'Save & Broadcast'}
+                    </button>
+                </div>
+            </div>
+
+            <h4 style={{ margin: '0 0 16px 0', color: '#0f172a', fontWeight: '800' }}>Teacher Completion Tracker (Checking Level {targetLevel})</h4>
+            <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px', minWidth: '700px' }}>
+                    <thead>
+                        <tr style={{ background: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>
+                            <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Teacher Name</th>
+                            <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Subject Assignment</th>
+                            <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Total Enrolled</th>
+                            <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Missing Marks</th>
+                            <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {trackerData.map((row, idx) => (
+                            <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: '#ffffff' }}>
+                                <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>{row.teacherName}</td>
+                                <td style={{ padding: '14px 16px', color: '#334155', fontWeight: '700' }}>{row.subject}</td>
+                                <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: '#64748b' }}>{row.totalEnrolled}</td>
+                                <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '800', color: row.missingCount > 0 ? '#ef4444' : '#10b981' }}>{row.missingCount}</td>
+                                <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                                    {row.isComplete ? (
+                                        <span style={{ background: '#d1fae5', color: '#047857', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>✅ DONE</span>
+                                    ) : (
+                                        <span style={{ background: '#fee2e2', color: '#dc2626', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>❌ PENDING</span>
+                                    )}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
 
 export default function UnifiedSchoolPortal() {
   const [username, setUsername] = useState('');
@@ -2238,27 +2427,19 @@ export default function UnifiedSchoolPortal() {
             <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
           </div>
 
+          {/* 🌟 REPLACE your Admin Tab Navigation Buttons with this updated block */}
           <div style={{ display: 'flex', gap: '12px', marginBottom: '28px', flexWrap: 'wrap' }}>
-            <button
-              onClick={() => setActiveAdminTab('teachers')}
-              style={{ padding: '12px 22px', background: activeAdminTab === 'teachers' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'teachers' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-              👥 Manage Teachers
-            </button>
-            <button
-              onClick={() => setActiveAdminTab('students')}
-              style={{ padding: '12px 22px', background: activeAdminTab === 'students' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'students' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-              🎓 Manage Students
-            </button>
-            <button
-              onClick={() => setActiveAdminTab('reports')}
-              style={{ padding: '12px 22px', background: activeAdminTab === 'reports' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'reports' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-              📊 Reports & Export
-            </button>
+            <button onClick={() => setActiveAdminTab('teachers')} style={{ padding: '12px 22px', background: activeAdminTab === 'teachers' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'teachers' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>👥 Manage Teachers</button>
+            <button onClick={() => setActiveAdminTab('students')} style={{ padding: '12px 22px', background: activeAdminTab === 'students' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'students' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>🎓 Manage Students</button>
+            <button onClick={() => setActiveAdminTab('reports')} style={{ padding: '12px 22px', background: activeAdminTab === 'reports' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'reports' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>📊 Reports & Export</button>
+            <button onClick={() => setActiveAdminTab('reminders')} style={{ padding: '12px 22px', background: activeAdminTab === 'reminders' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'reminders' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>🔔 Weekly Reminders</button>
           </div>
 
+          {/* Active Tab Component Rendering */}
           {activeAdminTab === 'teachers' && <TeacherManager />}
           {activeAdminTab === 'students' && <StudentManager />}
           {activeAdminTab === 'reports' && <ReportManager />}
+          {activeAdminTab === 'reminders' && <ReminderManager />}
 
         </div>
       </div>
