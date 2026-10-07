@@ -2034,10 +2034,98 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
         alert('Failed to copy to clipboard: ' + err);
       });
     };
+
+    // ==========================================
+    // 🌟 EXPORT HANDLERS FOR MARK INSPECTOR
+    // ==========================================
+    const handleDownloadInspectorExcel = () => {
+      if (!subjectLevelMarks.students || subjectLevelMarks.students.length === 0) return alert("No data to download.");
+
+      let csvContent = 'data:text/csv;charset=utf-8,Roll,Ad.No,Student Name,Reg.No,Lvl 1 (15),Lvl 2 (20),Lvl 3 (25),Lvl 4 (40),Total (/100),Scaled (/30)';
+      if (inspectorMode === 'class') csvContent += ',Teacher';
+      csvContent += '\n';
+
+      subjectLevelMarks.students.forEach((student) => {
+        const marks = subjectLevelMarks.records[student.regNo || student.id] || {};
+        const teacherName = subjectLevelMarks.teachers[student.regNo || student.id] || 'Unassigned';
+        const m1 = parseFloat(marks['15']) || 0;
+        const m2 = parseFloat(marks['20']) || 0;
+        const m3 = parseFloat(marks['25']) || 0;
+        const m4 = parseFloat(marks['40']) || 0;
+        const total100 = m1 + m2 + m3 + m4;
+        const scaled30 = total100 > 0 ? ((total100 / 100) * 30).toFixed(1) : '-';
+
+        const safeName = (student.firstName || '').replace(/"/g, '""');
+
+        csvContent += `${student.rollNo || '-'},${student.adNo},"${safeName}",${student.regNo},${marks['15'] || '-'},${marks['20'] || '-'},${marks['25'] || '-'},${marks['40'] || '-'},${total100 > 0 ? total100 : '-'},${scaled30}`;
+        if (inspectorMode === 'class') csvContent += `,"${teacherName}"`;
+        csvContent += '\n';
+      });
+
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `Mark_Inspector_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`);
+      document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    };
+
+    const handleCopyInspectorToClipboard = () => {
+      if (!subjectLevelMarks.students || subjectLevelMarks.students.length === 0) return alert("No data to copy.");
+
+      let tsvContent = 'Roll\tAd.No\tStudent Name\tReg.No\tLvl 1 (15)\tLvl 2 (20)\tLvl 3 (25)\tLvl 4 (40)\tTotal (/100)\tScaled (/30)';
+      if (inspectorMode === 'class') tsvContent += '\tTeacher';
+      tsvContent += '\n';
+
+      subjectLevelMarks.students.forEach((student) => {
+        const marks = subjectLevelMarks.records[student.regNo || student.id] || {};
+        const teacherName = subjectLevelMarks.teachers[student.regNo || student.id] || 'Unassigned';
+        const m1 = parseFloat(marks['15']) || 0; const m2 = parseFloat(marks['20']) || 0;
+        const m3 = parseFloat(marks['25']) || 0; const m4 = parseFloat(marks['40']) || 0;
+        const total100 = m1 + m2 + m3 + m4;
+        const scaled30 = total100 > 0 ? ((total100 / 100) * 30).toFixed(1) : '-';
+
+        tsvContent += `${student.rollNo || '-'}\t${student.adNo}\t${student.firstName || ''}\t${student.regNo}\t${marks['15'] || '-'}\t${marks['20'] || '-'}\t${marks['25'] || '-'}\t${marks['40'] || '-'}\t${total100 > 0 ? total100 : '-'}\t${scaled30}`;
+        if (inspectorMode === 'class') tsvContent += `\t${teacherName}`;
+        tsvContent += '\n';
+      });
+
+      navigator.clipboard.writeText(tsvContent).then(() => alert('✅ Inspector Table copied to clipboard!'));
+    };
+
+    // ==========================================
+    // 🌟 EXPORT HANDLERS FOR AVERAGES ANALYTICS
+    // ==========================================
+    const handleDownloadAnalyticsExcel = () => {
+      if (!analyticsData || analyticsData.length === 0) return alert("No data to download.");
+      let csvContent = 'data:text/csv;charset=utf-8,Subject / Assignment,Teacher,Students,Avg Lvl 1 (15),Avg Lvl 2 (20),Avg Lvl 3 (25),Avg Lvl 4 (40),Avg Total (/100),Avg Scaled (/30)\n';
+
+      analyticsData.forEach((row) => {
+        csvContent += `"${row.subjectName}","${row.teacherName || 'Unknown'}",${row.studentCount},${row.avg15},${row.avg20},${row.avg25},${row.avg40},${row.avg100},${row.avg30}\n`;
+      });
+
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `Averages_Analytics_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`);
+      document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    };
+
+    const handleCopyAnalyticsToClipboard = () => {
+      if (!analyticsData || analyticsData.length === 0) return alert("No data to copy.");
+      let tsvContent = 'Subject / Assignment\tTeacher\tStudents\tAvg Lvl 1 (15)\tAvg Lvl 2 (20)\tAvg Lvl 3 (25)\tAvg Lvl 4 (40)\tAvg Total (/100)\tAvg Scaled (/30)\n';
+
+      analyticsData.forEach((row) => {
+        tsvContent += `${row.subjectName}\t${row.teacherName || 'Unknown'}\t${row.studentCount}\t${row.avg15}\t${row.avg20}\t${row.avg25}\t${row.avg40}\t${row.avg100}\t${row.avg30}\n`;
+      });
+
+      navigator.clipboard.writeText(tsvContent).then(() => alert('✅ Analytics Table copied to clipboard!'));
+    };
     
 
     return (
-      <div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+        
+        {/* 🌟 1. ADVANCED STUDENT MARKS AUDITOR */}
         <div style={styles.card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
             <div>
@@ -2084,13 +2172,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
 
             <div>
               <label style={styles.label}>Search by Name / Ad.No:</label>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Type student name or Ad.No..."
-                style={styles.input}
-              />
+              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Type student name or Ad.No..." style={styles.input} />
             </div>
 
             <div>
@@ -2142,10 +2224,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
             </div>
           )}
 
-          <button
-            onClick={generateFilteredList}
-            style={{ ...styles.buttonPrimary, width: '100%', background: '#2563eb', padding: '16px', fontSize: '16px', fontWeight: '800' }}
-          >
+          <button onClick={generateFilteredList} style={{ ...styles.buttonPrimary, width: '100%', background: '#2563eb', padding: '16px', fontSize: '16px', fontWeight: '800' }}>
             🔍 Run Filter & Audit List
           </button>
 
@@ -2160,12 +2239,8 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '16px 20px', borderBottom: '1px solid #cbd5e1', flexWrap: 'wrap', gap: '12px' }}>
                 <h4 style={{ margin: 0, color: '#0f172a', fontWeight: '800', fontSize: '16px' }}>Audit Results ({filteredResults.length} students)</h4>
                 <div style={{ display: 'flex', gap: '10px' }}>
-                  <button onClick={handleCopyToClipboard} style={{ padding: '8px 16px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>
-                    📋 Copy Table
-                  </button>
-                  <button onClick={handleDownloadExcel} style={{ padding: '8px 16px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>
-                    📊 Download CSV
-                  </button>
+                  <button onClick={handleCopyToClipboard} style={{ padding: '8px 16px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>📋 Copy Table</button>
+                  <button onClick={handleDownloadExcel} style={{ padding: '8px 16px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>📊 Download CSV</button>
                 </div>
               </div>
 
@@ -2186,19 +2261,11 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                         <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a', verticalAlign: 'middle' }}>{student.adNo}</td>
                         <td style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '700', verticalAlign: 'middle' }}>{student.firstName}</td>
                         <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}>
-                          <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
-                            {student.department || 'GENERAL'}
-                          </span>
+                          <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>{student.department || 'GENERAL'}</span>
                         </td>
                         <td style={{ padding: '14px 16px', color: '#334155', fontWeight: '700', verticalAlign: 'middle' }}>{(student.classes || []).join(', ')}</td>
                         <td style={{ padding: '14px 16px', textAlign: 'right', verticalAlign: 'middle' }}>
-                          <span style={{
-                            color: String(student.displayMetric).includes('Missing') ? '#dc2626' : '#047857',
-                            fontWeight: '800',
-                            fontSize: '16px'
-                          }}>
-                            {student.displayMetric}
-                          </span>
+                          <span style={{ color: String(student.displayMetric).includes('Missing') ? '#dc2626' : '#047857', fontWeight: '800', fontSize: '16px' }}>{student.displayMetric}</span>
                         </td>
                       </tr>
                     ))}
@@ -2209,23 +2276,17 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
           )}
         </div>
 
-        {/* 🌟 EXISTING LEVEL-BY-LEVEL INSPECTOR */}
+        {/* 🌟 2. LEVEL-BY-LEVEL INSPECTOR */}
         <div style={styles.card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
             <h3 style={styles.sectionTitle}>🔍 Level-by-Level Mark Inspector</h3>
           </div>
 
           <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
-            <button
-              onClick={() => { setInspectorMode('class'); setSubjectLevelMarks({}); }}
-              style={{ padding: '12px 20px', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', border: '1px solid #cbd5e1', background: inspectorMode === 'class' ? '#2563eb' : '#f8fafc', color: inspectorMode === 'class' ? '#ffffff' : '#334155', fontSize: '14px' }}
-            >
+            <button onClick={() => { setInspectorMode('class'); setSubjectLevelMarks({}); }} style={{ padding: '12px 20px', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', border: '1px solid #cbd5e1', background: inspectorMode === 'class' ? '#2563eb' : '#f8fafc', color: inspectorMode === 'class' ? '#ffffff' : '#334155', fontSize: '14px' }}>
               Filter by Class & Subject
             </button>
-            <button
-              onClick={() => { setInspectorMode('teacher'); setSubjectLevelMarks({}); }}
-              style={{ padding: '12px 20px', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', border: '1px solid #cbd5e1', background: inspectorMode === 'teacher' ? '#2563eb' : '#f8fafc', color: inspectorMode === 'teacher' ? '#ffffff' : '#334155', fontSize: '14px' }}
-            >
+            <button onClick={() => { setInspectorMode('teacher'); setSubjectLevelMarks({}); }} style={{ padding: '12px 20px', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', border: '1px solid #cbd5e1', background: inspectorMode === 'teacher' ? '#2563eb' : '#f8fafc', color: inspectorMode === 'teacher' ? '#ffffff' : '#334155', fontSize: '14px' }}>
               Filter by Teacher
             </button>
           </div>
@@ -2270,15 +2331,9 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                 </div>
                 <div>
                   <label style={styles.label}>Select Assignment:</label>
-                  <select
-                    value={inspectorTeacherEnrollmentId}
-                    onChange={(e) => setInspectorTeacherEnrollmentId(e.target.value)}
-                    style={styles.input}
-                  >
+                  <select value={inspectorTeacherEnrollmentId} onChange={(e) => setInspectorTeacherEnrollmentId(e.target.value)} style={styles.input}>
                     {allTeachers.find(t => t.username === inspectorTeacherUsername)?.enrollments?.map(env => (
-                      <option key={env.id} value={env.id}>
-                        {env.alias || `${env.grade} ${env.subject}`} ({env.langTag || 'Gen'})
-                      </option>
+                      <option key={env.id} value={env.id}>{env.alias || `${env.grade} ${env.subject}`} ({env.langTag || 'Gen'})</option>
                     )) || <option value="">No assignments found</option>}
                   </select>
                 </div>
@@ -2297,92 +2352,89 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
           </div>
 
           {subjectLevelMarks.students && subjectLevelMarks.students.length > 0 && (
-            <div style={{ marginTop: '24px', overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px', minWidth: '950px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '60px' }}>Roll</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '100px' }}>Ad.No</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Student Name</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>Lvl 1 (15)</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>Lvl 2 (20)</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>Lvl 3 (25)</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>Lvl 4 (40)</th>
-                    <th style={{ padding: '14px 16px', color: '#1e40af', fontWeight: '800', width: '100px' }}>Total (/100)</th>
-                    <th style={{ padding: '14px 16px', color: '#047857', fontWeight: '800', width: '100px' }}>Scaled (/30)</th>
-                    {inspectorMode === 'class' && <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '160px' }}>Teacher</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {subjectLevelMarks.students.map((student, idx) => {
-                    const marks = subjectLevelMarks.records[student.regNo || student.id] || {};
-                    const teacherName = subjectLevelMarks.teachers[student.regNo || student.id] || 'Unassigned';
-                    const m1 = parseFloat(marks['15']) || 0;
-                    const m2 = parseFloat(marks['20']) || 0;
-                    const m3 = parseFloat(marks['25']) || 0;
-                    const m4 = parseFloat(marks['40']) || 0;
-                    const total100 = m1 + m2 + m3 + m4;
-                    const scaled30 = total100 > 0 ? ((total100 / 100) * 30).toFixed(1) : '-';
+            <div style={{ marginTop: '24px', border: '1px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '16px 20px', borderBottom: '1px solid #cbd5e1', flexWrap: 'wrap', gap: '12px' }}>
+                <h4 style={{ margin: 0, color: '#0f172a', fontWeight: '800', fontSize: '16px' }}>
+                  Inspector Results ({subjectLevelMarks.students.length} students)
+                </h4>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button onClick={handleCopyInspectorToClipboard} style={{ padding: '8px 16px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>📋 Copy Table</button>
+                  <button onClick={handleDownloadInspectorExcel} style={{ padding: '8px 16px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>📊 Download CSV</button>
+                </div>
+              </div>
 
-                    return (
-                      <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                        <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a', verticalAlign: 'middle' }}>{student.rollNo || '-'}</td>
-                        <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a', verticalAlign: 'middle' }}>{student.adNo}</td>
-                        <td style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '700', verticalAlign: 'middle' }}>
-                          {student.firstName}
-                          <br />
-                          <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '600' }}>{student.regNo}</span>
-                        </td>
-                        <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}><span style={{ fontSize: '15px', fontWeight: '800', color: marks['15'] !== undefined ? '#0f172a' : '#cbd5e1' }}>{marks['15'] !== undefined ? marks['15'] : '-'}</span></td>
-                        <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}><span style={{ fontSize: '15px', fontWeight: '800', color: marks['20'] !== undefined ? '#0f172a' : '#cbd5e1' }}>{marks['20'] !== undefined ? marks['20'] : '-'}</span></td>
-                        <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}><span style={{ fontSize: '15px', fontWeight: '800', color: marks['25'] !== undefined ? '#0f172a' : '#cbd5e1' }}>{marks['25'] !== undefined ? marks['25'] : '-'}</span></td>
-                        <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}><span style={{ fontSize: '15px', fontWeight: '800', color: marks['40'] !== undefined ? '#0f172a' : '#cbd5e1' }}>{marks['40'] !== undefined ? marks['40'] : '-'}</span></td>
-                        <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}>
-                          {total100 > 0 ? (
-                            <span style={{ background: '#dbeafe', color: '#1e40af', padding: '6px 10px', borderRadius: '6px', fontWeight: '800', fontSize: '15px' }}>
-                              {total100}
-                            </span>
-                          ) : <span style={{ color: '#94a3b8', fontWeight: '700' }}>-</span>}
-                        </td>
-                        <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}>
-                          {scaled30 !== '-' ? (
-                            <span style={{ background: '#d1fae5', color: '#047857', padding: '6px 10px', borderRadius: '6px', fontWeight: '800', fontSize: '15px' }}>
-                              {scaled30}
-                            </span>
-                          ) : <span style={{ color: '#94a3b8', fontWeight: '700' }}>-</span>}
-                        </td>
-                        {inspectorMode === 'class' && (
-                          <td style={{ padding: '14px 16px', color: teacherName === 'Unassigned' ? '#dc2626' : '#047857', fontWeight: '700', verticalAlign: 'middle' }}>
-                            {teacherName}
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px', minWidth: '950px' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
+                      <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '60px' }}>Roll</th>
+                      <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '100px' }}>Ad.No</th>
+                      <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Student Name</th>
+                      <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>Lvl 1 (15)</th>
+                      <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>Lvl 2 (20)</th>
+                      <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>Lvl 3 (25)</th>
+                      <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>Lvl 4 (40)</th>
+                      <th style={{ padding: '14px 16px', color: '#1e40af', fontWeight: '800', width: '100px' }}>Total (/100)</th>
+                      <th style={{ padding: '14px 16px', color: '#047857', fontWeight: '800', width: '100px' }}>Scaled (/30)</th>
+                      {inspectorMode === 'class' && <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '160px' }}>Teacher</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {subjectLevelMarks.students.map((student, idx) => {
+                      const marks = subjectLevelMarks.records[student.regNo || student.id] || {};
+                      const teacherName = subjectLevelMarks.teachers[student.regNo || student.id] || 'Unassigned';
+                      const m1 = parseFloat(marks['15']) || 0;
+                      const m2 = parseFloat(marks['20']) || 0;
+                      const m3 = parseFloat(marks['25']) || 0;
+                      const m4 = parseFloat(marks['40']) || 0;
+                      const total100 = m1 + m2 + m3 + m4;
+                      const scaled30 = total100 > 0 ? ((total100 / 100) * 30).toFixed(1) : '-';
+
+                      return (
+                        <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                          <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a', verticalAlign: 'middle' }}>{student.rollNo || '-'}</td>
+                          <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a', verticalAlign: 'middle' }}>{student.adNo}</td>
+                          <td style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '700', verticalAlign: 'middle' }}>
+                            {student.firstName}
+                            <br />
+                            <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '600' }}>{student.regNo}</span>
                           </td>
-                        )}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}><span style={{ fontSize: '15px', fontWeight: '800', color: marks['15'] !== undefined ? '#0f172a' : '#cbd5e1' }}>{marks['15'] !== undefined ? marks['15'] : '-'}</span></td>
+                          <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}><span style={{ fontSize: '15px', fontWeight: '800', color: marks['20'] !== undefined ? '#0f172a' : '#cbd5e1' }}>{marks['20'] !== undefined ? marks['20'] : '-'}</span></td>
+                          <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}><span style={{ fontSize: '15px', fontWeight: '800', color: marks['25'] !== undefined ? '#0f172a' : '#cbd5e1' }}>{marks['25'] !== undefined ? marks['25'] : '-'}</span></td>
+                          <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}><span style={{ fontSize: '15px', fontWeight: '800', color: marks['40'] !== undefined ? '#0f172a' : '#cbd5e1' }}>{marks['40'] !== undefined ? marks['40'] : '-'}</span></td>
+                          <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}>
+                            {total100 > 0 ? <span style={{ background: '#dbeafe', color: '#1e40af', padding: '6px 10px', borderRadius: '6px', fontWeight: '800', fontSize: '15px' }}>{total100}</span> : <span style={{ color: '#94a3b8', fontWeight: '700' }}>-</span>}
+                          </td>
+                          <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}>
+                            {scaled30 !== '-' ? <span style={{ background: '#d1fae5', color: '#047857', padding: '6px 10px', borderRadius: '6px', fontWeight: '800', fontSize: '15px' }}>{scaled30}</span> : <span style={{ color: '#94a3b8', fontWeight: '700' }}>-</span>}
+                          </td>
+                          {inspectorMode === 'class' && (
+                            <td style={{ padding: '14px 16px', color: teacherName === 'Unassigned' ? '#dc2626' : '#047857', fontWeight: '700', verticalAlign: 'middle' }}>
+                              {teacherName}
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
 
-        {/* 🌟 BRAND NEW: CLASS & TEACHER AVERAGES ANALYTICS */}
+        {/* 🌟 3. CLASS & TEACHER AVERAGES ANALYTICS */}
         <div style={styles.card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
             <h3 style={styles.sectionTitle}>📊 Subject & Teacher Averages Analytics</h3>
           </div>
 
-          {/* 🌟 REPLACE the Subject & Teacher Analytics UI block */}
           <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
-            <button
-              onClick={() => { setAnalyticsMode('grade'); setAnalyticsData(null); }}
-              style={{ padding: '12px 20px', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', border: '1px solid #cbd5e1', background: analyticsMode === 'grade' ? '#2563eb' : '#f8fafc', color: analyticsMode === 'grade' ? '#ffffff' : '#334155', fontSize: '14px' }}
-            >
+            <button onClick={() => { setAnalyticsMode('grade'); setAnalyticsData(null); }} style={{ padding: '12px 20px', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', border: '1px solid #cbd5e1', background: analyticsMode === 'grade' ? '#2563eb' : '#f8fafc', color: analyticsMode === 'grade' ? '#ffffff' : '#334155', fontSize: '14px' }}>
               Average by Grade
             </button>
-            <button
-              onClick={() => { setAnalyticsMode('teacher'); setAnalyticsData(null); }}
-              style={{ padding: '12px 20px', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', border: '1px solid #cbd5e1', background: analyticsMode === 'teacher' ? '#2563eb' : '#f8fafc', color: analyticsMode === 'teacher' ? '#ffffff' : '#334155', fontSize: '14px' }}
-            >
+            <button onClick={() => { setAnalyticsMode('teacher'); setAnalyticsData(null); }} style={{ padding: '12px 20px', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', border: '1px solid #cbd5e1', background: analyticsMode === 'teacher' ? '#2563eb' : '#f8fafc', color: analyticsMode === 'teacher' ? '#ffffff' : '#334155', fontSize: '14px' }}>
               Average by Teacher
             </button>
           </div>
@@ -2413,47 +2465,59 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
           </div>
 
           {analyticsData && (
-            <div style={{ marginTop: '24px', overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '950px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Subject / Assignment</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Teacher</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Students</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Avg Lvl 1 (15)</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Avg Lvl 2 (20)</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Avg Lvl 3 (25)</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Avg Lvl 4 (40)</th>
-                    <th style={{ padding: '14px 16px', color: '#1e40af', fontWeight: '800', textAlign: 'center' }}>Avg Total (/100)</th>
-                    <th style={{ padding: '14px 16px', color: '#047857', fontWeight: '800', textAlign: 'center' }}>Avg Scaled (/30)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {analyticsData.length === 0 ? (
-                    <tr>
-                      <td colSpan="9" style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>No subjects found for this selection.</td>
+            <div style={{ marginTop: '24px', border: '1px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '16px 20px', borderBottom: '1px solid #cbd5e1', flexWrap: 'wrap', gap: '12px' }}>
+                <h4 style={{ margin: 0, color: '#0f172a', fontWeight: '800', fontSize: '16px' }}>
+                  Averages Data
+                </h4>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button onClick={handleCopyAnalyticsToClipboard} style={{ padding: '8px 16px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>📋 Copy Table</button>
+                  <button onClick={handleDownloadAnalyticsExcel} style={{ padding: '8px 16px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>📊 Download CSV</button>
+                </div>
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '950px' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
+                      <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Subject / Assignment</th>
+                      <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Teacher</th>
+                      <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Students</th>
+                      <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Avg Lvl 1 (15)</th>
+                      <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Avg Lvl 2 (20)</th>
+                      <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Avg Lvl 3 (25)</th>
+                      <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Avg Lvl 4 (40)</th>
+                      <th style={{ padding: '14px 16px', color: '#1e40af', fontWeight: '800', textAlign: 'center' }}>Avg Total (/100)</th>
+                      <th style={{ padding: '14px 16px', color: '#047857', fontWeight: '800', textAlign: 'center' }}>Avg Scaled (/30)</th>
                     </tr>
-                  ) : (
-                    analyticsData.map((row, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                        <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>{row.subjectName}</td>
-                        <td style={{ padding: '14px 16px', fontWeight: '600', color: '#334155' }}>{row.teacherName || 'Unknown'}</td>
-                        <td style={{ padding: '14px 16px', textAlign: 'center' }}><span style={{ background: '#f1f5f9', padding: '4px 8px', borderRadius: '6px', fontWeight: '700' }}>{row.studentCount}</span></td>
-                        <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: row.avg15 === '-' ? '#cbd5e1' : '#0f172a' }}>{row.avg15}</td>
-                        <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: row.avg20 === '-' ? '#cbd5e1' : '#0f172a' }}>{row.avg20}</td>
-                        <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: row.avg25 === '-' ? '#cbd5e1' : '#0f172a' }}>{row.avg25}</td>
-                        <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: row.avg40 === '-' ? '#cbd5e1' : '#0f172a' }}>{row.avg40}</td>
-                        <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                          {row.avg100 !== '-' ? <span style={{ background: '#dbeafe', color: '#1e40af', padding: '4px 8px', borderRadius: '6px', fontWeight: '800' }}>{row.avg100}</span> : <span style={{ color: '#94a3b8' }}>-</span>}
-                        </td>
-                        <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                          {row.avg30 !== '-' ? <span style={{ background: '#d1fae5', color: '#047857', padding: '4px 8px', borderRadius: '6px', fontWeight: '800' }}>{row.avg30}</span> : <span style={{ color: '#94a3b8' }}>-</span>}
-                        </td>
+                  </thead>
+                  <tbody>
+                    {analyticsData.length === 0 ? (
+                      <tr>
+                        <td colSpan="9" style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>No subjects found for this selection.</td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      analyticsData.map((row, idx) => (
+                        <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                          <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>{row.subjectName}</td>
+                          <td style={{ padding: '14px 16px', fontWeight: '600', color: '#334155' }}>{row.teacherName || 'Unknown'}</td>
+                          <td style={{ padding: '14px 16px', textAlign: 'center' }}><span style={{ background: '#f1f5f9', padding: '4px 8px', borderRadius: '6px', fontWeight: '700' }}>{row.studentCount}</span></td>
+                          <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: row.avg15 === '-' ? '#cbd5e1' : '#0f172a' }}>{row.avg15}</td>
+                          <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: row.avg20 === '-' ? '#cbd5e1' : '#0f172a' }}>{row.avg20}</td>
+                          <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: row.avg25 === '-' ? '#cbd5e1' : '#0f172a' }}>{row.avg25}</td>
+                          <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: row.avg40 === '-' ? '#cbd5e1' : '#0f172a' }}>{row.avg40}</td>
+                          <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                            {row.avg100 !== '-' ? <span style={{ background: '#dbeafe', color: '#1e40af', padding: '4px 8px', borderRadius: '6px', fontWeight: '800' }}>{row.avg100}</span> : <span style={{ color: '#94a3b8' }}>-</span>}
+                          </td>
+                          <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                            {row.avg30 !== '-' ? <span style={{ background: '#d1fae5', color: '#047857', padding: '4px 8px', borderRadius: '6px', fontWeight: '800' }}>{row.avg30}</span> : <span style={{ color: '#94a3b8' }}>-</span>}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
@@ -2624,7 +2688,6 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
 
           <div>
             <label style={styles.label}>Select Subjects for this Week:</label>
-            {/* 🌟 REPLACE the Subject Checkboxes block inside ReminderManager */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', background: '#ffffff', padding: '16px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', cursor: 'pointer', fontWeight: '700', color: '#0f172a' }}>
                 <input type="checkbox" checked={targetSubjects.includes('All')} onChange={() => toggleSubject('All')} style={{ width: '16px', height: '16px' }} />
@@ -2633,12 +2696,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
               <div style={{ width: '1px', background: '#cbd5e1', margin: '0 8px' }}></div>
               {DEFAULT_SUBJECTS.map(sub => (
                 <label key={sub} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', color: '#334155', fontWeight: '600' }}>
-                  <input
-                    type="checkbox"
-                    checked={targetSubjects.includes(sub)}
-                    onChange={() => toggleSubject(sub)}
-                    style={{ width: '15px', height: '15px' }}
-                  />
+                  <input type="checkbox" checked={targetSubjects.includes(sub)} onChange={() => toggleSubject(sub)} style={{ width: '15px', height: '15px' }} />
                   {sub}
                 </label>
               ))}
@@ -2792,7 +2850,6 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
               <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
             </div>
 
-            {/* 🌟 REPLACE your Admin Tab Navigation Buttons with this updated block */}
             <div style={{ display: 'flex', gap: '12px', marginBottom: '28px', flexWrap: 'wrap' }}>
               <button onClick={() => setActiveAdminTab('teachers')} style={{ padding: '12px 22px', background: activeAdminTab === 'teachers' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'teachers' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>👥 Manage Teachers</button>
               <button onClick={() => setActiveAdminTab('students')} style={{ padding: '12px 22px', background: activeAdminTab === 'students' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'students' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>🎓 Manage Students</button>
@@ -2800,7 +2857,6 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
               <button onClick={() => setActiveAdminTab('reminders')} style={{ padding: '12px 22px', background: activeAdminTab === 'reminders' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'reminders' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>🔔 Weekly Reminders</button>
             </div>
 
-            {/* Active Tab Component Rendering */}
             {activeAdminTab === 'teachers' && <TeacherManager />}
             {activeAdminTab === 'students' && <StudentManager />}
             {activeAdminTab === 'reports' && <ReportManager />}
