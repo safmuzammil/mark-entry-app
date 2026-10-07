@@ -191,7 +191,12 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
               if (!hasMark) missingCount++;
             });
 
-            checklist.push({ alias: env.alias, isComplete: missingCount === 0, missing: missingCount });
+            checklist.push({
+              alias: env.alias,
+              missing: missingCount,
+              entered: matchedStudents.length - missingCount, // 🌟 Added this
+              total: matchedStudents.length
+            });
           }
           setReminderChecklist(checklist);
         }
@@ -401,33 +406,46 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
         </div>
       </div>
 
-      {/* 🌟 ADD THIS just above {activeView === 'settings' ? ...} */}
-      {/* 🌟 REPLACE your current {weeklyReminder && (...)} banner with this enhanced version */}
-      {weeklyReminder && reminderChecklist.length > 0 && (
-        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '20px', borderRadius: '12px', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <span style={{ fontSize: '28px' }}>🔔</span>
-            <div>
-              <h4 style={{ margin: '0 0 4px 0', color: '#1e40af', fontSize: '16px', fontWeight: '800' }}>
-                Action Required: Mark Entry for {weeklyReminder.targetSubject !== 'All' ? weeklyReminder.targetSubject : 'All Subjects'} (Level {weeklyReminder.level})
-              </h4>
-              <p style={{ margin: 0, color: '#1e3a8a', fontSize: '14px', fontWeight: '600' }}>{weeklyReminder.message}</p>
-            </div>
-          </div>
-
-          <div style={{ marginTop: '8px', background: '#ffffff', padding: '16px', borderRadius: '8px', border: '1px solid #dbeafe' }}>
-            <h5 style={{ margin: '0 0 12px 0', color: '#0f172a', fontSize: '14px', fontWeight: '800' }}>Your Task Checklist:</h5>
+     {/* 🌟 REPLACE the Teacher weeklyReminder Banner UI */}
+            {weeklyReminder && reminderChecklist.length > 0 && (
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '20px', borderRadius: '12px', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                        <span style={{ fontSize: '28px' }}>📅</span>
+                        <div>
+                            <span style={{ display: 'inline-block', background: '#dbeafe', color: '#1e40af', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', marginBottom: '6px' }}>
+                                {weeklyReminder.weekName || 'This Week'}
+                            </span>
+                            <h4 style={{ margin: '0 0 4px 0', color: '#1e40af', fontSize: '16px', fontWeight: '800' }}>
+                                Action Required: Mark Entry for Level {weeklyReminder.level}
+                            </h4>
+                            <p style={{ margin: 0, color: '#1e3a8a', fontSize: '14px', fontWeight: '600' }}>{weeklyReminder.message}</p>
+                        </div>
+                    </div>
+                    
+                    <div style={{ marginTop: '8px', background: '#ffffff', padding: '16px', borderRadius: '8px', border: '1px solid #dbeafe' }}>
+                        <h5 style={{ margin: '0 0 12px 0', color: '#0f172a', fontSize: '14px', fontWeight: '800' }}>Your Assigned Tasks:</h5>
+                        {/* 🌟 REPLACE the checklist.map inside the TeacherPortalView return statement */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
-              {reminderChecklist.map((item, idx) => (
-                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: '700', color: item.isComplete ? '#047857' : '#dc2626' }}>
-                  {item.isComplete ? '✅' : '❌'} {item.alias}
-                  {!item.isComplete && <span style={{ fontSize: '12px', fontWeight: '600', color: '#ef4444' }}>({item.missing} students missing)</span>}
-                </div>
-              ))}
+              {reminderChecklist.map((item, idx) => {
+                const isDone = item.missing === 0;
+                const inProgress = item.entered > 0 && item.missing > 0;
+
+                let color = '#dc2626'; // Red (Pending)
+                let icon = '❌';
+                if (isDone) { color = '#047857'; icon = '✅'; } // Green (Done)
+                else if (inProgress) { color = '#d97706'; icon = '⏳'; } // Yellow (In Progress)
+
+                return (
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: '700', color: color }}>
+                    {icon} {item.alias}
+                    {!isDone && <span style={{ fontSize: '12px', fontWeight: '600', color: '#ef4444' }}>({item.missing} pending)</span>}
+                  </div>
+                );
+              })}
             </div>
-          </div>
-        </div>
-      )}
+                    </div>
+                </div>
+            )}
 
       {activeView === 'settings' ? <TeacherPasswordSettings /> : (
         <>
@@ -2212,10 +2230,11 @@ function ReportManager() {
   );
 }
 // 🌟 PASTE THIS right above export default function UnifiedSchoolPortal()
+// 🌟 REPLACE the entire ReminderManager component with this updated version
 function ReminderManager() {
-    
+    const [weekName, setWeekName] = useState('Week 3');
     const [targetLevel, setTargetLevel] = useState('15');
-    const [targetSubject, setTargetSubject] = useState('All');
+    const [targetSubjects, setTargetSubjects] = useState(['All']);
     const [message, setMessage] = useState('Please complete your mark entry for this week.');
     const [isActive, setIsActive] = useState(false);
     const [trackerData, setTrackerData] = useState([]);
@@ -2232,20 +2251,34 @@ function ReminderManager() {
             ]);
 
             if (cacheSnap.exists()) {
+                setWeekName(cacheSnap.data().weekName || 'Week 1');
                 setTargetLevel(cacheSnap.data().level || '15');
+                setTargetSubjects(cacheSnap.data().targetSubjects || ['All']);
                 setMessage(cacheSnap.data().message || '');
                 setIsActive(cacheSnap.data().active || false);
-                setTargetSubject(cacheSnap.data().targetSubject || 'All');
             }
 
             const students = []; sSnap.forEach(d => students.push({id: d.id, ...d.data()}));
             const marks = {}; mSnap.forEach(d => marks[d.id] = d.data());
             const trackList = [];
 
+            const activeSubjects = cacheSnap.exists() ? (cacheSnap.data().targetSubjects || ['All']) : targetSubjects;
+            const activeLvl = cacheSnap.exists() ? (cacheSnap.data().level || '15') : targetLevel;
+
             tSnap.forEach(tDoc => {
                 const teacher = tDoc.data();
                 if (!teacher.enrollments) return;
                 teacher.enrollments.forEach(env => {
+                    const exactSubject = (env.alias?.toUpperCase().includes('U :FIQH') || env.subject?.toUpperCase().includes('U :FIQH')) ? 'U :FIQH' : (env.subject || '');
+                    
+                    // 🌟 BUG FIX: Strictly skip enrollments that don't match the selected subjects
+                    if (activeSubjects.length > 0 && !activeSubjects.includes('All')) {
+                        const actUpList = activeSubjects.map(s => s.trim().toUpperCase());
+                        if (!actUpList.includes(exactSubject.toUpperCase())) {
+                            return; // Skip this subject entirely
+                        }
+                    }
+
                     const envAliasLower = String(env.alias || '').trim().toLowerCase();
                     const envLang = (env.langTag || '').toLowerCase();
                     
@@ -2269,15 +2302,6 @@ function ReminderManager() {
                     });
 
                     let missingCount = 0;
-                    const exactSubject = (env.alias?.toUpperCase().includes('U :FIQH') || env.subject?.toUpperCase().includes('U :FIQH')) ? 'U :FIQH' : (env.subject || '');
-                  const activeSub = cacheSnap.exists() ? (cacheSnap.data().targetSubject || 'All') : targetSubject;
-                  if (activeSub !== 'All') {
-                    const actUp = activeSub.trim().toUpperCase();
-                    const envUp = exactSubject.trim().toUpperCase();
-                    if (actUp !== envUp) return; // Skip tracking this subject for this reminder
-                  }
-                    const activeLvl = cacheSnap.exists() ? cacheSnap.data().level : targetLevel;
-
                     matchedStudents.forEach(st => {
                         const stMarks = marks[st.regNo] || marks[st.id] || marks[st.adNo];
                         let hasMark = false;
@@ -2302,6 +2326,7 @@ function ReminderManager() {
                             subject: env.alias || env.subject,
                             totalEnrolled: matchedStudents.length,
                             missingCount: missingCount,
+                            enteredCount: matchedStudents.length - missingCount,
                             isComplete: missingCount === 0
                         });
                     }
@@ -2317,8 +2342,9 @@ function ReminderManager() {
     const handleSave = async () => {
         setIsLoading(true);
         await setDoc(doc(db, 'systemCache', 'activeReminder'), {
+            weekName: weekName,
             level: targetLevel,
-            targetSubject: targetSubject,
+            targetSubjects: targetSubjects.length === 0 ? ['All'] : targetSubjects,
             message: message,
             active: isActive,
             updatedAt: new Date().toISOString()
@@ -2327,23 +2353,62 @@ function ReminderManager() {
         fetchTrackerData();
     };
 
+    const toggleSubject = (sub) => {
+        if (sub === 'All') {
+            setTargetSubjects(['All']);
+        } else {
+            let newSubs = targetSubjects.filter(s => s !== 'All');
+            if (newSubs.includes(sub)) {
+                newSubs = newSubs.filter(s => s !== sub);
+                if (newSubs.length === 0) newSubs = ['All'];
+            } else {
+                newSubs.push(sub);
+            }
+            setTargetSubjects(newSubs);
+        }
+    };
+
     return (
         <div style={styles.card}>
-            <h3 style={styles.sectionTitle}>🔔 Weekly Mark Entry Reminder & Tracker</h3>
+            <h3 style={styles.sectionTitle}>📅 Weekly Mark Entry Reminder & Tracker</h3>
             
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', marginBottom: '24px', background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-          <div style={{ flex: '1 1 200px' }}>
-            <label style={styles.label}>Target Subject:</label>
-            <select value={targetSubject} onChange={(e) => setTargetSubject(e.target.value)} style={styles.input}>
-              <option value="All">All Subjects</option>
-              {DEFAULT_SUBJECTS.map(sub => <option key={sub} value={sub}>{sub}</option>)}
-            </select>
-          </div>
-                <div style={{ flex: '2 1 300px' }}>
-                    <label style={styles.label}>Reminder Message for Teachers:</label>
-                    <input type="text" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="e.g. Please enter Level 15 marks before Friday." style={styles.input} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '24px', background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px' }}>
+                    <div style={{ flex: '1 1 150px' }}>
+                        <label style={styles.label}>Academic Week:</label>
+                        <input type="text" value={weekName} onChange={(e) => setWeekName(e.target.value)} placeholder="e.g. Week 3" style={styles.input} />
+                    </div>
+                    <div style={{ flex: '1 1 150px' }}>
+                        <label style={styles.label}>Target Level:</label>
+                        <select value={targetLevel} onChange={(e) => setTargetLevel(e.target.value)} style={styles.input}>
+                            {Object.values(CCE_LEVELS).map(lvl => <option key={lvl} value={lvl}>Level max {lvl}</option>)}
+                        </select>
+                    </div>
+                    <div style={{ flex: '2 1 300px' }}>
+                        <label style={styles.label}>Reminder Message for Teachers:</label>
+                        <input type="text" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="e.g. Please complete your mark entry for this week." style={styles.input} />
+                    </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px' }}>
+
+                <div>
+                    <label style={styles.label}>Select Subjects for this Week:</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', background: '#ffffff', padding: '16px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', cursor: 'pointer', fontWeight: '700', color: '#0f172a' }}>
+                            <input type="checkbox" checked={targetSubjects.includes('All')} onChange={() => toggleSubject('All')} style={{ width: '16px', height: '16px' }} />
+                            All Subjects
+                        </label>
+                        <div style={{ width: '1px', background: '#cbd5e1', margin: '0 8px' }}></div>
+                        {DEFAULT_SUBJECTS.map(sub => (
+                            <label key={sub} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', color: '#334155', fontWeight: '600' }}>
+                                <input type="checkbox" checked={targetSubjects.includes(sub)} onChange={() => toggleSubject(sub)} disabled={targetSubjects.includes('All')} style={{ width: '15px', height: '15px' }} />
+                                {sub}
+                            </label>
+                        ))}
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', marginTop: '8px' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '700', color: isActive ? '#047857' : '#64748b', background: isActive ? '#d1fae5' : '#e2e8f0', padding: '12px 16px', borderRadius: '8px', cursor: 'pointer', border: `1px solid ${isActive ? '#34d399' : '#cbd5e1'}` }}>
                         <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} style={{ width: '18px', height: '18px' }} />
                         {isActive ? 'Reminder is ACTIVE' : 'Reminder is OFF'}
@@ -2354,7 +2419,9 @@ function ReminderManager() {
                 </div>
             </div>
 
-            <h4 style={{ margin: '0 0 16px 0', color: '#0f172a', fontWeight: '800' }}>Teacher Completion Tracker (Checking Level {targetLevel})</h4>
+            <h4 style={{ margin: '0 0 16px 0', color: '#0f172a', fontWeight: '800' }}>
+                Teacher Completion Tracker ({weekName} - Level {targetLevel})
+            </h4>
             <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px', minWidth: '700px' }}>
                     <thead>
@@ -2367,21 +2434,27 @@ function ReminderManager() {
                         </tr>
                     </thead>
                     <tbody>
-                        {trackerData.map((row, idx) => (
-                            <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: '#ffffff' }}>
-                                <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>{row.teacherName}</td>
-                                <td style={{ padding: '14px 16px', color: '#334155', fontWeight: '700' }}>{row.subject}</td>
-                                <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: '#64748b' }}>{row.totalEnrolled}</td>
-                                <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '800', color: row.missingCount > 0 ? '#ef4444' : '#10b981' }}>{row.missingCount}</td>
+                        {trackerData.length === 0 ? (
+                            <tr><td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>No teachers match this subject filter.</td></tr>
+                        ) : (
+                            trackerData.map((row, idx) => (
+                                <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: '#ffffff' }}>
+                                    <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>{row.teacherName}</td>
+                                    <td style={{ padding: '14px 16px', color: '#334155', fontWeight: '700' }}>{row.subject}</td>
+                                    <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: '#64748b' }}>{row.totalEnrolled}</td>
+                                    <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '800', color: row.missingCount > 0 ? '#ef4444' : '#10b981' }}>{row.missingCount}</td>
                                 <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                                    {row.isComplete ? (
-                                        <span style={{ background: '#d1fae5', color: '#047857', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>✅ DONE</span>
-                                    ) : (
-                                        <span style={{ background: '#fee2e2', color: '#dc2626', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>❌ PENDING</span>
-                                    )}
-                                </td>
-                            </tr>
-                        ))}
+                                  {row.missingCount === 0 ? (
+                                    <span style={{ background: '#d1fae5', color: '#047857', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>✅ DONE</span>
+                                  ) : row.enteredCount > 0 ? (
+                                    <span style={{ background: '#fef3c7', color: '#d97706', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>⏳ IN PROGRESS</span>
+                                  ) : (
+                                    <span style={{ background: '#fee2e2', color: '#dc2626', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>❌ PENDING</span>
+                                  )}
+                                    </td>
+                                </tr>
+                            ))
+                        )}
                     </tbody>
                 </table>
             </div>
