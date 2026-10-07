@@ -71,7 +71,6 @@ export default function StudentDashboard() {
             
             let isMatched = false;
             
-            // 🌟 PARITY FIX: Match against BOTH Registration Number and Admission Number
             if (env.studentIds && Array.isArray(env.studentIds)) {
               const savedIds = env.studentIds.map(id => String(id).trim());
               if (savedIds.includes(safeRegNo) || savedIds.includes(safeAdNoFromDB)) {
@@ -80,10 +79,24 @@ export default function StudentDashboard() {
             } 
             
             if (!isMatched) {
+              // 🌟 ENHANCED MATCHER: Checks if the teacher's selected Grade matches the number in the student's class
               let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
+              
+              if (!classMatch && env.grade) {
+                const gradeStr = String(env.grade);
+                // If student is in QLA1, the match(/\d+/) extracts '1', which matches env.grade '1'
+                if (studentClassesLower.some(cls => {
+                  const numMatch = cls.match(/\d+/);
+                  return numMatch && numMatch[0] === gradeStr;
+                })) {
+                  classMatch = true;
+                }
+              }
+
               if (!classMatch && envAliasLower.includes('m10')) {
                 if (studentClassesLower.some(cls => cls.includes('3')) && !isUrdu) classMatch = true; 
               }
+
               if (classMatch) {
                 if (envLang.includes('urdu') && !envLang.includes('non')) isMatched = isUrdu;
                 else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') isMatched = !isUrdu;
@@ -92,7 +105,10 @@ export default function StudentDashboard() {
             }
 
             if (isMatched) {
-              const exactSubject = (env.alias?.toUpperCase().includes('U :FIQH') || env.subject?.toUpperCase().includes('U :FIQH')) ? 'U :FIQH' : (env.subject || '');
+              // 🌟 TRANSLATOR: Ensures Mantiq and Logic are handled correctly
+              let exactSubject = (env.alias?.toUpperCase().includes('U :FIQH') || env.subject?.toUpperCase().includes('U :FIQH')) ? 'U :FIQH' : (env.subject || '');
+              if (exactSubject.toUpperCase() === 'MANTIQ') exactSubject = 'Logic';
+              
               if (exactSubject) {
                 mySubjectsMap.set(exactSubject.toUpperCase(), {
                   subject: exactSubject
@@ -132,7 +148,6 @@ export default function StudentDashboard() {
       const docSnap = await getDoc(doc(db, 'marks', studentRegNo));
       const marksData = docSnap.exists() ? docSnap.data() : {};
 
-      // 🌟 FAILSAFE: If a mark exists in the DB, forcefully render it even if teacher logic missed it
       const existingKeysMap = new Map();
       expectedSubjects.forEach(s => existingKeysMap.set(s.subject.toUpperCase(), true));
 
@@ -180,21 +195,20 @@ export default function StudentDashboard() {
 
     expectedSubjects.forEach(subObj => {
       const sub = subObj.subject;
-      
-      // Makes it look nice (e.g. "Social Science" instead of "SOCIAL SCIENCE")
       const normKey = sub.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
       
+      // 🌟 ROBUST SUBJECT MATCHING (Catches Logic/Mantiq)
       const foundSubjectKey = Object.keys(marksData).find(k => {
           const kUp = k.trim().toUpperCase(); 
           const actUp = sub.trim().toUpperCase();
           if (actUp.includes('U :FIQH') || actUp.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
           if (actUp === 'FIQH') return kUp === 'FIQH'; 
+          if (actUp === 'LOGIC' && kUp === 'MANTIQ') return true;
           return kUp === actUp;
       });
 
       const subMarks = foundSubjectKey ? marksData[foundSubjectKey] : {};
       
-      // 🌟 Check if ANY student in the school has a mark for this specific subject
       let isGradingStarted = false;
       for (let studentId in allMarksData) {
           const stMarks = allMarksData[studentId];
@@ -203,6 +217,7 @@ export default function StudentDashboard() {
               const actUp = sub.trim().toUpperCase();
               if (actUp.includes('U :FIQH') || actUp.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
               if (actUp === 'FIQH') return kUp === 'FIQH'; 
+              if (actUp === 'LOGIC' && kUp === 'MANTIQ') return true;
               return kUp === actUp;
           });
           if (anyFoundKey) {
@@ -245,7 +260,7 @@ export default function StudentDashboard() {
         total30: sem30,
         status: status,
         hasData,
-        isGradingStarted // 🌟 Pass the flag to the UI
+        isGradingStarted
       });
     });
 
@@ -405,7 +420,6 @@ export default function StudentDashboard() {
                       </td>
                       
                       {!data.hasData ? (
-                        // 🌟 VISUAL INDICATOR ONLY: ⚠️ Icon if grading started, ⏳ if not started yet. No teacher name.
                         <td colSpan="7" style={{ padding: '16px', textAlign: 'center', fontWeight: '600', background: data.isGradingStarted ? '#fffbeb' : '#f8fafc', color: data.isGradingStarted ? '#b45309' : '#94a3b8' }}>
                            {data.isGradingStarted ? (
                              <span title="Marks have been updated for others in this subject">⚠️ Action Required: Missing Mark</span>
