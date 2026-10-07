@@ -23,6 +23,17 @@ const printStyles = `
   }
 `;
 
+// 🌟 ROBUST SYNONYM MATCHER
+const checkSubjectMatch = (dbKey, expectedSub) => {
+    const a = dbKey.trim().toUpperCase();
+    const b = expectedSub.trim().toUpperCase();
+    if (a === b) return true;
+    if ((a === 'LOGIC' && b === 'MANTIQ') || (a === 'MANTIQ' && b === 'LOGIC')) return true;
+    if ((a === 'AQIDAH' && b === 'AQEEDA') || (a === 'AQEEDA' && b === 'AQIDAH')) return true;
+    if ((a.includes('U :FIQH') || a.includes('U:FIQH')) && (b.includes('U :FIQH') || b.includes('U:FIQH'))) return true;
+    return false;
+};
+
 export default function StudentDashboard() {
   const [regNo, setRegNo] = useState(''); 
   const [password, setPassword] = useState('');
@@ -79,12 +90,10 @@ export default function StudentDashboard() {
             } 
             
             if (!isMatched) {
-              // 🌟 ENHANCED MATCHER: Checks if the teacher's selected Grade matches the number in the student's class
               let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
               
               if (!classMatch && env.grade) {
                 const gradeStr = String(env.grade);
-                // If student is in QLA1, the match(/\d+/) extracts '1', which matches env.grade '1'
                 if (studentClassesLower.some(cls => {
                   const numMatch = cls.match(/\d+/);
                   return numMatch && numMatch[0] === gradeStr;
@@ -98,21 +107,24 @@ export default function StudentDashboard() {
               }
 
               if (classMatch) {
+                // 🌟 BUG FIX: 'gen' or '' now applies to ALL students, not just Non-Urdu
                 if (envLang.includes('urdu') && !envLang.includes('non')) isMatched = isUrdu;
-                else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') isMatched = !isUrdu;
-                else isMatched = true;
+                else if (envLang.includes('non')) isMatched = !isUrdu;
+                else isMatched = true; 
               }
             }
 
             if (isMatched) {
-              // 🌟 TRANSLATOR: Ensures Mantiq and Logic are handled correctly
-              let exactSubject = (env.alias?.toUpperCase().includes('U :FIQH') || env.subject?.toUpperCase().includes('U :FIQH')) ? 'U :FIQH' : (env.subject || '');
-              if (exactSubject.toUpperCase() === 'MANTIQ') exactSubject = 'Logic';
+              let exactSubject = env.subject || '';
+              if (exactSubject.toUpperCase().includes('U :FIQH') || (env.alias && env.alias.toUpperCase().includes('U :FIQH'))) {
+                  exactSubject = 'U :FIQH';
+              }
               
               if (exactSubject) {
-                mySubjectsMap.set(exactSubject.toUpperCase(), {
-                  subject: exactSubject
-                });
+                let mapKey = exactSubject.toUpperCase();
+                if (mapKey === 'MANTIQ') mapKey = 'LOGIC';
+                if (mapKey === 'AQEEDA') mapKey = 'AQIDAH';
+                mySubjectsMap.set(mapKey, { subject: exactSubject });
               }
             }
           });
@@ -148,14 +160,14 @@ export default function StudentDashboard() {
       const docSnap = await getDoc(doc(db, 'marks', studentRegNo));
       const marksData = docSnap.exists() ? docSnap.data() : {};
 
-      const existingKeysMap = new Map();
-      expectedSubjects.forEach(s => existingKeysMap.set(s.subject.toUpperCase(), true));
-
+      // Failsafe: Include any subjects already existing in DB that the teacher mapping missed
       Object.keys(marksData).forEach(subKey => {
           const cleanSub = subKey.trim();
-          if (cleanSub && !existingKeysMap.has(cleanSub.toUpperCase())) {
-              expectedSubjects.push({ subject: cleanSub });
-              existingKeysMap.set(cleanSub.toUpperCase(), true);
+          if (cleanSub) {
+              const alreadyExists = expectedSubjects.some(s => checkSubjectMatch(s.subject, cleanSub));
+              if (!alreadyExists) {
+                  expectedSubjects.push({ subject: cleanSub });
+              }
           }
       });
 
@@ -197,29 +209,14 @@ export default function StudentDashboard() {
       const sub = subObj.subject;
       const normKey = sub.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
       
-      // 🌟 ROBUST SUBJECT MATCHING (Catches Logic/Mantiq)
-      const foundSubjectKey = Object.keys(marksData).find(k => {
-          const kUp = k.trim().toUpperCase(); 
-          const actUp = sub.trim().toUpperCase();
-          if (actUp.includes('U :FIQH') || actUp.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
-          if (actUp === 'FIQH') return kUp === 'FIQH'; 
-          if (actUp === 'LOGIC' && kUp === 'MANTIQ') return true;
-          return kUp === actUp;
-      });
-
+      const foundSubjectKey = Object.keys(marksData).find(k => checkSubjectMatch(k, sub));
       const subMarks = foundSubjectKey ? marksData[foundSubjectKey] : {};
       
+      // Determine if ANY student has marks for this subject
       let isGradingStarted = false;
       for (let studentId in allMarksData) {
           const stMarks = allMarksData[studentId];
-          const anyFoundKey = Object.keys(stMarks).find(k => {
-              const kUp = k.trim().toUpperCase(); 
-              const actUp = sub.trim().toUpperCase();
-              if (actUp.includes('U :FIQH') || actUp.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
-              if (actUp === 'FIQH') return kUp === 'FIQH'; 
-              if (actUp === 'LOGIC' && kUp === 'MANTIQ') return true;
-              return kUp === actUp;
-          });
+          const anyFoundKey = Object.keys(stMarks).find(k => checkSubjectMatch(k, sub));
           if (anyFoundKey) {
               isGradingStarted = true;
               break;
@@ -317,7 +314,6 @@ export default function StudentDashboard() {
       <style dangerouslySetInnerHTML={{ __html: printStyles }} />
       <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
         
-        {/* Header with Print Report Card Option */}
         <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0' }}>
           <div>
             <h1 style={{ margin: '0 0 4px 0', fontSize: '24px', color: '#0f172a', fontWeight: '800' }}>Student Academic Record</h1>
@@ -333,7 +329,6 @@ export default function StudentDashboard() {
           </div>
         </div>
 
-        {/* Profile Card */}
         <div style={{ ...styles.card, padding: '20px 32px' }}>
           <div style={{ display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
             <div>
@@ -353,7 +348,6 @@ export default function StudentDashboard() {
           </div>
         </div>
 
-        {/* Top 4 Summary Cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '24px' }}>
           
           <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', textAlign: 'center' }}>
@@ -386,7 +380,6 @@ export default function StudentDashboard() {
 
         </div>
 
-        {/* Detailed Marks Table */}
         <div style={styles.card}>
           <h3 style={styles.sectionTitle}>Curriculum & Detailed Performance Breakdown</h3>
           
