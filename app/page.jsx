@@ -1022,277 +1022,343 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     const [statusMsg, setStatusMsg] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
+    // 🌟 NEW STATES: Mass RegNo Migration
+    const [isRegNoEditMode, setIsRegNoEditMode] = useState(false);
+    const [regNoDrafts, setRegNoDrafts] = useState({});
+
     const fetchStudents = async () => {
-      try {
-        const querySnapshot = await getDocs(collection(db, 'students'));
-        const studentsData = [];
-        querySnapshot.forEach((doc) => studentsData.push(doc.data()));
-        studentsData.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
-        setRegisteredStudents(studentsData);
-      } catch (err) { console.error(err); }
+        try {
+            const querySnapshot = await getDocs(collection(db, 'students'));
+            const studentsData = [];
+            querySnapshot.forEach((doc) => studentsData.push(doc.data()));
+            studentsData.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
+            setRegisteredStudents(studentsData);
+        } catch (err) { console.error(err); }
     };
 
     useEffect(() => { fetchStudents(); }, []);
 
     const handleDownloadTemplate = () => {
-      const csvContent = "data:text/csv;charset=utf-8,rollNo,regNo,adNo,firstName,classes,department,madhab\n1,726007,U1278,ABBU SHAHMA,\"QH1, Mixed_Urdu\",QURAN,Shafi\n2,726031,3668,Abdullah Fayiz M,QH1,HADITH,Hanafi";
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement("a");
-      link.setAttribute("href", encodedUri);
-      link.setAttribute("download", "student_upload_template.csv");
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+        const csvContent = "data:text/csv;charset=utf-8,rollNo,regNo,adNo,firstName,classes,department,madhab\n1,726007,U1278,ABBU SHAHMA,\"QH1, Mixed_Urdu\",QURAN,Shafi\n2,726031,3668,Abdullah Fayiz M,QH1,HADITH,Hanafi";
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", "student_upload_template.csv");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     };
 
     const toggleStudentClass = (cls) => {
-      if (selectedClasses.includes(cls)) setSelectedClasses(selectedClasses.filter(c => c !== cls));
-      else setSelectedClasses([...selectedClasses, cls]);
+        if (selectedClasses.includes(cls)) setSelectedClasses(selectedClasses.filter(c => c !== cls));
+        else setSelectedClasses([...selectedClasses, cls]);
     };
 
     const handleAddCustomClass = (e) => {
-      e.preventDefault();
-      if (!customClassInput.trim()) return;
-      const newClass = customClassInput.trim();
-      if (!availableStudentClasses.includes(newClass)) setAvailableStudentClasses([...availableStudentClasses, newClass]);
-      if (!selectedClasses.includes(newClass)) setSelectedClasses([...selectedClasses, newClass]);
-      setCustomClassInput('');
+        e.preventDefault();
+        if (!customClassInput.trim()) return;
+        const newClass = customClassInput.trim();
+        if (!availableStudentClasses.includes(newClass)) setAvailableStudentClasses([...availableStudentClasses, newClass]);
+        if (!selectedClasses.includes(newClass)) setSelectedClasses([...selectedClasses, newClass]);
+        setCustomClassInput('');
     };
 
     const handleAddOrUpdateStudent = async (e) => {
-      e.preventDefault();
-      if (selectedClasses.length === 0) return alert('Please select at least one class or group.');
-      setIsLoading(true); setStatusMsg(isEditing ? 'Updating student profile...' : 'Registering student securely...');
-      const safeRegNo = regNo.toLowerCase().replace(/[^a-z0-9_.-]/g, '');
-      const safeAdNo = adNo.trim();
-      const safeRollNo = Number(rollNo);
-      const fakeEmail = `${safeRegNo}@student.school.com`;
-      const firebasePassword = safeAdNo.length < 6 ? safeAdNo.padStart(6, '0') : safeAdNo;
-      try {
-        if (!isEditing) await createUserWithEmailAndPassword(auth, fakeEmail, firebasePassword);
-        await setDoc(doc(db, 'students', safeRegNo), { rollNo: safeRollNo, regNo: safeRegNo, adNo: safeAdNo, firstName, department: department.toUpperCase(), madhab: madhab, classes: selectedClasses }, { merge: true });
-        setIsLoading(false); setStatusMsg(isEditing ? 'Student updated successfully!' : 'Student registered successfully!');
-        fetchStudents(); resetForm();
-      } catch (err) { setIsLoading(false); setStatusMsg('Error: ' + err.message); }
+        e.preventDefault();
+        if (selectedClasses.length === 0) return alert('Please select at least one class or group.');
+        setIsLoading(true); setStatusMsg(isEditing ? 'Updating student profile...' : 'Registering student securely...');
+        const safeRegNo = regNo.toLowerCase().replace(/[^a-z0-9_.-]/g, '');
+        const safeAdNo = adNo.trim();
+        const safeRollNo = Number(rollNo);
+        const fakeEmail = `${safeRegNo}@student.school.com`;
+        const firebasePassword = safeAdNo.length < 6 ? safeAdNo.padStart(6, '0') : safeAdNo;
+        try {
+            if (!isEditing) await createUserWithEmailAndPassword(auth, fakeEmail, firebasePassword);
+            await setDoc(doc(db, 'students', safeRegNo), { rollNo: safeRollNo, regNo: safeRegNo, adNo: safeAdNo, firstName, department: department.toUpperCase(), madhab: madhab, classes: selectedClasses }, { merge: true });
+            setIsLoading(false); setStatusMsg(isEditing ? 'Student updated successfully!' : 'Student registered successfully!');
+            fetchStudents(); resetForm();
+        } catch (err) { setIsLoading(false); setStatusMsg('Error: ' + err.message); }
     };
 
     const handleBulkUpdate = async () => {
-      if (selectedRows.length === 0) return;
-      if (!bulkDept && !bulkMadhab && !bulkAddClass) return alert('Select update option.');
-      if (!window.confirm(`Apply changes to ${selectedRows.length} students?`)) return;
-      setIsLoading(true); setStatusMsg(`Updating ${selectedRows.length} students...`);
-      try {
-        const promises = selectedRows.map(regNo => {
-          const updateData = {};
-          if (bulkDept) updateData.department = bulkDept;
-          if (bulkMadhab) updateData.madhab = bulkMadhab;
-          if (bulkAddClass) updateData.classes = arrayUnion(bulkAddClass.trim());
-          return setDoc(doc(db, 'students', regNo), updateData, { merge: true });
-        });
-        await Promise.all(promises);
-        setIsLoading(false); setStatusMsg(`Successfully updated!`);
-        setSelectedRows([]); setBulkDept(''); setBulkMadhab(''); setBulkAddClass('');
-        if (bulkAddClass && !availableStudentClasses.includes(bulkAddClass.trim())) setAvailableStudentClasses([...availableStudentClasses, bulkAddClass.trim()]);
-        fetchStudents();
-      } catch (err) { setIsLoading(false); setStatusMsg('Error: ' + err.message); }
+        if (selectedRows.length === 0) return;
+        if (!bulkDept && !bulkMadhab && !bulkAddClass) return alert('Select update option.');
+        if (!window.confirm(`Apply changes to ${selectedRows.length} students?`)) return;
+        setIsLoading(true); setStatusMsg(`Updating ${selectedRows.length} students...`);
+        try {
+            const promises = selectedRows.map(regNo => {
+                const updateData = {};
+                if (bulkDept) updateData.department = bulkDept;
+                if (bulkMadhab) updateData.madhab = bulkMadhab;
+                if (bulkAddClass) updateData.classes = arrayUnion(bulkAddClass.trim());
+                return setDoc(doc(db, 'students', regNo), updateData, { merge: true });
+            });
+            await Promise.all(promises);
+            setIsLoading(false); setStatusMsg(`Successfully updated!`);
+            setSelectedRows([]); setBulkDept(''); setBulkMadhab(''); setBulkAddClass('');
+            if (bulkAddClass && !availableStudentClasses.includes(bulkAddClass.trim())) setAvailableStudentClasses([...availableStudentClasses, bulkAddClass.trim()]);
+            fetchStudents();
+        } catch (err) { setIsLoading(false); setStatusMsg('Error: ' + err.message); }
     };
 
     const handleCSVUpload = (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const text = event.target.result;
-        const lines = text.split('\n');
-        let studentsArray = [];
-        for (let i = 1; i < lines.length; i++) {
-          let line = lines[i].trim();
-          if (!line) continue;
-          let cols = parseCSVLine(line);
-          if (cols.length >= 5) {
-            studentsArray.push({
-              rollNo: Number(cols[0].trim()),
-              regNo: cols[1].toLowerCase().replace(/[^a-z0-9_.-]/g, ''),
-              adNo: cols[2].trim(),
-              firstName: cols[3].trim(),
-              classes: cols[4].split(',').map(c => c.trim()).filter(Boolean),
-              department: cols[5] ? cols[5].trim().toUpperCase() : 'GENERAL',
-              madhab: cols[6] ? cols[6].trim() : 'Hanafi'
-            });
-          }
-        }
-        if (studentsArray.length === 0) return alert('No valid rows found in CSV. Please ensure the template format is used.');
-        setIsLoading(true);
-        setStatusMsg(`Registering ${studentsArray.length} students with rate-limiting...`);
-        try {
-          const primaryApp = getApp();
-          let secondaryApp;
-          try { secondaryApp = getApp("SecondaryApp"); } catch (err) { secondaryApp = initializeApp(primaryApp.options, "SecondaryApp"); }
-          const secondaryAuth = getAuth(secondaryApp);
-
-          for (let i = 0; i < studentsArray.length; i++) {
-            const s = studentsArray[i];
-            const fakeEmail = `${s.regNo}@student.school.com`;
-            const firebasePassword = s.adNo.length < 6 ? s.adNo.padStart(6, '0') : s.adNo;
-
-            setStatusMsg(`Registering student ${i + 1} of ${studentsArray.length}...`);
-            await delay(2000);
-
-            try {
-              await createUserWithEmailAndPassword(secondaryAuth, fakeEmail, firebasePassword);
-            } catch (authErr) {
-              if (authErr.code === 'auth/too-many-requests') throw new Error("Firebase temporary spam lock. Please wait 5 minutes before continuing.");
-              if (authErr.code !== 'auth/email-already-in-use') throw authErr;
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            const text = event.target.result;
+            const lines = text.split('\n');
+            let studentsArray = [];
+            for (let i = 1; i < lines.length; i++) {
+                let line = lines[i].trim();
+                if (!line) continue;
+                let cols = parseCSVLine(line);
+                if (cols.length >= 5) {
+                    studentsArray.push({
+                        rollNo: Number(cols[0].trim()),
+                        regNo: cols[1].toLowerCase().replace(/[^a-z0-9_.-]/g, ''),
+                        adNo: cols[2].trim(),
+                        firstName: cols[3].trim(),
+                        classes: cols[4].split(',').map(c => c.trim()).filter(Boolean),
+                        department: cols[5] ? cols[5].trim().toUpperCase() : 'GENERAL',
+                        madhab: cols[6] ? cols[6].trim() : 'Hanafi'
+                    });
+                }
             }
+            if (studentsArray.length === 0) return alert('No valid rows found in CSV. Please ensure the template format is used.');
+            setIsLoading(true);
+            setStatusMsg(`Registering ${studentsArray.length} students with rate-limiting...`);
+            try {
+                const primaryApp = getApp();
+                let secondaryApp;
+                try { secondaryApp = getApp("SecondaryApp"); } catch (err) { secondaryApp = initializeApp(primaryApp.options, "SecondaryApp"); }
+                const secondaryAuth = getAuth(secondaryApp);
 
-            await setDoc(doc(db, 'students', s.regNo), {
-              rollNo: s.rollNo, regNo: s.regNo, adNo: s.adNo, firstName: s.firstName,
-              department: s.department, madhab: s.madhab, classes: s.classes
-            }, { merge: true });
-          }
+                for (let i = 0; i < studentsArray.length; i++) {
+                    const s = studentsArray[i];
+                    const fakeEmail = `${s.regNo}@student.school.com`;
+                    const firebasePassword = s.adNo.length < 6 ? s.adNo.padStart(6, '0') : s.adNo;
 
-          await signOut(secondaryAuth);
-          setIsLoading(false); setStatusMsg(`Successfully registered ${studentsArray.length} students!`);
-          fetchStudents();
-        } catch (err) { setIsLoading(false); setStatusMsg('Error: ' + err.message); }
-      };
-      reader.readAsText(file);
+                    setStatusMsg(`Registering student ${i + 1} of ${studentsArray.length}...`);
+                    await delay(2000);
+
+                    try {
+                        await createUserWithEmailAndPassword(secondaryAuth, fakeEmail, firebasePassword);
+                    } catch (authErr) {
+                        if (authErr.code === 'auth/too-many-requests') throw new Error("Firebase temporary spam lock. Please wait 5 minutes before continuing.");
+                        if (authErr.code !== 'auth/email-already-in-use') throw authErr;
+                    }
+
+                    await setDoc(doc(db, 'students', s.regNo), {
+                        rollNo: s.rollNo, regNo: s.regNo, adNo: s.adNo, firstName: s.firstName,
+                        department: s.department, madhab: s.madhab, classes: s.classes
+                    }, { merge: true });
+                }
+
+                await signOut(secondaryAuth);
+                setIsLoading(false); setStatusMsg(`Successfully registered ${studentsArray.length} students!`);
+                fetchStudents();
+            } catch (err) { setIsLoading(false); setStatusMsg('Error: ' + err.message); }
+        };
+        reader.readAsText(file);
     };
 
     const handleEditClick = (student) => {
-      setIsEditing(true); setRollNo(student.rollNo || ''); setRegNo(student.regNo); setAdNo(student.adNo); setFirstName(student.firstName); setDepartment(student.department || DEPARTMENTS[0]); setMadhab(student.madhab || 'Hanafi');
-      const stuClasses = student.classes || (student.className ? [student.className] : []);
-      setSelectedClasses(stuClasses);
-      const newAvailable = [...availableStudentClasses];
-      let changed = false;
-      stuClasses.forEach(c => { if (!newAvailable.includes(c)) { newAvailable.push(c); changed = true; } });
-      if (changed) setAvailableStudentClasses(newAvailable);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+        setIsEditing(true); setRollNo(student.rollNo || ''); setRegNo(student.regNo); setAdNo(student.adNo); setFirstName(student.firstName); setDepartment(student.department || DEPARTMENTS[0]); setMadhab(student.madhab || 'Hanafi');
+        const stuClasses = getSafeClassesArray(student);
+        setSelectedClasses(stuClasses);
+        const newAvailable = [...availableStudentClasses];
+        let changed = false;
+        stuClasses.forEach(c => { if (!newAvailable.includes(c)) { newAvailable.push(c); changed = true; } });
+        if (changed) setAvailableStudentClasses(newAvailable);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     const handleDeleteClick = async (studentRegNo) => {
-      if (window.confirm(`Delete student ${studentRegNo}?`)) {
-        try { await deleteDoc(doc(db, 'students', studentRegNo)); fetchStudents(); } catch (err) { alert("Failed to delete."); }
-      }
+        if (window.confirm(`Delete student ${studentRegNo}?`)) {
+            try { await deleteDoc(doc(db, 'students', studentRegNo)); fetchStudents(); } catch (err) { alert("Failed to delete."); }
+        }
     };
 
     const resetForm = () => { setIsEditing(false); setRollNo(''); setRegNo(''); setAdNo(''); setFirstName(''); setDepartment(DEPARTMENTS[0]); setMadhab('Hanafi'); setSelectedClasses([]); setStatusMsg(''); };
 
+    // 🌟 ANTI-CRASH SAFEGUARD: Forces any stored data into a clean array before rendering
+    const getSafeClassesArray = (student) => {
+        if (Array.isArray(student.classes)) return student.classes;
+        if (typeof student.classes === 'string') return [student.classes];
+        if (student.className) return [student.className];
+        return [];
+    };
+
     const getStudentLevels = (student) => {
-      const classes = student.classes || (student.className ? [student.className] : []);
-      const levels = new Set();
-      classes.forEach(c => { const match = c.match(/\d+/); if (match) levels.add(match[0]); });
-      return Array.from(levels);
+        const classes = getSafeClassesArray(student);
+        const levels = new Set();
+        classes.forEach(c => { const match = String(c).match(/\d+/); if (match) levels.add(match[0]); });
+        return Array.from(levels);
     };
 
     const isUrduStudent = (adNo) => (adNo || '').toUpperCase().includes('U');
 
     const toggleFilterDirectoryDept = (dept) => {
-      if (filterDepartments.includes(dept)) setFilterDepartments(filterDepartments.filter(d => d !== dept));
-      else setFilterDepartments([...filterDepartments, dept]);
+        if (filterDepartments.includes(dept)) setFilterDepartments(filterDepartments.filter(d => d !== dept));
+        else setFilterDepartments([...filterDepartments, dept]);
     };
 
     const filteredStudents = registeredStudents.filter((student) => {
-      if (filterLevel !== 'All' && !getStudentLevels(student).includes(filterLevel)) return false;
-      if (filterClass !== 'All' && !(student.classes || [student.className]).includes(filterClass)) return false;
-      if (filterDepartments.length > 0 && !filterDepartments.includes((student.department || '').toUpperCase())) return false;
-      if (filterMadhab !== 'All' && (student.madhab || 'General') !== filterMadhab) return false;
-      if (filterLanguage === 'Urdu' && !isUrduStudent(student.adNo)) return false;
-      if (filterLanguage === 'Non-Urdu' && isUrduStudent(student.adNo)) return false;
-      return true;
+        if (filterLevel !== 'All' && !getStudentLevels(student).includes(filterLevel)) return false;
+        if (filterClass !== 'All' && !getSafeClassesArray(student).includes(filterClass)) return false;
+        if (filterDepartments.length > 0 && !filterDepartments.includes((student.department || '').toUpperCase())) return false;
+        if (filterMadhab !== 'All' && (student.madhab || 'General') !== filterMadhab) return false;
+        if (filterLanguage === 'Urdu' && !isUrduStudent(student.adNo)) return false;
+        if (filterLanguage === 'Non-Urdu' && isUrduStudent(student.adNo)) return false;
+        return true;
     });
 
     const toggleRowSelect = (regNo) => {
-      if (selectedRows.includes(regNo)) setSelectedRows(selectedRows.filter(id => id !== regNo));
-      else setSelectedRows([...selectedRows, regNo]);
+        if (selectedRows.includes(regNo)) setSelectedRows(selectedRows.filter(id => id !== regNo));
+        else setSelectedRows([...selectedRows, regNo]);
     };
 
     const toggleSelectAll = (filteredArray) => {
-      if (selectedRows.length === filteredArray.length) setSelectedRows([]);
-      else setSelectedRows(filteredArray.map(s => s.regNo));
+        if (selectedRows.length === filteredArray.length) setSelectedRows([]);
+        else setSelectedRows(filteredArray.map(s => s.regNo));
+    };
+
+    // 🌟 MIGRATION FUNCTIONS
+    const handleRegNoDraftChange = (oldRegNo, val) => {
+        setRegNoDrafts(prev => ({ ...prev, [oldRegNo]: val }));
+    };
+
+    const executeRegNoMigration = async () => {
+        const updates = Object.entries(regNoDrafts).filter(([oldReg, newReg]) => newReg && newReg.trim() !== '' && newReg !== oldReg);
+        if (updates.length === 0) return alert('No changes entered. Please type a new RegNo for at least one student.');
+        if (!window.confirm(`Are you sure you want to migrate ${updates.length} Registration Numbers? This will move their profiles, marks, and create new login credentials.`)) return;
+
+        setIsLoading(true);
+        setStatusMsg(`Migrating ${updates.length} students... Please wait.`);
+
+        try {
+            const primaryApp = getApp();
+            let secondaryApp;
+            try { secondaryApp = getApp("SecondaryApp"); } catch (err) { secondaryApp = initializeApp(primaryApp.options, "SecondaryApp"); }
+            const secondaryAuth = getAuth(secondaryApp);
+
+            for (const [oldReg, newRegRaw] of updates) {
+                const newReg = newRegRaw.toLowerCase().replace(/[^a-z0-9_.-]/g, '');
+
+                const studentSnap = await getDoc(doc(db, 'students', oldReg));
+                const markSnap = await getDoc(doc(db, 'marks', oldReg));
+
+                if (studentSnap.exists()) {
+                    const studentData = studentSnap.data();
+                    studentData.regNo = newReg;
+
+                    const fakeEmail = `${newReg}@student.school.com`;
+                    const safeAdNo = String(studentData.adNo).trim();
+                    const firebasePassword = safeAdNo.length < 6 ? safeAdNo.padStart(6, '0') : safeAdNo;
+                    
+                    try { await createUserWithEmailAndPassword(secondaryAuth, fakeEmail, firebasePassword); } 
+                    catch (authErr) { if (authErr.code !== 'auth/email-already-in-use') console.error("Auth skip:", authErr); }
+
+                    await setDoc(doc(db, 'students', newReg), studentData);
+                    if (markSnap.exists()) await setDoc(doc(db, 'marks', newReg), markSnap.data());
+
+                    await deleteDoc(doc(db, 'students', oldReg));
+                    if (markSnap.exists()) await deleteDoc(doc(db, 'marks', oldReg));
+                }
+            }
+            
+            await signOut(secondaryAuth);
+            setRegNoDrafts({});
+            setIsRegNoEditMode(false);
+            setStatusMsg(`Successfully migrated ${updates.length} students to their new Registration Numbers!`);
+            fetchStudents();
+        } catch (err) {
+            setStatusMsg('Migration Error: ' + err.message);
+        }
+        setIsLoading(false);
     };
 
     return (
-      <div>
-        <div style={styles.card}>
-          <h3 style={styles.sectionTitle}>Mass Upload Students</h3>
-          <p style={{ fontSize: '15px', color: '#64748b', marginBottom: '20px', lineHeight: '1.5' }}>Upload CSV columns: <strong>rollNo, regNo, adNo, firstName, classes, department, madhab</strong>.</p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
-            <button onClick={handleDownloadTemplate} style={{ padding: '12px 20px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>📥 Download CSV Template</button>
-            <label style={{ display: 'inline-flex', alignItems: 'center', padding: '12px 20px', background: '#0284c7', color: '#ffffff', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>📂 Upload Completed CSV <input type="file" accept=".csv" onChange={handleCSVUpload} style={{ display: 'none' }} /></label>
-          </div>
-        </div>
-
-        <div style={{ ...styles.card, borderLeft: isEditing ? '6px solid #f59e0b' : '1px solid #e2e8f0' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
-            <h3 style={styles.sectionTitle}>{isEditing ? `Editing Student: ${regNo}` : 'Register Student'}</h3>
-            {isEditing && <button type="button" onClick={resetForm} style={{ padding: '8px 16px', background: '#e2e8f0', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>Cancel</button>}
-          </div>
-
-          <form onSubmit={handleAddOrUpdateStudent} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
-              <div>
-                <label style={styles.label}>Sn (Roll No)</label>
-                <input type="number" value={rollNo} onChange={(e) => setRollNo(e.target.value)} required style={styles.input} />
-              </div>
-              <div>
-                <label style={styles.label}>First Name</label>
-                <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required style={styles.input} />
-              </div>
-              <div>
-                <label style={styles.label}>Department</label>
-                <select value={department} onChange={(e) => setDepartment(e.target.value)} style={{ ...styles.input, cursor: 'pointer' }}>
-                  {DEPARTMENTS.map(dept => <option key={dept} value={dept}>{dept}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={styles.label}>Madhab</label>
-                <select value={madhab} onChange={(e) => setMadhab(e.target.value)} style={{ ...styles.input, cursor: 'pointer' }}>
-                  {MADHABS.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '24px' }}>
-              <div>
-                <label style={styles.label}>Reg.no (Username)</label>
-                <input type="text" value={regNo} onChange={(e) => setRegNo(e.target.value)} disabled={isEditing} required style={{ ...styles.input, backgroundColor: isEditing ? '#f1f5f9' : '#ffffff', color: isEditing ? '#94a3b8' : '#0f172a' }} />
-              </div>
-              <div>
-                <label style={styles.label}>
-                  Ad.No {isEditing ? '' : '(Password)'}
-                  {isUrduStudent(adNo) && <span style={{ marginLeft: '8px', color: '#d97706', fontSize: '12px' }}>★ Urdu Student Detected</span>}
-                </label>
-                <div style={{ display: 'flex', position: 'relative' }}>
-                  <input type={showStudentPassword || isEditing ? "text" : "password"} value={adNo} onChange={(e) => setAdNo(e.target.value)} required style={styles.input} />
-                  {!isEditing && <button type="button" onClick={() => setShowStudentPassword(!showStudentPassword)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#2563eb', fontWeight: '700', cursor: 'pointer' }}>{showStudentPassword ? "Hide" : "Show"}</button>}
+        <div>
+            <div style={styles.card}>
+                <h3 style={styles.sectionTitle}>Mass Upload Students</h3>
+                <p style={{ fontSize: '15px', color: '#64748b', marginBottom: '20px', lineHeight: '1.5' }}>Upload CSV columns: <strong>rollNo, regNo, adNo, firstName, classes, department, madhab</strong>.</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
+                    <button onClick={handleDownloadTemplate} style={{ padding: '12px 20px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>📥 Download CSV Template</button>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', padding: '12px 20px', background: '#0284c7', color: '#ffffff', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>📂 Upload Completed CSV <input type="file" accept=".csv" onChange={handleCSVUpload} style={{ display: 'none' }} /></label>
                 </div>
-              </div>
             </div>
 
-            <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxSizing: 'border-box' }}>
-              <h4 style={{ margin: '0 0 16px 0', fontSize: '16px', color: '#0f172a', fontWeight: '800' }}>Assign to Classes / Groups</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '12px', background: '#ffffff', padding: '16px', border: '1px solid #cbd5e1', borderRadius: '8px', marginBottom: '16px' }}>
-                {availableStudentClasses.map(cls => (
-                  <label key={cls} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', fontSize: '14px', color: '#334155', fontWeight: '600' }}>
-                    <input type="checkbox" checked={selectedClasses.includes(cls)} onChange={() => toggleStudentClass(cls)} style={{ marginRight: '8px', accentColor: '#2563eb', width: '16px', height: '16px' }} /> {cls}
-                  </label>
-                ))}
-              </div>
-              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                <input type="text" value={customClassInput} onChange={(e) => setCustomClassInput(e.target.value)} placeholder="Or custom group (e.g. Mixed_Urdu)..." style={{ ...styles.input, flex: '1 1 220px' }} />
-                <button type="button" onClick={handleAddCustomClass} style={{ padding: '10px 16px', background: '#cbd5e1', color: '#334155', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>Add Custom Group</button>
-              </div>
+            <div style={{ ...styles.card, borderLeft: isEditing ? '6px solid #f59e0b' : '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                    <h3 style={styles.sectionTitle}>{isEditing ? `Editing Student: ${regNo}` : 'Register Student'}</h3>
+                    {isEditing && <button type="button" onClick={resetForm} style={{ padding: '8px 16px', background: '#e2e8f0', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>Cancel</button>}
+                </div>
+
+                <form onSubmit={handleAddOrUpdateStudent} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
+                        <div>
+                            <label style={styles.label}>Sn (Roll No)</label>
+                            <input type="number" value={rollNo} onChange={(e) => setRollNo(e.target.value)} required style={styles.input} />
+                        </div>
+                        <div>
+                            <label style={styles.label}>First Name</label>
+                            <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required style={styles.input} />
+                        </div>
+                        <div>
+                            <label style={styles.label}>Department</label>
+                            <select value={department} onChange={(e) => setDepartment(e.target.value)} style={{ ...styles.input, cursor: 'pointer' }}>
+                                {DEPARTMENTS.map(dept => <option key={dept} value={dept}>{dept}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label style={styles.label}>Madhab</label>
+                            <select value={madhab} onChange={(e) => setMadhab(e.target.value)} style={{ ...styles.input, cursor: 'pointer' }}>
+                                {MADHABS.map(m => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '24px' }}>
+                        <div>
+                            <label style={styles.label}>Reg.no (Username)</label>
+                            <input type="text" value={regNo} onChange={(e) => setRegNo(e.target.value)} disabled={isEditing} required style={{ ...styles.input, backgroundColor: isEditing ? '#f1f5f9' : '#ffffff', color: isEditing ? '#94a3b8' : '#0f172a' }} />
+                        </div>
+                        <div>
+                            <label style={styles.label}>
+                                Ad.No {isEditing ? '' : '(Password)'}
+                                {isUrduStudent(adNo) && <span style={{ marginLeft: '8px', color: '#d97706', fontSize: '12px' }}>★ Urdu Student Detected</span>}
+                            </label>
+                            <div style={{ display: 'flex', position: 'relative' }}>
+                                <input type={showStudentPassword || isEditing ? "text" : "password"} value={adNo} onChange={(e) => setAdNo(e.target.value)} required style={styles.input} />
+                                {!isEditing && <button type="button" onClick={() => setShowStudentPassword(!showStudentPassword)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#2563eb', fontWeight: '700', cursor: 'pointer' }}>{showStudentPassword ? "Hide" : "Show"}</button>}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxSizing: 'border-box' }}>
+                        <h4 style={{ margin: '0 0 16px 0', fontSize: '16px', color: '#0f172a', fontWeight: '800' }}>Assign to Classes / Groups</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '12px', background: '#ffffff', padding: '16px', border: '1px solid #cbd5e1', borderRadius: '8px', marginBottom: '16px' }}>
+                            {availableStudentClasses.map(cls => (
+                                <label key={cls} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', fontSize: '14px', color: '#334155', fontWeight: '600' }}>
+                                    <input type="checkbox" checked={selectedClasses.includes(cls)} onChange={() => toggleStudentClass(cls)} style={{ marginRight: '8px', accentColor: '#2563eb', width: '16px', height: '16px' }} /> {cls}
+                                </label>
+                            ))}
+                        </div>
+                        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                            <input type="text" value={customClassInput} onChange={(e) => setCustomClassInput(e.target.value)} placeholder="Or custom group (e.g. Mixed_Urdu)..." style={{ ...styles.input, flex: '1 1 220px' }} />
+                            <button type="button" onClick={handleAddCustomClass} style={{ padding: '10px 16px', background: '#cbd5e1', color: '#334155', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>Add Custom Group</button>
+                        </div>
+                    </div>
+
+                    <button type="submit" disabled={isLoading} style={isEditing ? styles.buttonWarning : styles.buttonSuccess}>
+                        {isLoading ? 'Processing...' : isEditing ? 'Update Student Profile' : 'Register Student'}
+                    </button>
+                </form>
+                {statusMsg && <div style={{ marginTop: '20px', padding: '16px', background: statusMsg.includes('Error') ? '#fee2e2' : '#ecfdf5', border: `1px solid ${statusMsg.includes('Error') ? '#fecaca' : '#a7f3d0'}`, borderRadius: '8px', color: statusMsg.includes('Error') ? '#991b1b' : '#065f46', fontWeight: '700' }}>{statusMsg}</div>}
             </div>
 
-            <button type="submit" disabled={isLoading} style={isEditing ? styles.buttonWarning : styles.buttonSuccess}>
-              {isLoading ? 'Processing...' : isEditing ? 'Update Student Profile' : 'Register Student'}
-            </button>
-          </form>
-          {statusMsg && <div style={{ marginTop: '20px', padding: '16px', background: statusMsg.includes('Error') ? '#fee2e2' : '#ecfdf5', border: `1px solid ${statusMsg.includes('Error') ? '#fecaca' : '#a7f3d0'}`, borderRadius: '8px', color: statusMsg.includes('Error') ? '#991b1b' : '#065f46', fontWeight: '700' }}>{statusMsg}</div>}
-        </div>
-
-        {/* 🌟 2. REPLACE the entire Students Directory card with this updated block */}
             <div style={styles.card}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
                     <div>
@@ -1301,7 +1367,6 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                     </div>
 
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
-                        {/* 🌟 THE NEW TOGGLE BUTTON */}
                         <button 
                             onClick={() => { setIsRegNoEditMode(!isRegNoEditMode); setRegNoDrafts({}); }}
                             style={{ padding: '8px 16px', background: isRegNoEditMode ? '#fef3c7' : '#f8fafc', color: isRegNoEditMode ? '#d97706' : '#334155', border: `1px solid ${isRegNoEditMode ? '#fcd34d' : '#cbd5e1'}`, borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px', marginRight: '10px' }}
@@ -1337,7 +1402,6 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                     </div>
                 </div>
 
-                {/* Bulk Update Controls (Existing) */}
                 {selectedRows.length > 0 && !isRegNoEditMode && (
                     <div style={{ padding: '16px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
                         <div><strong style={{ color: '#1e40af', fontSize: '15px' }}>{selectedRows.length} students selected</strong></div>
@@ -1351,7 +1415,6 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                     </div>
                 )}
 
-                {/* 🌟 NEW: Mass RegNo Migration Controls */}
                 {isRegNoEditMode && (
                     <div style={{ padding: '16px', background: '#fffbeb', border: '2px dashed #f59e0b', borderRadius: '10px', marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
                         <div>
@@ -1374,7 +1437,6 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                                 <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '60px' }}>Sn</th>
                                 <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '150px' }}>Current Reg.No</th>
                                 
-                                {/* 🌟 CONDITIONAL NEW REGNO HEADER */}
                                 {isRegNoEditMode && (
                                     <th style={{ padding: '14px 16px', color: '#d97706', fontWeight: '800', width: '180px' }}>Type New Reg.No</th>
                                 )}
@@ -1391,6 +1453,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                             {filteredStudents.map((student, index) => {
                                 const isUrdu = isUrduStudent(student.adNo);
                                 const levels = getStudentLevels(student);
+                                const safeClasses = getSafeClassesArray(student);
 
                                 return (
                                     <tr key={index} style={{ borderBottom: '1px solid #e2e8f0', background: selectedRows.includes(student.regNo) || regNoDrafts[student.regNo] ? '#f0f9ff' : 'transparent' }}>
@@ -1398,12 +1461,8 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                                             <td style={{ padding: '16px', verticalAlign: 'middle' }}><input type="checkbox" checked={selectedRows.includes(student.regNo)} onChange={() => toggleRowSelect(student.regNo)} style={{ accentColor: '#2563eb', width: '16px', height: '16px', cursor: 'pointer' }} /></td>
                                         )}
                                         <td style={{ padding: '16px', fontWeight: '700', color: '#64748b', verticalAlign: 'middle' }}>{student.rollNo || '-'}</td>
-                                        
-                                        <td style={{ padding: '16px', fontWeight: '700', color: '#0f172a', verticalAlign: 'middle' }}>
-                                            {student.regNo}
-                                        </td>
+                                        <td style={{ padding: '16px', fontWeight: '700', color: '#0f172a', verticalAlign: 'middle' }}>{student.regNo}</td>
 
-                                        {/* 🌟 THE NEW REGNO INPUT FIELD */}
                                         {isRegNoEditMode && (
                                             <td style={{ padding: '16px', verticalAlign: 'middle' }}>
                                                 <input 
@@ -1429,7 +1488,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                                         </td>
                                         <td style={{ padding: '16px', verticalAlign: 'middle' }}>
                                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                                {(student.classes || [student.className]).map((c, i) => (
+                                                {safeClasses.map((c, i) => (
                                                     <span key={i} style={{ display: 'inline-block', background: '#f1f5f9', color: '#0f172a', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', border: '1px solid #e2e8f0' }}>{c}</span>
                                                 ))}
                                                 {levels.map((lvl, i) => (
@@ -1452,9 +1511,9 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                     </table>
                 </div>
             </div>
-      </div>
+        </div>
     );
-  }
+}
 
   function ReportManager() {
     const [registeredStudents, setRegisteredStudents] = useState([]);
