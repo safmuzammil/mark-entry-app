@@ -23,7 +23,6 @@ const printStyles = `
   }
 `;
 
-// 🌟 ROBUST SYNONYM MATCHER
 const checkSubjectMatch = (dbKey, expectedSub) => {
     const a = dbKey.trim().toUpperCase();
     const b = expectedSub.trim().toUpperCase();
@@ -67,8 +66,6 @@ export default function StudentDashboard() {
         setLoggedInStudent(studentData);
         setAuthenticated(true);
         
-        // 🌟 1. UNIVERSAL CURRICULUM FIX
-        // Because every student takes these core subjects, we supply them directly.
         const coreSubjects = [
             'Thafseer', 'Hadith', 'Aqidah', 'Balagha', 'Logic', 
             'English', 'Adab', 'Urdu', 'Social Science', 
@@ -77,7 +74,6 @@ export default function StudentDashboard() {
         
         const expectedSubjectsArray = coreSubjects.map(sub => ({ subject: sub }));
         
-        // 🌟 2. SMART URDU TOGGLE
         const isUrdu = String(studentData.adNo || '').toUpperCase().startsWith('U');
         if (isUrdu) {
             expectedSubjectsArray.push({ subject: 'U :FIQH' });
@@ -85,7 +81,6 @@ export default function StudentDashboard() {
             expectedSubjectsArray.push({ subject: 'Fiqh' });
         }
 
-        // Fetch marks immediately based on this universal list
         fetchStudentMarksFromFirebase(safeRegNo, expectedSubjectsArray); 
 
       } else {
@@ -115,7 +110,6 @@ export default function StudentDashboard() {
       const docSnap = await getDoc(doc(db, 'marks', studentRegNo));
       const marksData = docSnap.exists() ? docSnap.data() : {};
 
-      // 🌟 FAILSAFE: Include any extra subjects found in their DB record just in case
       Object.keys(marksData).forEach(subKey => {
           const cleanSub = subKey.trim();
           if (cleanSub) {
@@ -167,14 +161,18 @@ export default function StudentDashboard() {
       const foundSubjectKey = Object.keys(marksData).find(k => checkSubjectMatch(k, sub));
       const subMarks = foundSubjectKey ? marksData[foundSubjectKey] : {};
       
-      // Determine if ANY student has marks for this subject
-      let isGradingStarted = false;
+      // 🌟 CHECK GRADING STATUS FOR EACH LEVEL INDIVIDUALLY
+      let levelGradingStarted = { '15': false, '20': false, '25': false, '40': false };
+      
       for (let studentId in allMarksData) {
           const stMarks = allMarksData[studentId];
           const anyFoundKey = Object.keys(stMarks).find(k => checkSubjectMatch(k, sub));
           if (anyFoundKey) {
-              isGradingStarted = true;
-              break;
+              const globalSubMarks = stMarks[anyFoundKey];
+              if (globalSubMarks['15'] !== undefined && globalSubMarks['15'] !== '') levelGradingStarted['15'] = true;
+              if (globalSubMarks['20'] !== undefined && globalSubMarks['20'] !== '') levelGradingStarted['20'] = true;
+              if (globalSubMarks['25'] !== undefined && globalSubMarks['25'] !== '') levelGradingStarted['25'] = true;
+              if (globalSubMarks['40'] !== undefined && globalSubMarks['40'] !== '') levelGradingStarted['40'] = true;
           }
       }
       
@@ -212,7 +210,7 @@ export default function StudentDashboard() {
         total30: sem30,
         status: status,
         hasData,
-        isGradingStarted
+        levelGradingStarted // Passes the specific level flags to the UI
       });
     });
 
@@ -234,6 +232,17 @@ export default function StudentDashboard() {
 
   const handlePrintReportCard = () => {
     window.print();
+  };
+
+  // 🌟 HELPER FUNCTION TO RENDER THE TABLE CELLS CLEANLY
+  const renderMarkCell = (mark, gradingStarted) => {
+    if (mark !== '-') {
+      return <span style={{ color: '#3b82f6', fontWeight: '600' }}>{mark}</span>;
+    }
+    if (gradingStarted) {
+      return <span title="Missing Mark" style={{ color: '#ef4444', fontSize: '16px' }}>⚠️</span>;
+    }
+    return <span style={{ color: '#cbd5e1', fontWeight: '600' }}>-</span>;
   };
 
   if (!authenticated) {
@@ -269,7 +278,6 @@ export default function StudentDashboard() {
       <style dangerouslySetInnerHTML={{ __html: printStyles }} />
       <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
         
-        {/* Header with Print Report Card Option */}
         <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0' }}>
           <div>
             <h1 style={{ margin: '0 0 4px 0', fontSize: '24px', color: '#0f172a', fontWeight: '800' }}>Student Academic Record</h1>
@@ -285,7 +293,6 @@ export default function StudentDashboard() {
           </div>
         </div>
 
-        {/* Profile Card */}
         <div style={{ ...styles.card, padding: '20px 32px' }}>
           <div style={{ display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
             <div>
@@ -305,7 +312,6 @@ export default function StudentDashboard() {
           </div>
         </div>
 
-        {/* Top 4 Summary Cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '24px' }}>
           
           <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', textAlign: 'center' }}>
@@ -338,7 +344,6 @@ export default function StudentDashboard() {
 
         </div>
 
-        {/* Detailed Marks Table */}
         <div style={styles.card}>
           <h3 style={styles.sectionTitle}>Curriculum & Detailed Performance Breakdown</h3>
           
@@ -371,34 +376,22 @@ export default function StudentDashboard() {
                         <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '15px' }}>{data.subject}</div>
                       </td>
                       
-                      {!data.hasData ? (
-                        <td colSpan="7" style={{ padding: '16px', textAlign: 'center', fontWeight: '600', background: data.isGradingStarted ? '#fffbeb' : '#f8fafc', color: data.isGradingStarted ? '#b45309' : '#94a3b8' }}>
-                           {data.isGradingStarted ? (
-                             <span title="Marks have been updated for others in this subject">⚠️ : Missing Mark</span>
-                           ) : (
-                             <span>⏳ Pending Upload</span>
-                           )}
-                        </td>
-                      ) : (
-                        <>
-                          <td style={{ padding: '16px', color: '#3b82f6', fontWeight: '600' }}>{data.assessments?.['15'] || '-'}</td>
-                          <td style={{ padding: '16px', color: '#3b82f6', fontWeight: '600' }}>{data.assessments?.['20'] || '-'}</td>
-                          <td style={{ padding: '16px', color: '#3b82f6', fontWeight: '600' }}>{data.assessments?.['25'] || '-'}</td>
-                          <td style={{ padding: '16px', color: '#3b82f6', fontWeight: '600' }}>{data.assessments?.['40'] || '-'}</td>
-                          
-                          <td style={{ padding: '16px', fontWeight: '800', color: '#0f172a', borderLeft: '1px solid #e2e8f0' }}>{data.total100}</td>
-                          <td style={{ padding: '16px', fontWeight: '800', color: '#0f172a' }}>{data.total30}</td>
-                          <td style={{ padding: '16px' }}>
-                            <span style={{ 
-                              ...styles.badge, 
-                              background: data.status !== '-' ? '#e0f2fe' : '#f1f5f9', 
-                              color: data.status !== '-' ? '#0369a1' : '#64748b'
-                            }}>
-                              {data.status}
-                            </span>
-                          </td>
-                        </>
-                      )}
+                      <td style={{ padding: '16px' }}>{renderMarkCell(data.assessments?.['15'], data.levelGradingStarted?.['15'])}</td>
+                      <td style={{ padding: '16px' }}>{renderMarkCell(data.assessments?.['20'], data.levelGradingStarted?.['20'])}</td>
+                      <td style={{ padding: '16px' }}>{renderMarkCell(data.assessments?.['25'], data.levelGradingStarted?.['25'])}</td>
+                      <td style={{ padding: '16px' }}>{renderMarkCell(data.assessments?.['40'], data.levelGradingStarted?.['40'])}</td>
+                      
+                      <td style={{ padding: '16px', fontWeight: '800', color: '#0f172a', borderLeft: '1px solid #e2e8f0' }}>{data.total100}</td>
+                      <td style={{ padding: '16px', fontWeight: '800', color: '#0f172a' }}>{data.total30}</td>
+                      <td style={{ padding: '16px' }}>
+                        <span style={{ 
+                          ...styles.badge, 
+                          background: data.status !== '-' ? '#e0f2fe' : '#f1f5f9', 
+                          color: data.status !== '-' ? '#0369a1' : '#64748b'
+                        }}>
+                          {data.status}
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
