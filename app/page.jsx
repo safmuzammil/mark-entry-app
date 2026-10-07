@@ -1368,63 +1368,72 @@ const fetchClassSubjectMarks = async () => {
             sorterAlias = inspectorClass;
             matchedStudents = allStudents.filter(s => (s.classes || []).includes(inspectorClass));
         } 
-        else if (inspectorMode === 'teacher') {
-            const selectedTeacher = teachersList.find(t => t.username === inspectorTeacherUsername);
-            const selectedEnrollment = selectedTeacher?.enrollments?.find(e => e.id === inspectorTeacherEnrollmentId);
+      else if (inspectorMode === 'teacher') {
+        const selectedTeacher = teachersList.find(t => t.username === inspectorTeacherUsername);
+        const selectedEnrollment = selectedTeacher?.enrollments?.find(e => e.id === inspectorTeacherEnrollmentId);
 
-            if (!selectedEnrollment) {
-                alert("No valid assignment selected for this teacher.");
-                setIsInspecting(false);
-                return;
-            }
-
-            activeSubject = selectedEnrollment.subject;
-            sorterAlias = selectedEnrollment.alias || '';
-            const envAliasLower = String(selectedEnrollment.alias || '').trim().toLowerCase();
-            const envLang = (selectedEnrollment.langTag || '').toLowerCase();
-
-            matchedStudents = allStudents.filter(student => {
-                const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
-                const sReg = String(student.regNo || '').trim();
-                const sAd = String(student.adNo || '').trim();
-                const sId = String(student.id || '').trim();
-                const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
-
-                if (selectedEnrollment.studentIds && Array.isArray(selectedEnrollment.studentIds)) {
-                    const savedIds = selectedEnrollment.studentIds.map(id => String(id).trim());
-                    if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
-                        return true;
-                    }
-                }
-
-                let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
-
-                if (!classMatch && envAliasLower.includes('m10')) {
-                    const isGrade3 = studentClassesLower.some(cls => cls.includes('3'));
-                    if (isGrade3 && !isUrdu) classMatch = true; 
-                }
-
-                if (classMatch) {
-                    if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
-                    if (envLang.includes('gen') || envLang.includes('non') || envLang === '') return !isUrdu;
-                    return true;
-                }
-                return false;
-            });
+        if (!selectedEnrollment) {
+          alert("No valid assignment selected for this teacher.");
+          setIsInspecting(false);
+          return;
         }
 
-        matchedStudents = sortStudentsByDepartment(matchedStudents, sorterAlias);
+        // 🌟 Explicitly resolve Usul al-Fiqh (U :FIQH) vs regular Fiqh
+        const rawSub = (selectedEnrollment.subject || '').trim();
+        const rawAlias = (selectedEnrollment.alias || '').trim();
 
-        const marksRecord = {};
-        const teacherRecord = {};
+        if (rawAlias.toUpperCase().includes('U :FIQH') || rawAlias.toUpperCase().includes('U:FIQH') || rawSub.toUpperCase().includes('U :FIQH') || rawSub.toUpperCase().includes('U:FIQH')) {
+          activeSubject = 'U :FIQH';
+        } else {
+          activeSubject = rawSub;
+        }
 
-        for (const student of matchedStudents) {
-            let markSnap = null;
-            const possibleKeys = [student.regNo, student.id, student.adNo, student.admissionNo].filter(Boolean);
-            for (const key of possibleKeys) {
-                markSnap = await getDoc(doc(db, 'marks', String(key).trim()));
-                if (markSnap.exists()) break;
+        sorterAlias = selectedEnrollment.alias || '';
+        const envAliasLower = String(selectedEnrollment.alias || '').trim().toLowerCase();
+        const envLang = (selectedEnrollment.langTag || '').toLowerCase();
+
+        matchedStudents = allStudents.filter(student => {
+          const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
+          const sReg = String(student.regNo || '').trim();
+          const sAd = String(student.adNo || '').trim();
+          const sId = String(student.id || '').trim();
+          const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
+
+          if (selectedEnrollment.studentIds && Array.isArray(selectedEnrollment.studentIds)) {
+            const savedIds = selectedEnrollment.studentIds.map(id => String(id).trim());
+            if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
+              return true;
             }
+          }
+
+          let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
+
+          if (!classMatch && envAliasLower.includes('m10')) {
+            const isGrade3 = studentClassesLower.some(cls => cls.includes('3'));
+            if (isGrade3 && !isUrdu) classMatch = true;
+          }
+
+          if (classMatch) {
+            if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
+            if (envLang.includes('gen') || envLang.includes('non') || envLang === '') return !isUrdu;
+            return true;
+          }
+          return false;
+        });
+      }
+
+      matchedStudents = sortStudentsByDepartment(matchedStudents, sorterAlias);
+
+      const marksRecord = {};
+      const teacherRecord = {};
+
+      for (const student of matchedStudents) {
+        let markSnap = null;
+        const possibleKeys = [student.regNo, student.id, student.adNo, student.admissionNo].filter(Boolean);
+        for (const key of possibleKeys) {
+          markSnap = await getDoc(doc(db, 'marks', String(key).trim()));
+          if (markSnap.exists()) break;
+        }
 
             if (markSnap && markSnap.exists()) {
                 const studentMarksData = markSnap.data();
@@ -1840,7 +1849,8 @@ const fetchClassSubjectMarks = async () => {
                                       <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Level 2 (20)</th>
                                       <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Level 3 (25)</th>
                                       <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Level 4 (40)</th>
-                                      <th style={{ padding: '14px 16px', color: '#1e40af', fontWeight: '800' }}>Total Score</th>
+                                      <th style={{ padding: '14px 16px', color: '#1e40af', fontWeight: '800', width: '100px' }}>Total (/100)</th>
+                                      <th style={{ padding: '14px 16px', color: '#047857', fontWeight: '800', width: '100px' }}>Scaled (/30)</th>
                                       {inspectorMode === 'class' && <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Assigned Teacher</th>}
                                   </tr>
                               </thead>
@@ -1852,7 +1862,8 @@ const fetchClassSubjectMarks = async () => {
                                       const m2 = parseFloat(marks['20']) || 0;
                                       const m3 = parseFloat(marks['25']) || 0;
                                       const m4 = parseFloat(marks['40']) || 0;
-                                      const total = m1 + m2 + m3 + m4;
+                                      const total100 = m1 + m2 + m3 + m4;
+                                      const scaled30 = total100 > 0 ? ((total100 / 100) * 30).toFixed(1) : '-';
 
                                       return (
                                           <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
@@ -1885,22 +1896,27 @@ const fetchClassSubjectMarks = async () => {
                                               </td>
                                               <td style={{ padding: '14px 16px' }}>
                                                   {total > 0 ? (
-                                                      <span style={{ background: '#dbeafe', color: '#1e40af', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '15px' }}>
-                                                          {total}
-                                                      </span>
-                                                  ) : (
-                                                      <span style={{ color: '#94a3b8', fontWeight: '700' }}>-</span>
-                                                  )}
-                                              </td>
-                                              {inspectorMode === 'class' && (
-                                                  <td style={{ padding: '14px 16px', color: teacherName === 'Unassigned' ? '#dc2626' : '#047857', fontWeight: '700' }}>
-                                                      {teacherName}
-                                                  </td>
-                                              )}
-                                          </tr>
-                                      );
+                                            <span style={{ background: '#dbeafe', color: '#1e40af', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '15px' }}>
+                                              {total100}
+                                            </span>
+                                          ) : <span style={{ color: '#94a3b8', fontWeight: '700' }}>-</span>}
+                                        </td>
+                                        <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}>
+                                          {scaled30 !== '-' ? (
+                                            <span style={{ background: '#d1fae5', color: '#047857', padding: '6px 10px', borderRadius: '6px', fontWeight: '800', fontSize: '15px' }}>
+                                              {scaled30}
+                                            </span>
+                                          ) : <span style={{ color: '#94a3b8', fontWeight: '700' }}>-</span>}
+                                        </td>
+                                        {inspectorMode === 'class' && (
+                                          <td style={{ padding: '14px 16px', color: teacherName === 'Unassigned' ? '#dc2626' : '#047857', fontWeight: '700', verticalAlign: 'middle' }}>
+                                            {teacherName}
+                                          </td>
+                                        )}
+                                      </tr>
+                                    );
                                   })}
-                              </tbody>
+                  </tbody>
                           </table>
                       </div>
                   )}
