@@ -67,70 +67,25 @@ export default function StudentDashboard() {
         setLoggedInStudent(studentData);
         setAuthenticated(true);
         
-        const studentClassesLower = (studentData.classes || []).map(c => String(c).trim().toLowerCase());
+        // 🌟 1. UNIVERSAL CURRICULUM FIX
+        // Because every student takes these core subjects, we supply them directly.
+        const coreSubjects = [
+            'Thafseer', 'Hadith', 'Aqidah', 'Balagha', 'Logic', 
+            'English', 'Adab', 'Urdu', 'Social Science', 
+            'Thamadan', 'Specialization', 'Hifz'
+        ];
+        
+        const expectedSubjectsArray = coreSubjects.map(sub => ({ subject: sub }));
+        
+        // 🌟 2. SMART URDU TOGGLE
         const isUrdu = String(studentData.adNo || '').toUpperCase().startsWith('U');
-        const safeAdNoFromDB = String(studentData.adNo || '').trim();
-        
-        const tSnap = await getDocs(collection(db, 'teachers'));
-        const mySubjectsMap = new Map(); 
-        
-        tSnap.forEach(tDoc => {
-          const tData = tDoc.data();
-          (tData.enrollments || []).forEach(env => {
-            const envAliasLower = String(env.alias || '').trim().toLowerCase();
-            const envLang = (env.langTag || '').toLowerCase();
-            
-            let isMatched = false;
-            
-            if (env.studentIds && Array.isArray(env.studentIds)) {
-              const savedIds = env.studentIds.map(id => String(id).trim());
-              if (savedIds.includes(safeRegNo) || savedIds.includes(safeAdNoFromDB)) {
-                  isMatched = true;
-              }
-            } 
-            
-            if (!isMatched) {
-              let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
-              
-              if (!classMatch && env.grade) {
-                const gradeStr = String(env.grade);
-                if (studentClassesLower.some(cls => {
-                  const numMatch = cls.match(/\d+/);
-                  return numMatch && numMatch[0] === gradeStr;
-                })) {
-                  classMatch = true;
-                }
-              }
+        if (isUrdu) {
+            expectedSubjectsArray.push({ subject: 'U :FIQH' });
+        } else {
+            expectedSubjectsArray.push({ subject: 'Fiqh' });
+        }
 
-              if (!classMatch && envAliasLower.includes('m10')) {
-                if (studentClassesLower.some(cls => cls.includes('3')) && !isUrdu) classMatch = true; 
-              }
-
-              if (classMatch) {
-                // 🌟 BUG FIX: 'gen' or '' now applies to ALL students, not just Non-Urdu
-                if (envLang.includes('urdu') && !envLang.includes('non')) isMatched = isUrdu;
-                else if (envLang.includes('non')) isMatched = !isUrdu;
-                else isMatched = true; 
-              }
-            }
-
-            if (isMatched) {
-              let exactSubject = env.subject || '';
-              if (exactSubject.toUpperCase().includes('U :FIQH') || (env.alias && env.alias.toUpperCase().includes('U :FIQH'))) {
-                  exactSubject = 'U :FIQH';
-              }
-              
-              if (exactSubject) {
-                let mapKey = exactSubject.toUpperCase();
-                if (mapKey === 'MANTIQ') mapKey = 'LOGIC';
-                if (mapKey === 'AQEEDA') mapKey = 'AQIDAH';
-                mySubjectsMap.set(mapKey, { subject: exactSubject });
-              }
-            }
-          });
-        });
-
-        const expectedSubjectsArray = Array.from(mySubjectsMap.values());
+        // Fetch marks immediately based on this universal list
         fetchStudentMarksFromFirebase(safeRegNo, expectedSubjectsArray); 
 
       } else {
@@ -160,7 +115,7 @@ export default function StudentDashboard() {
       const docSnap = await getDoc(doc(db, 'marks', studentRegNo));
       const marksData = docSnap.exists() ? docSnap.data() : {};
 
-      // Failsafe: Include any subjects already existing in DB that the teacher mapping missed
+      // 🌟 FAILSAFE: Include any extra subjects found in their DB record just in case
       Object.keys(marksData).forEach(subKey => {
           const cleanSub = subKey.trim();
           if (cleanSub) {
@@ -314,6 +269,7 @@ export default function StudentDashboard() {
       <style dangerouslySetInnerHTML={{ __html: printStyles }} />
       <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
         
+        {/* Header with Print Report Card Option */}
         <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0' }}>
           <div>
             <h1 style={{ margin: '0 0 4px 0', fontSize: '24px', color: '#0f172a', fontWeight: '800' }}>Student Academic Record</h1>
@@ -329,6 +285,7 @@ export default function StudentDashboard() {
           </div>
         </div>
 
+        {/* Profile Card */}
         <div style={{ ...styles.card, padding: '20px 32px' }}>
           <div style={{ display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
             <div>
@@ -348,6 +305,7 @@ export default function StudentDashboard() {
           </div>
         </div>
 
+        {/* Top 4 Summary Cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '24px' }}>
           
           <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', textAlign: 'center' }}>
@@ -380,6 +338,7 @@ export default function StudentDashboard() {
 
         </div>
 
+        {/* Detailed Marks Table */}
         <div style={styles.card}>
           <h3 style={styles.sectionTitle}>Curriculum & Detailed Performance Breakdown</h3>
           
@@ -415,7 +374,7 @@ export default function StudentDashboard() {
                       {!data.hasData ? (
                         <td colSpan="7" style={{ padding: '16px', textAlign: 'center', fontWeight: '600', background: data.isGradingStarted ? '#fffbeb' : '#f8fafc', color: data.isGradingStarted ? '#b45309' : '#94a3b8' }}>
                            {data.isGradingStarted ? (
-                             <span title="Marks have been updated for others in this subject">⚠️ Action Required: Missing Mark</span>
+                             <span title="Marks have been updated for others in this subject">⚠️ : Missing Mark</span>
                            ) : (
                              <span>⏳ Pending Upload</span>
                            )}
