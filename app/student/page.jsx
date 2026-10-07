@@ -56,19 +56,47 @@ export default function StudentDashboard() {
         setLoggedInStudent(studentData);
         setAuthenticated(true);
         
+        const studentClassesLower = (studentData.classes || []).map(c => String(c).trim().toLowerCase());
+        const isUrdu = String(studentData.adNo || '').toUpperCase().startsWith('U');
+        
         const tSnap = await getDocs(collection(db, 'teachers'));
-        const mySubjects = new Set();
+        const mySubjectsMap = new Map(); 
         
         tSnap.forEach(tDoc => {
           const tData = tDoc.data();
           (tData.enrollments || []).forEach(env => {
+            const envAliasLower = String(env.alias || '').trim().toLowerCase();
+            const envLang = (env.langTag || '').toLowerCase();
+            
+            let isMatched = false;
+            
             if (env.studentIds && env.studentIds.includes(safeRegNo)) {
-              mySubjects.add(env.subject);
+              isMatched = true;
+            } else {
+              let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
+              if (!classMatch && envAliasLower.includes('m10')) {
+                if (studentClassesLower.some(cls => cls.includes('3')) && !isUrdu) classMatch = true; 
+              }
+              if (classMatch) {
+                if (envLang.includes('urdu') && !envLang.includes('non')) isMatched = isUrdu;
+                else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') isMatched = !isUrdu;
+                else isMatched = true;
+              }
+            }
+
+            if (isMatched) {
+              const exactSubject = (env.alias?.toUpperCase().includes('U :FIQH') || env.subject?.toUpperCase().includes('U :FIQH')) ? 'U :FIQH' : (env.subject || '');
+              if (exactSubject) {
+                mySubjectsMap.set(exactSubject.toUpperCase(), {
+                  subject: exactSubject,
+                  teacherName: tData.fullName || tData.username
+                });
+              }
             }
           });
         });
 
-        const expectedSubjectsArray = Array.from(mySubjects);
+        const expectedSubjectsArray = Array.from(mySubjectsMap.values());
         fetchStudentMarksFromFirebase(safeRegNo, expectedSubjectsArray); 
 
       } else {
@@ -100,9 +128,13 @@ export default function StudentDashboard() {
 
       const allMarksSnap = await getDocs(collection(db, 'marks'));
       let allScores = [];
+      const allMarksData = {}; // 🌟 Capture global marks to check for teacher activity
+      
       allMarksSnap.forEach(d => {
          let sTotal = 0;
          const data = d.data();
+         allMarksData[d.id] = data; // Store full data for comparison
+         
          Object.keys(data).forEach(sub => {
             if (typeof data[sub] === 'object') {
                Object.values(data[sub]).forEach(val => sTotal += Number(val));
@@ -113,7 +145,8 @@ export default function StudentDashboard() {
       allScores.sort((a,b) => b.total - a.total);
       let myRank = allScores.findIndex(s => s.id === studentRegNo) + 1;
 
-      processMarksLocally(marksData, expectedSubjects, myRank);
+      // 🌟 Pass global data into processing
+      processMarksLocally(marksData, expectedSubjects, myRank, allMarksData);
 
     } catch (err) {
       console.error("Error loading marks from Firebase:", err);
@@ -122,16 +155,43 @@ export default function StudentDashboard() {
     }
   };
 
-  // --- NEW MATH LOGIC (Matches Google Sheets) ---
-  const processMarksLocally = (marksData, expectedSubjects, myRank) => {
+  const processMarksLocally = (marksData, expectedSubjects, myRank, allMarksData) => {
     let total1400 = 0;
     let total420 = 0;
     let hasAnyOverallData = false;
     const subjectList = [];
 
-    expectedSubjects.forEach(sub => {
+    expectedSubjects.forEach(subObj => {
+      const sub = subObj.subject;
+      const teacher = subObj.teacherName;
       const normKey = sub.charAt(0).toUpperCase() + sub.slice(1).toLowerCase(); 
-      const subMarks = marksData[sub] || {};
+      
+      const foundSubjectKey = Object.keys(marksData).find(k => {
+          const kUp = k.trim().toUpperCase(); 
+          const actUp = sub.trim().toUpperCase();
+          if (actUp.includes('U :FIQH') || actUp.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
+          if (actUp === 'FIQH') return kUp === 'FIQH'; 
+          return kUp === actUp;
+      });
+
+      const subMarks = foundSubjectKey ? marksData[foundSubjectKey] : {};
+      
+      // 🌟 Check if ANY student in the school has a mark for this specific subject
+      let isGradingStarted = false;
+      for (let studentId in allMarksData) {
+          const stMarks = allMarksData[studentId];
+          const anyFoundKey = Object.keys(stMarks).find(k => {
+              const kUp = k.trim().toUpperCase(); 
+              const actUp = sub.trim().toUpperCase();
+              if (actUp.includes('U :FIQH') || actUp.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
+              if (actUp === 'FIQH') return kUp === 'FIQH'; 
+              return kUp === actUp;
+          });
+          if (anyFoundKey) {
+              isGradingStarted = true;
+              break;
+          }
+      }
       
       let l1 = subMarks['15'] !== undefined ? Number(subMarks['15']) : '-';
       let l2 = subMarks['20'] !== undefined ? Number(subMarks['20']) : '-';
@@ -162,11 +222,13 @@ export default function StudentDashboard() {
 
       subjectList.push({
         subject: normKey,
+        teacher: teacher, 
         assessments: { '15': l1, '20': l2, '25': l3, '40': l4 },
         total100: total100,
         total30: sem30,
         status: status,
-        hasData
+        hasData,
+        isGradingStarted // 🌟 Pass the flag to the UI
       });
     });
 
@@ -304,7 +366,7 @@ export default function StudentDashboard() {
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '14px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '14px', minWidth: '850px' }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
                     <th style={{ padding: '16px', color: '#334155', textAlign: 'left' }}>Subject</th>
@@ -320,11 +382,19 @@ export default function StudentDashboard() {
                 <tbody>
                   {subjectAggregates.map((data, idx) => (
                     <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                      <td style={{ padding: '16px', fontWeight: '700', color: '#0f172a', textAlign: 'left' }}>{data.subject}</td>
+                      
+                      <td style={{ padding: '16px', textAlign: 'left' }}>
+                        <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '15px' }}>{data.subject}</div>
+                        <div style={{ fontSize: '13px', color: '#64748b', fontWeight: '600', marginTop: '4px' }}>👨‍🏫 {data.teacher}</div>
+                      </td>
                       
                       {!data.hasData ? (
-                        <td colSpan="7" style={{ padding: '16px', textAlign: 'center', color: '#94a3b8', fontStyle: 'italic', fontWeight: '600' }}>
-                          Marks pending upload
+                        <td colSpan="7" style={{ padding: '16px', textAlign: 'center', fontWeight: '600', background: data.isGradingStarted ? '#fffbeb' : '#f8fafc', color: data.isGradingStarted ? '#b45309' : '#94a3b8' }}>
+                           {data.isGradingStarted ? (
+                             <>⚠️ Mark Missing / Not Submitted - Contact <strong style={{color: '#92400e'}}>{data.teacher}</strong></>
+                           ) : (
+                             <>⏳ Pending upload by <strong style={{color: '#64748b'}}>{data.teacher}</strong></>
+                           )}
                         </td>
                       ) : (
                         <>
