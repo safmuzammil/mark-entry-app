@@ -1813,12 +1813,12 @@ function TeacherManager() {
             return;
           }
 
-          // 🌟 Explicitly resolve Usul al-Fiqh (U :FIQH) vs regular Fiqh
           const rawSub = (selectedEnrollment.subject || '').trim();
           const rawAlias = (selectedEnrollment.alias || '').trim();
 
-          if (rawAlias.toUpperCase().includes('U :FIQH') || rawAlias.toUpperCase().includes('U:FIQH') || rawSub.toUpperCase().includes('U :FIQH') || rawSub.toUpperCase().includes('U:FIQH') || rawAlias.toUpperCase().includes('U FIQH')) {
-            activeSubject = 'U :FIQH';
+          // Merge Fiqh subjects for unified marks lookup
+          if (rawAlias.toUpperCase().includes('FIQH') || rawSub.toUpperCase().includes('FIQH')) {
+            activeSubject = 'FIQH'; 
           } else {
             activeSubject = rawSub;
           }
@@ -1832,7 +1832,7 @@ function TeacherManager() {
             const sReg = String(student.regNo || '').trim();
             const sAd = String(student.adNo || '').trim();
             const sId = String(student.id || '').trim();
-            const isUrdu = String(student.adNo || '').trim().toUpperCase().startsWith('U'); // 🌟 Added trim to prevent space bugs
+            const isUrdu = String(student.adNo || '').trim().toUpperCase().startsWith('U');
 
             if (selectedEnrollment.studentIds && Array.isArray(selectedEnrollment.studentIds)) {
               const savedIds = selectedEnrollment.studentIds.map(id => String(id).trim().toUpperCase());
@@ -1850,7 +1850,10 @@ function TeacherManager() {
 
             if (classMatch) {
               if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
-              if (envLang.includes('gen') || envLang.includes('non') || envLang === '') return !isUrdu;
+              if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
+                 if (rawAlias.toUpperCase().includes('U :FIQH') || rawSub.toUpperCase().includes('U :FIQH')) return isUrdu;
+                 return !isUrdu;
+              }
               return true;
             }
             return false;
@@ -1873,15 +1876,12 @@ function TeacherManager() {
           if (markSnap && markSnap.exists()) {
             const studentMarksData = markSnap.data();
 
-            // 🌟 Smart Subject Key Lookup (Prevents Fiqh vs U :Fiqh overlap)
             const foundSubjectKey = Object.keys(studentMarksData).find(k => {
               const kUp = k.trim().toUpperCase();
               const actUp = activeSubject.trim().toUpperCase();
-              if (actUp.includes('U :FIQH') || actUp.includes('U:FIQH') || actUp.includes('U FIQH')) {
-                return kUp.includes('U :FIQH') || kUp.includes('U:FIQH') || kUp.includes('U FIQH');
-              }
-              if (actUp === 'FIQH') {
-                return kUp === 'FIQH';
+              // Unified Marks Lookup for Fiqh
+              if (actUp.includes('FIQH')) {
+                return kUp.includes('FIQH');
               }
               return kUp === actUp;
             });
@@ -1907,39 +1907,20 @@ function TeacherManager() {
 
             for (const teacher of teachersList) {
               const matchingEnv = teacher.enrollments.find(env => {
-                // 🌟 When in 'teacher' mode, match strictly using the selected enrollment ID!
                 if (inspectorMode === 'teacher') {
                   return env.id === inspectorTeacherEnrollmentId;
                 }
 
-                // 🌟 Upgraded Match Logic
                 const envSub = (env.subject || '').trim().toUpperCase();
                 const inspSub = inspectorSubject.trim().toUpperCase();
                 const envAliasUpper = String(env.alias || '').trim().toUpperCase();
                 const envLang = String(env.langTag || '').trim().toLowerCase();
 
+                // 1. SMART UNIFIED SUBJECT MATCH
                 let isSubjectMatch = false;
-
-                // 1. If Inspector is looking for Usul al-Fiqh
-                if (inspSub.includes('U :FIQH') || inspSub.includes('U:FIQH') || inspSub.includes('U FIQH')) {
-                  isSubjectMatch = envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || 
-                                   envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH') ||
-                                   envAliasUpper.includes('U8 FIQH') || envAliasUpper.includes('U9 FIQH') || envAliasUpper.includes('U10 FIQH') ||
-                                   envAliasUpper.includes('U FIQH') ||
-                                   (envSub === 'FIQH' && envLang.includes('urdu') && !envLang.includes('non')); // 🌟 Maps standard Fiqh + Urdu LangTag to U:Fiqh
-                } 
-                // 2. If Inspector is looking for standard Fiqh
-                else if (inspSub === 'FIQH') {
-                  const isUrduEnrollment = envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || 
-                                           envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH') ||
-                                           envAliasUpper.includes('U8 FIQH') || envAliasUpper.includes('U9 FIQH') || envAliasUpper.includes('U10 FIQH') ||
-                                           envAliasUpper.includes('U FIQH') ||
-                                           (envLang.includes('urdu') && !envLang.includes('non'));
-                  
-                  isSubjectMatch = (envSub === 'FIQH' || envAliasUpper.includes('FIQH')) && !isUrduEnrollment;
-                } 
-                // 3. Normal Subjects
-                else {
+                if (inspSub.includes('FIQH')) {
+                  isSubjectMatch = envSub.includes('FIQH') || envAliasUpper.includes('FIQH');
+                } else {
                   isSubjectMatch = (envSub === inspSub) ||
                     (inspSub === 'LOGIC' && envSub === 'MANTIQ') ||
                     (inspSub === 'MANTIQ' && envSub === 'LOGIC') ||
@@ -1948,7 +1929,7 @@ function TeacherManager() {
 
                 if (!isSubjectMatch) return false;
 
-                // 🌟 Check Manual Assignment FIRST (Case-Insensitive)
+                // 2. MANUAL ASSIGNMENT OVERRIDE
                 if (env.studentIds && Array.isArray(env.studentIds)) {
                   const savedIds = env.studentIds.map(id => String(id).trim().toUpperCase());
                   if (savedIds.includes(sReg.toUpperCase()) || savedIds.includes(sAd.toUpperCase()) || savedIds.includes(sId.toUpperCase())) {
@@ -1956,6 +1937,7 @@ function TeacherManager() {
                   }
                 }
 
+                // 3. CLASS MATCH
                 const envAliasLower = String(env.alias || '').trim().toLowerCase();
                 let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
 
@@ -1966,17 +1948,19 @@ function TeacherManager() {
                   }
                 }
 
+                // 4. LANGUAGE MATCH
                 if (classMatch) {
-                  let langMatch = false;
-
+                  const isUrduSubject = envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || envAliasUpper.includes('U FIQH') || envAliasUpper.includes('U8 FIQH') || envAliasUpper.includes('U9 FIQH') || envAliasUpper.includes('U10 FIQH');
+                  
                   if (envLang.includes('urdu') && !envLang.includes('non')) {
-                    langMatch = isUrdu;
+                    return isUrdu;
                   } else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
-                    langMatch = !isUrdu;
+                    // Auto-route Urdu students to the U:Fiqh teacher even if tag is General
+                    if (isUrduSubject) return isUrdu;
+                    return !isUrdu;
                   } else {
-                    langMatch = true;
+                    return true;
                   }
-                  return langMatch;
                 }
                 return false;
               });
