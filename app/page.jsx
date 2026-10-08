@@ -686,8 +686,8 @@ function TeacherManager() {
     // 🌟 New States for Student Assignment
     const [allStudents, setAllStudents] = useState([]);
     const [assigningEnvId, setAssigningEnvId] = useState(null);
-    const [assignFilterClass, setAssignFilterClass] = useState('All');
-    const [assignFilterDept, setAssignFilterDept] = useState('All');
+    const [assignFilterClasses, setAssignFilterClasses] = useState([]);
+    const [assignFilterDepts, setAssignFilterDepts] = useState([]);
     const [assignFilterMadhab, setAssignFilterMadhab] = useState('All');
     const [assignSearch, setAssignSearch] = useState('');
     const [assignFilterGrade, setAssignFilterGrade] = useState('All');
@@ -794,8 +794,11 @@ function TeacherManager() {
 
     // 🌟 ADVANCED STUDENT ASSIGNMENT LOGIC
     const filteredStudentsForAssign = allStudents.filter(s => {
-        if (assignFilterClass !== 'All' && !(s.classes || []).includes(assignFilterClass)) return false;
-        if (assignFilterDept !== 'All' && (s.department || 'GENERAL').toUpperCase() !== assignFilterDept.toUpperCase()) return false;
+    // Multi-select check for Class
+    if (assignFilterClasses.length > 0 && !assignFilterClasses.some(c => (s.classes || []).includes(c))) return false;
+    
+    // Multi-select check for Department
+    if (assignFilterDepts.length > 0 && !assignFilterDepts.includes((s.department || 'GENERAL').toUpperCase())) return false;
         if (assignFilterMadhab !== 'All' && (s.madhab || 'General') !== assignFilterMadhab) return false;
         // Grade Filter Check
     if (assignFilterGrade !== 'All') {
@@ -911,14 +914,39 @@ function TeacherManager() {
 
                                             {/* Filters */}
                                             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '16px', padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                                              <select value={assignFilterClass} onChange={(e) => setAssignFilterClass(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}>
-                                                <option value="All">All Classes</option>
-                                                {DEFAULT_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
-                                              </select>
-                                              <select value={assignFilterDept} onChange={(e) => setAssignFilterDept(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}>
-                                                <option value="All">All Departments</option>
-                                                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-                                              </select>
+                                              {/* Multi-Select Classes */}
+                                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b' }}>Select Classes (Multiple):</span>
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxWidth: '300px' }}>
+                                                  {DEFAULT_CLASSES.map(c => (
+                                                    <label key={c} style={{ fontSize: '12px', fontWeight: '600', background: assignFilterClasses.includes(c) ? '#2563eb' : '#ffffff', color: assignFilterClasses.includes(c) ? '#ffffff' : '#334155', padding: '6px 10px', borderRadius: '20px', cursor: 'pointer', border: `1px solid ${assignFilterClasses.includes(c) ? '#2563eb' : '#cbd5e1'}` }}>
+                                                      <input type="checkbox" checked={assignFilterClasses.includes(c)} onChange={(e) => {
+                                                        if (e.target.checked) setAssignFilterClasses([...assignFilterClasses, c]);
+                                                        else setAssignFilterClasses(assignFilterClasses.filter(x => x !== c));
+                                                      }} style={{ display: 'none' }} />
+                                                      {c}
+                                                    </label>
+                                                  ))}
+                                                  {assignFilterClasses.length > 0 && <span onClick={() => setAssignFilterClasses([])} style={{ fontSize: '12px', color: '#ef4444', cursor: 'pointer', padding: '6px', fontWeight: 'bold' }}>Clear</span>}
+                                                </div>
+                                              </div>
+
+                                              {/* Multi-Select Departments */}
+                                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderLeft: '1px solid #cbd5e1', paddingLeft: '12px', marginLeft: '6px' }}>
+                                                <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b' }}>Select Depts (Multiple):</span>
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxWidth: '300px' }}>
+                                                  {DEPARTMENTS.map(d => (
+                                                    <label key={d} style={{ fontSize: '12px', fontWeight: '600', background: assignFilterDepts.includes(d) ? '#059669' : '#ffffff', color: assignFilterDepts.includes(d) ? '#ffffff' : '#334155', padding: '6px 10px', borderRadius: '20px', cursor: 'pointer', border: `1px solid ${assignFilterDepts.includes(d) ? '#059669' : '#cbd5e1'}` }}>
+                                                      <input type="checkbox" checked={assignFilterDepts.includes(d)} onChange={(e) => {
+                                                        if (e.target.checked) setAssignFilterDepts([...assignFilterDepts, d]);
+                                                        else setAssignFilterDepts(assignFilterDepts.filter(x => x !== d));
+                                                      }} style={{ display: 'none' }} />
+                                                      {d}
+                                                    </label>
+                                                  ))}
+                                                  {assignFilterDepts.length > 0 && <span onClick={() => setAssignFilterDepts([])} style={{ fontSize: '12px', color: '#ef4444', cursor: 'pointer', padding: '6px', fontWeight: 'bold' }}>Clear</span>}
+                                                </div>
+                                              </div>
                                               <select value={assignFilterMadhab} onChange={(e) => setAssignFilterMadhab(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}>
                                                 <option value="All">All Madhabs</option>
                                                 {MADHABS.map(m => <option key={m} value={m}>{m}</option>)}
