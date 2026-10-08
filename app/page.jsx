@@ -690,6 +690,7 @@ function TeacherManager() {
     const [assignFilterDept, setAssignFilterDept] = useState('All');
     const [assignFilterMadhab, setAssignFilterMadhab] = useState('All');
     const [assignSearch, setAssignSearch] = useState('');
+    const [assignFilterGrade, setAssignFilterGrade] = useState('All');
 
     const [isEditing, setIsEditing] = useState(false);
     const [statusMsg, setStatusMsg] = useState('');
@@ -796,6 +797,14 @@ function TeacherManager() {
         if (assignFilterClass !== 'All' && !(s.classes || []).includes(assignFilterClass)) return false;
         if (assignFilterDept !== 'All' && (s.department || 'GENERAL').toUpperCase() !== assignFilterDept.toUpperCase()) return false;
         if (assignFilterMadhab !== 'All' && (s.madhab || 'General') !== assignFilterMadhab) return false;
+        // Grade Filter Check
+    if (assignFilterGrade !== 'All') {
+        const studentLevels = (s.classes || []).map(c => {
+            const match = String(c).match(/\d+/);
+            return match ? match[0] : null;
+        }).filter(Boolean);
+        if (!studentLevels.includes(assignFilterGrade)) return false;
+    }
         if (assignSearch) {
             const query = assignSearch.toLowerCase();
             const searchName = s.firstName?.toLowerCase() || '';
@@ -889,33 +898,37 @@ function TeacherManager() {
                                             </div>
 
                                             {/* Advanced Assignment Dropdown */}
-                                            {isAssigning && (
-                                                <div style={{ padding: '20px', borderTop: '1px solid #e2e8f0' }}>
-                                                    
-                                                    {/* Alias Input Bar */}
-                                                    <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
-                                                        <input type="text" value={env.alias} onChange={(e) => updateEnvAlias(env.id, e.target.value)} placeholder="Class Alias (e.g. FCL1 Balagha)" style={{ ...styles.input, flex: 1 }} />
-                                                        <button type="button" onClick={() => updateEnvAlias(env.id, `Grade ${env.grade} ${env.subject}`)} style={{ padding: '0 20px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>
-                                                            Auto-Fill Name
-                                                        </button>
-                                                    </div>
+                                        {isAssigning && (
+                                          <div style={{ padding: '20px', borderTop: '1px solid #e2e8f0' }}>
 
-                                                    {/* Filters */}
-                                                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '16px', padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                                                        <select value={assignFilterClass} onChange={(e) => setAssignFilterClass(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}>
-                                                            <option value="All">All Classes</option>
-                                                            {DEFAULT_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
-                                                        </select>
-                                                        <select value={assignFilterDept} onChange={(e) => setAssignFilterDept(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}>
-                                                            <option value="All">All Departments</option>
-                                                            {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-                                                        </select>
-                                                        <select value={assignFilterMadhab} onChange={(e) => setAssignFilterMadhab(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}>
-                                                            <option value="All">All Madhabs</option>
-                                                            {MADHABS.map(m => <option key={m} value={m}>{m}</option>)}
-                                                        </select>
-                                                        <input type="text" placeholder="Search name or ad.no..." value={assignSearch} onChange={(e) => setAssignSearch(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', flex: 1, minWidth: '150px' }} />
-                                                    </div>
+                                            {/* Alias Input Bar */}
+                                            <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
+                                              <input type="text" value={env.alias} onChange={(e) => updateEnvAlias(env.id, e.target.value)} placeholder="Class Alias (e.g. FCL1 Balagha)" style={{ ...styles.input, flex: 1 }} />
+                                              <button type="button" onClick={() => updateEnvAlias(env.id, `Grade ${env.grade} ${env.subject}`)} style={{ padding: '0 20px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>
+                                                Auto-Fill Name
+                                              </button>
+                                            </div>
+
+                                            {/* Filters */}
+                                            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '16px', padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                              <select value={assignFilterClass} onChange={(e) => setAssignFilterClass(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}>
+                                                <option value="All">All Classes</option>
+                                                {DEFAULT_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                                              </select>
+                                              <select value={assignFilterDept} onChange={(e) => setAssignFilterDept(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}>
+                                                <option value="All">All Departments</option>
+                                                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                                              </select>
+                                              <select value={assignFilterMadhab} onChange={(e) => setAssignFilterMadhab(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}>
+                                                <option value="All">All Madhabs</option>
+                                                {MADHABS.map(m => <option key={m} value={m}>{m}</option>)}
+                                              </select>
+                                              <select value={assignFilterGrade} onChange={(e) => setAssignFilterGrade(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}>
+                                                <option value="All">All Grades</option>
+                                                {GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}
+                                              </select>
+                                              <input type="text" placeholder="Search name or ad.no..." value={assignSearch} onChange={(e) => setAssignSearch(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', flex: 1, minWidth: '150px' }} />
+                                            </div>
 
                                                     {/* Checkbox List */}
                                                     <div style={{ border: '1px solid #cbd5e1', borderRadius: '8px', overflow: 'hidden' }}>
