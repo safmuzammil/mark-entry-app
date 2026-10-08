@@ -691,6 +691,7 @@ function TeacherManager() {
     const [assignFilterMadhab, setAssignFilterMadhab] = useState('All');
     const [assignSearch, setAssignSearch] = useState('');
     const [assignFilterGrade, setAssignFilterGrade] = useState('All');
+    const [assignFilterLangs, setAssignFilterLangs] = useState([]);
 
     const [isEditing, setIsEditing] = useState(false);
     const [statusMsg, setStatusMsg] = useState('');
@@ -800,6 +801,12 @@ function TeacherManager() {
     // Multi-select check for Department
     if (assignFilterDepts.length > 0 && !assignFilterDepts.includes((s.department || 'GENERAL').toUpperCase())) return false;
         if (assignFilterMadhab !== 'All' && (s.madhab || 'General') !== assignFilterMadhab) return false;
+    // Multi-select check for Language (Urdu / Non-Urdu)
+    if (assignFilterLangs.length > 0) {
+        const isUrdu = String(s.adNo || '').toUpperCase().startsWith('U');
+        if (assignFilterLangs.includes('Urdu') && !assignFilterLangs.includes('Non-Urdu') && !isUrdu) return false;
+        if (assignFilterLangs.includes('Non-Urdu') && !assignFilterLangs.includes('Urdu') && isUrdu) return false;
+    }
         // Grade Filter Check
     if (assignFilterGrade !== 'All') {
         const studentLevels = (s.classes || []).map(c => {
@@ -945,6 +952,22 @@ function TeacherManager() {
                                                     </label>
                                                   ))}
                                                   {assignFilterDepts.length > 0 && <span onClick={() => setAssignFilterDepts([])} style={{ fontSize: '12px', color: '#ef4444', cursor: 'pointer', padding: '6px', fontWeight: 'bold' }}>Clear</span>}
+                                                </div>
+                                              </div>
+                                              {/* Multi-Select Language (Urdu/Non-Urdu) */}
+                                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderLeft: '1px solid #cbd5e1', paddingLeft: '12px', marginLeft: '6px' }}>
+                                                <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b' }}>Select Language:</span>
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                                  {['Urdu', 'Non-Urdu'].map(lang => (
+                                                    <label key={lang} style={{ fontSize: '12px', fontWeight: '600', background: assignFilterLangs.includes(lang) ? '#8b5cf6' : '#ffffff', color: assignFilterLangs.includes(lang) ? '#ffffff' : '#334155', padding: '6px 10px', borderRadius: '20px', cursor: 'pointer', border: `1px solid ${assignFilterLangs.includes(lang) ? '#8b5cf6' : '#cbd5e1'}` }}>
+                                                      <input type="checkbox" checked={assignFilterLangs.includes(lang)} onChange={(e) => {
+                                                        if (e.target.checked) setAssignFilterLangs([...assignFilterLangs, lang]);
+                                                        else setAssignFilterLangs(assignFilterLangs.filter(x => x !== lang));
+                                                      }} style={{ display: 'none' }} />
+                                                      {lang}
+                                                    </label>
+                                                  ))}
+                                                  {assignFilterLangs.length > 0 && <span onClick={() => setAssignFilterLangs([])} style={{ fontSize: '12px', color: '#ef4444', cursor: 'pointer', padding: '6px', fontWeight: 'bold' }}>Clear</span>}
                                                 </div>
                                               </div>
                                               <select value={assignFilterMadhab} onChange={(e) => setAssignFilterMadhab(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}>
