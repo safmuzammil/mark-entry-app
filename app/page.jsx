@@ -1835,8 +1835,8 @@ function TeacherManager() {
             const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
 
             if (selectedEnrollment.studentIds && Array.isArray(selectedEnrollment.studentIds)) {
-              const savedIds = selectedEnrollment.studentIds.map(id => String(id).trim());
-              if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
+              const savedIds = selectedEnrollment.studentIds.map(id => String(id).trim().toUpperCase());
+              if (savedIds.includes(sReg.toUpperCase()) || savedIds.includes(sAd.toUpperCase()) || savedIds.includes(sId.toUpperCase())) {
                 return true;
               }
             }
@@ -1912,18 +1912,28 @@ function TeacherManager() {
                   return env.id === inspectorTeacherEnrollmentId;
                 }
 
-                // 🌟 When in 'class' mode, use our robust subject matching logic
+                // 🌟 Upgraded Match Logic
                 const envSub = (env.subject || '').trim().toUpperCase();
                 const inspSub = inspectorSubject.trim().toUpperCase();
                 const envAliasUpper = String(env.alias || '').trim().toUpperCase();
 
                 let isSubjectMatch = false;
+
+                // 1. If Inspector is looking for Usul al-Fiqh
                 if (inspSub.includes('U :FIQH') || inspSub.includes('U:FIQH')) {
-                  isSubjectMatch = (envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH'));
-                } else if (inspSub === 'FIQH') {
-                  const isUrduEnrollment = (envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH'));
-                  isSubjectMatch = ((envSub === 'FIQH' || envAliasUpper === 'FIQH') && !isUrduEnrollment);
-                } else {
+                  isSubjectMatch = envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || 
+                                   envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH') ||
+                                   envAliasUpper.includes('U8 FIQH') || envAliasUpper.includes('U9 FIQH') || envAliasUpper.includes('U10 FIQH');
+                } 
+                // 2. If Inspector is looking for standard Fiqh
+                else if (inspSub === 'FIQH') {
+                  const isUrduEnrollment = envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || 
+                                           envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH');
+                  // Uses .includes() so custom aliases like "U8 Fiqh" match correctly
+                  isSubjectMatch = (envSub === 'FIQH' || envAliasUpper.includes('FIQH')) && !isUrduEnrollment;
+                } 
+                // 3. Normal Subjects
+                else {
                   isSubjectMatch = (envSub === inspSub) ||
                     (inspSub === 'LOGIC' && envSub === 'MANTIQ') ||
                     (inspSub === 'MANTIQ' && envSub === 'LOGIC') ||
@@ -1932,9 +1942,10 @@ function TeacherManager() {
 
                 if (!isSubjectMatch) return false;
 
+                // 🌟 Check Manual Assignment FIRST (Case-Insensitive)
                 if (env.studentIds && Array.isArray(env.studentIds)) {
-                  const savedIds = env.studentIds.map(id => String(id).trim());
-                  if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
+                  const savedIds = env.studentIds.map(id => String(id).trim().toUpperCase());
+                  if (savedIds.includes(sReg.toUpperCase()) || savedIds.includes(sAd.toUpperCase()) || savedIds.includes(sId.toUpperCase())) {
                     return true;
                   }
                 }
