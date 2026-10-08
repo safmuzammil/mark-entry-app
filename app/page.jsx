@@ -1816,7 +1816,6 @@ function TeacherManager() {
           const rawSub = (selectedEnrollment.subject || '').trim();
           const rawAlias = (selectedEnrollment.alias || '').trim();
 
-          // 🌟 Re-Separated: Fiqh and U:Fiqh are distinctly tracked
           if (rawAlias.toUpperCase().includes('U :FIQH') || rawAlias.toUpperCase().includes('U:FIQH') || rawSub.toUpperCase().includes('U :FIQH') || rawSub.toUpperCase().includes('U:FIQH') || rawAlias.toUpperCase().includes('U FIQH')) {
             activeSubject = 'U :FIQH';
           } else {
@@ -1829,14 +1828,14 @@ function TeacherManager() {
 
           matchedStudents = allStudents.filter(student => {
             const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
-            const sReg = String(student.regNo || '').trim();
-            const sAd = String(student.adNo || '').trim();
-            const sId = String(student.id || '').trim();
-            const isUrdu = String(student.adNo || '').trim().toUpperCase().startsWith('U');
+            const sReg = String(student.regNo || '').trim().toUpperCase();
+            const sAd = String(student.adNo || '').trim().toUpperCase();
+            const sId = String(student.id || '').trim().toUpperCase();
+            const isUrdu = sAd.startsWith('U');
 
             if (selectedEnrollment.studentIds && Array.isArray(selectedEnrollment.studentIds)) {
               const savedIds = selectedEnrollment.studentIds.map(id => String(id).trim().toUpperCase());
-              if (savedIds.includes(sReg.toUpperCase()) || savedIds.includes(sAd.toUpperCase()) || savedIds.includes(sId.toUpperCase())) {
+              if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
                 return true;
               }
             }
@@ -1848,7 +1847,6 @@ function TeacherManager() {
               if (isGrade3 && !isUrdu) classMatch = true;
             }
 
-            // 🌟 GRADE FALLBACK: Auto-routes based on Grade level if alias (e.g. U8) doesn't perfectly match class (e.g. QH1)
             if (!classMatch) {
               let envGrade = String(selectedEnrollment.grade || '');
               if (!envGrade) {
@@ -1883,6 +1881,23 @@ function TeacherManager() {
         const marksRecord = {};
         const teacherRecord = {};
 
+        // Helper to check Subject Matches consistently
+        const isMatchingSubject = (inspSub, envSub, envAliasUpper) => {
+          const isInspUFiqh = inspSub.includes('U :FIQH') || inspSub.includes('U:FIQH');
+          const isEnvUFiqh = envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || 
+                             envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH') ||
+                             envAliasUpper.includes('U FIQH') || envAliasUpper.includes('U8 FIQH') || 
+                             envAliasUpper.includes('U9 FIQH') || envAliasUpper.includes('U10 FIQH');
+
+          if (isInspUFiqh) return isEnvUFiqh;
+          if (inspSub === 'FIQH') return (envSub === 'FIQH' || envAliasUpper.includes('FIQH')) && !isEnvUFiqh;
+          
+          return (envSub === inspSub) ||
+                 (inspSub === 'LOGIC' && envSub === 'MANTIQ') ||
+                 (inspSub === 'MANTIQ' && envSub === 'LOGIC') ||
+                 envAliasUpper.includes(inspSub);
+        };
+
         for (const student of matchedStudents) {
           let markSnap = null;
           const possibleKeys = [student.regNo, student.id, student.adNo, student.admissionNo].filter(Boolean);
@@ -1897,7 +1912,6 @@ function TeacherManager() {
             const foundSubjectKey = Object.keys(studentMarksData).find(k => {
               const kUp = k.trim().toUpperCase();
               const actUp = activeSubject.trim().toUpperCase();
-              
               const isActUFiqh = actUp.includes('U :FIQH') || actUp.includes('U:FIQH');
               const isKUpUFiqh = kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
 
@@ -1920,96 +1934,92 @@ function TeacherManager() {
               studentClassesLower.push(inspectorClass.toLowerCase());
             }
 
-            const isUrdu = String(student.adNo || '').trim().toUpperCase().startsWith('U');
-            const sReg = String(student.regNo || '').trim();
-            const sAd = String(student.adNo || '').trim();
-            const sId = String(student.id || '').trim();
+            const sReg = String(student.regNo || '').trim().toUpperCase();
+            const sAd = String(student.adNo || '').trim().toUpperCase();
+            const sId = String(student.id || '').trim().toUpperCase();
+            const isUrdu = sAd.startsWith('U');
 
+            // 🌟 TWO-PASS SYSTEM 🌟
+            // PASS 1: HIGHEST PRIORITY - Check Manual Assignments (For Madhab/Custom rules)
             for (const teacher of teachersList) {
-              const matchingEnv = teacher.enrollments.find(env => {
-                if (inspectorMode === 'teacher') {
-                  return env.id === inspectorTeacherEnrollmentId;
-                }
-
-                const envSub = (env.subject || '').trim().toUpperCase();
+              const matchingManualEnv = teacher.enrollments.find(env => {
+                const envSub = String(env.subject || '').trim().toUpperCase();
                 const inspSub = inspectorSubject.trim().toUpperCase();
                 const envAliasUpper = String(env.alias || '').trim().toUpperCase();
-                const envLang = String(env.langTag || '').trim().toLowerCase();
 
-                const isInspUFiqh = inspSub.includes('U :FIQH') || inspSub.includes('U:FIQH');
-                const isEnvUFiqh = envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || 
-                                   envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH') ||
-                                   envAliasUpper.includes('U FIQH') || envAliasUpper.includes('U8 FIQH') || 
-                                   envAliasUpper.includes('U9 FIQH') || envAliasUpper.includes('U10 FIQH');
+                if (!isMatchingSubject(inspSub, envSub, envAliasUpper)) return false;
 
-                // 1. DISTINCT SUBJECT MATCHING
-                let isSubjectMatch = false;
-                
-                if (isInspUFiqh) {
-                  isSubjectMatch = isEnvUFiqh;
-                } else if (inspSub === 'FIQH') {
-                  isSubjectMatch = (envSub === 'FIQH' || envAliasUpper.includes('FIQH')) && !isEnvUFiqh;
-                } else {
-                  isSubjectMatch = (envSub === inspSub) ||
-                    (inspSub === 'LOGIC' && envSub === 'MANTIQ') ||
-                    (inspSub === 'MANTIQ' && envSub === 'LOGIC') ||
-                    envAliasUpper.includes(inspSub);
-                }
-
-                if (!isSubjectMatch) return false;
-
-                // 2. MANUAL ASSIGNMENT OVERRIDE
                 if (env.studentIds && Array.isArray(env.studentIds)) {
                   const savedIds = env.studentIds.map(id => String(id).trim().toUpperCase());
-                  if (savedIds.includes(sReg.toUpperCase()) || savedIds.includes(sAd.toUpperCase()) || savedIds.includes(sId.toUpperCase())) {
-                    return true;
-                  }
-                }
-
-                // 3. CLASS MATCH
-                const envAliasLower = String(env.alias || '').trim().toLowerCase();
-                let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
-
-                if (!classMatch && envAliasLower.includes('m10')) {
-                  const isGrade3 = studentClassesLower.some(cls => cls.includes('3'));
-                  if (isGrade3 && !isUrdu) {
-                    classMatch = true;
-                  }
-                }
-
-                // 🌟 ROBUST GRADE FALLBACK 
-                if (!classMatch) {
-                  let envGrade = String(env.grade || '');
-                  if (!envGrade) {
-                    if (envAliasLower.includes('8')) envGrade = '1';
-                    else if (envAliasLower.includes('9')) envGrade = '2';
-                    else if (envAliasLower.includes('10')) envGrade = '3';
-                  }
-                  let stuGrade = '';
-                  if (studentClassesLower.some(c => c.includes('1') || c.includes('8'))) stuGrade = '1';
-                  else if (studentClassesLower.some(c => c.includes('2') || c.includes('9'))) stuGrade = '2';
-                  else if (studentClassesLower.some(c => c.includes('3') || c.includes('10'))) stuGrade = '3';
-
-                  if (envGrade && stuGrade && envGrade === stuGrade) classMatch = true;
-                }
-
-                // 4. STRICT LANGUAGE MATCH
-                if (classMatch) {
-                  if (envLang.includes('urdu') && !envLang.includes('non')) {
-                    return isUrdu;
-                  } else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
-                    if (isEnvUFiqh) return isUrdu; // Urdu students must always be given to U:Fiqh
-                    return !isUrdu;
-                  } else {
+                  if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
                     return true;
                   }
                 }
                 return false;
               });
 
-              if (matchingEnv) {
+              if (matchingManualEnv) {
                 assignedTeacher = teacher.fullName || teacher.id;
                 break;
+              }
+            }
+
+            // PASS 2: AUTO-ASSIGNMENT FALLBACK (Only if Pass 1 found nothing)
+            if (assignedTeacher === 'Unassigned') {
+              for (const teacher of teachersList) {
+                const matchingAutoEnv = teacher.enrollments.find(env => {
+                  const envSub = String(env.subject || '').trim().toUpperCase();
+                  const inspSub = inspectorSubject.trim().toUpperCase();
+                  const envAliasUpper = String(env.alias || '').trim().toUpperCase();
+                  const envLang = String(env.langTag || '').trim().toLowerCase();
+
+                  if (!isMatchingSubject(inspSub, envSub, envAliasUpper)) return false;
+
+                  const envAliasLower = String(env.alias || '').trim().toLowerCase();
+                  let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
+
+                  if (!classMatch && envAliasLower.includes('m10')) {
+                    const isGrade3 = studentClassesLower.some(cls => cls.includes('3'));
+                    if (isGrade3 && !isUrdu) classMatch = true;
+                  }
+
+                  if (!classMatch) {
+                    let envGrade = String(env.grade || '');
+                    if (!envGrade) {
+                      if (envAliasLower.includes('8')) envGrade = '1';
+                      else if (envAliasLower.includes('9')) envGrade = '2';
+                      else if (envAliasLower.includes('10')) envGrade = '3';
+                    }
+                    let stuGrade = '';
+                    if (studentClassesLower.some(c => c.includes('1') || c.includes('8'))) stuGrade = '1';
+                    else if (studentClassesLower.some(c => c.includes('2') || c.includes('9'))) stuGrade = '2';
+                    else if (studentClassesLower.some(c => c.includes('3') || c.includes('10'))) stuGrade = '3';
+
+                    if (envGrade && stuGrade && envGrade === stuGrade) classMatch = true;
+                  }
+
+                  if (classMatch) {
+                    const isEnvUFiqh = envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || 
+                                       envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH') ||
+                                       envAliasUpper.includes('U FIQH') || envAliasUpper.includes('U8 FIQH') || 
+                                       envAliasUpper.includes('U9 FIQH') || envAliasUpper.includes('U10 FIQH');
+                                       
+                    if (envLang.includes('urdu') && !envLang.includes('non')) {
+                      return isUrdu;
+                    } else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
+                      if (isEnvUFiqh) return isUrdu;
+                      return !isUrdu;
+                    } else {
+                      return true;
+                    }
+                  }
+                  return false;
+                });
+
+                if (matchingAutoEnv) {
+                  assignedTeacher = teacher.fullName || teacher.id;
+                  break;
+                }
               }
             }
             teacherRecord[student.regNo || student.id] = assignedTeacher;
