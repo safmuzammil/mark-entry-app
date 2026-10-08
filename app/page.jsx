@@ -289,9 +289,18 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
 
   useEffect(() => {
     if (!selectedEnrollmentId || classStudents.length === 0) return;
-    // 🌟 Use safe teacherEnrollments array
     const currentEnrollment = teacherEnrollments.find(e => e.id === selectedEnrollmentId);
     if (!currentEnrollment) return;
+
+    // 🌟 EXACT SAME LOGIC USED FOR SAVING (Prevents disappearing marks)
+    const rawSub = (currentEnrollment.subject || '').trim();
+    const rawAlias = (currentEnrollment.alias || '').trim();
+    let finalSubjectKey = rawSub;
+    if (rawAlias.toUpperCase().includes('U :FIQH') || rawSub.toUpperCase().includes('U :FIQH')) {
+      finalSubjectKey = 'U :FIQH';
+    } else if (rawSub.toUpperCase() === 'MANTIQ') {
+      finalSubjectKey = 'Logic';
+    }
 
     async function fetchExistingMarks() {
       try {
@@ -303,8 +312,12 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
           if (docSnap.exists()) {
             const mData = docSnap.data();
             const studentRegNo = classStudents[index].regNo;
-            if (mData[currentEnrollment.subject]) {
-              newMarks[studentRegNo] = mData[currentEnrollment.subject];
+            
+            // 🌟 Search using the resolved finalSubjectKey OR the raw subject to be perfectly safe
+            const foundKey = Object.keys(mData).find(k => k.toUpperCase() === finalSubjectKey.toUpperCase() || k.toUpperCase() === rawSub.toUpperCase());
+
+            if (foundKey) {
+              newMarks[studentRegNo] = mData[foundKey];
             } else {
               newMarks[studentRegNo] = {};
             }
@@ -420,12 +433,10 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
   const handleBulkSubmit = async (e) => {
     e.preventDefault();
     let marksPayload = [];
-    // 🌟 Use safe teacherEnrollments array
     const currentEnrollment = teacherEnrollments.find(e => e.id === selectedEnrollmentId);
     if (!currentEnrollment) return alert("Please select a valid enrollment before saving.");
 
     const maxNumber = Number(assessmentMaxMark);
-
     const rawSub = (currentEnrollment.subject || '').trim();
     const rawAlias = (currentEnrollment.alias || '').trim();
     let finalSubjectKey = rawSub;
@@ -435,45 +446,51 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
       finalSubjectKey = 'Logic';
     }
 
-    setStatusMsg('Syncing marks...');
+    setStatusMsg('Saving to database...');
     const firestorePromises = [];
     for (let student of classStudents) {
       let val = studentMarks[student.regNo]?.[assessmentMaxMark];
       if (val !== undefined && val !== '') {
-        if (parseFloat(val) > maxNumber) return alert(`Marks for ${student.firstName} exceed limit!`);
+        if (parseFloat(val) > maxNumber) {
+          setStatusMsg('');
+          return alert(`Marks for ${student.firstName} exceed limit!`);
+        }
         marksPayload.push({ studentId: student.regNo, subject: finalSubjectKey, maxMarks: assessmentMaxMark, marksObtained: val });
         firestorePromises.push(setDoc(doc(db, 'marks', student.regNo), { [finalSubjectKey]: { [assessmentMaxMark]: Number(val) } }, { merge: true }));
       }
     }
 
     try {
+      // 1. Always save to Firebase first
       await Promise.all(firestorePromises);
+      localStorage.removeItem(`draft_marks_${selectedEnrollmentId}`);
 
-      // Make sure WEB_APP_URL is defined in your file constants
-      if (typeof WEB_APP_URL !== 'undefined') {
-        const res = await fetch(WEB_APP_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'text/plain;charset=utf-8',
-          },
-          body: JSON.stringify({ marks: marksPayload })
-        });
-
-        const result = await res.json();
-
-        if (result.status === 'success') {
-          setStatusMsg('Marks saved to database and Google Sheets successfully!');
-          localStorage.removeItem(`draft_marks_${selectedEnrollmentId}`);
-        } else {
-          setStatusMsg('Firebase updated, but Sheets backup error: ' + result.message);
+      // 2. Safely attempt to Sync to Sheets
+      if (typeof WEB_APP_URL !== 'undefined' && marksPayload.length > 0) {
+        setStatusMsg('Database saved! Syncing to Google Sheets...');
+        
+        try {
+          const res = await fetch(WEB_APP_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ marks: marksPayload })
+          });
+          const result = await res.json();
+          if (result.status === 'success') {
+            setStatusMsg('✅ Marks saved to database AND Google Sheets successfully!');
+          } else {
+            setStatusMsg('⚠️ Firebase saved, but Sheets backup failed: ' + result.message);
+          }
+        } catch (fetchErr) {
+          console.warn('Sheets sync skipped/failed:', fetchErr);
+          setStatusMsg('✅ Marks saved to Database securely! (Google Sheets sync unavailable right now)');
         }
       } else {
-        setStatusMsg('Marks saved to database successfully!');
-        localStorage.removeItem(`draft_marks_${selectedEnrollmentId}`);
+        setStatusMsg('✅ Marks saved to database successfully!');
       }
     } catch (err) {
       console.error("Submission Error:", err);
-      setStatusMsg('Marks saved to database, but network prevented Sheets sync.');
+      setStatusMsg('❌ Error saving to database. Please check your connection.');
     }
   };
 
@@ -2037,6 +2054,63 @@ function ReportManager() {
       setIsInspecting(false);
     }
   };
+
+  const handleForceSyncAllToSheets = async () => {
+    if (!window.confirm("This will push all database marks to Google Sheets. Continue?")) return;
+    
+    setIsLoading(true);
+    setStatusMsg('Gathering all marks from database...');
+    
+    try {
+      const marksSnap = await getDocs(collection(db, 'marks'));
+      let allMarksPayload = [];
+
+      marksSnap.forEach(docSnap => {
+        const studentId = docSnap.id;
+        const data = docSnap.data();
+        
+        Object.keys(data).forEach(subjectKey => {
+          const levels = data[subjectKey];
+          Object.keys(levels).forEach(levelMax => {
+            if (levels[levelMax] !== undefined && levels[levelMax] !== '') {
+              allMarksPayload.push({
+                studentId: studentId,
+                subject: subjectKey,
+                maxMarks: levelMax,
+                marksObtained: levels[levelMax]
+              });
+            }
+          });
+        });
+      });
+
+      if (allMarksPayload.length === 0) {
+        setStatusMsg('No marks found in database to sync.');
+        setIsLoading(false);
+        return;
+      }
+
+      setStatusMsg(`Sending ${allMarksPayload.length} mark entries to Google Sheets. Please wait...`);
+
+      const res = await fetch(WEB_APP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        // Added an 'action' tag so your app script knows it's a bulk mass-sync
+        body: JSON.stringify({ marks: allMarksPayload, action: 'massSync' }) 
+      });
+
+      const result = await res.json();
+      if (result.status === 'success') {
+        setStatusMsg('✅ Successfully synced ALL marks to Google Sheets!');
+      } else {
+        setStatusMsg('⚠️ Sheets sync failed: ' + result.message);
+      }
+    } catch (err) {
+      console.error(err);
+      setStatusMsg('❌ Network error while syncing to Sheets. Your Google Script might not be responding.');
+    }
+    setIsLoading(false);
+  };
   // 🌟 NEW: FUNCTION TO GENERATE CLASS OR TEACHER AVERAGES ANALYTICS
   // 🌟 REPLACE the entire generateAnalytics function inside ReportManager
   // 🌟 REPLACE the first part of generateAnalytics inside ReportManager
@@ -2370,6 +2444,9 @@ function ReportManager() {
 
         <button onClick={generateFilteredList} style={{ ...styles.buttonPrimary, width: '100%', background: '#2563eb', padding: '16px', fontSize: '16px', fontWeight: '800' }}>
           🔍 Run Filter & Audit List
+        </button>
+        <button onClick={handleForceSyncAllToSheets} disabled={isLoading} style={{ ...styles.buttonPrimary, width: '100%', background: '#059669', padding: '16px', fontSize: '16px', fontWeight: '800', marginTop: '12px' }}>
+          {isLoading ? 'Syncing with Google Sheets...' : '🟢 Force Sync ALL Marks to Google Sheets'}
         </button>
 
         {statusMsg && (
