@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { auth, db } from '../../lib/firebase'; 
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
@@ -23,6 +23,8 @@ const printStyles = `
   }
 `;
 
+const CCE_LEVELS = { "Level 1": "15", "Level 2": "20", "Level 3": "25", "Level 4": "40" };
+
 const checkSubjectMatch = (dbKey, expectedSub) => {
     const a = dbKey.trim().toUpperCase();
     const b = expectedSub.trim().toUpperCase();
@@ -32,6 +34,67 @@ const checkSubjectMatch = (dbKey, expectedSub) => {
     if ((a.includes('U :FIQH') || a.includes('U:FIQH')) && (b.includes('U :FIQH') || b.includes('U:FIQH'))) return true;
     return false;
 };
+
+// Student Weekly Reminder Banner Component
+function StudentWeeklyReminder() {
+  const [reminder, setReminder] = useState(null);
+
+  useEffect(() => {
+    async function fetchReminder() {
+      try {
+        const snap = await getDoc(doc(db, 'systemCache', 'activeReminder'));
+        if (snap.exists() && snap.data().active) {
+          setReminder(snap.data());
+        }
+      } catch (err) {
+        console.error("Failed to fetch student reminder", err);
+      }
+    }
+    fetchReminder();
+  }, []);
+
+  if (!reminder) return null;
+
+  let configs = reminder.targetConfigs;
+  if (!configs && reminder.targetSubjects) {
+     configs = {};
+     reminder.targetSubjects.forEach(s => configs[s] = reminder.level || "15");
+  }
+
+  if (!configs || Object.keys(configs).length === 0) return null;
+
+  return (
+    <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '20px', borderRadius: '12px', marginBottom: '24px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+        <span style={{ fontSize: '24px' }}>📢</span>
+        <div>
+          <span style={{ background: '#f59e0b', color: '#ffffff', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
+            {reminder.weekName || 'Current Week'} Updates
+          </span>
+          <h4 style={{ margin: '6px 0 0 0', color: '#92400e', fontSize: '16px', fontWeight: '800' }}>
+            Subjects being marked this week
+          </h4>
+        </div>
+      </div>
+      
+      <p style={{ margin: '0 0 16px 0', color: '#b45309', fontSize: '14px', fontWeight: '600' }}>{reminder.message}</p>
+      
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+        {Object.keys(configs).map(sub => {
+           const levelName = Object.keys(CCE_LEVELS).find(key => CCE_LEVELS[key] === configs[sub]) || `Max ${configs[sub]}`;
+           return (
+             <div key={sub} style={{ background: '#ffffff', border: '1px solid #fcd34d', padding: '8px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+               <span style={{ fontWeight: '800', color: '#0f172a', fontSize: '14px' }}>{sub}</span>
+               <span style={{ background: '#fef3c7', color: '#d97706', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '700' }}>
+                 {levelName}
+               </span>
+             </div>
+           );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function StudentDashboard() {
   const [regNo, setRegNo] = useState(''); 
@@ -67,9 +130,9 @@ export default function StudentDashboard() {
         setAuthenticated(true);
         
         const coreSubjects = [
-            'Thafseer', 'Hadith', 'Aqidah', 'Balagha', 'Logic', 
-            'English', 'Adab', 'Urdu', 'Social Science', 
-            'Thamadan', 'Specialization', 'Hifz'
+          'Thafseer', 'Hadith', 'Aqidah', 'Balagha', 'Logic', 
+          'English', 'Adab', 'Urdu', 'Social Science', 
+          'Thamadan', 'Specialization', 'Hifz'
         ];
         
         const expectedSubjectsArray = coreSubjects.map(sub => ({ subject: sub }));
@@ -161,7 +224,6 @@ export default function StudentDashboard() {
       const foundSubjectKey = Object.keys(marksData).find(k => checkSubjectMatch(k, sub));
       const subMarks = foundSubjectKey ? marksData[foundSubjectKey] : {};
       
-      // 🌟 CHECK GRADING STATUS FOR EACH LEVEL INDIVIDUALLY
       let levelGradingStarted = { '15': false, '20': false, '25': false, '40': false };
       
       for (let studentId in allMarksData) {
@@ -210,7 +272,7 @@ export default function StudentDashboard() {
         total30: sem30,
         status: status,
         hasData,
-        levelGradingStarted // Passes the specific level flags to the UI
+        levelGradingStarted 
       });
     });
 
@@ -234,13 +296,12 @@ export default function StudentDashboard() {
     window.print();
   };
 
-  // 🌟 HELPER FUNCTION TO RENDER THE TABLE CELLS CLEANLY
   const renderMarkCell = (mark, gradingStarted) => {
     if (mark !== '-') {
       return <span style={{ color: '#3b82f6', fontWeight: '600' }}>{mark}</span>;
     }
     if (gradingStarted) {
-      return <span title="Missing Mark" style={{ color: '#ef4444', fontSize: '16px' }}>⚠️</span>;
+      return <span title="Teacher has started grading this level" style={{ color: '#ef4444', fontSize: '16px', cursor: 'pointer' }}>⚠️</span>;
     }
     return <span style={{ color: '#cbd5e1', fontWeight: '600' }}>-</span>;
   };
@@ -278,6 +339,9 @@ export default function StudentDashboard() {
       <style dangerouslySetInnerHTML={{ __html: printStyles }} />
       <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
         
+        {/* Weekly Admin Reminder Banner */}
+        <StudentWeeklyReminder />
+
         <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0' }}>
           <div>
             <h1 style={{ margin: '0 0 4px 0', fontSize: '24px', color: '#0f172a', fontWeight: '800' }}>Student Academic Record</h1>
