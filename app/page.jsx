@@ -1816,8 +1816,11 @@ function TeacherManager() {
           const rawSub = (selectedEnrollment.subject || '').trim();
           const rawAlias = (selectedEnrollment.alias || '').trim();
 
-          if (rawAlias.toUpperCase().includes('U :FIQH') || rawAlias.toUpperCase().includes('U:FIQH') || rawSub.toUpperCase().includes('U :FIQH') || rawSub.toUpperCase().includes('U:FIQH') || rawAlias.toUpperCase().includes('U FIQH')) {
+          // 🌟 STRICTLY Separate Fiqh and Usul al-Fiqh
+          if (rawSub.toUpperCase() === 'U :FIQH' || rawSub.toUpperCase() === 'U:FIQH' || rawAlias.toUpperCase().includes('U :FIQH') || rawAlias.toUpperCase().includes('U:FIQH')) {
             activeSubject = 'U :FIQH';
+          } else if (rawSub.toUpperCase() === 'FIQH' || rawAlias.toUpperCase().includes('FIQH')) {
+            activeSubject = 'FIQH';
           } else {
             activeSubject = rawSub;
           }
@@ -1850,9 +1853,9 @@ function TeacherManager() {
             if (!classMatch) {
               let envGrade = String(selectedEnrollment.grade || '');
               if (!envGrade) {
-                if (envAliasLower.includes('8')) envGrade = '1';
-                else if (envAliasLower.includes('9')) envGrade = '2';
-                else if (envAliasLower.includes('10')) envGrade = '3';
+                if (envAliasLower.match(/8|1/)) envGrade = '1';
+                else if (envAliasLower.match(/9|2/)) envGrade = '2';
+                else if (envAliasLower.match(/10|3/)) envGrade = '3';
               }
               let stuGrade = '';
               if (studentClassesLower.some(c => c.includes('1') || c.includes('8'))) stuGrade = '1';
@@ -1863,13 +1866,8 @@ function TeacherManager() {
             }
 
             if (classMatch) {
-              const isEnvUFiqh = rawSub.toUpperCase().includes('U :FIQH') || rawAlias.toUpperCase().includes('U FIQH') || rawAlias.toUpperCase().includes('U8 FIQH') || rawAlias.toUpperCase().includes('U9 FIQH') || rawAlias.toUpperCase().includes('U10 FIQH');
-              
               if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
-              if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
-                 if (isEnvUFiqh) return isUrdu;
-                 return !isUrdu;
-              }
+              if (envLang.includes('gen') || envLang.includes('non') || envLang === '') return !isUrdu;
               return true;
             }
             return false;
@@ -1881,16 +1879,17 @@ function TeacherManager() {
         const marksRecord = {};
         const teacherRecord = {};
 
-        // Helper to check Subject Matches consistently
+        // 🌟 HELPER: Strictly prevent 'U8 Fiqh' from being confused with 'U :Fiqh'
         const isMatchingSubject = (inspSub, envSub, envAliasUpper) => {
-          const isInspUFiqh = inspSub.includes('U :FIQH') || inspSub.includes('U:FIQH');
-          const isEnvUFiqh = envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || 
-                             envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH') ||
-                             envAliasUpper.includes('U FIQH') || envAliasUpper.includes('U8 FIQH') || 
-                             envAliasUpper.includes('U9 FIQH') || envAliasUpper.includes('U10 FIQH');
+          const isInspUsul = inspSub === 'U :FIQH' || inspSub === 'U:FIQH';
+          const isEnvUsul = envSub === 'U :FIQH' || envSub === 'U:FIQH' || envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH');
 
-          if (isInspUFiqh) return isEnvUFiqh;
-          if (inspSub === 'FIQH') return (envSub === 'FIQH' || envAliasUpper.includes('FIQH')) && !isEnvUFiqh;
+          if (isInspUsul) return isEnvUsul;
+          
+          if (inspSub === 'FIQH') {
+            const hasFiqh = envSub === 'FIQH' || envAliasUpper.includes('FIQH');
+            return hasFiqh && !isEnvUsul;
+          }
           
           return (envSub === inspSub) ||
                  (inspSub === 'LOGIC' && envSub === 'MANTIQ') ||
@@ -1912,11 +1911,12 @@ function TeacherManager() {
             const foundSubjectKey = Object.keys(studentMarksData).find(k => {
               const kUp = k.trim().toUpperCase();
               const actUp = activeSubject.trim().toUpperCase();
-              const isActUFiqh = actUp.includes('U :FIQH') || actUp.includes('U:FIQH');
-              const isKUpUFiqh = kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
+              
+              const isActUsul = actUp === 'U :FIQH' || actUp === 'U:FIQH';
+              const isKUpUsul = kUp === 'U :FIQH' || kUp === 'U:FIQH';
 
-              if (isActUFiqh) return isKUpUFiqh;
-              if (actUp === 'FIQH') return kUp === 'FIQH' && !isKUpUFiqh;
+              if (isActUsul) return isKUpUsul;
+              if (actUp === 'FIQH') return kUp === 'FIQH' && !isKUpUsul;
               return kUp === actUp;
             });
 
@@ -1939,8 +1939,7 @@ function TeacherManager() {
             const sId = String(student.id || '').trim().toUpperCase();
             const isUrdu = sAd.startsWith('U');
 
-            // 🌟 TWO-PASS SYSTEM 🌟
-            // PASS 1: HIGHEST PRIORITY - Check Manual Assignments (For Madhab/Custom rules)
+            // 🌟 PASS 1: HIGHEST PRIORITY - Check Manual Assignments (Protects your Shafi/Hanafi split)
             for (const teacher of teachersList) {
               const matchingManualEnv = teacher.enrollments.find(env => {
                 const envSub = String(env.subject || '').trim().toUpperCase();
@@ -1964,7 +1963,7 @@ function TeacherManager() {
               }
             }
 
-            // PASS 2: AUTO-ASSIGNMENT FALLBACK (Only if Pass 1 found nothing)
+            // 🌟 PASS 2: AUTO-ASSIGNMENT FALLBACK (Only for students you didn't manually check)
             if (assignedTeacher === 'Unassigned') {
               for (const teacher of teachersList) {
                 const matchingAutoEnv = teacher.enrollments.find(env => {
@@ -1986,9 +1985,9 @@ function TeacherManager() {
                   if (!classMatch) {
                     let envGrade = String(env.grade || '');
                     if (!envGrade) {
-                      if (envAliasLower.includes('8')) envGrade = '1';
-                      else if (envAliasLower.includes('9')) envGrade = '2';
-                      else if (envAliasLower.includes('10')) envGrade = '3';
+                      if (envAliasLower.match(/8|1/)) envGrade = '1';
+                      else if (envAliasLower.match(/9|2/)) envGrade = '2';
+                      else if (envAliasLower.match(/10|3/)) envGrade = '3';
                     }
                     let stuGrade = '';
                     if (studentClassesLower.some(c => c.includes('1') || c.includes('8'))) stuGrade = '1';
@@ -1999,19 +1998,9 @@ function TeacherManager() {
                   }
 
                   if (classMatch) {
-                    const isEnvUFiqh = envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || 
-                                       envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH') ||
-                                       envAliasUpper.includes('U FIQH') || envAliasUpper.includes('U8 FIQH') || 
-                                       envAliasUpper.includes('U9 FIQH') || envAliasUpper.includes('U10 FIQH');
-                                       
-                    if (envLang.includes('urdu') && !envLang.includes('non')) {
-                      return isUrdu;
-                    } else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
-                      if (isEnvUFiqh) return isUrdu;
-                      return !isUrdu;
-                    } else {
-                      return true;
-                    }
+                    if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
+                    if (envLang.includes('gen') || envLang.includes('non') || envLang === '') return !isUrdu;
+                    return true;
                   }
                   return false;
                 });
@@ -2033,7 +2022,6 @@ function TeacherManager() {
         setIsInspecting(false);
       }
     };
-
     // 🌟 NEW: FUNCTION TO GENERATE CLASS OR TEACHER AVERAGES ANALYTICS
     // 🌟 REPLACE the entire generateAnalytics function inside ReportManager
     // 🌟 REPLACE the first part of generateAnalytics inside ReportManager
