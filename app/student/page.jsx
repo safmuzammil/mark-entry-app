@@ -72,14 +72,12 @@ function StudentWeeklyReminder() {
             {reminder.weekName || 'Current Week'} Updates
           </span>
           <h4 style={{ margin: '6px 0 0 0', color: '#92400e', fontSize: '16px', fontWeight: '800' }}>
-            Subjects being marked this week
+            Please complete and submit your assigned works in these subs for this week
           </h4>
         </div>
       </div>
       
-      <p style={{ margin: '0 0 16px 0', color: '#b45309', fontSize: '14px', fontWeight: '600' }}>{reminder.message}</p>
-      
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '14px' }}>
         {Object.keys(configs).map(sub => {
            const levelName = Object.keys(CCE_LEVELS).find(key => CCE_LEVELS[key] === configs[sub]) || `Max ${configs[sub]}`;
            return (
@@ -228,13 +226,17 @@ export default function StudentDashboard() {
       
       for (let studentId in allMarksData) {
           const stMarks = allMarksData[studentId];
-          const anyFoundKey = Object.keys(stMarks).find(k => checkSubjectMatch(k, sub));
-          if (anyFoundKey) {
-              const globalSubMarks = stMarks[anyFoundKey];
-              if (globalSubMarks['15'] !== undefined && globalSubMarks['15'] !== '') levelGradingStarted['15'] = true;
-              if (globalSubMarks['20'] !== undefined && globalSubMarks['20'] !== '') levelGradingStarted['20'] = true;
-              if (globalSubMarks['25'] !== undefined && globalSubMarks['25'] !== '') levelGradingStarted['25'] = true;
-              if (globalSubMarks['40'] !== undefined && globalSubMarks['40'] !== '') levelGradingStarted['40'] = true;
+          // 🌟 STRICT MATCH: Only look for the exact matched key for this student, not a global loose search
+          const exactFoundKey = Object.keys(stMarks).find(k => checkSubjectMatch(k, sub));
+          if (exactFoundKey) {
+              const globalSubMarks = stMarks[exactFoundKey];
+              // Verify that the data object actually contains a valid non-empty mark entry
+              if (globalSubMarks && typeof globalSubMarks === 'object') {
+                  if (globalSubMarks['15'] !== undefined && globalSubMarks['15'] !== '' && globalSubMarks['15'] !== '-') levelGradingStarted['15'] = true;
+                  if (globalSubMarks['20'] !== undefined && globalSubMarks['20'] !== '' && globalSubMarks['20'] !== '-') levelGradingStarted['20'] = true;
+                  if (globalSubMarks['25'] !== undefined && globalSubMarks['25'] !== '' && globalSubMarks['25'] !== '-') levelGradingStarted['25'] = true;
+                  if (globalSubMarks['40'] !== undefined && globalSubMarks['40'] !== '' && globalSubMarks['40'] !== '-') levelGradingStarted['40'] = true;
+              }
           }
       }
       
