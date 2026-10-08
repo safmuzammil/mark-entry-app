@@ -673,355 +673,352 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
   // ==========================================
   // ADMIN COMPONENTS
   // ==========================================
-  function TeacherManager() {
-    const [isRegNoEditMode, setIsRegNoEditMode] = useState(false);
-    const [regNoDrafts, setRegNoDrafts] = useState({});
-    const [username, setUsername] = useState('');
-    const [originalUsername, setOriginalUsername] = useState('');
+  // ==========================================
+// 🌟 TEACHER MANAGER (With Advanced Student Assignment)
+// ==========================================
+function TeacherManager() {
     const [fullName, setFullName] = useState('');
-    const [password, setPassword] = useState('123sms');
-    const [showTeacherPassword, setShowTeacherPassword] = useState(false);
-    const [subjectEnrollments, setSubjectEnrollments] = useState([]);
-    const [newGrade, setNewGrade] = useState('1');
-    const [newSubject, setNewSubject] = useState(DEFAULT_SUBJECTS[0]);
-    const [allStudents, setAllStudents] = useState([]);
-    const [editingEnrollmentId, setEditingEnrollmentId] = useState(null);
-    const [tempSelectedStudents, setTempSelectedStudents] = useState([]);
-    const [groupAlias, setGroupAlias] = useState('');
-    const [groupLangTag, setGroupLangTag] = useState('Gen');
-    const [filterGrade, setFilterGrade] = useState('All');
-    const [filterMadhab, setFilterMadhab] = useState('All');
-    const [filterUrdu, setFilterUrdu] = useState('All');
-    const [filterDepartments, setFilterDepartments] = useState([]);
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [enrollments, setEnrollments] = useState([]);
     const [registeredTeachers, setRegisteredTeachers] = useState([]);
+    
+    // 🌟 New States for Student Assignment
+    const [allStudents, setAllStudents] = useState([]);
+    const [assigningEnvId, setAssigningEnvId] = useState(null);
+    const [assignFilterClass, setAssignFilterClass] = useState('All');
+    const [assignFilterDept, setAssignFilterDept] = useState('All');
+    const [assignFilterMadhab, setAssignFilterMadhab] = useState('All');
+    const [assignSearch, setAssignSearch] = useState('');
+
     const [isEditing, setIsEditing] = useState(false);
     const [statusMsg, setStatusMsg] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
-    const fetchTeachersAndStudents = async () => {
-      try {
-        const tSnap = await getDocs(collection(db, 'teachers'));
-        const tData = [];
-        tSnap.forEach((doc) => tData.push(doc.data()));
-        setRegisteredTeachers(tData);
+    const [envGrade, setEnvGrade] = useState('1');
+    const [envSubject, setEnvSubject] = useState(DEFAULT_SUBJECTS[0]);
+    const [envLangTag, setEnvLangTag] = useState('');
 
-        const sSnap = await getDocs(collection(db, 'students'));
-        const sData = [];
-        sSnap.forEach((doc) => sData.push(doc.data()));
-        sData.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
-        setAllStudents(sData);
-      } catch (err) { console.error(err); }
+    const fetchInitialData = async () => {
+        try {
+            const [tSnap, sSnap] = await Promise.all([
+                getDocs(collection(db, 'teachers')),
+                getDocs(collection(db, 'students'))
+            ]);
+            
+            const teachersData = [];
+            tSnap.forEach(doc => teachersData.push(doc.data()));
+            setRegisteredTeachers(teachersData);
+
+            const studentsData = [];
+            sSnap.forEach(doc => studentsData.push({ id: doc.id, ...doc.data() }));
+            // Sort students numerically by roll number for a cleaner list
+            studentsData.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
+            setAllStudents(studentsData);
+        } catch (err) {
+            console.error(err);
+        }
     };
 
-    useEffect(() => { fetchTeachersAndStudents(); }, []);
+    useEffect(() => { fetchInitialData(); }, []);
 
-    const handleEditClick = (teacher) => {
-      setIsEditing(true);
-      setUsername(teacher.username);
-      setOriginalUsername(teacher.username);
-      setFullName(teacher.fullName);
-      setPassword('');
-      setSubjectEnrollments(teacher.enrollments || []);
-      setEditingEnrollmentId(null);
-      setStatusMsg(`Editing profile for ${teacher.fullName}.`);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+    const handleAddEnrollment = () => {
+        if (!envSubject) return alert("Please select a subject.");
+        const generatedAlias = `Grade ${envGrade} ${envSubject}`;
+        const newEnv = {
+            id: Date.now().toString(),
+            grade: envGrade,
+            subject: envSubject,
+            alias: generatedAlias,
+            langTag: envLangTag,
+            studentIds: [] // Initializes empty array for specific assignments
+        };
+        setEnrollments([...enrollments, newEnv]);
+        setEnvLangTag('');
     };
 
-    const resetForm = () => {
-      setIsEditing(false);
-      setUsername(''); setOriginalUsername(''); setFullName('');
-      setPassword('123sms'); setSubjectEnrollments([]); setEditingEnrollmentId(null); setStatusMsg('');
-    };
+    const handleRemoveEnrollment = (id) => setEnrollments(enrollments.filter(env => env.id !== id));
 
     const handleAddOrUpdateTeacher = async (e) => {
-      e.preventDefault();
-      setIsLoading(true);
-      setStatusMsg(isEditing ? 'Updating teacher credentials...' : 'Registering teacher securely...');
-      const safeUsername = username.toLowerCase().replace(/[^a-z0-9_.-]/g, '');
-      const fakeEmail = `${safeUsername}@school.com`;
-
-      const primaryApp = getApp();
-      let secondaryApp;
-      try { secondaryApp = getApp("SecondaryApp"); }
-      catch (err) { secondaryApp = initializeApp(primaryApp.options, "SecondaryApp"); }
-      const secondaryAuth = getAuth(secondaryApp);
-
-      try {
-        if (!isEditing) {
-          await createUserWithEmailAndPassword(secondaryAuth, fakeEmail, password);
-          await setDoc(doc(db, 'teachers', safeUsername), { fullName, username: safeUsername, enrollments: subjectEnrollments }, { merge: true });
-          setStatusMsg('Teacher successfully registered!');
-        } else {
-          const isUsernameChanged = safeUsername !== originalUsername;
-          if (isUsernameChanged || (password && password.trim().length > 0)) {
-            const activePassword = password && password.trim().length >= 6 ? password.trim() : '123sms';
-            try { await createUserWithEmailAndPassword(secondaryAuth, fakeEmail, activePassword); } catch (authErr) { if (authErr.code !== 'auth/email-already-in-use') throw authErr; }
-          }
-          await setDoc(doc(db, 'teachers', safeUsername), { fullName, username: safeUsername, enrollments: subjectEnrollments }, { merge: true });
-          if (isUsernameChanged && originalUsername) { await deleteDoc(doc(db, 'teachers', originalUsername)); }
-          setStatusMsg(`Teacher updated successfully!`);
+        e.preventDefault();
+        setIsLoading(true);
+        setStatusMsg(isEditing ? 'Updating teacher profile...' : 'Registering teacher securely...');
+        const safeUsername = username.trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '');
+        const fakeEmail = `${safeUsername}@school.com`;
+        
+        try {
+            if (!isEditing) {
+                await createUserWithEmailAndPassword(auth, fakeEmail, password);
+            }
+            await setDoc(doc(db, 'teachers', safeUsername), {
+                fullName,
+                username: safeUsername,
+                enrollments
+            }, { merge: true });
+            
+            setIsLoading(false);
+            setStatusMsg(isEditing ? 'Teacher updated successfully!' : 'Teacher registered successfully!');
+            fetchInitialData();
+            resetForm();
+        } catch (err) {
+            setIsLoading(false);
+            setStatusMsg('Error: ' + err.message);
         }
-        await signOut(secondaryAuth);
-        setIsLoading(false);
-        fetchTeachersAndStudents();
-        resetForm();
-      } catch (err) {
-        setIsLoading(false);
-        setStatusMsg('Error: ' + err.message);
-      }
+    };
+
+    const handleEditClick = (teacher) => {
+        setIsEditing(true);
+        setFullName(teacher.fullName);
+        setUsername(teacher.username);
+        setEnrollments(teacher.enrollments || []);
+        setPassword('');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     const handleDeleteClick = async (teacherUsername) => {
-      if (window.confirm(`Delete ${teacherUsername}?`)) {
-        try { await deleteDoc(doc(db, 'teachers', teacherUsername)); fetchTeachersAndStudents(); } catch (err) { alert("Failed to delete."); }
-      }
+        if (window.confirm(`Are you sure you want to delete ${teacherUsername}?`)) {
+            try {
+                await deleteDoc(doc(db, 'teachers', teacherUsername));
+                fetchInitialData();
+            } catch (err) {
+                alert("Failed to delete.");
+            }
+        }
     };
 
-    const handleAddSubject = () => {
-      const newId = Date.now().toString();
-      setSubjectEnrollments([...subjectEnrollments, { id: newId, grade: newGrade, subject: newSubject, alias: `Grade ${newGrade} ${newSubject}`, langTag: 'Gen', studentIds: [] }]);
+    const resetForm = () => {
+        setIsEditing(false); setFullName(''); setUsername(''); setPassword('');
+        setEnrollments([]); setStatusMsg(''); setAssigningEnvId(null);
     };
 
-    const handleRemoveSubject = (id) => {
-      setSubjectEnrollments(subjectEnrollments.filter(e => e.id !== id));
-      if (editingEnrollmentId === id) setEditingEnrollmentId(null);
-    };
-
-    const openStudentPicker = (enrollment) => {
-      setEditingEnrollmentId(enrollment.id);
-      setTempSelectedStudents([...enrollment.studentIds]);
-      setFilterGrade(enrollment.grade || 'All');
-      setGroupAlias(enrollment.alias || `Grade ${enrollment.grade} ${enrollment.subject}`);
-      setGroupLangTag(enrollment.langTag || 'Gen');
-    };
-
-    const toggleStudentInSubject = (regNo) => {
-      if (tempSelectedStudents.includes(regNo)) setTempSelectedStudents(tempSelectedStudents.filter(id => id !== regNo));
-      else setTempSelectedStudents([...tempSelectedStudents, regNo]);
-    };
-
-    const toggleSelectAllFiltered = (filteredList) => {
-      const allFilteredIds = filteredList.map(s => s.regNo);
-      const areAllSelected = allFilteredIds.every(id => tempSelectedStudents.includes(id));
-      if (areAllSelected) setTempSelectedStudents(tempSelectedStudents.filter(id => !allFilteredIds.includes(id)));
-      else setTempSelectedStudents(Array.from(new Set([...tempSelectedStudents, ...allFilteredIds])));
-    };
-
-    const toggleFilterDepartment = (dept) => {
-      if (filterDepartments.includes(dept)) setFilterDepartments(filterDepartments.filter(d => d !== dept));
-      else setFilterDepartments([...filterDepartments, dept]);
-    };
-
-    const autoGenerateSmartName = () => {
-      const currentEnrollment = subjectEnrollments.find(e => e.id === editingEnrollmentId);
-      if (!currentEnrollment) return;
-      const deptPrefix = filterDepartments.length > 0 ? filterDepartments.map(d => d[0]).join('') : 'ALL';
-      const gradeString = filterGrade !== 'All' ? filterGrade : currentEnrollment.grade;
-      setGroupAlias(`${deptPrefix}${gradeString} ${currentEnrollment.subject}`);
-      setGroupLangTag(filterUrdu === 'All' ? 'Gen' : filterUrdu);
-    };
-
-    const saveStudentAssignments = () => {
-      setSubjectEnrollments(subjectEnrollments.map(env => env.id === editingEnrollmentId ? { ...env, studentIds: tempSelectedStudents, alias: groupAlias, langTag: groupLangTag } : env));
-      setEditingEnrollmentId(null);
-    };
-
-    const isUrduStudent = (adNo) => (adNo || '').toUpperCase().includes('U');
-
-    const filteredPickerStudents = allStudents.filter(student => {
-      const classes = student.classes || (student.className ? [student.className] : []);
-      const levels = new Set();
-      classes.forEach(c => { const m = c.match(/\d+/); if (m) levels.add(m[0]); });
-      if (filterGrade !== 'All' && !levels.has(filterGrade)) return false;
-      if (filterDepartments.length > 0 && !filterDepartments.includes((student.department || '').toUpperCase())) return false;
-      if (filterMadhab !== 'All' && (student.madhab || 'General') !== filterMadhab) return false;
-      if (filterUrdu === 'Urdu' && !isUrduStudent(student.adNo)) return false;
-      if (filterUrdu === 'Non-Urdu' && isUrduStudent(student.adNo)) return false;
-      return true;
+    // 🌟 ADVANCED STUDENT ASSIGNMENT LOGIC
+    const filteredStudentsForAssign = allStudents.filter(s => {
+        if (assignFilterClass !== 'All' && !(s.classes || []).includes(assignFilterClass)) return false;
+        if (assignFilterDept !== 'All' && (s.department || 'GENERAL').toUpperCase() !== assignFilterDept.toUpperCase()) return false;
+        if (assignFilterMadhab !== 'All' && (s.madhab || 'General') !== assignFilterMadhab) return false;
+        if (assignSearch) {
+            const query = assignSearch.toLowerCase();
+            const searchName = s.firstName?.toLowerCase() || '';
+            const searchAdNo = s.adNo?.toLowerCase() || '';
+            if (!searchName.includes(query) && !searchAdNo.includes(query)) return false;
+        }
+        return true;
     });
 
-    // 🌟 1B. ADD THIS FUNCTION just above the return statement in StudentManager
-    const handleRegNoDraftChange = (oldRegNo, val) => {
-        setRegNoDrafts(prev => ({ ...prev, [oldRegNo]: val }));
+    const toggleStudentForEnv = (envId, regNo) => {
+        setEnrollments(prev => prev.map(env => {
+            if (env.id === envId) {
+                const currentIds = env.studentIds || [];
+                const newIds = currentIds.includes(regNo)
+                    ? currentIds.filter(id => id !== regNo)
+                    : [...currentIds, regNo];
+                return { ...env, studentIds: newIds };
+            }
+            return env;
+        }));
     };
 
-    const executeRegNoMigration = async () => {
-        const updates = Object.entries(regNoDrafts).filter(([oldReg, newReg]) => newReg && newReg.trim() !== '' && newReg !== oldReg);
-        if (updates.length === 0) return alert('No changes entered. Please type a new RegNo for at least one student.');
-        if (!window.confirm(`Are you sure you want to migrate ${updates.length} Registration Numbers? This will move their profiles, marks, and create new login credentials.`)) return;
-
-        setIsLoading(true);
-        setStatusMsg(`Migrating ${updates.length} students... Please wait.`);
-
-        try {
-            const primaryApp = getApp();
-            let secondaryApp;
-            try { secondaryApp = getApp("SecondaryApp"); } catch (err) { secondaryApp = initializeApp(primaryApp.options, "SecondaryApp"); }
-            const secondaryAuth = getAuth(secondaryApp);
-
-            for (const [oldReg, newRegRaw] of updates) {
-                const newReg = newRegRaw.toLowerCase().replace(/[^a-z0-9_.-]/g, '');
-
-                // Fetch old data
-                const studentSnap = await getDoc(doc(db, 'students', oldReg));
-                const markSnap = await getDoc(doc(db, 'marks', oldReg));
-
-                if (studentSnap.exists()) {
-                    const studentData = studentSnap.data();
-                    studentData.regNo = newReg; // Update the internal field
-
-                    // Create new Auth credentials
-                    const fakeEmail = `${newReg}@student.school.com`;
-                    const safeAdNo = String(studentData.adNo).trim();
-                    const firebasePassword = safeAdNo.length < 6 ? safeAdNo.padStart(6, '0') : safeAdNo;
-                    
-                    try {
-                        await createUserWithEmailAndPassword(secondaryAuth, fakeEmail, firebasePassword);
-                    } catch (authErr) {
-                        if (authErr.code !== 'auth/email-already-in-use') console.error("Auth skip:", authErr);
-                    }
-
-                    // Write to new Database paths
-                    await setDoc(doc(db, 'students', newReg), studentData);
-                    if (markSnap.exists()) {
-                        await setDoc(doc(db, 'marks', newReg), markSnap.data());
-                    }
-
-                    // Delete old Database paths
-                    await deleteDoc(doc(db, 'students', oldReg));
-                    if (markSnap.exists()) {
-                        await deleteDoc(doc(db, 'marks', oldReg));
-                    }
+    const toggleSelectAllForEnv = (envId, isSelectingAll) => {
+        setEnrollments(prev => prev.map(env => {
+            if (env.id === envId) {
+                const currentIdsSet = new Set(env.studentIds || []);
+                if (isSelectingAll) {
+                    filteredStudentsForAssign.forEach(s => currentIdsSet.add(s.regNo));
+                } else {
+                    filteredStudentsForAssign.forEach(s => currentIdsSet.delete(s.regNo));
                 }
+                return { ...env, studentIds: Array.from(currentIdsSet) };
             }
-            
-            await signOut(secondaryAuth);
-            setRegNoDrafts({});
-            setIsRegNoEditMode(false);
-            setStatusMsg(`Successfully migrated ${updates.length} students to their new Registration Numbers!`);
-            fetchStudents();
-        } catch (err) {
-            setStatusMsg('Migration Error: ' + err.message);
-        }
-        setIsLoading(false);
+            return env;
+        }));
+    };
+
+    const updateEnvAlias = (envId, newAlias) => {
+        setEnrollments(prev => prev.map(env => env.id === envId ? { ...env, alias: newAlias } : env));
     };
 
     return (
-      <div>
-        <div style={{ ...styles.card, borderLeft: isEditing ? '6px solid #f59e0b' : '1px solid #e2e8f0' }}>
-          <h3 style={styles.sectionTitle}>{isEditing ? `Editing Teacher: ${originalUsername}` : 'Register Individual Teacher'}</h3>
-          <form onSubmit={handleAddOrUpdateTeacher} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
-              <div>
-                <label style={styles.label}>Full Name</label>
-                <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. Muzammil Hudawi" required style={styles.input} />
-              </div>
-              <div>
-                <label style={styles.label}>Username</label>
-                <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. muzammil" required style={styles.input} />
-              </div>
-              <div>
-                <label style={styles.label}>Password</label>
-                <input type={showTeacherPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" required={!isEditing} style={styles.input} />
-              </div>
-            </div>
-
-            <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-              <h4 style={{ margin: '0 0 16px 0', fontSize: '16px', color: '#0f172a', fontWeight: '800' }}>Assign Teaching Subjects</h4>
-              <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
-                <select value={newGrade} onChange={(e) => setNewGrade(e.target.value)} style={{ ...styles.input, width: '140px' }}>
-                  {GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}
-                </select>
-                <select value={newSubject} onChange={(e) => setNewSubject(e.target.value)} style={{ ...styles.input, flex: 1, minWidth: '200px' }}>
-                  {DEFAULT_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <button type="button" onClick={handleAddSubject} style={styles.buttonPrimary}>+ Add Subject</button>
-              </div>
-
-              {subjectEnrollments.map(enroll => (
-                <div key={enroll.id} style={{ border: '1px solid #cbd5e1', borderRadius: '12px', marginBottom: '12px', background: '#ffffff', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-                  <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>{enroll.alias}</span>
-                      <span style={{ fontSize: '13px', color: '#334155', fontWeight: '700', background: '#f1f5f9', padding: '4px 10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>{enroll.studentIds?.length || 0} students</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button type="button" onClick={() => openStudentPicker(enroll)} style={{ padding: '8px 14px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: '700', cursor: 'pointer', fontSize: '13px' }}>Assign Students</button>
-                      <button type="button" onClick={() => handleRemoveSubject(enroll.id)} style={{ padding: '8px 12px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '6px', fontWeight: '700', cursor: 'pointer', fontSize: '13px' }}>Remove</button>
-                    </div>
-                  </div>
-                  {editingEnrollmentId === enroll.id && (
-                    <div style={{ padding: '20px', background: '#f8fafc', borderTop: '1px solid #cbd5e1', borderBottomLeftRadius: '12px', borderBottomRightRadius: '12px' }}>
-                      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-                        <input type="text" value={groupAlias} onChange={e => setGroupAlias(e.target.value)} placeholder="Display Name" style={{ ...styles.input, flex: 2 }} />
-                        <button type="button" onClick={autoGenerateSmartName} style={{ padding: '10px 16px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>Auto-Fill Name</button>
-                      </div>
-                      <div style={{ maxHeight: '240px', overflowY: 'auto', background: '#fff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '12px' }}>
-                        <label style={{ display: 'block', padding: '8px', fontWeight: '700', borderBottom: '2px solid #e2e8f0', cursor: 'pointer', color: '#0f172a' }}>
-                          <input type="checkbox" onChange={() => toggleSelectAllFiltered(filteredPickerStudents)} checked={filteredPickerStudents.length > 0 && filteredPickerStudents.every(s => tempSelectedStudents.includes(s.regNo))} style={{ marginRight: '10px', width: '16px', height: '16px' }} />
-                          Select All ({filteredPickerStudents.length})
-                        </label>
-                        {filteredPickerStudents.map(s => (
-                          <label key={s.regNo} style={{ display: 'block', padding: '8px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', fontSize: '14px', color: '#334155', fontWeight: '600' }}>
-                            <input type="checkbox" checked={tempSelectedStudents.includes(s.regNo)} onChange={() => toggleStudentInSubject(s.regNo)} style={{ marginRight: '10px', width: '15px', height: '15px' }} />
-                            {s.adNo} - {s.firstName} ({s.department || 'GENERAL'})
-                          </label>
-                        ))}
-                      </div>
-                      <div style={{ marginTop: '16px', textAlign: 'right' }}>
-                        <button type="button" onClick={saveStudentAssignments} style={{ padding: '10px 20px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>Done Selecting</button>
-                      </div>
-                    </div>
-                  )}
+        <div>
+            <div style={{ ...styles.card, borderLeft: isEditing ? '6px solid #f59e0b' : '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <h3 style={styles.sectionTitle}>{isEditing ? `Editing Teacher: ${username}` : 'Register Teacher'}</h3>
+                    {isEditing && <button type="button" onClick={resetForm} style={{ padding: '8px 16px', background: '#e2e8f0', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>Cancel</button>}
                 </div>
-              ))}
+                
+                <form onSubmit={handleAddOrUpdateTeacher} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
+                        <div><label style={styles.label}>Full Name</label><input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} required style={styles.input} /></div>
+                        <div><label style={styles.label}>Username</label><input type="text" value={username} onChange={(e) => setUsername(e.target.value)} disabled={isEditing} required style={{ ...styles.input, backgroundColor: isEditing ? '#f1f5f9' : '#ffffff', color: isEditing ? '#94a3b8' : '#0f172a' }} /></div>
+                        {!isEditing && <div><label style={styles.label}>Password (Min 6 chars)</label><input type="text" value={password} onChange={(e) => setPassword(e.target.value)} required style={styles.input} /></div>}
+                    </div>
+                    
+                    <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                        <h4 style={{ margin: '0 0 16px 0', fontSize: '16px', color: '#0f172a', fontWeight: '800' }}>Subject Enrollments</h4>
+                        
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'flex-end', marginBottom: '24px', background: '#ffffff', padding: '16px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                            <div style={{ flex: '1 1 120px' }}><label style={styles.label}>Grade</label><select value={envGrade} onChange={(e) => setEnvGrade(e.target.value)} style={styles.input}>{GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}</select></div>
+                            <div style={{ flex: '2 1 150px' }}><label style={styles.label}>Subject</label><select value={envSubject} onChange={(e) => setEnvSubject(e.target.value)} style={styles.input}>{DEFAULT_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+                            <div style={{ flex: '1 1 120px' }}><label style={styles.label}>Lang Tag</label><select value={envLangTag} onChange={(e) => setEnvLangTag(e.target.value)} style={styles.input}><option value="">General</option><option value="Urdu">Urdu</option><option value="Non-Urdu">Non-Urdu</option></select></div>
+                            <button type="button" onClick={handleAddEnrollment} style={{ ...styles.buttonPrimary, padding: '12px 20px', background: '#3b82f6' }}>+ Add Subject</button>
+                        </div>
+                        
+                        {enrollments.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                {enrollments.map((env) => {
+                                    const isAssigning = assigningEnvId === env.id;
+                                    const studentCount = (env.studentIds || []).length;
+                                    const allFilteredSelected = filteredStudentsForAssign.length > 0 && filteredStudentsForAssign.every(s => (env.studentIds || []).includes(s.regNo));
+
+                                    return (
+                                        <div key={env.id} style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #cbd5e1', overflow: 'hidden' }}>
+                                            
+                                            {/* Enrollment Header */}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', background: isAssigning ? '#f8fafc' : '#ffffff', borderBottom: isAssigning ? '1px solid #e2e8f0' : 'none' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                    <h4 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>{env.alias || `${env.grade} ${env.subject}`}</h4>
+                                                    <span style={{ background: '#e2e8f0', color: '#334155', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '700' }}>{studentCount} students</span>
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '8px' }}>
+                                                    <button type="button" onClick={() => setAssigningEnvId(isAssigning ? null : env.id)} style={{ padding: '8px 16px', background: '#f59e0b', color: '#ffffff', border: 'none', borderRadius: '6px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>
+                                                        {isAssigning ? 'Close Assignment' : 'Assign Students'}
+                                                    </button>
+                                                    <button type="button" onClick={() => handleRemoveEnrollment(env.id)} style={{ padding: '8px 16px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '6px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>
+                                                        Remove
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* Advanced Assignment Dropdown */}
+                                            {isAssigning && (
+                                                <div style={{ padding: '20px', borderTop: '1px solid #e2e8f0' }}>
+                                                    
+                                                    {/* Alias Input Bar */}
+                                                    <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
+                                                        <input type="text" value={env.alias} onChange={(e) => updateEnvAlias(env.id, e.target.value)} placeholder="Class Alias (e.g. FCL1 Balagha)" style={{ ...styles.input, flex: 1 }} />
+                                                        <button type="button" onClick={() => updateEnvAlias(env.id, `Grade ${env.grade} ${env.subject}`)} style={{ padding: '0 20px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>
+                                                            Auto-Fill Name
+                                                        </button>
+                                                    </div>
+
+                                                    {/* Filters */}
+                                                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '16px', padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                                        <select value={assignFilterClass} onChange={(e) => setAssignFilterClass(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}>
+                                                            <option value="All">All Classes</option>
+                                                            {DEFAULT_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                                                        </select>
+                                                        <select value={assignFilterDept} onChange={(e) => setAssignFilterDept(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}>
+                                                            <option value="All">All Departments</option>
+                                                            {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                                                        </select>
+                                                        <select value={assignFilterMadhab} onChange={(e) => setAssignFilterMadhab(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}>
+                                                            <option value="All">All Madhabs</option>
+                                                            {MADHABS.map(m => <option key={m} value={m}>{m}</option>)}
+                                                        </select>
+                                                        <input type="text" placeholder="Search name or ad.no..." value={assignSearch} onChange={(e) => setAssignSearch(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', flex: 1, minWidth: '150px' }} />
+                                                    </div>
+
+                                                    {/* Checkbox List */}
+                                                    <div style={{ border: '1px solid #cbd5e1', borderRadius: '8px', overflow: 'hidden' }}>
+                                                        <div style={{ padding: '12px 16px', background: '#f1f5f9', borderBottom: '1px solid #cbd5e1', display: 'flex', alignItems: 'center' }}>
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={allFilteredSelected && filteredStudentsForAssign.length > 0} 
+                                                                onChange={(e) => toggleSelectAllForEnv(env.id, e.target.checked)} 
+                                                                style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#0f172a' }} 
+                                                            />
+                                                            <span style={{ marginLeft: '12px', fontWeight: '800', color: '#0f172a', fontSize: '14px' }}>
+                                                                Select All ({filteredStudentsForAssign.length})
+                                                            </span>
+                                                        </div>
+                                                        <div style={{ maxHeight: '300px', overflowY: 'auto', background: '#ffffff' }}>
+                                                            {filteredStudentsForAssign.length === 0 ? (
+                                                                <div style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>No students match your filters.</div>
+                                                            ) : (
+                                                                filteredStudentsForAssign.map((s, i) => (
+                                                                    <div key={s.regNo} style={{ padding: '10px 16px', borderBottom: i === filteredStudentsForAssign.length - 1 ? 'none' : '1px solid #f1f5f9', display: 'flex', alignItems: 'center' }}>
+                                                                        <input 
+                                                                            type="checkbox" 
+                                                                            checked={(env.studentIds || []).includes(s.regNo)} 
+                                                                            onChange={() => toggleStudentForEnv(env.id, s.regNo)} 
+                                                                            style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#334155' }} 
+                                                                        />
+                                                                        <span style={{ marginLeft: '12px', color: '#334155', fontSize: '14px', fontWeight: '600' }}>
+                                                                            {s.adNo} - {s.firstName} <span style={{ color: '#94a3b8', fontSize: '12px' }}>({s.department || 'GENERAL'})</span>
+                                                                        </span>
+                                                                    </div>
+                                                                ))
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Done Button */}
+                                                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+                                                        <button type="button" onClick={() => setAssigningEnvId(null)} style={{ padding: '10px 24px', background: '#10b981', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '14px' }}>
+                                                            Done Selecting
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                    
+                    <button type="submit" disabled={isLoading} style={isEditing ? styles.buttonWarning : styles.buttonSuccess}>
+                        {isLoading ? 'Processing...' : isEditing ? 'Update Teacher' : 'Register Teacher'}
+                    </button>
+                </form>
+                
+                {statusMsg && (
+                    <div style={{ marginTop: '20px', padding: '16px', background: statusMsg.includes('Error') ? '#fee2e2' : '#ecfdf5', border: `1px solid ${statusMsg.includes('Error') ? '#fecaca' : '#a7f3d0'}`, borderRadius: '8px', color: statusMsg.includes('Error') ? '#991b1b' : '#065f46', fontWeight: '700' }}>
+                        {statusMsg}
+                    </div>
+                )}
             </div>
 
-            <button type="submit" disabled={isLoading} style={isEditing ? styles.buttonWarning : styles.buttonSuccess}>
-              {isLoading ? 'Saving...' : isEditing ? 'Update Teacher Profile' : 'Register Teacher'}
-            </button>
-          </form>
-          {statusMsg && <div style={{ marginTop: '20px', padding: '16px', background: '#ecfdf5', borderRadius: '8px', color: '#065f46', fontWeight: '700' }}>{statusMsg}</div>}
+            <div style={styles.card}>
+                <h3 style={styles.sectionTitle}>👨‍🏫 Teachers Directory</h3>
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px', minWidth: '700px' }}>
+                        <thead>
+                            <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
+                                <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Full Name</th>
+                                <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Username</th>
+                                <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Enrollments</th>
+                                <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'right' }}>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {registeredTeachers.map((teacher, index) => (
+                                <tr key={index} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                    <td style={{ padding: '16px', fontWeight: '700', color: '#0f172a' }}>{teacher.fullName}</td>
+                                    <td style={{ padding: '16px', color: '#64748b', fontWeight: '600' }}>{teacher.username}</td>
+                                    <td style={{ padding: '16px' }}>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                            {(teacher.enrollments || []).map((env, i) => (
+                                                <span key={i} style={{ display: 'inline-block', background: '#f1f5f9', color: '#1e293b', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', border: '1px solid #e2e8f0' }}>
+                                                    {env.alias || env.subject}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </td>
+                                    <td style={{ padding: '16px', textAlign: 'right' }}>
+                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                            <button onClick={() => handleEditClick(teacher)} style={{ padding: '8px 14px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '13px' }}>Edit</button>
+                                            <button onClick={() => handleDeleteClick(teacher.username)} style={{ padding: '8px 14px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '13px' }}>Delete</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
-
-        <div style={styles.card}>
-          <h3 style={styles.sectionTitle}>Teachers Directory</h3>
-          <div style={{ width: '100%', overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px', minWidth: '700px' }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
-                  <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Name & Username</th>
-                  <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Enrollments</th>
-                  <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '160px', textAlign: 'right' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {registeredTeachers.map((t, idx) => (
-                  <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                    <td style={{ padding: '16px', verticalAlign: 'middle' }}>
-                      <strong style={{ fontSize: '15px', color: '#0f172a' }}>{t.fullName}</strong><br />
-                      <span style={{ color: '#64748b', fontSize: '13px', fontWeight: '600' }}>@{t.username}</span>
-                    </td>
-                    <td style={{ padding: '16px', verticalAlign: 'middle' }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                        {t.enrollments?.map((e, i) => <span key={i} style={{ display: 'inline-block', background: '#f1f5f9', color: '#334155', padding: '6px 10px', borderRadius: '6px', fontSize: '13px', fontWeight: '700', border: '1px solid #cbd5e1' }}>{e.alias}</span>)}
-                      </div>
-                    </td>
-                    <td style={{ padding: '16px', textAlign: 'right', verticalAlign: 'middle' }}>
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                        <button onClick={() => handleEditClick(t)} style={{ padding: '8px 16px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '13px' }}>Edit</button>
-                        <button onClick={() => handleDeleteClick(t.username)} style={{ padding: '8px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '13px' }}>Delete</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
     );
-  }
+}
 
   function StudentManager() {
     const [rollNo, setRollNo] = useState('');
