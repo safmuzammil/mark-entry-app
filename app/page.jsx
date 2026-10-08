@@ -1848,6 +1848,16 @@ function TeacherManager() {
               if (isGrade3 && !isUrdu) classMatch = true;
             }
 
+            // 🌟 GRADE FALLBACK: Auto-routes based on the Grade level if names don't match perfectly
+            if (!classMatch && selectedEnrollment.grade) {
+              let studentGrade = '1';
+              if (studentClassesLower.some(c => c.includes('2') || c.includes('9'))) studentGrade = '2';
+              if (studentClassesLower.some(c => c.includes('3') || c.includes('10'))) studentGrade = '3';
+              if (String(selectedEnrollment.grade) === String(studentGrade)) {
+                classMatch = true;
+              }
+            }
+
             if (classMatch) {
               if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
               if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
@@ -1948,6 +1958,16 @@ function TeacherManager() {
                   }
                 }
 
+                // 🌟 GRADE FALLBACK: Auto-routes based on the Grade level if names don't match perfectly
+                if (!classMatch && env.grade) {
+                  let studentGrade = '1';
+                  if (studentClassesLower.some(c => c.includes('2') || c.includes('9'))) studentGrade = '2';
+                  if (studentClassesLower.some(c => c.includes('3') || c.includes('10'))) studentGrade = '3';
+                  if (String(env.grade) === String(studentGrade)) {
+                    classMatch = true;
+                  }
+                }
+
                 // 4. LANGUAGE MATCH
                 if (classMatch) {
                   const isUrduSubject = envSub.includes('U :FIQH') || envSub.includes('U:FIQH') || envAliasUpper.includes('U FIQH') || envAliasUpper.includes('U8 FIQH') || envAliasUpper.includes('U9 FIQH') || envAliasUpper.includes('U10 FIQH');
@@ -1955,7 +1975,6 @@ function TeacherManager() {
                   if (envLang.includes('urdu') && !envLang.includes('non')) {
                     return isUrdu;
                   } else if (envLang.includes('gen') || envLang.includes('non') || envLang === '') {
-                    // Auto-route Urdu students to the U:Fiqh teacher even if tag is General
                     if (isUrduSubject) return isUrdu;
                     return !isUrdu;
                   } else {
