@@ -17,6 +17,7 @@ const DEPARTMENTS = ["QURAN", "LANGUAGE", "AQIDAH", "HADITH", "FIQH", "CIVIL"];
 const MADHABS = ["Hanafi", "Shafi", "General"];
 
 const CCE_LEVELS = { "Level 1": "15", "Level 2": "20", "Level 3": "25", "Level 4": "40" };
+const HIFZ_LEVELS = { "Part 1 (Max 50)": "50_1", "Part 2 (Max 50)": "50_2" };
 
 const parseCSVLine = (str) => {
   let arr = [];
@@ -148,8 +149,19 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
   const [selectedEnrollmentId, setSelectedEnrollmentId] = useState(teacherEnrollments[0]?.id || '');
   const [cceLevel, setCceLevel] = useState('Level 1');
 
+  const currentEnrollment = teacherEnrollments.find(e => e.id === selectedEnrollmentId);
+  const isHifz = currentEnrollment?.subject?.toUpperCase() === 'HIFZ';
+  const activeLevels = isHifz ? HIFZ_LEVELS : CCE_LEVELS;
+
+  useEffect(() => {
+    if (isHifz && !cceLevel.includes('Part')) setCceLevel('Part 1 (Max 50)');
+    if (!isHifz && cceLevel.includes('Part')) setCceLevel('Level 1');
+  }, [isHifz, cceLevel]);
+
+
   // Failsafe for CCE_LEVELS if it's defined globally outside
-  const assessmentMaxMark = typeof CCE_LEVELS !== 'undefined' ? CCE_LEVELS[cceLevel] : '15';
+  const assessmentMaxMark = activeLevels[cceLevel] || (isHifz ? '50_1' : '15');
+  const maxAllowed = isHifz ? 50 : Number(assessmentMaxMark);
 
   const [allStudentsCache, setAllStudentsCache] = useState([]);
   const [classStudents, setClassStudents] = useState([]);
@@ -231,6 +243,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     }
     fetchReminderAndChecklist();
   }, [loggedInTeacher, allStudentsCache, studentMarks, teacherEnrollments]);
+
 
   useEffect(() => {
     async function fetchStudents() {
@@ -388,7 +401,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     const processSheetData = (sheetData) => {
       const newMarks = { ...studentMarks };
       let updatedCount = 0, errorCount = 0;
-      const maxAllowed = Number(assessmentMaxMark);
+      const maxAllowed = isHifz ? 50 : Number(assessmentMaxMark);
 
       sheetData.forEach((row) => {
         const rawAdNo = String(row['Ad.No'] || row['AdNo'] || row['AdmissionNo'] || row['RegNo'] || '').trim();
@@ -436,7 +449,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     const currentEnrollment = teacherEnrollments.find(e => e.id === selectedEnrollmentId);
     if (!currentEnrollment) return alert("Please select a valid enrollment before saving.");
 
-    const maxNumber = Number(assessmentMaxMark);
+    const maxAllowed = isHifz ? 50 : Number(assessmentMaxMark);
     const rawSub = (currentEnrollment.subject || '').trim();
     const rawAlias = (currentEnrollment.alias || '').trim();
     let finalSubjectKey = rawSub;
@@ -451,9 +464,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     for (let student of classStudents) {
       let val = studentMarks[student.regNo]?.[assessmentMaxMark];
       if (val !== undefined && val !== '') {
-        if (parseFloat(val) > maxNumber) {
-          setStatusMsg('');
-          return alert(`Marks for ${student.firstName} exceed limit!`);
+        if (parseFloat(val) > maxAllowed) return alert(`Marks for ${student.firstName} exceed limit!`);
         }
         marksPayload.push({ studentId: student.regNo, subject: finalSubjectKey, maxMarks: assessmentMaxMark, marksObtained: val });
         firestorePromises.push(setDoc(doc(db, 'marks', student.regNo), { [finalSubjectKey]: { [assessmentMaxMark]: Number(val) } }, { merge: true }));
@@ -569,9 +580,8 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
               </div>
               <div>
                 <label style={typeof styles !== 'undefined' ? styles.label : { display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '8px' }}>Select Task Level:</label>
-                {/* Make sure CCE_LEVELS is globally available */}
                 <select value={cceLevel} onChange={(e) => setCceLevel(e.target.value)} style={typeof styles !== 'undefined' ? { ...styles.input, cursor: 'pointer' } : { width: '100%', padding: '12px 16px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
-                  {typeof CCE_LEVELS !== 'undefined' && Object.keys(CCE_LEVELS).map(level => <option key={level} value={level}>{level} (Max {CCE_LEVELS[level]} Marks)</option>)}
+                  {Object.keys(activeLevels).map(level => <option key={level} value={level}>{level}</option>)}
                 </select>
               </div>
             </div>
@@ -611,10 +621,19 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                       <th style={{ padding: '14px 16px', width: '50px', color: '#0f172a', fontWeight: '800' }}>Sn</th>
                       <th style={{ padding: '14px 16px', width: '90px', color: '#0f172a', fontWeight: '800' }}>Ad.No</th>
                       <th style={{ padding: '14px 16px', width: '200px', color: '#0f172a', fontWeight: '800' }}>Student Name</th>
-                      <th style={{ padding: '14px 16px', background: assessmentMaxMark === '15' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '15' ? '#0369a1' : '#0f172a', fontWeight: '800' }}>Level 1 (15)</th>
-                      <th style={{ padding: '14px 16px', background: assessmentMaxMark === '20' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '20' ? '#0369a1' : '#0f172a', fontWeight: '800' }}>Level 2 (20)</th>
-                      <th style={{ padding: '14px 16px', background: assessmentMaxMark === '25' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '25' ? '#0369a1' : '#0f172a', fontWeight: '800' }}>Level 3 (25)</th>
-                      <th style={{ padding: '14px 16px', background: assessmentMaxMark === '40' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '40' ? '#0369a1' : '#0f172a', fontWeight: '800' }}>Level 4 (40)</th>
+                      {isHifz ? (
+                        <>
+                          <th colSpan="2" style={{ padding: '14px 16px', background: assessmentMaxMark === '50_1' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '50_1' ? '#0369a1' : '#0f172a', fontWeight: '800' }}>Part 1 (50)</th>
+                          <th colSpan="2" style={{ padding: '14px 16px', background: assessmentMaxMark === '50_2' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '50_2' ? '#0369a1' : '#0f172a', fontWeight: '800' }}>Part 2 (50)</th>
+                        </>
+                      ) : (
+                        <>
+                          <th style={{ padding: '14px 16px', background: assessmentMaxMark === '15' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '15' ? '#0369a1' : '#0f172a', fontWeight: '800' }}>Lvl 1 (15)</th>
+                          <th style={{ padding: '14px 16px', background: assessmentMaxMark === '20' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '20' ? '#0369a1' : '#0f172a', fontWeight: '800' }}>Lvl 2 (20)</th>
+                          <th style={{ padding: '14px 16px', background: assessmentMaxMark === '25' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '25' ? '#0369a1' : '#0f172a', fontWeight: '800' }}>Lvl 3 (25)</th>
+                          <th style={{ padding: '14px 16px', background: assessmentMaxMark === '40' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '40' ? '#0369a1' : '#0f172a', fontWeight: '800' }}>Lvl 4 (40)</th>
+                        </>
+                      )}
                       <th style={{ padding: '14px 16px', color: '#1e40af', fontWeight: '800' }}>Total (/100)</th>
                       <th style={{ padding: '14px 16px', color: '#047857', fontWeight: '800' }}>Scaled (/30)</th>
                     </tr>
@@ -622,12 +641,12 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                   <tbody>
                     {classStudents.map((student, index) => {
                       const marks = studentMarks[student.regNo] || {};
-                      const m1 = parseFloat(marks['15']) || 0;
-                      const m2 = parseFloat(marks['20']) || 0;
-                      const m3 = parseFloat(marks['25']) || 0;
-                      const m4 = parseFloat(marks['40']) || 0;
+                      const m1 = parseFloat(marks[isHifz ? '50_1' : '15']) || 0;
+                      const m2 = parseFloat(marks[isHifz ? '50_2' : '20']) || 0;
+                      const m3 = isHifz ? 0 : (parseFloat(marks['25']) || 0);
+                      const m4 = isHifz ? 0 : (parseFloat(marks['40']) || 0);
                       const total100 = m1 + m2 + m3 + m4;
-                      const scaled30 = total100 > 0 ? ((total100 / 100) * 30).toFixed(1) : '-';
+                      const scaled30 = isHifz ? '-' : (total100 > 0 ? ((total100 / 100) * 30).toFixed(1) : '-');
 
                       return (
                         <tr key={student.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: '#ffffff' }}>
@@ -635,49 +654,77 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                           <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>{student.adNo}</td>
                           <td style={{ padding: '16px', color: '#0f172a', fontWeight: '800', fontSize: '15px' }}>{student.firstName}</td>
 
-                          <td style={{ padding: '14px 16px', background: assessmentMaxMark === '15' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
-                            {assessmentMaxMark === '15' ? (
-                              <input type="number" max="15" min="0" step="any" data-index={index}
-                                value={marks['15'] ?? ''}
-                                onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
-                                onKeyDown={(e) => handleKeyDown(e, index)}
-                                placeholder="/ 15"
-                                style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
-                            ) : (<span style={{ fontWeight: '700' }}>{marks['15'] || '-'}</span>)}
-                          </td>
+                          {isHifz ? (
+                            <>
+                              {/* HIFZ PART 1 */}
+                              <td colSpan="2" style={{ padding: '14px 16px', background: assessmentMaxMark === '50_1' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
+                                {assessmentMaxMark === '50_1' ? (
+                                  <input type="number" max="50" min="0" step="any" data-index={index}
+                                    value={marks['50_1'] ?? ''}
+                                    onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
+                                    onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 50"
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['50_1'] || '-'}</span>)}
+                              </td>
 
-                          <td style={{ padding: '14px 16px', background: assessmentMaxMark === '20' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
-                            {assessmentMaxMark === '20' ? (
-                              <input type="number" max="20" min="0" step="any" data-index={index}
-                                value={marks['20'] ?? ''}
-                                onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
-                                onKeyDown={(e) => handleKeyDown(e, index)}
-                                placeholder="/ 20"
-                                style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
-                            ) : (<span style={{ fontWeight: '700' }}>{marks['20'] || '-'}</span>)}
-                          </td>
+                              {/* HIFZ PART 2 */}
+                              <td colSpan="2" style={{ padding: '14px 16px', background: assessmentMaxMark === '50_2' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
+                                {assessmentMaxMark === '50_2' ? (
+                                  <input type="number" max="50" min="0" step="any" data-index={index}
+                                    value={marks['50_2'] ?? ''}
+                                    onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
+                                    onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 50"
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['50_2'] || '-'}</span>)}
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              {/* NORMAL LEVEL 1 */}
+                              <td style={{ padding: '14px 16px', background: assessmentMaxMark === '15' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
+                                {assessmentMaxMark === '15' ? (
+                                  <input type="number" max="15" min="0" step="any" data-index={index}
+                                    value={marks['15'] ?? ''}
+                                    onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
+                                    onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 15"
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['15'] || '-'}</span>)}
+                              </td>
 
-                          <td style={{ padding: '14px 16px', background: assessmentMaxMark === '25' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
-                            {assessmentMaxMark === '25' ? (
-                              <input type="number" max="25" min="0" step="any" data-index={index}
-                                value={marks['25'] ?? ''}
-                                onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
-                                onKeyDown={(e) => handleKeyDown(e, index)}
-                                placeholder="/ 25"
-                                style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
-                            ) : (<span style={{ fontWeight: '700' }}>{marks['25'] || '-'}</span>)}
-                          </td>
+                              {/* NORMAL LEVEL 2 */}
+                              <td style={{ padding: '14px 16px', background: assessmentMaxMark === '20' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
+                                {assessmentMaxMark === '20' ? (
+                                  <input type="number" max="20" min="0" step="any" data-index={index}
+                                    value={marks['20'] ?? ''}
+                                    onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
+                                    onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 20"
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['20'] || '-'}</span>)}
+                              </td>
 
-                          <td style={{ padding: '14px 16px', background: assessmentMaxMark === '40' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
-                            {assessmentMaxMark === '40' ? (
-                              <input type="number" max="40" min="0" step="any" data-index={index}
-                                value={marks['40'] ?? ''}
-                                onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
-                                onKeyDown={(e) => handleKeyDown(e, index)}
-                                placeholder="/ 40"
-                                style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
-                            ) : (<span style={{ fontWeight: '700' }}>{marks['40'] || '-'}</span>)}
-                          </td>
+                              {/* NORMAL LEVEL 3 */}
+                              <td style={{ padding: '14px 16px', background: assessmentMaxMark === '25' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
+                                {assessmentMaxMark === '25' ? (
+                                  <input type="number" max="25" min="0" step="any" data-index={index}
+                                    value={marks['25'] ?? ''}
+                                    onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
+                                    onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 25"
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['25'] || '-'}</span>)}
+                              </td>
+
+                              {/* NORMAL LEVEL 4 */}
+                              <td style={{ padding: '14px 16px', background: assessmentMaxMark === '40' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
+                                {assessmentMaxMark === '40' ? (
+                                  <input type="number" max="40" min="0" step="any" data-index={index}
+                                    value={marks['40'] ?? ''}
+                                    onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
+                                    onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 40"
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['40'] || '-'}</span>)}
+                              </td>
+                            </>
+                          )}
 
                           <td style={{ padding: '14px 16px' }}>
                             {total100 > 0 ? <span style={{ background: '#dbeafe', color: '#1e40af', padding: '6px 10px', borderRadius: '6px', fontWeight: '800' }}>{total100}</span> : '-'}
@@ -1826,16 +1873,16 @@ function ReportManager() {
         teachersList.push({ id: tDoc.id, fullName: tDoc.data().fullName, username: tDoc.data().username, enrollments: tDoc.data().enrollments || [] });
       });
 
-      let matchedStudents = [];
       let activeSubject = '';
       let sorterAlias = '';
+      let targetTeacherName = '';
+      let baseClassMatchStr = '';
 
       if (inspectorMode === 'class') {
         activeSubject = inspectorSubject;
         sorterAlias = inspectorClass;
-        matchedStudents = allStudents.filter(s => (s.classes || []).includes(inspectorClass));
-      }
-      else if (inspectorMode === 'teacher') {
+        baseClassMatchStr = inspectorClass.toLowerCase();
+      } else if (inspectorMode === 'teacher') {
         const selectedTeacher = teachersList.find(t => t.username === inspectorTeacherUsername);
         const selectedEnrollment = selectedTeacher?.enrollments?.find(e => e.id === inspectorTeacherEnrollmentId);
 
@@ -1848,7 +1895,6 @@ function ReportManager() {
         const rawSub = (selectedEnrollment.subject || '').trim();
         const rawAlias = (selectedEnrollment.alias || '').trim();
 
-        // 🌟 STRICTLY Separate Fiqh and Usul al-Fiqh
         if (rawSub.toUpperCase() === 'U :FIQH' || rawSub.toUpperCase() === 'U:FIQH' || rawAlias.toUpperCase().includes('U :FIQH') || rawAlias.toUpperCase().includes('U:FIQH')) {
           activeSubject = 'U :FIQH';
         } else if (rawSub.toUpperCase() === 'FIQH' || rawAlias.toUpperCase().includes('FIQH')) {
@@ -1858,78 +1904,107 @@ function ReportManager() {
         }
 
         sorterAlias = selectedEnrollment.alias || '';
-        const envAliasLower = String(selectedEnrollment.alias || '').trim().toLowerCase();
-        const envLang = (selectedEnrollment.langTag || '').toLowerCase();
-
-        matchedStudents = allStudents.filter(student => {
-          const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
-          const sReg = String(student.regNo || '').trim().toUpperCase();
-          const sAd = String(student.adNo || '').trim().toUpperCase();
-          const sId = String(student.id || '').trim().toUpperCase();
-          const isUrdu = sAd.startsWith('U');
-
-          if (selectedEnrollment.studentIds && Array.isArray(selectedEnrollment.studentIds)) {
-            const savedIds = selectedEnrollment.studentIds.map(id => String(id).trim().toUpperCase());
-            if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
-              return true;
-            }
-          }
-
-          let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
-
-          if (!classMatch && envAliasLower.includes('m10')) {
-            const isGrade3 = studentClassesLower.some(cls => cls.includes('3'));
-            if (isGrade3 && !isUrdu) classMatch = true;
-          }
-
-          if (!classMatch) {
-            let envGrade = String(selectedEnrollment.grade || '');
-            if (!envGrade) {
-              if (envAliasLower.match(/8|1/)) envGrade = '1';
-              else if (envAliasLower.match(/9|2/)) envGrade = '2';
-              else if (envAliasLower.match(/10|3/)) envGrade = '3';
-            }
-            let stuGrade = '';
-            if (studentClassesLower.some(c => c.includes('1') || c.includes('8'))) stuGrade = '1';
-            else if (studentClassesLower.some(c => c.includes('2') || c.includes('9'))) stuGrade = '2';
-            else if (studentClassesLower.some(c => c.includes('3') || c.includes('10'))) stuGrade = '3';
-
-            if (envGrade && stuGrade && envGrade === stuGrade) classMatch = true;
-          }
-
-          if (classMatch) {
-            if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
-            if (envLang.includes('gen') || envLang.includes('non') || envLang === '') return !isUrdu;
-            return true;
-          }
-          return false;
-        });
+        targetTeacherName = selectedTeacher.fullName;
+        
+        // Extract the base class from the alias to narrow down the search pool
+        const match = envAliasLower.match(/(qh\d|al\d|fc\d|qla\d|hfc\d|u\d|m\d)/);
+        if(match) baseClassMatchStr = match[0];
       }
 
-      matchedStudents = sortStudentsByDepartment(matchedStudents, sorterAlias);
-
-      const marksRecord = {};
-      const teacherRecord = {};
-
-      // 🌟 HELPER: Strictly prevent 'U8 Fiqh' from being confused with 'U :Fiqh'
+      // Helper for distinct subject match
       const isMatchingSubject = (inspSub, envSub, envAliasUpper) => {
         const isInspUsul = inspSub === 'U :FIQH' || inspSub === 'U:FIQH';
         const isEnvUsul = envSub === 'U :FIQH' || envSub === 'U:FIQH' || envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH');
-
         if (isInspUsul) return isEnvUsul;
-
-        if (inspSub === 'FIQH') {
-          const hasFiqh = envSub === 'FIQH' || envAliasUpper.includes('FIQH');
-          return hasFiqh && !isEnvUsul;
-        }
-
-        return (envSub === inspSub) ||
-          (inspSub === 'LOGIC' && envSub === 'MANTIQ') ||
-          (inspSub === 'MANTIQ' && envSub === 'LOGIC') ||
-          envAliasUpper.includes(inspSub);
+        if (inspSub === 'FIQH') return (envSub === 'FIQH' || envAliasUpper.includes('FIQH')) && !isEnvUsul;
+        return (envSub === inspSub) || (inspSub === 'LOGIC' && envSub === 'MANTIQ') || (inspSub === 'MANTIQ' && envSub === 'LOGIC') || envAliasUpper.includes(inspSub);
       };
 
-      for (const student of matchedStudents) {
+      const marksRecord = {};
+      const teacherRecord = {};
+      let finalMatchedStudents = [];
+
+      // Loop through all students that might be in this grade/class
+      for (const student of allStudents) {
+        const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
+        
+        // Broad class check to avoid unnecessary processing
+        if (baseClassMatchStr && !studentClassesLower.some(c => c.includes(baseClassMatchStr)) && !studentClassesLower.some(c => c.includes('m10') || c.includes('3'))) {
+            continue; 
+        }
+
+        const sReg = String(student.regNo || '').trim().toUpperCase();
+        const sAd = String(student.adNo || '').trim().toUpperCase();
+        const sId = String(student.id || '').trim().toUpperCase();
+        const isUrdu = sAd.startsWith('U');
+        let assignedTeacher = 'Unassigned';
+
+        // PASS 1: Manual Overrides
+        for (const teacher of teachersList) {
+          const matchingManualEnv = teacher.enrollments.find(env => {
+            const envSub = String(env.subject || '').trim().toUpperCase();
+            const inspSub = activeSubject.toUpperCase();
+            const envAliasUpper = String(env.alias || '').trim().toUpperCase();
+            if (!isMatchingSubject(inspSub, envSub, envAliasUpper)) return false;
+            if (env.studentIds && Array.isArray(env.studentIds)) {
+              const savedIds = env.studentIds.map(id => String(id).trim().toUpperCase());
+              if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) return true;
+            }
+            return false;
+          });
+          if (matchingManualEnv) { assignedTeacher = teacher.fullName; break; }
+        }
+
+        // PASS 2: Auto-Fallback
+        if (assignedTeacher === 'Unassigned') {
+          for (const teacher of teachersList) {
+            const matchingAutoEnv = teacher.enrollments.find(env => {
+              const envSub = String(env.subject || '').trim().toUpperCase();
+              const inspSub = activeSubject.toUpperCase();
+              const envAliasUpper = String(env.alias || '').trim().toUpperCase();
+              const envLang = String(env.langTag || '').trim().toLowerCase();
+
+              if (!isMatchingSubject(inspSub, envSub, envAliasUpper)) return false;
+
+              const envAliasLower = String(env.alias || '').trim().toLowerCase();
+              let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
+              if (!classMatch && envAliasLower.includes('m10')) {
+                if (studentClassesLower.some(cls => cls.includes('3')) && !isUrdu) classMatch = true;
+              }
+              if (!classMatch) {
+                let envGrade = String(env.grade || '');
+                if (!envGrade) {
+                  if (envAliasLower.match(/8|1/)) envGrade = '1';
+                  else if (envAliasLower.match(/9|2/)) envGrade = '2';
+                  else if (envAliasLower.match(/10|3/)) envGrade = '3';
+                }
+                let stuGrade = '';
+                if (studentClassesLower.some(c => c.includes('1') || c.includes('8'))) stuGrade = '1';
+                else if (studentClassesLower.some(c => c.includes('2') || c.includes('9'))) stuGrade = '2';
+                else if (studentClassesLower.some(c => c.includes('3') || c.includes('10'))) stuGrade = '3';
+                if (envGrade && stuGrade && envGrade === stuGrade) classMatch = true;
+              }
+
+              if (classMatch) {
+                if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
+                if (envLang.includes('gen') || envLang.includes('non') || envLang === '') return !isUrdu;
+                return true;
+              }
+              return false;
+            });
+
+            if (matchingAutoEnv) { assignedTeacher = teacher.fullName; break; }
+          }
+        }
+
+        // 🌟 STRICT FILTER: Only keep this student if they belong to the selected teacher / class
+        if (inspectorMode === 'teacher' && assignedTeacher !== targetTeacherName) continue;
+        if (inspectorMode === 'class' && assignedTeacher === 'Unassigned') continue; // Optional: Hide completely unassigned students in class view
+
+        teacherRecord[student.regNo || student.id] = assignedTeacher;
+        finalMatchedStudents.push(student);
+
+        // Fetch their marks securely
         let markSnap = null;
         const possibleKeys = [student.regNo, student.id, student.adNo, student.admissionNo].filter(Boolean);
         for (const key of possibleKeys) {
@@ -1939,115 +2014,24 @@ function ReportManager() {
 
         if (markSnap && markSnap.exists()) {
           const studentMarksData = markSnap.data();
-
           const foundSubjectKey = Object.keys(studentMarksData).find(k => {
             const kUp = k.trim().toUpperCase();
             const actUp = activeSubject.trim().toUpperCase();
-
             const isActUsul = actUp === 'U :FIQH' || actUp === 'U:FIQH';
             const isKUpUsul = kUp === 'U :FIQH' || kUp === 'U:FIQH';
-
             if (isActUsul) return isKUpUsul;
             if (actUp === 'FIQH') return kUp === 'FIQH' && !isKUpUsul;
             return kUp === actUp;
           });
-
           marksRecord[student.regNo || student.id] = foundSubjectKey ? studentMarksData[foundSubjectKey] : {};
         } else {
           marksRecord[student.regNo || student.id] = {};
         }
-
-        if (inspectorMode === 'teacher') {
-          teacherRecord[student.regNo || student.id] = teachersList.find(t => t.username === inspectorTeacherUsername)?.fullName || 'Assigned';
-        } else {
-          let assignedTeacher = 'Unassigned';
-          const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
-          if (!studentClassesLower.includes(inspectorClass.toLowerCase())) {
-            studentClassesLower.push(inspectorClass.toLowerCase());
-          }
-
-          const sReg = String(student.regNo || '').trim().toUpperCase();
-          const sAd = String(student.adNo || '').trim().toUpperCase();
-          const sId = String(student.id || '').trim().toUpperCase();
-          const isUrdu = sAd.startsWith('U');
-
-          // 🌟 PASS 1: HIGHEST PRIORITY - Check Manual Assignments (Protects your Shafi/Hanafi split)
-          for (const teacher of teachersList) {
-            const matchingManualEnv = teacher.enrollments.find(env => {
-              const envSub = String(env.subject || '').trim().toUpperCase();
-              const inspSub = inspectorSubject.trim().toUpperCase();
-              const envAliasUpper = String(env.alias || '').trim().toUpperCase();
-
-              if (!isMatchingSubject(inspSub, envSub, envAliasUpper)) return false;
-
-              if (env.studentIds && Array.isArray(env.studentIds)) {
-                const savedIds = env.studentIds.map(id => String(id).trim().toUpperCase());
-                if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
-                  return true;
-                }
-              }
-              return false;
-            });
-
-            if (matchingManualEnv) {
-              assignedTeacher = teacher.fullName || teacher.id;
-              break;
-            }
-          }
-
-          // 🌟 PASS 2: AUTO-ASSIGNMENT FALLBACK (Only for students you didn't manually check)
-          if (assignedTeacher === 'Unassigned') {
-            for (const teacher of teachersList) {
-              const matchingAutoEnv = teacher.enrollments.find(env => {
-                const envSub = String(env.subject || '').trim().toUpperCase();
-                const inspSub = inspectorSubject.trim().toUpperCase();
-                const envAliasUpper = String(env.alias || '').trim().toUpperCase();
-                const envLang = String(env.langTag || '').trim().toLowerCase();
-
-                if (!isMatchingSubject(inspSub, envSub, envAliasUpper)) return false;
-
-                const envAliasLower = String(env.alias || '').trim().toLowerCase();
-                let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
-
-                if (!classMatch && envAliasLower.includes('m10')) {
-                  const isGrade3 = studentClassesLower.some(cls => cls.includes('3'));
-                  if (isGrade3 && !isUrdu) classMatch = true;
-                }
-
-                if (!classMatch) {
-                  let envGrade = String(env.grade || '');
-                  if (!envGrade) {
-                    if (envAliasLower.match(/8|1/)) envGrade = '1';
-                    else if (envAliasLower.match(/9|2/)) envGrade = '2';
-                    else if (envAliasLower.match(/10|3/)) envGrade = '3';
-                  }
-                  let stuGrade = '';
-                  if (studentClassesLower.some(c => c.includes('1') || c.includes('8'))) stuGrade = '1';
-                  else if (studentClassesLower.some(c => c.includes('2') || c.includes('9'))) stuGrade = '2';
-                  else if (studentClassesLower.some(c => c.includes('3') || c.includes('10'))) stuGrade = '3';
-
-                  if (envGrade && stuGrade && envGrade === stuGrade) classMatch = true;
-                }
-
-                if (classMatch) {
-                  if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
-                  if (envLang.includes('gen') || envLang.includes('non') || envLang === '') return !isUrdu;
-                  return true;
-                }
-                return false;
-              });
-
-              if (matchingAutoEnv) {
-                assignedTeacher = teacher.fullName || teacher.id;
-                break;
-              }
-            }
-          }
-          teacherRecord[student.regNo || student.id] = assignedTeacher;
-        }
       }
 
-      setSubjectLevelMarks({ students: matchedStudents, records: marksRecord, teachers: teacherRecord });
+      finalMatchedStudents = sortStudentsByDepartment(finalMatchedStudents, sorterAlias);
+      setSubjectLevelMarks({ students: finalMatchedStudents, records: marksRecord, teachers: teacherRecord });
+
     } catch (err) {
       console.error('Error fetching subject level marks:', err);
     } finally {
@@ -2174,10 +2158,12 @@ function ReportManager() {
         let sum15 = 0, sum20 = 0, sum25 = 0, sum40 = 0, sum100 = 0;
 
         let exactSubject = (env.alias?.toUpperCase().includes('U :FIQH') || env.subject?.toUpperCase().includes('U :FIQH')) ? 'U :FIQH' : (env.subject || '').trim();
+        let isEnvHifz = exactSubject.toUpperCase() === 'HIFZ';
 
         matchedStudents.forEach(st => {
           const stMarksData = allMarks[st.regNo] || allMarks[st.id] || allMarks[st.adNo];
           if (stMarksData) {
+            // Updated key finder logic included here to match Hifz perfectly
             const foundSubjectKey = Object.keys(stMarksData).find(k => {
               const kUp = k.trim().toUpperCase();
               const actUp = exactSubject.trim().toUpperCase();
@@ -2189,16 +2175,20 @@ function ReportManager() {
             if (foundSubjectKey && stMarksData[foundSubjectKey]) {
               const m = stMarksData[foundSubjectKey];
               let t100 = 0;
-              if (m['15'] !== undefined && m['15'] !== '') { sum15 += parseFloat(m['15']); t100 += parseFloat(m['15']); }
-              if (m['20'] !== undefined && m['20'] !== '') { sum20 += parseFloat(m['20']); t100 += parseFloat(m['20']); }
-              if (m['25'] !== undefined && m['25'] !== '') { sum25 += parseFloat(m['25']); t100 += parseFloat(m['25']); }
-              if (m['40'] !== undefined && m['40'] !== '') { sum40 += parseFloat(m['40']); t100 += parseFloat(m['40']); }
+              if (isEnvHifz) {
+                if (m['50_1'] !== undefined && m['50_1'] !== '') { sum15 += parseFloat(m['50_1']); t100 += parseFloat(m['50_1']); }
+                if (m['50_2'] !== undefined && m['50_2'] !== '') { sum20 += parseFloat(m['50_2']); t100 += parseFloat(m['50_2']); }
+              } else {
+                if (m['15'] !== undefined && m['15'] !== '') { sum15 += parseFloat(m['15']); t100 += parseFloat(m['15']); }
+                if (m['20'] !== undefined && m['20'] !== '') { sum20 += parseFloat(m['20']); t100 += parseFloat(m['20']); }
+                if (m['25'] !== undefined && m['25'] !== '') { sum25 += parseFloat(m['25']); t100 += parseFloat(m['25']); }
+                if (m['40'] !== undefined && m['40'] !== '') { sum40 += parseFloat(m['40']); t100 += parseFloat(m['40']); }
+              }
               sum100 += t100;
             }
           }
         });
 
-        // Total enrolled includes absent students. Divides sums by totalEnrolled.
         const totalEnrolled = matchedStudents.length;
 
         results.push({
@@ -2207,10 +2197,10 @@ function ReportManager() {
           teacherName: env.teacherName,
           avg15: totalEnrolled > 0 ? (sum15 / totalEnrolled).toFixed(1) : '-',
           avg20: totalEnrolled > 0 ? (sum20 / totalEnrolled).toFixed(1) : '-',
-          avg25: totalEnrolled > 0 ? (sum25 / totalEnrolled).toFixed(1) : '-',
-          avg40: totalEnrolled > 0 ? (sum40 / totalEnrolled).toFixed(1) : '-',
+          avg25: isEnvHifz ? '-' : (totalEnrolled > 0 ? (sum25 / totalEnrolled).toFixed(1) : '-'),
+          avg40: isEnvHifz ? '-' : (totalEnrolled > 0 ? (sum40 / totalEnrolled).toFixed(1) : '-'),
           avg100: totalEnrolled > 0 ? (sum100 / totalEnrolled).toFixed(1) : '-',
-          avg30: totalEnrolled > 0 ? (((sum100 / totalEnrolled) / 100) * 30).toFixed(1) : '-',
+          avg30: isEnvHifz ? '-' : (totalEnrolled > 0 ? (((sum100 / totalEnrolled) / 100) * 30).toFixed(1) : '-'),
           studentCount: totalEnrolled
         });
       }

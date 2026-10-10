@@ -105,7 +105,7 @@ export default function StudentDashboard() {
 
   const [isLoadingMarks, setIsLoadingMarks] = useState(false);
   const [subjectAggregates, setSubjectAggregates] = useState([]);
-  const [overallStats, setOverallStats] = useState({ total1400: '-', total420: '-', rank: '-', overallStatus: '-' });
+  const [overallStats, setOverallStats] = useState({ total1400: '-', total490: '-', rank: '-', overallStatus: '-' });
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -211,84 +211,88 @@ export default function StudentDashboard() {
 
   const processMarksLocally = (marksData, expectedSubjects, myRank, allMarksData) => {
     let total1400 = 0;
-    let total420 = 0;
+    let total490 = 0;
     let hasAnyOverallData = false;
     const subjectList = [];
 
     expectedSubjects.forEach(subObj => {
       const sub = subObj.subject;
       const normKey = sub.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+      const isHifz = sub.toUpperCase() === 'HIFZ';
       
       const foundSubjectKey = Object.keys(marksData).find(k => checkSubjectMatch(k, sub));
       const subMarks = foundSubjectKey ? marksData[foundSubjectKey] : {};
       
-      let levelGradingStarted = { '15': false, '20': false, '25': false, '40': false };
+      let levelGradingStarted = isHifz 
+        ? { '50_1': false, '50_2': false } 
+        : { '15': false, '20': false, '25': false, '40': false };
       
       for (let studentId in allMarksData) {
           const stMarks = allMarksData[studentId];
-          // 🌟 STRICT MATCH: Only look for the exact matched key for this student, not a global loose search
-          const exactFoundKey = Object.keys(stMarks).find(k => checkSubjectMatch(k, sub));
-          if (exactFoundKey) {
-              const globalSubMarks = stMarks[exactFoundKey];
-              // Verify that the data object actually contains a valid non-empty mark entry
-              if (globalSubMarks && typeof globalSubMarks === 'object') {
-                  if (globalSubMarks['15'] !== undefined && globalSubMarks['15'] !== '' && globalSubMarks['15'] !== '-') levelGradingStarted['15'] = true;
-                  if (globalSubMarks['20'] !== undefined && globalSubMarks['20'] !== '' && globalSubMarks['20'] !== '-') levelGradingStarted['20'] = true;
-                  if (globalSubMarks['25'] !== undefined && globalSubMarks['25'] !== '' && globalSubMarks['25'] !== '-') levelGradingStarted['25'] = true;
-                  if (globalSubMarks['40'] !== undefined && globalSubMarks['40'] !== '' && globalSubMarks['40'] !== '-') levelGradingStarted['40'] = true;
+          const anyFoundKey = Object.keys(stMarks).find(k => checkSubjectMatch(k, sub));
+          if (anyFoundKey) {
+              const globalSubMarks = stMarks[anyFoundKey];
+              if (isHifz) {
+                  if (globalSubMarks['50_1'] !== undefined && globalSubMarks['50_1'] !== '') levelGradingStarted['50_1'] = true;
+                  if (globalSubMarks['50_2'] !== undefined && globalSubMarks['50_2'] !== '') levelGradingStarted['50_2'] = true;
+              } else {
+                  if (globalSubMarks['15'] !== undefined && globalSubMarks['15'] !== '') levelGradingStarted['15'] = true;
+                  if (globalSubMarks['20'] !== undefined && globalSubMarks['20'] !== '') levelGradingStarted['20'] = true;
+                  if (globalSubMarks['25'] !== undefined && globalSubMarks['25'] !== '') levelGradingStarted['25'] = true;
+                  if (globalSubMarks['40'] !== undefined && globalSubMarks['40'] !== '') levelGradingStarted['40'] = true;
               }
           }
       }
       
-      let l1 = subMarks['15'] !== undefined ? Number(subMarks['15']) : '-';
-      let l2 = subMarks['20'] !== undefined ? Number(subMarks['20']) : '-';
-      let l3 = subMarks['25'] !== undefined ? Number(subMarks['25']) : '-';
-      let l4 = subMarks['40'] !== undefined ? Number(subMarks['40']) : '-';
-
       let subSumObtained = 0;
       let subSumMax = 0; 
       let hasData = false;
+      let assessments = {};
 
-      if (l1 !== '-') { subSumObtained += l1; subSumMax += 15; hasData = true; }
-      if (l2 !== '-') { subSumObtained += l2; subSumMax += 20; hasData = true; }
-      if (l3 !== '-') { subSumObtained += l3; subSumMax += 25; hasData = true; }
-      if (l4 !== '-') { subSumObtained += l4; subSumMax += 40; hasData = true; }
+      if (isHifz) {
+          let h1 = subMarks['50_1'] !== undefined ? Number(subMarks['50_1']) : '-';
+          let h2 = subMarks['50_2'] !== undefined ? Number(subMarks['50_2']) : '-';
+          assessments = { '50_1': h1, '50_2': h2 };
+          if (h1 !== '-') { subSumObtained += h1; subSumMax += 50; hasData = true; }
+          if (h2 !== '-') { subSumObtained += h2; subSumMax += 50; hasData = true; }
+      } else {
+          let l1 = subMarks['15'] !== undefined ? Number(subMarks['15']) : '-';
+          let l2 = subMarks['20'] !== undefined ? Number(subMarks['20']) : '-';
+          let l3 = subMarks['25'] !== undefined ? Number(subMarks['25']) : '-';
+          let l4 = subMarks['40'] !== undefined ? Number(subMarks['40']) : '-';
+          assessments = { '15': l1, '20': l2, '25': l3, '40': l4 };
+          if (l1 !== '-') { subSumObtained += l1; subSumMax += 15; hasData = true; }
+          if (l2 !== '-') { subSumObtained += l2; subSumMax += 20; hasData = true; }
+          if (l3 !== '-') { subSumObtained += l3; subSumMax += 25; hasData = true; }
+          if (l4 !== '-') { subSumObtained += l4; subSumMax += 40; hasData = true; }
+      }
 
       let total100 = hasData ? subSumObtained : '-';
-      let sem30 = hasData ? Number((subSumObtained * 0.3).toFixed(1)) : '-';
+      // HIFZ directly uses the 100 mark total for the semester aggregate instead of 30%
+      let semScore = isHifz ? total100 : (hasData ? Number((subSumObtained * 0.3).toFixed(1)) : '-');
       
-      let status = hasData && subSumMax > 0 
-        ? ((subSumObtained / subSumMax) * 100).toFixed(0) + '%' 
-        : '-';
+      let status = hasData && subSumMax > 0 ? ((subSumObtained / subSumMax) * 100).toFixed(0) + '%' : '-';
 
       if (hasData) {
         total1400 += total100;
-        total420 += sem30;
+        total490 += semScore;
         hasAnyOverallData = true;
       }
 
-      subjectList.push({
-        subject: normKey,
-        assessments: { '15': l1, '20': l2, '25': l3, '40': l4 },
-        total100: total100,
-        total30: sem30,
-        status: status,
-        hasData,
-        levelGradingStarted 
-      });
+      subjectList.push({ subject: normKey, isHifz, assessments, total100, semScore, status, hasData, levelGradingStarted });
     });
 
     let overallStatus = '-';
     if (hasAnyOverallData) {
-      let overallObtained = total1400 + total420;
-      let overallMax = 1820; 
+      let overallObtained = total1400 + total490;
+      let overallMax = 1890; // (1400 + 490)
       overallStatus = ((overallObtained / overallMax) * 100).toFixed(2) + '%';
     }
 
     setSubjectAggregates(subjectList);
     setOverallStats({
       total1400: hasAnyOverallData ? total1400 : '-',
-      total420: hasAnyOverallData ? total420.toFixed(1) : '-',
+      total490: hasAnyOverallData ? total490.toFixed(1) : '-',
       rank: hasAnyOverallData ? myRank : '-',
       overallStatus: overallStatus
     });
@@ -390,7 +394,7 @@ export default function StudentDashboard() {
           <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', textAlign: 'center' }}>
             <h4 style={{ margin: '0 0 10px 0', color: '#64748b', fontSize: '14px', textTransform: 'uppercase' }}>Total Sem Score</h4>
             <div style={{ fontSize: '32px', fontWeight: '900', color: '#0f172a' }}>
-              {overallStats.total420} <span style={{ fontSize: '18px', color: '#94a3b8', fontWeight: '600' }}>/ 420</span>
+              {overallStats.total490} <span style={{ fontSize: '18px', color: '#94a3b8', fontWeight: '600' }}>/ 490</span>
             </div>
           </div>
 
@@ -437,24 +441,28 @@ export default function StudentDashboard() {
                 <tbody>
                   {subjectAggregates.map((data, idx) => (
                     <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                      
                       <td style={{ padding: '16px', textAlign: 'left' }}>
                         <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '15px' }}>{data.subject}</div>
                       </td>
                       
-                      <td style={{ padding: '16px' }}>{renderMarkCell(data.assessments?.['15'], data.levelGradingStarted?.['15'])}</td>
-                      <td style={{ padding: '16px' }}>{renderMarkCell(data.assessments?.['20'], data.levelGradingStarted?.['20'])}</td>
-                      <td style={{ padding: '16px' }}>{renderMarkCell(data.assessments?.['25'], data.levelGradingStarted?.['25'])}</td>
-                      <td style={{ padding: '16px' }}>{renderMarkCell(data.assessments?.['40'], data.levelGradingStarted?.['40'])}</td>
+                      {data.isHifz ? (
+                        <>
+                           <td colSpan="2" style={{ padding: '16px' }}>{renderMarkCell(data.assessments?.['50_1'], data.levelGradingStarted?.['50_1'])} <span style={{fontSize:'12px', color:'#94a3b8'}}>(/50)</span></td>
+                           <td colSpan="2" style={{ padding: '16px' }}>{renderMarkCell(data.assessments?.['50_2'], data.levelGradingStarted?.['50_2'])} <span style={{fontSize:'12px', color:'#94a3b8'}}>(/50)</span></td>
+                        </>
+                      ) : (
+                        <>
+                           <td style={{ padding: '16px' }}>{renderMarkCell(data.assessments?.['15'], data.levelGradingStarted?.['15'])}</td>
+                           <td style={{ padding: '16px' }}>{renderMarkCell(data.assessments?.['20'], data.levelGradingStarted?.['20'])}</td>
+                           <td style={{ padding: '16px' }}>{renderMarkCell(data.assessments?.['25'], data.levelGradingStarted?.['25'])}</td>
+                           <td style={{ padding: '16px' }}>{renderMarkCell(data.assessments?.['40'], data.levelGradingStarted?.['40'])}</td>
+                        </>
+                      )}
                       
                       <td style={{ padding: '16px', fontWeight: '800', color: '#0f172a', borderLeft: '1px solid #e2e8f0' }}>{data.total100}</td>
-                      <td style={{ padding: '16px', fontWeight: '800', color: '#0f172a' }}>{data.total30}</td>
+                      <td style={{ padding: '16px', fontWeight: '800', color: '#0f172a' }}>{data.semScore}</td>
                       <td style={{ padding: '16px' }}>
-                        <span style={{ 
-                          ...styles.badge, 
-                          background: data.status !== '-' ? '#e0f2fe' : '#f1f5f9', 
-                          color: data.status !== '-' ? '#0369a1' : '#64748b'
-                        }}>
+                        <span style={{ ...styles.badge, background: data.status !== '-' ? '#e0f2fe' : '#f1f5f9', color: data.status !== '-' ? '#0369a1' : '#64748b' }}>
                           {data.status}
                         </span>
                       </td>
