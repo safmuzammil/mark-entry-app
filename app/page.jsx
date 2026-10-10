@@ -144,6 +144,9 @@ function TeacherPasswordSettings() {
 // ==========================================
 // 🌟 FULLY UPGRADED TEACHER PORTAL VIEW
 // ==========================================
+// ==========================================
+// 🌟 FULLY UPGRADED TEACHER PORTAL VIEW
+// ==========================================
 function TeacherPortalView({ loggedInTeacher, onLogout }) {
   const teacherEnrollments = loggedInTeacher?.enrollments || [];
 
@@ -554,7 +557,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
       )}
 
       {activeView === 'settings' ? (
-        typeof TeacherPasswordSettings !== 'undefined' ? <TeacherPasswordSettings /> : <div>Settings component missing</div>
+        typeof TeacherPasswordSettings !== 'undefined' ? <TeacherPasswordSettings/> : <div>Settings component missing</div>
       ) : (
         <>
           <div style={typeof styles !== 'undefined' ? styles.card : { background: '#ffffff', padding: '32px', borderRadius: '16px', border: '1px solid #f1f5f9', marginBottom: '24px' }}>
@@ -725,6 +728,9 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     </div>
   );
 }
+
+// ==========================================
+// ADMIN COMPONENTS
 
 // ADMIN COMPONENTS
 // ==========================================
