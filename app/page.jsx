@@ -1811,11 +1811,10 @@ function ReportManager() {
 
     const mappedResults = filtered.map((s) => {
       let printedMetric = 'Missing / -';
-      
+      const stMarks = localFirebaseMarks[s.regNo] || localFirebaseMarks[s.id] || localFirebaseMarks[s.adNo];
+
       if (exportMetric === 'SUBJECT') {
         const exactSub = exportSubject.toUpperCase();
-        const stMarks = localFirebaseMarks[s.regNo] || localFirebaseMarks[s.id] || localFirebaseMarks[s.adNo];
-        
         if (stMarks) {
           const foundKey = Object.keys(stMarks).find(k => k.trim().toUpperCase() === exactSub || (exactSub.includes('FIQH') && k.trim().toUpperCase().includes('FIQH')));
           if (foundKey && stMarks[foundKey]) {
@@ -1825,7 +1824,7 @@ function ReportManager() {
             if (exactSub === 'HIFZ') {
               if (m['50_1'] !== undefined && m['50_1'] !== '') { total100 += parseFloat(m['50_1']); hasData = true; }
               if (m['50_2'] !== undefined && m['50_2'] !== '') { total100 += parseFloat(m['50_2']); hasData = true; }
-              printedMetric = hasData ? total100 : 'Missing / -'; // Hifz does not scale to 30
+              printedMetric = hasData ? total100 : 'Missing / -'; 
             } else {
               if (m['15'] !== undefined && m['15'] !== '') { total100 += parseFloat(m['15']); hasData = true; }
               if (m['20'] !== undefined && m['20'] !== '') { total100 += parseFloat(m['20']); hasData = true; }
@@ -1836,11 +1835,47 @@ function ReportManager() {
           }
         }
       } else {
-        const info = overallMarksCache[s.regNo];
-        if (info) {
-          if (exportMetric === 'STATUS') printedMetric = info.overall?.['STATUS'] || 'Missing / -';
-          else if (exportMetric === '1400') printedMetric = info.overall?.['1400'] || 'Missing / -';
-          else if (exportMetric === '490') printedMetric = info.overall?.['490'] || 'Missing / -';
+        // 🌟 CALCULATE 490, 1400, AND STATUS LOCALLY (BYPASSING GOOGLE SHEETS)
+        if (stMarks && Object.keys(stMarks).length > 0) {
+          let total1400 = 0;
+          let total490 = 0;
+          let hasAnyData = false;
+
+          Object.keys(stMarks).forEach(subKey => {
+            const m = stMarks[subKey];
+            const isHifz = subKey.toUpperCase() === 'HIFZ';
+            let subSumObtained = 0;
+            let subHasData = false;
+
+            if (isHifz) {
+              if (m['50_1'] !== undefined && m['50_1'] !== '') { subSumObtained += parseFloat(m['50_1']); subHasData = true; }
+              if (m['50_2'] !== undefined && m['50_2'] !== '') { subSumObtained += parseFloat(m['50_2']); subHasData = true; }
+            } else {
+              if (m['15'] !== undefined && m['15'] !== '') { subSumObtained += parseFloat(m['15']); subHasData = true; }
+              if (m['20'] !== undefined && m['20'] !== '') { subSumObtained += parseFloat(m['20']); subHasData = true; }
+              if (m['25'] !== undefined && m['25'] !== '') { subSumObtained += parseFloat(m['25']); subHasData = true; }
+              if (m['40'] !== undefined && m['40'] !== '') { subSumObtained += parseFloat(m['40']); subHasData = true; }
+            }
+
+            if (subHasData) {
+              hasAnyData = true;
+              total1400 += subSumObtained;
+              // Normal subjects scale to 30%, Hifz takes the raw out of 100
+              total490 += isHifz ? subSumObtained : Number(((subSumObtained / 100) * 30).toFixed(1));
+            }
+          });
+
+          if (hasAnyData) {
+            if (exportMetric === '490') {
+              printedMetric = total490.toFixed(1);
+            } else if (exportMetric === '1400') {
+              printedMetric = total1400.toString();
+            } else if (exportMetric === 'STATUS') {
+              let overallMax = 1890; // 1400 + 490
+              let overallObtained = total1400 + total490;
+              printedMetric = ((overallObtained / overallMax) * 100).toFixed(2) + '%';
+            }
+          }
         }
       }
       return { ...s, displayMetric: printedMetric };
