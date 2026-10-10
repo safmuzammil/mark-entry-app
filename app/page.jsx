@@ -138,13 +138,6 @@ function TeacherPasswordSettings() {
   );
 }
 
-// ==========================================
-// 🌟 FULLY UPGRADED TEACHER PORTAL VIEW
-// ==========================================
-// ==========================================
-// 🌟 FULLY UPGRADED TEACHER PORTAL VIEW
-// ==========================================
-// ==========================================
 // 🌟 FULLY UPGRADED TEACHER PORTAL VIEW
 // ==========================================
 function TeacherPortalView({ loggedInTeacher, onLogout }) {
