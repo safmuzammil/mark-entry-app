@@ -141,6 +141,9 @@ function TeacherPasswordSettings() {
 // ==========================================
 // 🌟 FULLY UPGRADED TEACHER PORTAL VIEW
 // ==========================================
+// ==========================================
+// 🌟 FULLY UPGRADED TEACHER PORTAL VIEW
+// ==========================================
 function TeacherPortalView({ loggedInTeacher, onLogout }) {
   // 🌟 CRASH FIX: Ensure enrollments is always an array, even if the teacher has none yet.
   const teacherEnrollments = loggedInTeacher?.enrollments || [];
@@ -157,7 +160,6 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     if (isHifz && !cceLevel.includes('Part')) setCceLevel('Part 1 (Max 50)');
     if (!isHifz && cceLevel.includes('Part')) setCceLevel('Level 1');
   }, [isHifz, cceLevel]);
-
 
   // Failsafe for CCE_LEVELS if it's defined globally outside
   const assessmentMaxMark = activeLevels[cceLevel] || (isHifz ? '50_1' : '15');
@@ -243,7 +245,6 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     }
     fetchReminderAndChecklist();
   }, [loggedInTeacher, allStudentsCache, studentMarks, teacherEnrollments]);
-
 
   useEffect(() => {
     async function fetchStudents() {
@@ -358,14 +359,13 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     }
   };
 
-  const handleKeyDown = (e, currentIndex) => {
+const handleKeyDown = (e, currentIndex) => {
     if (e.key === 'Enter' || e.key === 'ArrowDown') {
       e.preventDefault();
       const nextInput = document.querySelector(`input[data-index="${currentIndex + 1}"]`);
       if (nextInput) nextInput.focus();
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      // 🌟 SYNTAX ERROR FIX: Cleaned up the broken newline issue
       const prevInput = document.querySelector(`input[data-index="${currentIndex - 1}"]`);
       if (prevInput) prevInput.focus();
     }
@@ -443,16 +443,21 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     e.target.value = null;
   };
 
-  const handleBulkSubmit = async (e) => {
+const handleBulkSubmit = async (e) => {
     e.preventDefault();
     let marksPayload = [];
+    
     const currentEnrollment = teacherEnrollments.find(e => e.id === selectedEnrollmentId);
     if (!currentEnrollment) return alert("Please select a valid enrollment before saving.");
 
+    // Hifz dynamic max mark logic
+    const isHifz = currentEnrollment?.subject?.toUpperCase() === 'HIFZ';
     const maxAllowed = isHifz ? 50 : Number(assessmentMaxMark);
+
     const rawSub = (currentEnrollment.subject || '').trim();
     const rawAlias = (currentEnrollment.alias || '').trim();
     let finalSubjectKey = rawSub;
+    
     if (rawAlias.toUpperCase().includes('U :FIQH') || rawSub.toUpperCase().includes('U :FIQH')) {
       finalSubjectKey = 'U :FIQH';
     } else if (rawSub.toUpperCase() === 'MANTIQ') {
@@ -461,10 +466,13 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
 
     setStatusMsg('Saving to database...');
     const firestorePromises = [];
+    
     for (let student of classStudents) {
       let val = studentMarks[student.regNo]?.[assessmentMaxMark];
       if (val !== undefined && val !== '') {
-        if (parseFloat(val) > maxAllowed) return alert(`Marks for ${student.firstName} exceed limit!`);
+        if (parseFloat(val) > maxAllowed) {
+          setStatusMsg('');
+          return alert(`Marks for ${student.firstName} exceed limit!`);
         }
         marksPayload.push({ studentId: student.regNo, subject: finalSubjectKey, maxMarks: assessmentMaxMark, marksObtained: val });
         firestorePromises.push(setDoc(doc(db, 'marks', student.regNo), { [finalSubjectKey]: { [assessmentMaxMark]: Number(val) } }, { merge: true }));
@@ -474,34 +482,34 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     try {
       // 1. Always save to Firebase first
       await Promise.all(firestorePromises);
-      localStorage.removeItem(`draft_marks_${selectedEnrollmentId}`);
+      
+      if (selectedEnrollmentId) {
+        localStorage.removeItem(`draft_marks_${selectedEnrollmentId}`);
+      }
 
       // 2. Safely attempt to Sync to Sheets
       if (typeof WEB_APP_URL !== 'undefined' && marksPayload.length > 0) {
-        setStatusMsg('Database saved! Syncing to Google Sheets...');
-        
-        try {
-          const res = await fetch(WEB_APP_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ marks: marksPayload })
-          });
-          const result = await res.json();
-          if (result.status === 'success') {
-            setStatusMsg('✅ Marks saved to database AND Google Sheets successfully!');
-          } else {
-            setStatusMsg('⚠️ Firebase saved, but Sheets backup failed: ' + result.message);
-          }
-        } catch (fetchErr) {
-          console.warn('Sheets sync skipped/failed:', fetchErr);
-          setStatusMsg('✅ Marks saved to Database securely! (Google Sheets sync unavailable right now)');
+        const res = await fetch(WEB_APP_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8',
+          },
+          body: JSON.stringify({ marks: marksPayload })
+        });
+
+        const result = await res.json();
+
+        if (result.status === 'success') {
+          setStatusMsg('✅ Marks saved to database AND Google Sheets successfully!');
+        } else {
+          setStatusMsg('⚠️ Firebase updated, but Sheets backup error: ' + result.message);
         }
       } else {
         setStatusMsg('✅ Marks saved to database successfully!');
       }
     } catch (err) {
       console.error("Submission Error:", err);
-      setStatusMsg('❌ Error saving to database. Please check your connection.');
+      setStatusMsg('❌ Marks saved to database, but network prevented Sheets sync.');
     }
   };
 
@@ -749,6 +757,249 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
   );
 }
 
+  const validMarks = classStudents.map(s => studentMarks[s.regNo]?.[assessmentMaxMark]).filter(v => v !== undefined && v !== '').map(v => parseFloat(v)).filter(v => !isNaN(v));
+  const highestScore = validMarks.length > 0 ? Math.max(...validMarks) : 0;
+  const classAverage = validMarks.length > 0 ? (validMarks.reduce((a, b) => a + b, 0) / validMarks.length).toFixed(1) : 0;
+  const passPercentage = validMarks.length > 0 ? ((validMarks.filter(m => m >= Number(assessmentMaxMark) * 0.4).length / validMarks.length) * 100).toFixed(0) : 0;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: '#ffffff', padding: '20px 24px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '16px' }}>
+        <div>
+          <h1 style={{ margin: '0 0 4px 0', fontSize: '24px', fontWeight: '800', color: '#0f172a' }}>Teacher Portal</h1>
+          <p style={{ margin: 0, color: '#64748b', fontSize: '15px' }}>Welcome, <strong>{loggedInTeacher?.fullName || 'Teacher'}</strong></p>
+        </div>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button onClick={() => setActiveView(activeView === 'marks' ? 'settings' : 'marks')} style={{ padding: '10px 16px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '14px' }}>
+            {activeView === 'marks' ? '⚙️ Settings' : '⬅ Back to Marks'}
+          </button>
+          {/* Ensure styles.buttonDanger is defined globally in your file */}
+          <button onClick={onLogout} style={typeof styles !== 'undefined' ? styles.buttonDanger : { padding: '10px 20px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer' }}>Logout</button>
+        </div>
+      </div>
+
+      {weeklyReminder && reminderChecklist.length > 0 && (
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '20px', borderRadius: '12px', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <span style={{ fontSize: '28px' }}>📅</span>
+            <div>
+              <span style={{ display: 'inline-block', background: '#dbeafe', color: '#1e40af', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', marginBottom: '6px' }}>
+                {weeklyReminder.weekName || 'This Week'}
+              </span>
+              <h4 style={{ margin: '0 0 4px 0', color: '#1e40af', fontSize: '16px', fontWeight: '800' }}>
+                Action Required: Complete Mark Entries
+              </h4>
+              <p style={{ margin: 0, color: '#1e3a8a', fontSize: '14px', fontWeight: '600' }}>{weeklyReminder.message}</p>
+            </div>
+          </div>
+
+          <div style={{ marginTop: '8px', background: '#ffffff', padding: '16px', borderRadius: '8px', border: '1px solid #dbeafe' }}>
+            <h5 style={{ margin: '0 0 12px 0', color: '#0f172a', fontSize: '14px', fontWeight: '800' }}>Your Assigned Tasks:</h5>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+              {reminderChecklist.map((item, idx) => {
+                const isDone = item.missing === 0;
+                const inProgress = item.entered > 0 && item.missing > 0;
+
+                let color = '#dc2626'; // Red (Pending)
+                let icon = '❌';
+                if (isDone) { color = '#047857'; icon = '✅'; } // Green (Done)
+                else if (inProgress) { color = '#d97706'; icon = '⏳'; } // Yellow (In Progress)
+                return (
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: '700', color: color }}>
+                    {icon} {item.alias} <span style={{ color: '#64748b', fontSize: '12px', marginLeft: '6px' }}>(/ {item.targetLevel} max)</span>
+                    {!isDone && <span style={{ fontSize: '12px', fontWeight: '600', color: '#ef4444' }}>({item.missing} pending)</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Make sure TeacherPasswordSettings is imported or defined globally */}
+      {activeView === 'settings' ? (typeof TeacherPasswordSettings !== 'undefined' ? <TeacherPasswordSettings /> : <div>Settings component missing</div>) : (
+        <>
+          {/* Ensure styles.card is defined globally in your file */}
+          <div style={typeof styles !== 'undefined' ? styles.card : { background: '#ffffff', padding: '32px', borderRadius: '16px', border: '1px solid #f1f5f9', marginBottom: '24px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px' }}>
+              <div>
+                <label style={typeof styles !== 'undefined' ? styles.label : { display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '8px' }}>Select Assigned Subject:</label>
+                <select value={selectedEnrollmentId} onChange={(e) => setSelectedEnrollmentId(e.target.value)} style={typeof styles !== 'undefined' ? { ...styles.input, cursor: 'pointer' } : { width: '100%', padding: '12px 16px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                  {teacherEnrollments.map(env => (
+                    <option key={env.id} value={env.id}>{env.alias || `Grade ${env.grade} ${env.subject}`} ({env.langTag || 'Gen'})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={typeof styles !== 'undefined' ? styles.label : { display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '8px' }}>Select Task Level:</label>
+                <select value={cceLevel} onChange={(e) => setCceLevel(e.target.value)} style={typeof styles !== 'undefined' ? { ...styles.input, cursor: 'pointer' } : { width: '100%', padding: '12px 16px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                  {Object.keys(activeLevels).map(level => <option key={level} value={level}>{level}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+            <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+              <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>CLASS AVERAGE</span>
+              <div style={{ fontSize: '22px', color: '#0f172a', fontWeight: '800', marginTop: '4px' }}>{classAverage} / {assessmentMaxMark}</div>
+            </div>
+            <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+              <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>HIGHEST SCORE</span>
+              <div style={{ fontSize: '22px', fontWeight: '800', color: '#10b981', marginTop: '4px' }}>{highestScore} / {assessmentMaxMark}</div>
+            </div>
+            <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+              <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>PASSING RATE</span>
+              <div style={{ fontSize: '22px', fontWeight: '800', color: '#2563eb', marginTop: '4px' }}>{passPercentage}%</div>
+            </div>
+          </div>
+
+          <form onSubmit={handleBulkSubmit} style={typeof styles !== 'undefined' ? styles.card : { background: '#ffffff', padding: '32px', borderRadius: '16px', border: '1px solid #f1f5f9', marginBottom: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', borderBottom: '2px solid #f1f5f9', paddingBottom: '16px', marginBottom: '24px', gap: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '19px', color: '#0f172a', fontWeight: '800' }}>Enrolled Students ({classStudents.length})</h3>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                <button type="button" onClick={handleDownloadMarksTemplate} style={{ padding: '10px 16px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '14px' }}>📥 Download Template</button>
+                <label style={{ padding: '10px 16px', background: '#0284c7', color: '#ffffff', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '14px' }}>📂 Upload Spreadsheet<input type="file" accept=".csv, .xlsx" onChange={handleUniversalUpload} style={{ display: 'none' }} /></label>
+              </div>
+            </div>
+
+            {classStudents.length === 0 ? (
+              <div style={{ padding: '40px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '12px', textAlign: 'center', color: '#64748b', fontSize: '15px' }}>No students assigned to this subject.</div>
+            ) : (
+              <div style={{ width: '100%', overflowX: 'auto', marginBottom: '24px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px', minWidth: '850px' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
+                      <th style={{ padding: '14px 16px', width: '50px', color: '#0f172a', fontWeight: '800' }}>Sn</th>
+                      <th style={{ padding: '14px 16px', width: '90px', color: '#0f172a', fontWeight: '800' }}>Ad.No</th>
+                      <th style={{ padding: '14px 16px', width: '200px', color: '#0f172a', fontWeight: '800' }}>Student Name</th>
+                      {isHifz ? (
+                        <>
+                          <th colSpan="2" style={{ padding: '14px 16px', background: assessmentMaxMark === '50_1' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '50_1' ? '#0369a1' : '#0f172a', fontWeight: '800' }}>Part 1 (50)</th>
+                          <th colSpan="2" style={{ padding: '14px 16px', background: assessmentMaxMark === '50_2' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '50_2' ? '#0369a1' : '#0f172a', fontWeight: '800' }}>Part 2 (50)</th>
+                        </>
+                      ) : (
+                        <>
+                          <th style={{ padding: '14px 16px', background: assessmentMaxMark === '15' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '15' ? '#0369a1' : '#0f172a', fontWeight: '800' }}>Lvl 1 (15)</th>
+                          <th style={{ padding: '14px 16px', background: assessmentMaxMark === '20' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '20' ? '#0369a1' : '#0f172a', fontWeight: '800' }}>Lvl 2 (20)</th>
+                          <th style={{ padding: '14px 16px', background: assessmentMaxMark === '25' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '25' ? '#0369a1' : '#0f172a', fontWeight: '800' }}>Lvl 3 (25)</th>
+                          <th style={{ padding: '14px 16px', background: assessmentMaxMark === '40' ? '#e0f2fe' : 'transparent', color: assessmentMaxMark === '40' ? '#0369a1' : '#0f172a', fontWeight: '800' }}>Lvl 4 (40)</th>
+                        </>
+                      )}
+                      <th style={{ padding: '14px 16px', color: '#1e40af', fontWeight: '800' }}>Total (/100)</th>
+                      <th style={{ padding: '14px 16px', color: '#047857', fontWeight: '800' }}>Scaled (/30)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {classStudents.map((student, index) => {
+                      const marks = studentMarks[student.regNo] || {};
+                      const m1 = parseFloat(marks[isHifz ? '50_1' : '15']) || 0;
+                      const m2 = parseFloat(marks[isHifz ? '50_2' : '20']) || 0;
+                      const m3 = isHifz ? 0 : (parseFloat(marks['25']) || 0);
+                      const m4 = isHifz ? 0 : (parseFloat(marks['40']) || 0);
+                      const total100 = m1 + m2 + m3 + m4;
+                      const scaled30 = isHifz ? '-' : (total100 > 0 ? ((total100 / 100) * 30).toFixed(1) : '-');
+
+                      return (
+                        <tr key={student.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: '#ffffff' }}>
+                          <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>{student.rollNo || '-'}</td>
+                          <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>{student.adNo}</td>
+                          <td style={{ padding: '16px', color: '#0f172a', fontWeight: '800', fontSize: '15px' }}>{student.firstName}</td>
+
+                          {isHifz ? (
+                            <>
+                              {/* HIFZ PART 1 */}
+                              <td colSpan="2" style={{ padding: '14px 16px', background: assessmentMaxMark === '50_1' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
+                                {assessmentMaxMark === '50_1' ? (
+                                  <input type="number" max="50" min="0" step="any" data-index={index}
+                                    value={marks['50_1'] ?? ''}
+                                    onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
+                                    onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 50"
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['50_1'] || '-'}</span>)}
+                              </td>
+
+                              {/* HIFZ PART 2 */}
+                              <td colSpan="2" style={{ padding: '14px 16px', background: assessmentMaxMark === '50_2' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
+                                {assessmentMaxMark === '50_2' ? (
+                                  <input type="number" max="50" min="0" step="any" data-index={index}
+                                    value={marks['50_2'] ?? ''}
+                                    onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
+                                    onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 50"
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['50_2'] || '-'}</span>)}
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              {/* NORMAL LEVEL 1 */}
+                              <td style={{ padding: '14px 16px', background: assessmentMaxMark === '15' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
+                                {assessmentMaxMark === '15' ? (
+                                  <input type="number" max="15" min="0" step="any" data-index={index}
+                                    value={marks['15'] ?? ''}
+                                    onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
+                                    onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 15"
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['15'] || '-'}</span>)}
+                              </td>
+
+                              {/* NORMAL LEVEL 2 */}
+                              <td style={{ padding: '14px 16px', background: assessmentMaxMark === '20' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
+                                {assessmentMaxMark === '20' ? (
+                                  <input type="number" max="20" min="0" step="any" data-index={index}
+                                    value={marks['20'] ?? ''}
+                                    onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
+                                    onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 20"
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['20'] || '-'}</span>)}
+                              </td>
+
+                              {/* NORMAL LEVEL 3 */}
+                              <td style={{ padding: '14px 16px', background: assessmentMaxMark === '25' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
+                                {assessmentMaxMark === '25' ? (
+                                  <input type="number" max="25" min="0" step="any" data-index={index}
+                                    value={marks['25'] ?? ''}
+                                    onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
+                                    onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 25"
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['25'] || '-'}</span>)}
+                              </td>
+
+                              {/* NORMAL LEVEL 4 */}
+                              <td style={{ padding: '14px 16px', background: assessmentMaxMark === '40' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
+                                {assessmentMaxMark === '40' ? (
+                                  <input type="number" max="40" min="0" step="any" data-index={index}
+                                    value={marks['40'] ?? ''}
+                                    onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
+                                    onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 40"
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['40'] || '-'}</span>)}
+                              </td>
+                            </>
+                          )}
+
+                          <td style={{ padding: '14px 16px' }}>
+                            {total100 > 0 ? <span style={{ background: '#dbeafe', color: '#1e40af', padding: '6px 10px', borderRadius: '6px', fontWeight: '800' }}>{total100}</span> : '-'}
+                          </td>
+                          <td style={{ padding: '14px 16px' }}>
+                            {scaled30 !== '-' ? <span style={{ background: '#d1fae5', color: '#047857', padding: '6px 10px', borderRadius: '6px', fontWeight: '800' }}>{scaled30}</span> : '-'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {/* Make sure styles.buttonSuccess is defined globally in your file */}
+            <button type="submit" disabled={classStudents.length === 0} style={typeof styles !== 'undefined' ? styles.buttonSuccess : { background: '#10b981', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>Save / Update All Marks</button>
+          </form>
+          {statusMsg && <div style={{ padding: '16px', background: '#ecfdf5', borderRadius: '8px', color: '#065f46', fontWeight: '700', textAlign: 'center' }}>{statusMsg}</div>}
+       </>
+      )}
+    </div>
+  );
+}
 // ==========================================
 // ADMIN COMPONENTS
 // ==========================================
