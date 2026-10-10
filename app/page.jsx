@@ -1863,7 +1863,7 @@ function ReportManager() {
   }).length;
   const missingMarksCount = totalStudentsCount - studentsWithMarks;
 
-  const fetchClassSubjectMarks = async () => {
+const fetchClassSubjectMarks = async () => {
     setIsInspecting(true);
     try {
       const studentSnap = await getDocs(collection(db, 'students'));
@@ -1881,12 +1881,10 @@ function ReportManager() {
       let activeSubject = '';
       let sorterAlias = '';
       let targetTeacherName = '';
-      let baseClassMatchStr = '';
 
       if (inspectorMode === 'class') {
         activeSubject = inspectorSubject;
         sorterAlias = inspectorClass;
-        baseClassMatchStr = inspectorClass.toLowerCase();
       } else if (inspectorMode === 'teacher') {
         const selectedTeacher = teachersList.find(t => t.username === inspectorTeacherUsername);
         const selectedEnrollment = selectedTeacher?.enrollments?.find(e => e.id === inspectorTeacherEnrollmentId);
@@ -1910,7 +1908,7 @@ function ReportManager() {
 
         sorterAlias = selectedEnrollment.alias || '';
         targetTeacherName = selectedTeacher.fullName;
-        
+      }
 
       // Helper for distinct subject match
       const isMatchingSubject = (inspSub, envSub, envAliasUpper) => {
@@ -1925,18 +1923,14 @@ function ReportManager() {
       const teacherRecord = {};
       let finalMatchedStudents = [];
 
-      // Loop through all students that might be in this grade/class
       for (const student of allStudents) {
         const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
-        
-
         const sReg = String(student.regNo || '').trim().toUpperCase();
         const sAd = String(student.adNo || '').trim().toUpperCase();
         const sId = String(student.id || '').trim().toUpperCase();
         const isUrdu = sAd.startsWith('U');
         let assignedTeacher = 'Unassigned';
 
-        // PASS 1: Manual Overrides
         for (const teacher of teachersList) {
           const matchingManualEnv = teacher.enrollments.find(env => {
             const envSub = String(env.subject || '').trim().toUpperCase();
@@ -1952,7 +1946,6 @@ function ReportManager() {
           if (matchingManualEnv) { assignedTeacher = teacher.fullName; break; }
         }
 
-        // PASS 2: Auto-Fallback
         if (assignedTeacher === 'Unassigned') {
           for (const teacher of teachersList) {
             const matchingAutoEnv = teacher.enrollments.find(env => {
@@ -1994,14 +1987,12 @@ function ReportManager() {
           }
         }
 
-        // 🌟 STRICT FILTER: Only keep this student if they belong to the selected teacher / class
         if (inspectorMode === 'teacher' && assignedTeacher !== targetTeacherName) continue;
-        if (inspectorMode === 'class' && assignedTeacher === 'Unassigned') continue; // Optional: Hide completely unassigned students in class view
+        if (inspectorMode === 'class' && assignedTeacher === 'Unassigned') continue; 
 
         teacherRecord[student.regNo || student.id] = assignedTeacher;
         finalMatchedStudents.push(student);
 
-        // Fetch their marks securely
         let markSnap = null;
         const possibleKeys = [student.regNo, student.id, student.adNo, student.admissionNo].filter(Boolean);
         for (const key of possibleKeys) {
@@ -2024,7 +2015,7 @@ function ReportManager() {
         } else {
           marksRecord[student.regNo || student.id] = {};
         }
-      }
+      } // <-- THIS WAS THE LOOP BRACE THAT WENT MISSING!
 
       finalMatchedStudents = sortStudentsByDepartment(finalMatchedStudents, sorterAlias);
       setSubjectLevelMarks({ students: finalMatchedStudents, records: marksRecord, teachers: teacherRecord });
