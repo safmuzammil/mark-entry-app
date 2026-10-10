@@ -620,7 +620,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                         </>
                       )}
                       <th style={{ padding: '14px 16px', color: '#1e40af', fontWeight: '800' }}>Total (/100)</th>
-                      <th style={{ padding: '14px 16px', color: '#047857', fontWeight: '800' }}>Scaled (/30)</th>
+                     {!isHifz && <th style={{ padding: '14px 16px', color: '#047857', fontWeight: '800' }}>Scaled (/30)</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -703,9 +703,11 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                           <td style={{ padding: '14px 16px' }}>
                             {total100 > 0 ? <span style={{ background: '#dbeafe', color: '#1e40af', padding: '6px 10px', borderRadius: '6px', fontWeight: '800' }}>{total100}</span> : '-'}
                           </td>
-                          <td style={{ padding: '14px 16px' }}>
-                            {scaled30 !== '-' ? <span style={{ background: '#d1fae5', color: '#047857', padding: '6px 10px', borderRadius: '6px', fontWeight: '800' }}>{scaled30}</span> : '-'}
-                          </td>
+                          {!isHifz && (
+                            <td style={{ padding: '14px 16px' }}>
+                              {scaled30 !== '-' ? <span style={{ background: '#d1fae5', color: '#047857', padding: '6px 10px', borderRadius: '6px', fontWeight: '800' }}>{scaled30}</span> : '-'}
+                            </td>
+)}
                         </tr>
                       );
                     })}
@@ -1672,7 +1674,7 @@ function ReportManager() {
   const [auditPreset, setAuditPreset] = useState('ALL');
   const [exportDepartment, setExportDepartment] = useState('All');
   const [exportClassFilter, setExportClassFilter] = useState('All');
-  const [exportMetric, setExportMetric] = useState('STATUS');
+  const [exportMetric, setExportMetric] = useState('490');
   const [exportSubject, setExportSubject] = useState(DEFAULT_SUBJECTS[0]);
   const [thresholdCondition, setThresholdCondition] = useState('Below');
   const [thresholdScore, setThresholdScore] = useState(40);
@@ -1789,7 +1791,7 @@ function ReportManager() {
       let scoreToCompareStr = '';
       if (exportMetric === 'STATUS') scoreToCompareStr = marksInfo.overall?.['STATUS'];
       else if (exportMetric === '1400') scoreToCompareStr = marksInfo.overall?.['1400'];
-      else if (exportMetric === '420') scoreToCompareStr = marksInfo.overall?.['420'];
+     else if (exportMetric === '490') scoreToCompareStr = marksInfo.overall?.['490'];
       else if (exportMetric === 'SUBJECT') scoreToCompareStr = marksInfo.subjects?.[exportSubject.toUpperCase()];
 
       if (!scoreToCompareStr || scoreToCompareStr === '-' || scoreToCompareStr === '') return false;
@@ -2401,9 +2403,9 @@ const fetchClassSubjectMarks = async () => {
             <div>
               <label style={styles.label}>Metric:</label>
               <select value={exportMetric} onChange={(e) => setExportMetric(e.target.value)} style={styles.input}>
-                <option value="STATUS">Overall Percentage (%)</option>
+                <option value="490">Total out of 490</option>
                 <option value="1400">Total out of 1400</option>
-                <option value="420">Total out of 420</option>
+                <option value="STATUS">Overall Percentage (%)</option>
                 <option value="SUBJECT">Specific Subject</option>
               </select>
             </div>
@@ -2459,7 +2461,9 @@ const fetchClassSubjectMarks = async () => {
                     <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Name</th>
                     <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '150px' }}>Department</th>
                     <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '120px' }}>Class</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '160px', textAlign: 'right' }}>Score / Status</th>
+                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '160px', textAlign: 'right' }}>
+                      {exportMetric === '490' ? 'Score (/490)' : exportMetric === '1400' ? 'Score (/1400)' : exportMetric === 'STATUS' ? 'Percentage (%)' : 'Score'}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
