@@ -1662,6 +1662,7 @@ function ReportManager() {
   const [registeredStudents, setRegisteredStudents] = useState([]);
   const [overallMarksCache, setOverallMarksCache] = useState({});
   const [filteredResults, setFilteredResults] = useState([]);
+  const [localFirebaseMarks, setLocalFirebaseMarks] = useState({});
 
   const [isLoading, setIsLoading] = useState(false);
   const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
@@ -1711,6 +1712,10 @@ function ReportManager() {
           setInspectorTeacherEnrollmentId(tData[0].enrollments[0].id);
         }
       }
+      const mSnap = await getDocs(collection(db, 'marks'));
+      const mData = {};
+      mSnap.forEach(d => { mData[d.id] = d.data(); });
+      setLocalFirebaseMarks(mData);
 
       const cacheDocRef = doc(db, 'systemCache', 'adminReportCache');
       const cacheSnap = await getDoc(cacheDocRef);
@@ -1804,12 +1809,37 @@ function ReportManager() {
 
     const mappedResults = filtered.map((s) => {
       let printedMetric = 'Missing / -';
-      const info = overallMarksCache[s.regNo];
-      if (info) {
-        if (exportMetric === 'STATUS') printedMetric = info.overall?.['STATUS'] || 'Missing';
-        else if (exportMetric === '1400') printedMetric = info.overall?.['1400'] || 'Missing';
-        else if (exportMetric === '420') printedMetric = info.overall?.['420'] || 'Missing';
-        else if (exportMetric === 'SUBJECT') printedMetric = info.subjects?.[exportSubject.toUpperCase()] || 'Missing';
+      
+      if (exportMetric === 'SUBJECT') {
+        const exactSub = exportSubject.toUpperCase();
+        const stMarks = localFirebaseMarks[s.regNo] || localFirebaseMarks[s.id] || localFirebaseMarks[s.adNo];
+        
+        if (stMarks) {
+          const foundKey = Object.keys(stMarks).find(k => k.trim().toUpperCase() === exactSub || (exactSub.includes('FIQH') && k.trim().toUpperCase().includes('FIQH')));
+          if (foundKey && stMarks[foundKey]) {
+            const m = stMarks[foundKey];
+            let total100 = 0; let hasData = false;
+            
+            if (exactSub === 'HIFZ') {
+              if (m['50_1'] !== undefined && m['50_1'] !== '') { total100 += parseFloat(m['50_1']); hasData = true; }
+              if (m['50_2'] !== undefined && m['50_2'] !== '') { total100 += parseFloat(m['50_2']); hasData = true; }
+              printedMetric = hasData ? total100 : 'Missing / -'; // Hifz does not scale to 30
+            } else {
+              if (m['15'] !== undefined && m['15'] !== '') { total100 += parseFloat(m['15']); hasData = true; }
+              if (m['20'] !== undefined && m['20'] !== '') { total100 += parseFloat(m['20']); hasData = true; }
+              if (m['25'] !== undefined && m['25'] !== '') { total100 += parseFloat(m['25']); hasData = true; }
+              if (m['40'] !== undefined && m['40'] !== '') { total100 += parseFloat(m['40']); hasData = true; }
+              printedMetric = hasData ? ((total100 / 100) * 30).toFixed(1) : 'Missing / -';
+            }
+          }
+        }
+      } else {
+        const info = overallMarksCache[s.regNo];
+        if (info) {
+          if (exportMetric === 'STATUS') printedMetric = info.overall?.['STATUS'] || 'Missing / -';
+          else if (exportMetric === '1400') printedMetric = info.overall?.['1400'] || 'Missing / -';
+          else if (exportMetric === '490') printedMetric = info.overall?.['490'] || 'Missing / -';
+        }
       }
       return { ...s, displayMetric: printedMetric };
     });
@@ -1881,10 +1911,6 @@ function ReportManager() {
         sorterAlias = selectedEnrollment.alias || '';
         targetTeacherName = selectedTeacher.fullName;
         
-        // Extract the base class from the alias to narrow down the search pool
-        const match = envAliasLower.match(/(qh\d|al\d|fc\d|qla\d|hfc\d|u\d|m\d)/);
-        if(match) baseClassMatchStr = match[0];
-      }
 
       // Helper for distinct subject match
       const isMatchingSubject = (inspSub, envSub, envAliasUpper) => {
@@ -1903,10 +1929,6 @@ function ReportManager() {
       for (const student of allStudents) {
         const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
         
-        // Broad class check to avoid unnecessary processing
-        if (baseClassMatchStr && !studentClassesLower.some(c => c.includes(baseClassMatchStr)) && !studentClassesLower.some(c => c.includes('m10') || c.includes('3'))) {
-            continue; 
-        }
 
         const sReg = String(student.regNo || '').trim().toUpperCase();
         const sAd = String(student.adNo || '').trim().toUpperCase();
@@ -2303,7 +2325,15 @@ function ReportManager() {
 
     navigator.clipboard.writeText(tsvContent).then(() => alert('✅ Analytics Table copied to clipboard!'));
   };
-
+  
+  let isHifzInsp = false;
+  if (inspectorMode === 'class') {
+    isHifzInsp = inspectorSubject.toUpperCase() === 'HIFZ';
+  } else {
+    const selectedTeacher = allTeachers.find(t => t.username === inspectorTeacherUsername);
+    const selectedEnv = selectedTeacher?.enrollments?.find(e => e.id === inspectorTeacherEnrollmentId);
+    isHifzInsp = selectedEnv?.subject?.toUpperCase() === 'HIFZ';
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -2556,25 +2586,29 @@ function ReportManager() {
                     <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '60px' }}>Roll</th>
                     <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '100px' }}>Ad.No</th>
                     <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Student Name</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>Lvl 1 (15)</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>Lvl 2 (20)</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>Lvl 3 (25)</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>Lvl 4 (40)</th>
+                    
+                    {/* 👇 THIS IS THE UPDATED PART 👇 */}
+                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>{isHifzInsp ? 'Part 1 (50)' : 'Lvl 1 (15)'}</th>
+                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>{isHifzInsp ? 'Part 2 (50)' : 'Lvl 2 (20)'}</th>
+                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>{isHifzInsp ? '-' : 'Lvl 3 (25)'}</th>
+                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>{isHifzInsp ? '-' : 'Lvl 4 (40)'}</th>
+                    {/* 👆 ======================= 👆 */}
+
                     <th style={{ padding: '14px 16px', color: '#1e40af', fontWeight: '800', width: '100px' }}>Total (/100)</th>
                     <th style={{ padding: '14px 16px', color: '#047857', fontWeight: '800', width: '100px' }}>Scaled (/30)</th>
                     {inspectorMode === 'class' && <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '160px' }}>Teacher</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {subjectLevelMarks.students.map((student, idx) => {
+                 {subjectLevelMarks.students.map((student, idx) => {
                     const marks = subjectLevelMarks.records[student.regNo || student.id] || {};
                     const teacherName = subjectLevelMarks.teachers[student.regNo || student.id] || 'Unassigned';
-                    const m1 = parseFloat(marks['15']) || 0;
-                    const m2 = parseFloat(marks['20']) || 0;
-                    const m3 = parseFloat(marks['25']) || 0;
-                    const m4 = parseFloat(marks['40']) || 0;
+                    const m1 = parseFloat(marks[isHifzInsp ? '50_1' : '15']) || 0;
+                    const m2 = parseFloat(marks[isHifzInsp ? '50_2' : '20']) || 0;
+                    const m3 = isHifzInsp ? 0 : (parseFloat(marks['25']) || 0);
+                    const m4 = isHifzInsp ? 0 : (parseFloat(marks['40']) || 0);
                     const total100 = m1 + m2 + m3 + m4;
-                    const scaled30 = total100 > 0 ? ((total100 / 100) * 30).toFixed(1) : '-';
+                    const scaled30 = isHifzInsp ? '-' : (total100 > 0 ? ((total100 / 100) * 30).toFixed(1) : '-');
 
                     return (
                       <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
@@ -2585,10 +2619,10 @@ function ReportManager() {
                           <br />
                           <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '600' }}>{student.regNo}</span>
                         </td>
-                        <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}><span style={{ fontSize: '15px', fontWeight: '800', color: marks['15'] !== undefined ? '#0f172a' : '#cbd5e1' }}>{marks['15'] !== undefined ? marks['15'] : '-'}</span></td>
-                        <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}><span style={{ fontSize: '15px', fontWeight: '800', color: marks['20'] !== undefined ? '#0f172a' : '#cbd5e1' }}>{marks['20'] !== undefined ? marks['20'] : '-'}</span></td>
-                        <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}><span style={{ fontSize: '15px', fontWeight: '800', color: marks['25'] !== undefined ? '#0f172a' : '#cbd5e1' }}>{marks['25'] !== undefined ? marks['25'] : '-'}</span></td>
-                        <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}><span style={{ fontSize: '15px', fontWeight: '800', color: marks['40'] !== undefined ? '#0f172a' : '#cbd5e1' }}>{marks['40'] !== undefined ? marks['40'] : '-'}</span></td>
+                        <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}><span style={{ fontSize: '15px', fontWeight: '800', color: marks[isHifzInsp ? '50_1' : '15'] !== undefined ? '#0f172a' : '#cbd5e1' }}>{marks[isHifzInsp ? '50_1' : '15'] !== undefined ? marks[isHifzInsp ? '50_1' : '15'] : '-'}</span></td>
+                        <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}><span style={{ fontSize: '15px', fontWeight: '800', color: marks[isHifzInsp ? '50_2' : '20'] !== undefined ? '#0f172a' : '#cbd5e1' }}>{marks[isHifzInsp ? '50_2' : '20'] !== undefined ? marks[isHifzInsp ? '50_2' : '20'] : '-'}</span></td>
+                        <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}><span style={{ fontSize: '15px', fontWeight: '800', color: isHifzInsp ? '#cbd5e1' : (marks['25'] !== undefined ? '#0f172a' : '#cbd5e1') }}>{isHifzInsp ? '-' : (marks['25'] !== undefined ? marks['25'] : '-')}</span></td>
+                        <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}><span style={{ fontSize: '15px', fontWeight: '800', color: isHifzInsp ? '#cbd5e1' : (marks['40'] !== undefined ? '#0f172a' : '#cbd5e1') }}>{isHifzInsp ? '-' : (marks['40'] !== undefined ? marks['40'] : '-')}</span></td>
                         <td style={{ padding: '14px 16px', verticalAlign: 'middle' }}>
                           {total100 > 0 ? <span style={{ background: '#dbeafe', color: '#1e40af', padding: '6px 10px', borderRadius: '6px', fontWeight: '800', fontSize: '15px' }}>{total100}</span> : <span style={{ color: '#94a3b8', fontWeight: '700' }}>-</span>}
                         </td>
@@ -2939,7 +2973,7 @@ function ReminderManager() {
                 <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: '#ffffff' }}>
                   <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>{row.teacherName}</td>
                   <td style={{ padding: '14px 16px', color: '#334155', fontWeight: '700' }}>{row.subject}</td>
-                  <td style={{ padding: '14px 16px', textAlign: 'center' }}><span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 8px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>Max {row.levelRequired}</span></td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}><span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 8px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>Max {row.levelRequired.replace('_1', '').replace('_2', '')}</span></td>
                   <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: '#64748b' }}>{row.totalEnrolled}</td>
                   <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '800', color: row.missingCount > 0 ? '#ef4444' : '#10b981' }}>{row.missingCount}</td>
                   <td style={{ padding: '14px 16px', textAlign: 'center' }}>
