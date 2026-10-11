@@ -166,6 +166,8 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
   const [statusMsg, setStatusMsg] = useState('');
   const [weeklyReminder, setWeeklyReminder] = useState(null);
   const [reminderChecklist, setReminderChecklist] = useState([]);
+  const [autoSaveStatus, setAutoSaveStatus] = useState('');
+  const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
     async function fetchReminderAndChecklist() {
@@ -333,11 +335,54 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
         }
       };
       setStudentMarks(updatedMarks);
+      setIsDirty(true); // 🌟 Tells the app to start the auto-save timer
       if (selectedEnrollmentId) {
         localStorage.setItem(`draft_marks_${selectedEnrollmentId}`, JSON.stringify(updatedMarks));
       }
     }
   };
+
+  // 🌟 BACKGROUND AUTO-SAVE LOGIC
+  useEffect(() => {
+    if (!isDirty || !selectedEnrollmentId || classStudents.length === 0) return;
+
+    const timer = setTimeout(async () => {
+      setAutoSaveStatus('Saving draft...');
+      const currentEnrollment = teacherEnrollments.find(e => e.id === selectedEnrollmentId);
+      if (!currentEnrollment) return;
+
+      const rawSub = (currentEnrollment.subject || '').trim();
+      const rawAlias = (currentEnrollment.alias || '').trim();
+      let finalSubjectKey = rawSub;
+      if (rawAlias.toUpperCase().includes('U :FIQH') || rawSub.toUpperCase().includes('U :FIQH')) finalSubjectKey = 'U :FIQH';
+      else if (rawSub.toUpperCase() === 'MANTIQ') finalSubjectKey = 'Logic';
+
+      const firestorePromises = [];
+      
+      for (let student of classStudents) {
+        let val = studentMarks[student.regNo]?.[assessmentMaxMark];
+        if (val !== undefined && val !== '') {
+          if (parseFloat(val) <= maxAllowed) {
+            firestorePromises.push(setDoc(doc(db, 'marks', student.regNo), { [finalSubjectKey]: { [assessmentMaxMark]: Number(val) } }, { merge: true }));
+          }
+        }
+      }
+
+      try {
+        if (firestorePromises.length > 0) {
+          await Promise.all(firestorePromises);
+          setAutoSaveStatus('✅ Draft Auto-Saved');
+          setIsDirty(false); 
+          setTimeout(() => setAutoSaveStatus(''), 4000); // Hide message after 4s
+        }
+      } catch (err) {
+        console.error("Auto-save error:", err);
+        setAutoSaveStatus('⚠️ Auto-save failed');
+      }
+    }, 2500); // Waits 2.5 seconds after the user stops typing
+
+    return () => clearTimeout(timer);
+  }, [studentMarks, isDirty, selectedEnrollmentId, classStudents, assessmentMaxMark, maxAllowed, teacherEnrollments]);
 
   const handleKeyDown = (e, currentIndex) => {
     if (e.key === 'Enter' || e.key === 'ArrowDown') {
@@ -715,7 +760,16 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                 </table>
               </div>
             )}
-            <button type="submit" disabled={classStudents.length === 0} style={typeof styles !== 'undefined' ? styles.buttonSuccess : { background: '#10b981', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>Save / Update All Marks</button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+              <button type="submit" disabled={classStudents.length === 0} style={typeof styles !== 'undefined' ? styles.buttonSuccess : { background: '#10b981', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '10px', fontWeight: '700', cursor: 'pointer', margin: 0 }}>
+                Save & Sync Final Marks
+              </button>
+              {autoSaveStatus && (
+                <span style={{ fontSize: '15px', fontWeight: '700', color: autoSaveStatus.includes('failed') ? '#ef4444' : '#059669', background: autoSaveStatus.includes('failed') ? '#fee2e2' : '#d1fae5', padding: '8px 16px', borderRadius: '8px' }}>
+                  {autoSaveStatus}
+                </span>
+              )}
+            </div>
           </form>
           {statusMsg && <div style={{ padding: '16px', background: '#ecfdf5', borderRadius: '8px', color: '#065f46', fontWeight: '700', textAlign: 'center' }}>{statusMsg}</div>}
         </>
