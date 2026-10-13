@@ -128,20 +128,11 @@ export default function StudentDashboard() {
         setAuthenticated(true);
         
         const coreSubjects = [
-          'Thafseer', 'Hadith', 'Aqidah', 'Balagha', 'Logic', 
-          'English', 'Adab', 'Urdu', 'Social Science', 
-          'Thamadun', 'Specialization', 'Hifz' // Fixed spelling here
+          'Thafseer', 'Hadith', 'Fiqh', 'U :FIQH', 'Aqidah', 'Balagha', 'Logic', 
+          'English', 'Adab', 'Urdu', 'Social Science', 'Thamadun', 'Specialization', 'Hifz'
         ];
         
         const expectedSubjectsArray = coreSubjects.map(sub => ({ subject: sub }));
-        
-        // Made the check stronger to catch Urdu students even if there is a space in the Ad.No
-        const isUrdu = String(studentData.adNo || '').trim().toUpperCase().startsWith('U') || String(studentData.regNo || '').trim().toUpperCase().startsWith('U');
-        if (isUrdu) {
-            expectedSubjectsArray.push({ subject: 'U :FIQH' });
-        } else {
-            expectedSubjectsArray.push({ subject: 'Fiqh' });
-        }
 
         fetchStudentMarksFromFirebase(safeRegNo, expectedSubjectsArray); 
 
