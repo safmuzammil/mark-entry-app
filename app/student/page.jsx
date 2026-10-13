@@ -130,12 +130,13 @@ export default function StudentDashboard() {
         const coreSubjects = [
           'Thafseer', 'Hadith', 'Aqidah', 'Balagha', 'Logic', 
           'English', 'Adab', 'Urdu', 'Social Science', 
-          'Thamadan', 'Specialization', 'Hifz'
+          'Thamadun', 'Specialization', 'Hifz' // Fixed spelling here
         ];
         
         const expectedSubjectsArray = coreSubjects.map(sub => ({ subject: sub }));
         
-        const isUrdu = String(studentData.adNo || '').toUpperCase().startsWith('U');
+        // Made the check stronger to catch Urdu students even if there is a space in the Ad.No
+        const isUrdu = String(studentData.adNo || '').trim().toUpperCase().startsWith('U') || String(studentData.regNo || '').trim().toUpperCase().startsWith('U');
         if (isUrdu) {
             expectedSubjectsArray.push({ subject: 'U :FIQH' });
         } else {

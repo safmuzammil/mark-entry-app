@@ -2031,17 +2031,10 @@ const fetchClassSubjectMarks = async () => {
         if (inspectorMode === 'class') {
           const targetClassLower = inspectorClass.toLowerCase();
           
-          // 1. MUST perfectly match the selected class dropdown
-          let classMatch = studentClassesLower.some(c => c.includes(targetClassLower) || targetClassLower.includes(c));
-          
-          // Fallback for custom aliases
-          if (!classMatch) {
-            if (targetClassLower.includes('3') && studentClassesLower.some(c => c.includes('10') || c.includes('3'))) classMatch = true;
-            if (targetClassLower.includes('2') && studentClassesLower.some(c => c.includes('9') || c.includes('2'))) classMatch = true;
-            if (targetClassLower.includes('1') && studentClassesLower.some(c => c.includes('8') || c.includes('1'))) classMatch = true;
-          }
+          // STRICT MATCH: Only include if the student's exact class matches the dropdown selection
+          let classMatch = studentClassesLower.some(c => c === targetClassLower || c.includes(targetClassLower));
 
-          if (!classMatch) continue; // Exclude immediately if not in the class
+          if (!classMatch) continue; // Exclude immediately if not in the exact class
           shouldInclude = true;
 
           // Find who teaches this subject to this specific student
@@ -2152,7 +2145,7 @@ const fetchClassSubjectMarks = async () => {
       setIsInspecting(false);
     }
   };
-  
+
   const handleForceSyncAllToSheets = async () => {
     if (!window.confirm("This will push all database marks to Google Sheets. Continue?")) return;
     
