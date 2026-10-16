@@ -138,26 +138,42 @@ function TeacherPasswordSettings() {
   );
 }
 
+// ==========================================
 // 🌟 FULLY UPGRADED TEACHER PORTAL VIEW
+// (With Subject Cards, Teacher Lock & Mobile Quick-Entry)
 // ==========================================
 function TeacherPortalView({ loggedInTeacher, onLogout }) {
   const teacherEnrollments = loggedInTeacher?.enrollments || [];
 
   const [activeView, setActiveView] = useState('marks');
-  const [selectedEnrollmentId, setSelectedEnrollmentId] = useState(teacherEnrollments[0]?.id || '');
-  const [cceLevel, setCceLevel] = useState('Level 1');
+  // 🌟 Starts empty so teacher explicitly chooses their subject first
+  const [selectedEnrollmentId, setSelectedEnrollmentId] = useState('');
+  // 🌟 Starts empty so teacher explicitly chooses which level to grade
+  const [cceLevel, setCceLevel] = useState('');
+  // 🌟 Teacher's personal safety lock (Default: Locked/Read-Only)
+  const [isEditingUnlocked, setIsEditingUnlocked] = useState(false);
+  // 🌟 Mobile Quick-Entry Toggle
+  const [isCompactMode, setIsCompactMode] = useState(false);
 
   const currentEnrollment = teacherEnrollments.find(e => e.id === selectedEnrollmentId);
   const isHifz = currentEnrollment?.subject?.toUpperCase() === 'HIFZ';
   const activeLevels = isHifz ? HIFZ_LEVELS : CCE_LEVELS;
 
-  useEffect(() => {
-    if (isHifz && !cceLevel.includes('Part')) setCceLevel('Part 1 (Max 50)');
-    if (!isHifz && cceLevel.includes('Part')) setCceLevel('Level 1');
-  }, [isHifz, cceLevel]);
+  // Automatically re-lock the sheet whenever the teacher changes subject or level
+  const handleSelectSubject = (envId) => {
+    setSelectedEnrollmentId(envId);
+    setCceLevel('');
+    setIsEditingUnlocked(false);
+    setStatusMsg('');
+  };
 
-  const assessmentMaxMark = activeLevels[cceLevel] || (isHifz ? '50_1' : '15');
-  const maxAllowed = isHifz ? 50 : Number(assessmentMaxMark);
+  const handleSelectLevel = (newLevel) => {
+    setCceLevel(newLevel);
+    setIsEditingUnlocked(false); // Always starts locked when switching levels for safety
+  };
+
+  const assessmentMaxMark = cceLevel ? activeLevels[cceLevel] : null;
+  const maxAllowed = isHifz ? 50 : (assessmentMaxMark ? Number(assessmentMaxMark) : 100);
 
   const [allStudentsCache, setAllStudentsCache] = useState([]);
   const [classStudents, setClassStudents] = useState([]);
@@ -205,9 +221,10 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                 if (docSnap.exists()) {
                   const mData = docSnap.data();
                   const foundKey = Object.keys(mData).find(k => {
-                    if (actUp.includes('U :FIQH') || actUp.includes('U:FIQH')) return k.trim().toUpperCase().includes('U :FIQH') || k.trim().toUpperCase().includes('U:FIQH');
-                    if (actUp === 'FIQH') return k.trim().toUpperCase() === 'FIQH';
-                    return k.trim().toUpperCase() === actUp;
+                    const kUp = k.trim().toUpperCase();
+                    if (actUp.includes('U :FIQH') || actUp.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
+                    if (actUp === 'FIQH') return kUp === 'FIQH';
+                    return kUp === actUp;
                   });
                   if (foundKey && mData[foundKey] && mData[foundKey][requiredLevel] !== undefined && mData[foundKey][requiredLevel] !== '') {
                     hasMark = true;
@@ -218,7 +235,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
 
               checklist.push({
                 alias: env.alias || env.subject,
-                targetLevel: requiredLevel,
+                targetLevel: String(requiredLevel).replace('_1', '').replace('_2', ''),
                 missing: missingCount,
                 entered: matchedStudents.length - missingCount,
                 total: matchedStudents.length
@@ -251,7 +268,10 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
   }, []);
 
   useEffect(() => {
-    if (!selectedEnrollmentId || allStudentsCache.length === 0) return;
+    if (!selectedEnrollmentId || allStudentsCache.length === 0) {
+      setClassStudents([]);
+      return;
+    }
     const currentEnrollment = teacherEnrollments.find(e => e.id === selectedEnrollmentId);
     if (!currentEnrollment) return;
 
@@ -310,7 +330,13 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
           if (docSnap.exists()) {
             const mData = docSnap.data();
             const studentRegNo = classStudents[index].regNo;
-            const foundKey = Object.keys(mData).find(k => k.toUpperCase() === finalSubjectKey.toUpperCase() || k.toUpperCase() === rawSub.toUpperCase());
+            const foundKey = Object.keys(mData).find(k => {
+              const kUp = k.trim().toUpperCase();
+              const fUp = finalSubjectKey.toUpperCase();
+              if (fUp.includes('U :FIQH') || fUp.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
+              if (fUp === 'FIQH') return kUp === 'FIQH';
+              return kUp === fUp || kUp === rawSub.toUpperCase();
+            });
 
             if (foundKey) {
               newMarks[studentRegNo] = mData[foundKey];
@@ -319,6 +345,17 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
             }
           }
         });
+
+        const savedDraft = localStorage.getItem(`draft_marks_${selectedEnrollmentId}`);
+        if (savedDraft) {
+          try {
+            const parsedDraft = JSON.parse(savedDraft);
+            Object.keys(parsedDraft).forEach(reg => {
+              newMarks[reg] = { ...(newMarks[reg] || {}), ...parsedDraft[reg] };
+            });
+          } catch (e) { console.error(e); }
+        }
+
         setStudentMarks(newMarks);
       } catch (err) { console.error("Error loading marks", err); }
     }
@@ -326,6 +363,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
   }, [selectedEnrollmentId, classStudents, teacherEnrollments]);
 
   const handleMarkChange = (studentRegNo, value) => {
+    if (!isEditingUnlocked || !assessmentMaxMark) return;
     if (value === '' || /^\d*(\.\d{0,2})?$/.test(value)) {
       const updatedMarks = {
         ...studentMarks,
@@ -335,7 +373,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
         }
       };
       setStudentMarks(updatedMarks);
-      setIsDirty(true); // 🌟 Tells the app to start the auto-save timer
+      setIsDirty(true);
       if (selectedEnrollmentId) {
         localStorage.setItem(`draft_marks_${selectedEnrollmentId}`, JSON.stringify(updatedMarks));
       }
@@ -344,7 +382,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
 
   // 🌟 BACKGROUND AUTO-SAVE LOGIC
   useEffect(() => {
-    if (!isDirty || !selectedEnrollmentId || classStudents.length === 0) return;
+    if (!isDirty || !selectedEnrollmentId || !assessmentMaxMark || classStudents.length === 0) return;
 
     const timer = setTimeout(async () => {
       setAutoSaveStatus('Saving draft...');
@@ -371,15 +409,16 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
       try {
         if (firestorePromises.length > 0) {
           await Promise.all(firestorePromises);
+          localStorage.removeItem(`draft_marks_${selectedEnrollmentId}`);
           setAutoSaveStatus('✅ Draft Auto-Saved');
           setIsDirty(false); 
-          setTimeout(() => setAutoSaveStatus(''), 4000); // Hide message after 4s
+          setTimeout(() => setAutoSaveStatus(''), 4000);
         }
       } catch (err) {
         console.error("Auto-save error:", err);
         setAutoSaveStatus('⚠️ Auto-save failed');
       }
-    }, 2500); // Waits 2.5 seconds after the user stops typing
+    }, 2500);
 
     return () => clearTimeout(timer);
   }, [studentMarks, isDirty, selectedEnrollmentId, classStudents, assessmentMaxMark, maxAllowed, teacherEnrollments]);
@@ -396,27 +435,25 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     }
   };
 
-  useEffect(() => {
-    if (selectedEnrollmentId) {
-      const savedDraft = localStorage.getItem(`draft_marks_${selectedEnrollmentId}`);
-      if (savedDraft) setStudentMarks(JSON.parse(savedDraft));
-    }
-  }, [selectedEnrollmentId]);
-
   const handleDownloadMarksTemplate = () => {
+    if (!assessmentMaxMark) return alert('Please select a Task Level first.');
     if (classStudents.length === 0) return alert('No students found in this class to generate a template.');
-    let csvContent = "data:text/csv;charset=utf-8,Ad.No,Student Name,Marks (Max " + assessmentMaxMark + ")\n";
+    let csvContent = "data:text/csv;charset=utf-8,Ad.No,Student Name,Marks (Max " + maxAllowed + ")\n";
     classStudents.forEach(student => { csvContent += `${student.adNo},"${student.firstName}",\n`; });
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
     const currentEnrollment = teacherEnrollments.find(e => e.id === selectedEnrollmentId);
     const safeTitle = (currentEnrollment?.alias || 'Class').replace(/[^a-zA-Z0-9]/g, '_');
-    link.setAttribute("download", `${safeTitle}_${cceLevel.replace(' ', '')}_Marks.csv`);
+    link.setAttribute("download", `${safeTitle}_${cceLevel.replace(/\s+/g, '')}_Marks.csv`);
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
   const handleUniversalUpload = (e) => {
+    if (!assessmentMaxMark || !isEditingUnlocked) {
+      e.target.value = null;
+      return alert("Please select a Task Level and click 'Unlock to Edit' before uploading a spreadsheet.");
+    }
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
@@ -446,6 +483,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
         }
       });
       setStudentMarks(newMarks);
+      setIsDirty(true);
       alert(`Imported marks for ${updatedCount} students (Skipped ${errorCount} invalid). Review table and click save.`);
     };
 
@@ -467,6 +505,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
 
   const handleBulkSubmit = async (e) => {
     e.preventDefault();
+    if (!assessmentMaxMark) return alert("Please select a Task Level first.");
     let marksPayload = [];
     
     const currentEnrollment = teacherEnrollments.find(e => e.id === selectedEnrollmentId);
@@ -499,6 +538,8 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
 
     try {
       await Promise.all(firestorePromises);
+      setIsDirty(false);
+      setIsEditingUnlocked(false); // 🌟 Auto-lock after final save for safety!
       
       if (selectedEnrollmentId) {
         localStorage.removeItem(`draft_marks_${selectedEnrollmentId}`);
@@ -520,16 +561,16 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
 
           const result = await res.json();
           if (result.status === 'success') {
-            setStatusMsg('✅ Marks saved to database AND Google Sheets successfully!');
+            setStatusMsg('✅ Marks saved to database AND Google Sheets! Sheet is now locked.');
           } else {
             setStatusMsg('⚠️ Firebase updated, but Sheets backup error: ' + result.message);
           }
         } catch (fetchErr) {
           console.warn('Sheets sync skipped/failed:', fetchErr);
-          setStatusMsg('✅ Marks saved to Database securely! (Google Sheets sync unavailable right now)');
+          setStatusMsg('✅ Marks saved to Database securely! Sheet is now locked.');
         }
       } else {
-        setStatusMsg('✅ Marks saved to database successfully!');
+        setStatusMsg('✅ Marks saved to database! Sheet is now locked.');
       }
     } catch (err) {
       console.error("Submission Error:", err);
@@ -538,10 +579,12 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     setTimeout(() => setStatusMsg(''), 5000);
   };
 
-  const validMarks = classStudents.map(s => studentMarks[s.regNo]?.[assessmentMaxMark]).filter(v => v !== undefined && v !== '').map(v => parseFloat(v)).filter(v => !isNaN(v));
+  const validMarks = assessmentMaxMark
+    ? classStudents.map(s => studentMarks[s.regNo]?.[assessmentMaxMark]).filter(v => v !== undefined && v !== '').map(v => parseFloat(v)).filter(v => !isNaN(v))
+    : [];
   const highestScore = validMarks.length > 0 ? Math.max(...validMarks) : 0;
   const classAverage = validMarks.length > 0 ? (validMarks.reduce((a, b) => a + b, 0) / validMarks.length).toFixed(1) : 0;
-  const passPercentage = validMarks.length > 0 ? ((validMarks.filter(m => m >= Number(assessmentMaxMark) * 0.4).length / validMarks.length) * 100).toFixed(0) : 0;
+  const passPercentage = validMarks.length > 0 ? ((validMarks.filter(m => m >= maxAllowed * 0.4).length / validMarks.length) * 100).toFixed(0) : 0;
 
   return (
     <div>
@@ -551,6 +594,11 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
           <p style={{ margin: 0, color: '#64748b', fontSize: '15px' }}>Welcome, <strong>{loggedInTeacher?.fullName || 'Teacher'}</strong></p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
+          {selectedEnrollmentId && activeView === 'marks' && (
+            <button onClick={() => handleSelectSubject('')} style={{ padding: '10px 16px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>
+              📚 All My Subjects
+            </button>
+          )}
           <button onClick={() => setActiveView(activeView === 'marks' ? 'settings' : 'marks')} style={{ padding: '10px 16px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '14px' }}>
             {activeView === 'marks' ? '⚙️ Settings' : '⬅ Back to Marks'}
           </button>
@@ -596,54 +644,213 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
 
       {activeView === 'settings' ? (
         typeof TeacherPasswordSettings !== 'undefined' ? <TeacherPasswordSettings/> : <div>Settings component missing</div>
+      ) : !selectedEnrollmentId ? (
+        /* 🌟 STEP 1: SUBJECT SELECTION CARDS ON LOGIN */
+        <div style={typeof styles !== 'undefined' ? styles.card : { background: '#ffffff', padding: '32px', borderRadius: '16px', border: '1px solid #f1f5f9', marginBottom: '24px' }}>
+          <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', color: '#0f172a', fontWeight: '800' }}>📚 Select a Subject Assignment</h3>
+          <p style={{ margin: '0 0 24px 0', fontSize: '14px', color: '#64748b' }}>Choose one of your assigned subjects below to view marks or unlock a level for grading.</p>
+
+          {teacherEnrollments.length === 0 ? (
+            <div style={{ padding: '32px', textAlign: 'center', color: '#64748b', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+              No subjects have been assigned to your profile yet.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '16px' }}>
+              {teacherEnrollments.map(env => (
+                <div
+                  key={env.id}
+                  onClick={() => handleSelectSubject(env.id)}
+                  style={{ padding: '20px', borderRadius: '14px', border: '1px solid #cbd5e1', background: '#ffffff', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '14px' }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
+                        Grade {env.grade || '-'}
+                      </span>
+                      <span style={{ background: '#f1f5f9', color: '#475569', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' }}>
+                        {env.langTag || 'General'}
+                      </span>
+                    </div>
+                    <h4 style={{ margin: '0 0 4px 0', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
+                      {env.alias || `Grade ${env.grade} ${env.subject}`}
+                    </h4>
+                    <p style={{ margin: 0, fontSize: '13px', color: '#64748b', fontWeight: '600' }}>
+                      Subject: {env.subject}
+                    </p>
+                  </div>
+                  <button type="button" style={{ width: '100%', padding: '10px', background: '#2563eb', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>
+                    Open Mark Sheet ➔
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       ) : (
         <>
+          {/* 🌟 STEP 2: SUBJECT & LEVEL SELECTOR BAR */}
           <div style={typeof styles !== 'undefined' ? styles.card : { background: '#ffffff', padding: '32px', borderRadius: '16px', border: '1px solid #f1f5f9', marginBottom: '24px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', alignItems: 'end' }}>
               <div>
-                <label style={typeof styles !== 'undefined' ? styles.label : { display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '8px' }}>Select Assigned Subject:</label>
-                <select value={selectedEnrollmentId} onChange={(e) => setSelectedEnrollmentId(e.target.value)} style={typeof styles !== 'undefined' ? { ...styles.input, cursor: 'pointer' } : { width: '100%', padding: '12px 16px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                <label style={typeof styles !== 'undefined' ? styles.label : { display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '8px' }}>1. Selected Subject:</label>
+                <select value={selectedEnrollmentId} onChange={(e) => handleSelectSubject(e.target.value)} style={typeof styles !== 'undefined' ? { ...styles.input, cursor: 'pointer', fontWeight: '700' } : { width: '100%', padding: '12px 16px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
                   {teacherEnrollments.map(env => (
                     <option key={env.id} value={env.id}>{env.alias || `Grade ${env.grade} ${env.subject}`} ({env.langTag || 'Gen'})</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label style={typeof styles !== 'undefined' ? styles.label : { display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '8px' }}>Select Task Level:</label>
-                <select value={cceLevel} onChange={(e) => setCceLevel(e.target.value)} style={typeof styles !== 'undefined' ? { ...styles.input, cursor: 'pointer' } : { width: '100%', padding: '12px 16px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
-                  {Object.keys(activeLevels).map(level => <option key={level} value={level}>{level}</option>)}
+                <label style={typeof styles !== 'undefined' ? styles.label : { display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '8px' }}>2. Select Level to Grade:</label>
+                <select value={cceLevel} onChange={(e) => handleSelectLevel(e.target.value)} style={typeof styles !== 'undefined' ? { ...styles.input, cursor: 'pointer', fontWeight: '700', borderColor: !cceLevel ? '#f59e0b' : '#cbd5e1' } : { width: '100%', padding: '12px 16px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                  <option value="">-- View Only (Select a Level to Edit) --</option>
+                  {Object.keys(activeLevels).map(level => <option key={level} value={level}>{level} (Max {isHifz ? 50 : activeLevels[level]})</option>)}
                 </select>
               </div>
+
+              {/* 🌟 STEP 3: TEACHER UNLOCK / LOCK PROTECTION BUTTON */}
+              {cceLevel && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingUnlocked(!isEditingUnlocked)}
+                    style={{
+                      width: '100%',
+                      padding: '12px 18px',
+                      borderRadius: '8px',
+                      fontWeight: '800',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      border: isEditingUnlocked ? '2px solid #059669' : '2px solid #f59e0b',
+                      background: isEditingUnlocked ? '#ecfdf5' : '#fffbeb',
+                      color: isEditingUnlocked ? '#047857' : '#b45309',
+                      transition: '0.2s'
+                    }}
+                  >
+                    {isEditingUnlocked ? `🔓 ${cceLevel} Unlocked (Click to Lock)` : `🔒 Unlock ${cceLevel} to Enter Marks`}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '20px' }}>
-            <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-              <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>CLASS AVERAGE</span>
-              <div style={{ fontSize: '22px', color: '#0f172a', fontWeight: '800', marginTop: '4px' }}>{classAverage} / {assessmentMaxMark}</div>
+          {assessmentMaxMark && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+              <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>CLASS AVERAGE ({cceLevel.toUpperCase()})</span>
+                <div style={{ fontSize: '22px', color: '#0f172a', fontWeight: '800', marginTop: '4px' }}>{classAverage} / {maxAllowed}</div>
+              </div>
+              <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>HIGHEST SCORE</span>
+                <div style={{ fontSize: '22px', fontWeight: '800', color: '#10b981', marginTop: '4px' }}>{highestScore} / {maxAllowed}</div>
+              </div>
+              <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>PASSING RATE</span>
+                <div style={{ fontSize: '22px', fontWeight: '800', color: '#2563eb', marginTop: '4px' }}>{passPercentage}%</div>
+              </div>
             </div>
-            <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-              <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>HIGHEST SCORE</span>
-              <div style={{ fontSize: '22px', fontWeight: '800', color: '#10b981', marginTop: '4px' }}>{highestScore} / {assessmentMaxMark}</div>
-            </div>
-            <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-              <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>PASSING RATE</span>
-              <div style={{ fontSize: '22px', fontWeight: '800', color: '#2563eb', marginTop: '4px' }}>{passPercentage}%</div>
-            </div>
-          </div>
+          )}
 
           <form onSubmit={handleBulkSubmit} style={typeof styles !== 'undefined' ? styles.card : { background: '#ffffff', padding: '32px', borderRadius: '16px', border: '1px solid #f1f5f9', marginBottom: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', borderBottom: '2px solid #f1f5f9', paddingBottom: '16px', marginBottom: '24px', gap: '16px' }}>
-              <h3 style={{ margin: 0, fontSize: '19px', color: '#0f172a', fontWeight: '800' }}>Enrolled Students ({classStudents.length})</h3>
-              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                <button type="button" onClick={handleDownloadMarksTemplate} style={{ padding: '10px 16px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '14px' }}>📥 Download Template</button>
-                <label style={{ padding: '10px 16px', background: '#0284c7', color: '#ffffff', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '14px' }}>📂 Upload Spreadsheet<input type="file" accept=".csv, .xlsx" onChange={handleUniversalUpload} style={{ display: 'none' }} /></label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', borderBottom: '2px solid #f1f5f9', paddingBottom: '16px', marginBottom: '20px', gap: '16px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '19px', color: '#0f172a', fontWeight: '800' }}>
+                  {currentEnrollment?.alias || currentEnrollment?.subject} — Students ({classStudents.length})
+                </h3>
+                <span style={{ fontSize: '13px', fontWeight: '700', color: isEditingUnlocked ? '#059669' : '#d97706' }}>
+                  {!cceLevel
+                    ? '🔒 View-Only Mode: Select a Task Level above to grade.'
+                    : !isEditingUnlocked
+                    ? `🔒 ${cceLevel} is Locked for safety. Click "Unlock ${cceLevel}" above to type marks.`
+                    : `✍️ Editing Mode Active for ${cceLevel} (Auto-Save On)`}
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                {cceLevel && (
+                  <button
+                    type="button"
+                    onClick={() => setIsCompactMode(!isCompactMode)}
+                    style={{
+                      padding: '10px 16px',
+                      background: isCompactMode ? '#2563eb' : '#f8fafc',
+                      color: isCompactMode ? '#ffffff' : '#334155',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '8px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      fontSize: '14px'
+                    }}
+                  >
+                    {isCompactMode ? '📋 Full Table View' : '📱 Mobile Quick-Entry'}
+                  </button>
+                )}
+                {cceLevel && (
+                  <button type="button" onClick={handleDownloadMarksTemplate} style={{ padding: '10px 16px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '14px' }}>
+                    📥 Download Template
+                  </button>
+                )}
+                {cceLevel && isEditingUnlocked && (
+                  <label style={{ padding: '10px 16px', background: '#0284c7', color: '#ffffff', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '14px' }}>
+                    📂 Upload Spreadsheet
+                    <input type="file" accept=".csv, .xlsx" onChange={handleUniversalUpload} style={{ display: 'none' }} />
+                  </label>
+                )}
               </div>
             </div>
 
             {classStudents.length === 0 ? (
               <div style={{ padding: '40px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '12px', textAlign: 'center', color: '#64748b', fontSize: '15px' }}>No students assigned to this subject.</div>
+            ) : isCompactMode && assessmentMaxMark ? (
+              /* 🌟 MOBILE QUICK-ENTRY VIEW */
+              <div style={{ display: 'flex', flexDirection: 'column', border: '1px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden', marginBottom: '24px' }}>
+                <div style={{ background: '#f8fafc', padding: '12px 16px', borderBottom: '2px solid #cbd5e1', display: 'flex', justifyContent: 'space-between', fontWeight: '800', color: '#0f172a', fontSize: '14px' }}>
+                  <span>Student Details</span>
+                  <span style={{ color: '#0369a1' }}>{cceLevel} (Max {maxAllowed})</span>
+                </div>
+                {classStudents.map((student, index) => {
+                  const marks = studentMarks[student.regNo] || {};
+                  const m1 = parseFloat(marks[isHifz ? '50_1' : '15']) || 0;
+                  const m2 = parseFloat(marks[isHifz ? '50_2' : '20']) || 0;
+                  const m3 = isHifz ? 0 : (parseFloat(marks['25']) || 0);
+                  const m4 = isHifz ? 0 : (parseFloat(marks['40']) || 0);
+                  const total100 = m1 + m2 + m3 + m4;
+
+                  return (
+                    <div key={student.regNo} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid #e2e8f0', background: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                      <div>
+                        <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '15px' }}>
+                          <span style={{ color: '#64748b', marginRight: '8px' }}>#{student.rollNo || '-'}</span>
+                          {student.firstName}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600', marginTop: '4px' }}>
+                          Ad.No: <strong>{student.adNo}</strong> • Total: <strong style={{ color: '#1e40af' }}>{total100 > 0 ? `${total100}/100` : '-'}</strong>
+                        </div>
+                      </div>
+
+                      {isEditingUnlocked ? (
+                        <input
+                          type="number"
+                          max={maxAllowed}
+                          min="0"
+                          step="any"
+                          data-index={index}
+                          value={marks[assessmentMaxMark] ?? ''}
+                          onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
+                          onKeyDown={(e) => handleKeyDown(e, index)}
+                          placeholder={`/ ${maxAllowed}`}
+                          style={{ padding: '10px 12px', width: '90px', textAlign: 'center', borderRadius: '8px', border: '2px solid #0284c7', outline: 'none', fontSize: '16px', backgroundColor: '#f0f9ff', color: '#0f172a', fontWeight: '800' }}
+                        />
+                      ) : (
+                        <span style={{ fontWeight: '800', fontSize: '16px', color: marks[assessmentMaxMark] !== undefined ? '#0f172a' : '#94a3b8', padding: '8px 14px', background: '#f1f5f9', borderRadius: '8px' }}>
+                          {marks[assessmentMaxMark] ?? '-'}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
+              /* 🌟 STANDARD FULL TABLE VIEW */
               <div style={{ width: '100%', overflowX: 'auto', marginBottom: '24px' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px', minWidth: '850px' }}>
                   <thead>
@@ -665,7 +872,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                         </>
                       )}
                       <th style={{ padding: '14px 16px', color: '#1e40af', fontWeight: '800' }}>Total (/100)</th>
-                     {!isHifz && <th style={{ padding: '14px 16px', color: '#047857', fontWeight: '800' }}>Scaled (/30)</th>}
+                      {!isHifz && <th style={{ padding: '14px 16px', color: '#047857', fontWeight: '800' }}>Scaled (/30)</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -687,61 +894,61 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                           {isHifz ? (
                             <>
                               <td colSpan="2" style={{ padding: '14px 16px', background: assessmentMaxMark === '50_1' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
-                                {assessmentMaxMark === '50_1' ? (
+                                {assessmentMaxMark === '50_1' && isEditingUnlocked ? (
                                   <input type="number" max="50" min="0" step="any" data-index={index}
                                     value={marks['50_1'] ?? ''}
                                     onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
                                     onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 50"
-                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
-                                ) : (<span style={{ fontWeight: '700' }}>{marks['50_1'] || '-'}</span>)}
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '2px solid #0284c7', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['50_1'] ?? '-'}</span>)}
                               </td>
                               <td colSpan="2" style={{ padding: '14px 16px', background: assessmentMaxMark === '50_2' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
-                                {assessmentMaxMark === '50_2' ? (
+                                {assessmentMaxMark === '50_2' && isEditingUnlocked ? (
                                   <input type="number" max="50" min="0" step="any" data-index={index}
                                     value={marks['50_2'] ?? ''}
                                     onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
                                     onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 50"
-                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
-                                ) : (<span style={{ fontWeight: '700' }}>{marks['50_2'] || '-'}</span>)}
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '2px solid #0284c7', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['50_2'] ?? '-'}</span>)}
                               </td>
                             </>
                           ) : (
                             <>
                               <td style={{ padding: '14px 16px', background: assessmentMaxMark === '15' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
-                                {assessmentMaxMark === '15' ? (
+                                {assessmentMaxMark === '15' && isEditingUnlocked ? (
                                   <input type="number" max="15" min="0" step="any" data-index={index}
                                     value={marks['15'] ?? ''}
                                     onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
                                     onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 15"
-                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
-                                ) : (<span style={{ fontWeight: '700' }}>{marks['15'] || '-'}</span>)}
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '2px solid #0284c7', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['15'] ?? '-'}</span>)}
                               </td>
                               <td style={{ padding: '14px 16px', background: assessmentMaxMark === '20' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
-                                {assessmentMaxMark === '20' ? (
+                                {assessmentMaxMark === '20' && isEditingUnlocked ? (
                                   <input type="number" max="20" min="0" step="any" data-index={index}
                                     value={marks['20'] ?? ''}
                                     onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
                                     onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 20"
-                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
-                                ) : (<span style={{ fontWeight: '700' }}>{marks['20'] || '-'}</span>)}
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '2px solid #0284c7', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['20'] ?? '-'}</span>)}
                               </td>
                               <td style={{ padding: '14px 16px', background: assessmentMaxMark === '25' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
-                                {assessmentMaxMark === '25' ? (
+                                {assessmentMaxMark === '25' && isEditingUnlocked ? (
                                   <input type="number" max="25" min="0" step="any" data-index={index}
                                     value={marks['25'] ?? ''}
                                     onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
                                     onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 25"
-                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
-                                ) : (<span style={{ fontWeight: '700' }}>{marks['25'] || '-'}</span>)}
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '2px solid #0284c7', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['25'] ?? '-'}</span>)}
                               </td>
                               <td style={{ padding: '14px 16px', background: assessmentMaxMark === '40' ? '#f0f9ff' : 'transparent', color: '#0f172a' }}>
-                                {assessmentMaxMark === '40' ? (
+                                {assessmentMaxMark === '40' && isEditingUnlocked ? (
                                   <input type="number" max="40" min="0" step="any" data-index={index}
                                     value={marks['40'] ?? ''}
                                     onChange={(e) => handleMarkChange(student.regNo, e.target.value)}
                                     onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 40"
-                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
-                                ) : (<span style={{ fontWeight: '700' }}>{marks['40'] || '-'}</span>)}
+                                    style={{ padding: '8px 12px', width: '80px', borderRadius: '6px', border: '2px solid #0284c7', outline: 'none', fontSize: '15px', backgroundColor: '#ffffff', color: '#0f172a', fontWeight: '700' }} />
+                                ) : (<span style={{ fontWeight: '700' }}>{marks['40'] ?? '-'}</span>)}
                               </td>
                             </>
                           )}
@@ -752,7 +959,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                             <td style={{ padding: '14px 16px' }}>
                               {scaled30 !== '-' ? <span style={{ background: '#d1fae5', color: '#047857', padding: '6px 10px', borderRadius: '6px', fontWeight: '800' }}>{scaled30}</span> : '-'}
                             </td>
-)}
+                          )}
                         </tr>
                       );
                     })}
@@ -760,16 +967,19 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                 </table>
               </div>
             )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-              <button type="submit" disabled={classStudents.length === 0} style={typeof styles !== 'undefined' ? styles.buttonSuccess : { background: '#10b981', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '10px', fontWeight: '700', cursor: 'pointer', margin: 0 }}>
-                Save & Sync Final Marks
-              </button>
-              {autoSaveStatus && (
-                <span style={{ fontSize: '15px', fontWeight: '700', color: autoSaveStatus.includes('failed') ? '#ef4444' : '#059669', background: autoSaveStatus.includes('failed') ? '#fee2e2' : '#d1fae5', padding: '8px 16px', borderRadius: '8px' }}>
-                  {autoSaveStatus}
-                </span>
-              )}
-            </div>
+
+            {isEditingUnlocked && assessmentMaxMark && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                <button type="submit" disabled={classStudents.length === 0} style={typeof styles !== 'undefined' ? styles.buttonSuccess : { background: '#10b981', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '10px', fontWeight: '700', cursor: 'pointer', margin: 0 }}>
+                  💾 Save & Lock {cceLevel} Marks
+                </button>
+                {autoSaveStatus && (
+                  <span style={{ fontSize: '15px', fontWeight: '700', color: autoSaveStatus.includes('failed') ? '#ef4444' : '#059669', background: autoSaveStatus.includes('failed') ? '#fee2e2' : '#d1fae5', padding: '8px 16px', borderRadius: '8px' }}>
+                    {autoSaveStatus}
+                  </span>
+                )}
+              </div>
+            )}
           </form>
           {statusMsg && <div style={{ padding: '16px', background: '#ecfdf5', borderRadius: '8px', color: '#065f46', fontWeight: '700', textAlign: 'center' }}>{statusMsg}</div>}
         </>
@@ -777,7 +987,6 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     </div>
   );
 }
-
 // ==========================================
 // ADMIN COMPONENTS
 
@@ -1816,6 +2025,73 @@ function ReportManager() {
     fetchReportData();
   }, []);
 
+  // Helper to compute a student's local metric from Firebase Marks
+  const computeStudentLocalMetrics = (student) => {
+    const stMarks = localFirebaseMarks[student.regNo] || localFirebaseMarks[student.id] || localFirebaseMarks[student.adNo];
+    if (!stMarks || Object.keys(stMarks).length === 0) {
+      return { hasAnyData: false, total1400: 0, total490: 0, overallPct: 0, getSubjectScore: () => null };
+    }
+
+    let total1400 = 0;
+    let total490 = 0;
+    let hasAnyData = false;
+
+    const getSubjectScore = (targetSub) => {
+      const exactSub = targetSub.trim().toUpperCase();
+      const foundKey = Object.keys(stMarks).find(k => {
+        const kUp = k.trim().toUpperCase();
+        const isActUsul = exactSub.includes('U :FIQH') || exactSub.includes('U:FIQH');
+        const isKUsul = kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
+        if (isActUsul) return isKUsul;
+        if (exactSub === 'FIQH') return kUp === 'FIQH' && !isKUsul;
+        return kUp === exactSub;
+      });
+
+      if (!foundKey || !stMarks[foundKey]) return null;
+      const m = stMarks[foundKey];
+      let t100 = 0;
+      let subHasData = false;
+
+      if (exactSub === 'HIFZ') {
+        if (m['50_1'] !== undefined && m['50_1'] !== '') { t100 += parseFloat(m['50_1']); subHasData = true; }
+        if (m['50_2'] !== undefined && m['50_2'] !== '') { t100 += parseFloat(m['50_2']); subHasData = true; }
+        return subHasData ? Number(t100.toFixed(1)) : null;
+      } else {
+        if (m['15'] !== undefined && m['15'] !== '') { t100 += parseFloat(m['15']); subHasData = true; }
+        if (m['20'] !== undefined && m['20'] !== '') { t100 += parseFloat(m['20']); subHasData = true; }
+        if (m['25'] !== undefined && m['25'] !== '') { t100 += parseFloat(m['25']); subHasData = true; }
+        if (m['40'] !== undefined && m['40'] !== '') { t100 += parseFloat(m['40']); subHasData = true; }
+        return subHasData ? Number(((t100 / 100) * 30).toFixed(1)) : null;
+      }
+    };
+
+    Object.keys(stMarks).forEach(subKey => {
+      const m = stMarks[subKey];
+      const isHifz = subKey.trim().toUpperCase() === 'HIFZ';
+      let subSumObtained = 0;
+      let subHasData = false;
+
+      if (isHifz) {
+        if (m['50_1'] !== undefined && m['50_1'] !== '') { subSumObtained += parseFloat(m['50_1']); subHasData = true; }
+        if (m['50_2'] !== undefined && m['50_2'] !== '') { subSumObtained += parseFloat(m['50_2']); subHasData = true; }
+      } else {
+        if (m['15'] !== undefined && m['15'] !== '') { subSumObtained += parseFloat(m['15']); subHasData = true; }
+        if (m['20'] !== undefined && m['20'] !== '') { subSumObtained += parseFloat(m['20']); subHasData = true; }
+        if (m['25'] !== undefined && m['25'] !== '') { subSumObtained += parseFloat(m['25']); subHasData = true; }
+        if (m['40'] !== undefined && m['40'] !== '') { subSumObtained += parseFloat(m['40']); subHasData = true; }
+      }
+
+      if (subHasData) {
+        hasAnyData = true;
+        total1400 += subSumObtained;
+        total490 += isHifz ? subSumObtained : Number(((subSumObtained / 100) * 30).toFixed(1));
+      }
+    });
+
+    const overallPct = hasAnyData ? Number((((total1400 + total490) / 1890) * 100).toFixed(2)) : 0;
+    return { hasAnyData, total1400, total490: Number(total490.toFixed(1)), overallPct, getSubjectScore };
+  };
+
   const generateFilteredList = () => {
     const filtered = registeredStudents.filter((student) => {
       if (searchQuery.trim()) {
@@ -1833,27 +2109,24 @@ function ReportManager() {
 
       if (auditPreset === 'ALL') return true;
 
-      const marksInfo = overallMarksCache[student.regNo];
+      const metrics = computeStudentLocalMetrics(student);
 
       if (auditPreset === 'MISSING') {
-        if (!marksInfo || !marksInfo.overall || !marksInfo.overall['STATUS'] || marksInfo.overall['STATUS'] === '-' || marksInfo.overall['STATUS'] === '') return true;
-        return false;
+        return !metrics.hasAnyData;
       }
 
-      if (!marksInfo) return false;
+      if (!metrics.hasAnyData) return false;
 
-      let scoreToCompareStr = '';
-      if (exportMetric === 'STATUS') scoreToCompareStr = marksInfo.overall?.['STATUS'];
-      else if (exportMetric === '1400') scoreToCompareStr = marksInfo.overall?.['1400'];
-     else if (exportMetric === '490') scoreToCompareStr = marksInfo.overall?.['490'];
-      else if (exportMetric === 'SUBJECT') scoreToCompareStr = marksInfo.subjects?.[exportSubject.toUpperCase()];
+      let score = null;
+      if (exportMetric === 'STATUS') score = metrics.overallPct;
+      else if (exportMetric === '1400') score = metrics.total1400;
+      else if (exportMetric === '490') score = metrics.total490;
+      else if (exportMetric === 'SUBJECT') score = metrics.getSubjectScore(exportSubject);
 
-      if (!scoreToCompareStr || scoreToCompareStr === '-' || scoreToCompareStr === '') return false;
-      const score = parseFloat(String(scoreToCompareStr).replace('%', ''));
-      if (isNaN(score)) return false;
+      if (score === null || isNaN(score)) return false;
 
-      if (auditPreset === 'FAIL' && score >= 40) return false;
-      if (auditPreset === 'TOP' && score < 80) return false;
+      if (auditPreset === 'FAIL' && metrics.overallPct >= 40) return false;
+      if (auditPreset === 'TOP' && metrics.overallPct < 80) return false;
 
       if (auditPreset === 'CUSTOM') {
         if (thresholdCondition === 'Below' && score >= Number(thresholdScore)) return false;
@@ -1865,73 +2138,17 @@ function ReportManager() {
 
     const mappedResults = filtered.map((s) => {
       let printedMetric = 'Missing / -';
-      const stMarks = localFirebaseMarks[s.regNo] || localFirebaseMarks[s.id] || localFirebaseMarks[s.adNo];
+      const metrics = computeStudentLocalMetrics(s);
 
       if (exportMetric === 'SUBJECT') {
-        const exactSub = exportSubject.toUpperCase();
-        if (stMarks) {
-          const foundKey = Object.keys(stMarks).find(k => k.trim().toUpperCase() === exactSub || (exactSub.includes('FIQH') && k.trim().toUpperCase().includes('FIQH')));
-          if (foundKey && stMarks[foundKey]) {
-            const m = stMarks[foundKey];
-            let total100 = 0; let hasData = false;
-            
-            if (exactSub === 'HIFZ') {
-              if (m['50_1'] !== undefined && m['50_1'] !== '') { total100 += parseFloat(m['50_1']); hasData = true; }
-              if (m['50_2'] !== undefined && m['50_2'] !== '') { total100 += parseFloat(m['50_2']); hasData = true; }
-              printedMetric = hasData ? total100 : 'Missing / -'; 
-            } else {
-              if (m['15'] !== undefined && m['15'] !== '') { total100 += parseFloat(m['15']); hasData = true; }
-              if (m['20'] !== undefined && m['20'] !== '') { total100 += parseFloat(m['20']); hasData = true; }
-              if (m['25'] !== undefined && m['25'] !== '') { total100 += parseFloat(m['25']); hasData = true; }
-              if (m['40'] !== undefined && m['40'] !== '') { total100 += parseFloat(m['40']); hasData = true; }
-              printedMetric = hasData ? ((total100 / 100) * 30).toFixed(1) : 'Missing / -';
-            }
-          }
-        }
-      } else {
-        // 🌟 CALCULATE 490, 1400, AND STATUS LOCALLY (BYPASSING GOOGLE SHEETS)
-        if (stMarks && Object.keys(stMarks).length > 0) {
-          let total1400 = 0;
-          let total490 = 0;
-          let hasAnyData = false;
-
-          Object.keys(stMarks).forEach(subKey => {
-            const m = stMarks[subKey];
-            const isHifz = subKey.toUpperCase() === 'HIFZ';
-            let subSumObtained = 0;
-            let subHasData = false;
-
-            if (isHifz) {
-              if (m['50_1'] !== undefined && m['50_1'] !== '') { subSumObtained += parseFloat(m['50_1']); subHasData = true; }
-              if (m['50_2'] !== undefined && m['50_2'] !== '') { subSumObtained += parseFloat(m['50_2']); subHasData = true; }
-            } else {
-              if (m['15'] !== undefined && m['15'] !== '') { subSumObtained += parseFloat(m['15']); subHasData = true; }
-              if (m['20'] !== undefined && m['20'] !== '') { subSumObtained += parseFloat(m['20']); subHasData = true; }
-              if (m['25'] !== undefined && m['25'] !== '') { subSumObtained += parseFloat(m['25']); subHasData = true; }
-              if (m['40'] !== undefined && m['40'] !== '') { subSumObtained += parseFloat(m['40']); subHasData = true; }
-            }
-
-            if (subHasData) {
-              hasAnyData = true;
-              total1400 += subSumObtained;
-              // Normal subjects scale to 30%, Hifz takes the raw out of 100
-              total490 += isHifz ? subSumObtained : Number(((subSumObtained / 100) * 30).toFixed(1));
-            }
-          });
-
-          if (hasAnyData) {
-            if (exportMetric === '490') {
-              printedMetric = total490.toFixed(1);
-            } else if (exportMetric === '1400') {
-              printedMetric = total1400.toString();
-            } else if (exportMetric === 'STATUS') {
-              let overallMax = 1890; // 1400 + 490
-              let overallObtained = total1400 + total490;
-              printedMetric = ((overallObtained / overallMax) * 100).toFixed(2) + '%';
-            }
-          }
-        }
+        const subScore = metrics.getSubjectScore(exportSubject);
+        printedMetric = subScore !== null ? subScore.toString() : 'Missing / -';
+      } else if (metrics.hasAnyData) {
+        if (exportMetric === '490') printedMetric = metrics.total490.toFixed(1);
+        else if (exportMetric === '1400') printedMetric = metrics.total1400.toString();
+        else if (exportMetric === 'STATUS') printedMetric = metrics.overallPct.toFixed(2) + '%';
       }
+
       return { ...s, displayMetric: printedMetric };
     });
 
@@ -1947,10 +2164,11 @@ function ReportManager() {
     else setStatusMsg(`Found ${sortedMappedResults.length} students matching your filter criteria.`);
   };
 
+  // 🌟 FIXED: Counts directly from Firebase marks instead of stale Google Sheets cache!
   const totalStudentsCount = registeredStudents.length;
   const studentsWithMarks = registeredStudents.filter(s => {
-    const info = overallMarksCache[s.regNo];
-    return info && info.overall && info.overall['STATUS'] && info.overall['STATUS'] !== '-';
+    const stMarks = localFirebaseMarks[s.regNo] || localFirebaseMarks[s.id] || localFirebaseMarks[s.adNo];
+    return stMarks && Object.keys(stMarks).length > 0;
   }).length;
   const missingMarksCount = totalStudentsCount - studentsWithMarks;
 
@@ -2859,7 +3077,7 @@ const fetchClassSubjectMarks = async () => {
 
 function ReminderManager() {
   const [weekName, setWeekName] = useState('Week 3');
-  const [targetConfigs, setTargetConfigs] = useState({}); // Stores { "Fiqh": "15", "Hadith": "20" }
+  const [targetConfigs, setTargetConfigs] = useState({});
   const [message, setMessage] = useState('Please complete your mark entry for this week.');
   const [isActive, setIsActive] = useState(false);
   const [trackerData, setTrackerData] = useState([]);
@@ -2881,16 +3099,15 @@ function ReminderManager() {
         setMessage(data.message || '');
         setIsActive(data.active || false);
 
-        // BACKWARD COMPATIBILITY: Converts old single-level array to new specific-level object
         if (data.targetConfigs) {
           setTargetConfigs(data.targetConfigs);
         } else if (data.targetSubjects) {
           let migratedConf = {};
           const fallbackLvl = data.level || "15";
           if (data.targetSubjects.includes('All')) {
-            DEFAULT_SUBJECTS.forEach(s => migratedConf[s] = fallbackLvl);
+            DEFAULT_SUBJECTS.forEach(s => migratedConf[s] = s.toUpperCase() === 'HIFZ' ? '50_1' : fallbackLvl);
           } else {
-            data.targetSubjects.forEach(s => { if (s !== 'All') migratedConf[s] = fallbackLvl; });
+            data.targetSubjects.forEach(s => { if (s !== 'All') migratedConf[s] = s.toUpperCase() === 'HIFZ' ? '50_1' : fallbackLvl; });
           }
           setTargetConfigs(migratedConf);
         }
@@ -2900,7 +3117,6 @@ function ReminderManager() {
       const marks = {}; mSnap.forEach(d => marks[d.id] = d.data());
       const trackList = [];
 
-      // Determine which configs to use for tracking
       let activeConfigs = targetConfigs;
       if (cacheSnap.exists() && cacheSnap.data().targetConfigs) {
         activeConfigs = cacheSnap.data().targetConfigs;
@@ -2914,19 +3130,17 @@ function ReminderManager() {
           const exactSubject = (env.alias?.toUpperCase().includes('U :FIQH') || env.subject?.toUpperCase().includes('U :FIQH')) ? 'U :FIQH' : (env.subject || '');
           const actUp = exactSubject.toUpperCase();
 
-          // 🌟 ONLY track if this exact subject was selected in the config
           const matchingSubKey = Object.keys(activeConfigs).find(k => k.toUpperCase() === actUp);
-          if (!matchingSubKey) return; // Skip if not active this week
+          if (!matchingSubKey) return;
 
           const requiredLevel = activeConfigs[matchingSubKey];
           const envAliasLower = String(env.alias || '').trim().toLowerCase();
           const envLang = (env.langTag || '').toLowerCase();
 
-          // Your exact preserved student matching logic
           const matchedStudents = students.filter(student => {
             const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
             const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
-            if (env.studentIds && Array.isArray(env.studentIds)) {
+            if (env.studentIds && Array.isArray(env.studentIds) && env.studentIds.length > 0) {
               const savedIds = env.studentIds.map(id => String(id).trim());
               if (savedIds.includes(student.regNo) || savedIds.includes(student.adNo)) return true;
             }
@@ -2954,7 +3168,6 @@ function ReminderManager() {
                 return kUp === actUp;
               });
 
-              // 🌟 Verify the specific required level exists
               if (foundKey && stMarks[foundKey] && stMarks[foundKey][requiredLevel] !== undefined && stMarks[foundKey][requiredLevel] !== '') {
                 hasMark = true;
               }
@@ -2966,7 +3179,7 @@ function ReminderManager() {
             trackList.push({
               teacherName: teacher.fullName,
               subject: env.alias || env.subject,
-              levelRequired: requiredLevel, // Storing specific level for UI
+              levelRequired: requiredLevel,
               totalEnrolled: matchedStudents.length,
               missingCount: missingCount,
               enteredCount: matchedStudents.length - missingCount,
@@ -2986,7 +3199,7 @@ function ReminderManager() {
     setIsLoading(true);
     await setDoc(doc(db, 'systemCache', 'activeReminder'), {
       weekName: weekName,
-      targetConfigs: targetConfigs, // Saves the subject:level mapping perfectly
+      targetConfigs: targetConfigs,
       message: message,
       active: isActive,
       updatedAt: new Date().toISOString()
@@ -2995,14 +3208,14 @@ function ReminderManager() {
     fetchTrackerData();
   };
 
-  // 🌟 New Subject Toggle Logic
+  // 🌟 FIXED: Defaults Hifz to "50_1" instead of "15"
   const toggleSubjectConfig = (sub) => {
     setTargetConfigs(prev => {
       const newConf = { ...prev };
       if (newConf[sub]) {
-        delete newConf[sub]; // Uncheck
+        delete newConf[sub];
       } else {
-        newConf[sub] = "15"; // Check (Default to Level 1 / 15 marks)
+        newConf[sub] = sub.toUpperCase() === 'HIFZ' ? "50_1" : "15";
       }
       return newConf;
     });
@@ -3032,22 +3245,25 @@ function ReminderManager() {
         <div>
           <label style={styles.label}>Select Subjects & Assign Specific Levels:</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', background: '#ffffff', padding: '20px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
-            {DEFAULT_SUBJECTS.map(sub => (
-              <div key={sub} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: targetConfigs[sub] ? '#eff6ff' : '#f8fafc', padding: '8px 12px', borderRadius: '8px', border: `1px solid ${targetConfigs[sub] ? '#bfdbfe' : '#e2e8f0'}` }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', cursor: 'pointer', color: '#0f172a', fontWeight: '700' }}>
-                  <input type="checkbox" checked={!!targetConfigs[sub]} onChange={() => toggleSubjectConfig(sub)} style={{ width: '16px', height: '16px', accentColor: '#2563eb' }} />
-                  {sub}
-                </label>
-                {/* Dynamic Dropdown that only appears when subject is checked */}
-                {targetConfigs[sub] && (
-                  <select value={targetConfigs[sub]} onChange={(e) => updateSubjectLevel(sub, e.target.value)} style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px', outline: 'none', fontWeight: '700', color: '#1e40af', background: '#ffffff', cursor: 'pointer' }}>
-                    {Object.entries(CCE_LEVELS).map(([name, val]) => (
-                      <option key={val} value={val}>{name} (/{val})</option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            ))}
+            {DEFAULT_SUBJECTS.map(sub => {
+              const isSubHifz = sub.toUpperCase() === 'HIFZ';
+              const levelOptions = isSubHifz ? HIFZ_LEVELS : CCE_LEVELS;
+              return (
+                <div key={sub} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: targetConfigs[sub] ? '#eff6ff' : '#f8fafc', padding: '8px 12px', borderRadius: '8px', border: `1px solid ${targetConfigs[sub] ? '#bfdbfe' : '#e2e8f0'}` }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', cursor: 'pointer', color: '#0f172a', fontWeight: '700' }}>
+                    <input type="checkbox" checked={!!targetConfigs[sub]} onChange={() => toggleSubjectConfig(sub)} style={{ width: '16px', height: '16px', accentColor: '#2563eb' }} />
+                    {sub}
+                  </label>
+                  {targetConfigs[sub] && (
+                    <select value={targetConfigs[sub]} onChange={(e) => updateSubjectLevel(sub, e.target.value)} style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px', outline: 'none', fontWeight: '700', color: '#1e40af', background: '#ffffff', cursor: 'pointer' }}>
+                      {Object.entries(levelOptions).map(([name, val]) => (
+                        <option key={val} value={val}>{isSubHifz ? name : `${name} (/${val})`}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -3085,7 +3301,7 @@ function ReminderManager() {
                 <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: '#ffffff' }}>
                   <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>{row.teacherName}</td>
                   <td style={{ padding: '14px 16px', color: '#334155', fontWeight: '700' }}>{row.subject}</td>
-                  <td style={{ padding: '14px 16px', textAlign: 'center' }}><span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 8px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>Max {row.levelRequired.replace('_1', '').replace('_2', '')}</span></td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}><span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 8px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>Max {String(row.levelRequired).replace('_1', '').replace('_2', '')}</span></td>
                   <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: '#64748b' }}>{row.totalEnrolled}</td>
                   <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '800', color: row.missingCount > 0 ? '#ef4444' : '#10b981' }}>{row.missingCount}</td>
                   <td style={{ padding: '14px 16px', textAlign: 'center' }}>
