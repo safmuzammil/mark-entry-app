@@ -42,17 +42,33 @@ export default function OutPassPortal() {
   const [teachersMap, setTeachersMap] = useState({});
   const [loading, setLoading] = useState(true);
 
-  // Teacher Issue Form State
+  // Teacher Issue Form State (Separate Date & Time for smooth editing!)
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [destination, setDestination] = useState("");
   const [purpose, setPurpose] = useState("");
-  const [permittedFrom, setPermittedFrom] = useState("");
-  const [permittedTo, setPermittedTo] = useState("");
+
+  const [fromDate, setFromDate] = useState("");
+  const [fromTime, setFromTime] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [toTime, setToTime] = useState("");
+  const [isOpenReturn, setIsOpenReturn] = useState(false); // Medical / No specific return time
   const [activeDurationChip, setActiveDurationChip] = useState("2h");
+
   const [submitting, setSubmitting] = useState(false);
   const [teacherStatusFilter, setTeacherStatusFilter] = useState("ALL"); // "ALL" | "OUTSIDE" | "RETURNED"
   const [teacherSearch, setTeacherSearch] = useState("");
+
+  // Edit Existing Pass Modal State (So Teacher/Admin can edit Departure/Return Date & Time anytime)
+  const [editingPass, setEditingPass] = useState(null);
+  const [editFromDate, setEditFromDate] = useState("");
+  const [editFromTime, setEditFromTime] = useState("");
+  const [editToDate, setEditToDate] = useState("");
+  const [editToTime, setEditToTime] = useState("");
+  const [editIsOpenReturn, setEditIsOpenReturn] = useState(false);
+  const [editDestination, setEditDestination] = useState("");
+  const [editPurpose, setEditPurpose] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   // Barcode Scanner State
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -73,15 +89,29 @@ export default function OutPassPortal() {
     return () => clearInterval(timer);
   }, []);
 
-  // Default datetime helper for inputs
-  const formatDateTimeLocal = (date) => {
-    const d = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-    return d.toISOString().slice(0, 16);
+  // ============================================================================
+  // 🕒 DATE & 12-HOUR CLOCK (AM/PM) HELPERS
+  // ============================================================================
+  const toLocalDateStr = (d) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
   };
 
-  // ============================================================================
-  // 🕒 12-HOUR CLOCK (AM/PM) & OFFICIAL TEACHER NAME HELPERS
-  // ============================================================================
+  const toLocalTimeStr = (d) => {
+    const hours = String(d.getHours()).padStart(2, "0");
+    const mins = String(d.getMinutes()).padStart(2, "0");
+    return `${hours}:${mins}`;
+  };
+
+  const combineDateAndTimeToISO = (dateStr, timeStr) => {
+    if (!dateStr) return null;
+    const safeTime = timeStr || "00:00";
+    const combined = new Date(`${dateStr}T${safeTime}:00`);
+    return isNaN(combined.getTime()) ? null : combined.toISOString();
+  };
+
   const formatTime12Hour = (isoString) => {
     if (!isoString) return "—";
     const d = new Date(isoString);
@@ -95,13 +125,16 @@ export default function OutPassPortal() {
       .toUpperCase();
   };
 
-  const formatDateTime12Hour = (isoString) => {
-    if (!isoString) return "—";
+  const formatDateTime12Hour = (isoString, openReturnFlag = false) => {
+    if (openReturnFlag || !isoString) {
+      return openReturnFlag ? "🏥 Open Return (No Fixed Time)" : "—";
+    }
     const d = new Date(isoString);
     if (isNaN(d.getTime())) return "—";
     const datePart = d.toLocaleDateString("en-IN", {
       day: "2-digit",
       month: "short",
+      year: "numeric",
     });
     const timePart = d
       .toLocaleTimeString("en-US", {
@@ -128,8 +161,11 @@ export default function OutPassPortal() {
   const resetDefaultTimes = () => {
     const current = new Date();
     const twoHoursLater = new Date(current.getTime() + 2 * 60 * 60 * 1000);
-    setPermittedFrom(formatDateTimeLocal(current));
-    setPermittedTo(formatDateTimeLocal(twoHoursLater));
+    setFromDate(toLocalDateStr(current));
+    setFromTime(toLocalTimeStr(current));
+    setToDate(toLocalDateStr(twoHoursLater));
+    setToTime(toLocalTimeStr(twoHoursLater));
+    setIsOpenReturn(false);
     setActiveDurationChip("2h");
   };
 
@@ -143,12 +179,16 @@ export default function OutPassPortal() {
 
     const loadTeachersAndStudents = async () => {
       try {
-        // Load Teachers Collection to map username -> fullName (Hudawi / Sir)
         const teacherSnap = await getDocs(collection(db, "teachers"));
         const map = {};
         teacherSnap.docs.forEach((d) => {
           const t = d.data();
-          const officialName = (t.fullName || t.name || t.firstName || "").trim();
+          const officialName = (
+            t.fullName ||
+            t.name ||
+            t.firstName ||
+            ""
+          ).trim();
           if (officialName) {
             if (t.username) {
               const u = String(t.username).toLowerCase().trim();
@@ -166,7 +206,6 @@ export default function OutPassPortal() {
         teacherLookupCache = map;
         setTeachersMap(map);
 
-        // If user is already logged in, immediately update their displayed staffName to official fullName
         if (auth.currentUser) {
           const email = (auth.currentUser.email || "").toLowerCase().trim();
           const prefix = email.split("@")[0];
@@ -179,7 +218,6 @@ export default function OutPassPortal() {
       }
 
       try {
-        // Load Master Students Collection
         const snap = await getDocs(collection(db, "students"));
         const list = snap.docs.map((d) => {
           const data = d.data();
@@ -227,7 +265,6 @@ export default function OutPassPortal() {
           emailPrefix ||
           "Teacher";
 
-        // If teacherLookupCache wasn't populated yet, query teachers once
         if (
           !teacherLookupCache[emailLower] &&
           !teacherLookupCache[emailPrefix]
@@ -385,8 +422,6 @@ export default function OutPassPortal() {
           `No active OUTSIDE pass (approved by you) found for scanned ID: ${code}`
         );
       }
-    } else if (scannerMode === "gate") {
-      handleGateLookupByAdNo(code);
     }
   };
 
@@ -399,6 +434,13 @@ export default function OutPassPortal() {
     );
   };
 
+  // Helper: Check if a pass is currently Overdue (Never overdue if isOpenReturn is true!)
+  const isPassOverdue = (pass) => {
+    if (!pass || pass.status !== "OUTSIDE") return false;
+    if (pass.isOpenReturn || !pass.permittedTo) return false;
+    return new Date(pass.permittedTo) < now;
+  };
+
   // Helper: Count how many times student went out this month
   const getMonthlyOutCount = (adNo) => {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -409,37 +451,100 @@ export default function OutPassPortal() {
     ).length;
   };
 
-  // Helper: Format live remaining time or overdue duration
-  const getRemainingTimeText = (permittedToISO) => {
-    const diffMs = new Date(permittedToISO) - now;
+  // Helper: Format live remaining time or multi-day / open medical status
+  const getRemainingTimeText = (pass) => {
+    if (pass.isOpenReturn || !pass.permittedTo) {
+      return "🏥 Open Return Time (Medical / Unspecified)";
+    }
+    const diffMs = new Date(pass.permittedTo) - now;
     const absMins = Math.round(Math.abs(diffMs) / 60000);
-    const hrs = Math.floor(absMins / 60);
+    const days = Math.floor(absMins / (60 * 24));
+    const hrs = Math.floor((absMins % (60 * 24)) / 60);
     const mins = absMins % 60;
-    const timeStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+
+    let parts = [];
+    if (days > 0) parts.push(`${days}d`);
+    if (hrs > 0) parts.push(`${hrs}h`);
+    parts.push(`${mins}m`);
+    const timeStr = parts.join(" ");
+
     return diffMs < 0 ? `Overdue by ${timeStr}` : `${timeStr} remaining`;
   };
 
-  // Quick Duration Setter
-  const applyDuration = (hours, chipId) => {
-    const start = permittedFrom ? new Date(permittedFrom) : new Date();
+  // ============================================================================
+  // ⏱️ QUICK DURATION & MULTI-DAY HELPERS FOR TEACHER FORM
+  // ============================================================================
+  const getBaseDepartureDate = () => {
+    const iso = combineDateAndTimeToISO(fromDate, fromTime);
+    return iso ? new Date(iso) : new Date();
+  };
+
+  const applyHoursDuration = (hours, chipId) => {
+    setIsOpenReturn(false);
+    const start = getBaseDepartureDate();
     const end = new Date(start.getTime() + hours * 60 * 60 * 1000);
-    setPermittedTo(formatDateTimeLocal(end));
+    setToDate(toLocalDateStr(end));
+    setToTime(toLocalTimeStr(end));
     setActiveDurationChip(chipId);
   };
 
   const applyUntilEvening = () => {
-    const end = new Date();
+    setIsOpenReturn(false);
+    const start = getBaseDepartureDate();
+    const end = new Date(start);
     end.setHours(18, 0, 0, 0);
-    setPermittedTo(formatDateTimeLocal(end));
+    if (end <= start) {
+      end.setDate(end.getDate() + 1);
+    }
+    setToDate(toLocalDateStr(end));
+    setToTime(toLocalTimeStr(end));
     setActiveDurationChip("6pm");
   };
 
-  // 3. Teacher Submit: Issue Out-Pass (Saves Official Teacher Name)
+  const applyDaysDuration = (days, chipId) => {
+    setIsOpenReturn(false);
+    const start = getBaseDepartureDate();
+    const end = new Date(start);
+    end.setDate(end.getDate() + days);
+    // Default return time on multi-day leave to 6:00 PM (editable by teacher)
+    end.setHours(18, 0, 0, 0);
+    setToDate(toLocalDateStr(end));
+    setToTime(toLocalTimeStr(end));
+    setActiveDurationChip(chipId);
+  };
+
+  const toggleOpenReturnMode = () => {
+    const nextVal = !isOpenReturn;
+    setIsOpenReturn(nextVal);
+    setActiveDurationChip(nextVal ? "open" : "custom");
+  };
+
+  // 3. Teacher Submit: Issue Out-Pass
   const handleIssuePass = async (e) => {
     e.preventDefault();
     if (!selectedStudent) return alert("Please select or scan a student first.");
     if (!destination.trim() || !purpose.trim()) {
       return alert("Please enter both Destination and Purpose.");
+    }
+
+    const fromISO = combineDateAndTimeToISO(fromDate, fromTime);
+    if (!fromISO) {
+      return alert("Please select a valid Departure Date and Time.");
+    }
+
+    let toISO = null;
+    if (!isOpenReturn) {
+      toISO = combineDateAndTimeToISO(toDate, toTime);
+      if (!toISO) {
+        return alert(
+          "Please select a Return Date & Time, or enable 'No Specific Return Time (Medical / Open)'."
+        );
+      }
+      if (new Date(toISO) <= new Date(fromISO)) {
+        return alert(
+          "Return Date & Time must be after the Departure Date & Time!"
+        );
+      }
     }
 
     const existingActive = getActivePassForStudent(selectedStudent.adNo);
@@ -463,13 +568,14 @@ export default function OutPassPortal() {
         studentClass: selectedStudent.studentClass,
         destination: destination.trim(),
         purpose: purpose.trim(),
-        permittedFrom: new Date(permittedFrom).toISOString(),
-        permittedTo: new Date(permittedTo).toISOString(),
+        permittedFrom: fromISO,
+        permittedTo: isOpenReturn ? null : toISO,
+        isOpenReturn: Boolean(isOpenReturn),
         teacherId: currentUser?.uid || "staff",
         teacherEmail: currentUser?.email || "",
         teacherName: officialTeacher,
         status: initialStatus,
-        actualDepartureTime: USE_STRICT_GATEKEEPER ? null : nowISO,
+        actualDepartureTime: USE_STRICT_GATEKEEPER ? null : fromISO,
         actualReturnTime: null,
         departureClerkName: USE_STRICT_GATEKEEPER ? null : officialTeacher,
         returnClerkName: null,
@@ -489,48 +595,81 @@ export default function OutPassPortal() {
     }
   };
 
-  // 4. Gatekeeper & Return Actions
-  const handleGateLookupByAdNo = (adNoInput) => {
-    const activePass = getActivePassForStudent(adNoInput);
-    if (activePass) {
-      setGateScanResult(activePass);
-    } else {
-      alert(
-        `No active pass found for Ad.No: ${adNoInput}. Student does NOT have permission!`
-      );
-      setGateScanResult(null);
-    }
+  // ============================================================================
+  // ✏️ EDIT ACTIVE PASS MODAL HANDLERS (Update Departure/Return Date & Time)
+  // ============================================================================
+  const openEditPassModal = (pass) => {
+    const fDate = pass.permittedFrom ? new Date(pass.permittedFrom) : new Date();
+    const tDate = pass.permittedTo
+      ? new Date(pass.permittedTo)
+      : new Date(fDate.getTime() + 2 * 60 * 60 * 1000);
+
+    setEditingPass(pass);
+    setEditDestination(pass.destination || "");
+    setEditPurpose(pass.purpose || "");
+    setEditFromDate(toLocalDateStr(fDate));
+    setEditFromTime(toLocalTimeStr(fDate));
+    setEditToDate(toLocalDateStr(tDate));
+    setEditToTime(toLocalTimeStr(tDate));
+    setEditIsOpenReturn(Boolean(pass.isOpenReturn || !pass.permittedTo));
   };
 
-  const handleConfirmDeparture = async (pass) => {
+  const handleSaveEditedPass = async (e) => {
+    e.preventDefault();
+    if (!editingPass) return;
+
+    const updatedFromISO = combineDateAndTimeToISO(editFromDate, editFromTime);
+    if (!updatedFromISO) {
+      return alert("Please enter a valid Departure Date & Time.");
+    }
+
+    let updatedToISO = null;
+    if (!editIsOpenReturn) {
+      updatedToISO = combineDateAndTimeToISO(editToDate, editToTime);
+      if (!updatedToISO) {
+        return alert("Please enter a valid Return Date & Time.");
+      }
+      if (new Date(updatedToISO) <= new Date(updatedFromISO)) {
+        return alert("Return Date & Time must be after Departure Date & Time.");
+      }
+    }
+
+    setSavingEdit(true);
     try {
-      const passRef = doc(db, "out_passes", pass.id);
+      const passRef = doc(db, "out_passes", editingPass.id);
       await updateDoc(passRef, {
-        status: "OUTSIDE",
-        actualDepartureTime: new Date().toISOString(),
-        departureClerkName: getOfficialTeacherName(staffName) || "Gatekeeper",
+        destination: editDestination.trim(),
+        purpose: editPurpose.trim(),
+        permittedFrom: updatedFromISO,
+        actualDepartureTime: updatedFromISO,
+        permittedTo: editIsOpenReturn ? null : updatedToISO,
+        isOpenReturn: Boolean(editIsOpenReturn),
       });
-      setGateScanResult(null);
+      setEditingPass(null);
     } catch (err) {
-      console.error("Error marking departure:", err);
-      alert("Error updating departure status.");
+      console.error("Error updating pass:", err);
+      alert("Failed to update out-pass details.");
+    } finally {
+      setSavingEdit(false);
     }
   };
 
+  // 4. Return & Cancel Actions
   const handleConfirmReturn = async (pass) => {
     try {
       const returnTime = new Date();
-      const allowedUntil = new Date(pass.permittedTo);
-      const isLate = returnTime > allowedUntil;
+      const isLate =
+        !pass.isOpenReturn &&
+        pass.permittedTo &&
+        returnTime > new Date(pass.permittedTo);
 
       const passRef = doc(db, "out_passes", pass.id);
       await updateDoc(passRef, {
         status: "RETURNED",
         actualReturnTime: returnTime.toISOString(),
         returnClerkName: getOfficialTeacherName(staffName) || "Staff",
-        wasLateReturn: isLate,
+        wasLateReturn: Boolean(isLate),
       });
-      setGateScanResult(null);
     } catch (err) {
       console.error("Error marking return:", err);
       alert("Error updating return status.");
@@ -548,7 +687,7 @@ export default function OutPassPortal() {
     }
   };
 
-  // Export CSV for Admin (Uses Official Teacher Name & 12-Hour AM/PM Clock)
+  // Export CSV for Admin
   const handleExportCSV = () => {
     const headers = [
       "Ad.No",
@@ -571,7 +710,7 @@ export default function OutPassPortal() {
       `"${(p.purpose || "").replace(/"/g, '""')}"`,
       `"${getOfficialTeacherName(p.teacherName).replace(/"/g, '""')}"`,
       `"${formatDateTime12Hour(p.permittedFrom)}"`,
-      `"${formatDateTime12Hour(p.permittedTo)}"`,
+      `"${formatDateTime12Hour(p.permittedTo, p.isOpenReturn)}"`,
       `"${formatDateTime12Hour(p.actualDepartureTime)}"`,
       `"${formatDateTime12Hour(p.actualReturnTime)}"`,
       p.status,
@@ -637,11 +776,9 @@ export default function OutPassPortal() {
     return true;
   });
 
-  // Global Lists (Strictly for Admin / Gatekeeper)
+  // Global Lists (Strictly for Admin)
   const currentlyOutsidePasses = passes.filter((p) => p.status === "OUTSIDE");
-  const overduePasses = currentlyOutsidePasses.filter(
-    (p) => new Date(p.permittedTo) < now
-  );
+  const overduePasses = currentlyOutsidePasses.filter((p) => isPassOverdue(p));
 
   const outsideAdNos = new Set(
     currentlyOutsidePasses.map((p) => String(p.adNo).toLowerCase())
@@ -660,7 +797,6 @@ export default function OutPassPortal() {
     ).filter(Boolean),
   ];
 
-  // Admin dropdown shows Official Teacher Names (Hudawi / Sir)
   const allTeachers = [
     "ALL",
     ...Array.from(
@@ -806,20 +942,6 @@ export default function OutPassPortal() {
               </span>
             </button>
 
-            {USE_STRICT_GATEKEEPER && (
-              <button
-                type="button"
-                onClick={() => setActiveTab("gatekeeper")}
-                style={
-                  activeTab === "gatekeeper"
-                    ? styles.mainTabActive
-                    : styles.mainTabInactive
-                }
-              >
-                <span>🛂 Gatekeeper Scanner</span>
-              </button>
-            )}
-
             {isAdmin && (
               <button
                 type="button"
@@ -844,7 +966,6 @@ export default function OutPassPortal() {
             )}
           </div>
 
-          {/* Quick Scan to Return Button Always Accessible */}
           <button
             type="button"
             onClick={() => {
@@ -858,7 +979,7 @@ export default function OutPassPortal() {
         </div>
 
         {/* =========================================================
-            BARCODE CAMERA MODAL
+            MODAL 1: BARCODE CAMERA SCANNER
            ========================================================= */}
         {scannerOpen && (
           <div style={styles.modalOverlay}>
@@ -911,6 +1032,204 @@ export default function OutPassPortal() {
               >
                 Cancel &amp; Close Camera
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================
+            MODAL 2: EDIT EXISTING OUT-PASS (DATE / TIME / MEDICAL OPEN RETURN)
+           ========================================================= */}
+        {editingPass && (
+          <div style={styles.modalOverlay}>
+            <div style={{ ...styles.modalCard, maxWidth: "540px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 14,
+                  borderBottom: "1px solid #e2e8f0",
+                  paddingBottom: 10,
+                }}
+              >
+                <div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 800,
+                      color: "#0f766e",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Modify Active Out-Pass
+                  </div>
+                  <h3 style={{ margin: "2px 0 0", color: "#0f172a", fontSize: 18 }}>
+                    ✏️ {editingPass.studentName} (#{editingPass.adNo})
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingPass(null)}
+                  style={styles.iconCloseBtn}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEditedPass}>
+                <div style={styles.dateRowGrid}>
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={styles.subFieldLabel}>Destination</label>
+                    <input
+                      type="text"
+                      value={editDestination}
+                      onChange={(e) => setEditDestination(e.target.value)}
+                      style={styles.textInput}
+                      required
+                    />
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={styles.subFieldLabel}>Purpose / Reason</label>
+                    <input
+                      type="text"
+                      value={editPurpose}
+                      onChange={(e) => setEditPurpose(e.target.value)}
+                      style={styles.textInput}
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Edit Departure Date & Time */}
+                <div style={styles.timePickerCard}>
+                  <div style={styles.timeSectionTitle}>
+                    🚶‍♂️ Departure Date &amp; Time
+                  </div>
+                  <div style={styles.dateRowGrid}>
+                    <div>
+                      <span style={styles.subFieldLabel}>Departure Date</span>
+                      <input
+                        type="date"
+                        value={editFromDate}
+                        onChange={(e) => setEditFromDate(e.target.value)}
+                        style={styles.textInput}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <span style={styles.subFieldLabel}>Departure Time</span>
+                      <input
+                        type="time"
+                        value={editFromTime}
+                        onChange={(e) => setEditFromTime(e.target.value)}
+                        style={styles.textInput}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div style={styles.timePreview12h}>
+                    🕒 Selected:{" "}
+                    {formatDateTime12Hour(
+                      combineDateAndTimeToISO(editFromDate, editFromTime)
+                    )}
+                  </div>
+                </div>
+
+                {/* Edit Return Date & Time OR Medical Open Return */}
+                <div style={{ ...styles.timePickerCard, marginTop: 12 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: 8,
+                      marginBottom: 8,
+                    }}
+                  >
+                    <div style={styles.timeSectionTitle}>
+                      ⏳ Expected Return Date &amp; Time
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditIsOpenReturn(!editIsOpenReturn)}
+                      style={
+                        editIsOpenReturn
+                          ? styles.medicalOpenBtnActive
+                          : styles.medicalOpenBtnInactive
+                      }
+                    >
+                      {editIsOpenReturn
+                        ? "✓ 🏥 No Specific Return Time (Active)"
+                        : "🏥 Set No Specific Return Time (Medical)"}
+                    </button>
+                  </div>
+
+                  {!editIsOpenReturn ? (
+                    <>
+                      <div style={styles.dateRowGrid}>
+                        <div>
+                          <span style={styles.subFieldLabel}>Return Date</span>
+                          <input
+                            type="date"
+                            value={editToDate}
+                            min={editFromDate}
+                            onChange={(e) => setEditToDate(e.target.value)}
+                            style={styles.textInput}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <span style={styles.subFieldLabel}>Return Time</span>
+                          <input
+                            type="time"
+                            value={editToTime}
+                            onChange={(e) => setEditToTime(e.target.value)}
+                            style={styles.textInput}
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div style={styles.timePreview12h}>
+                        ⏳ Return Deadline:{" "}
+                        {formatDateTime12Hour(
+                          combineDateAndTimeToISO(editToDate, editToTime)
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={styles.openMedicalBanner}>
+                      🏥 <strong>Open-Ended / Medical Leave:</strong> No fixed
+                      return time is required. This student will not be marked
+                      overdue until they return.
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    marginTop: 18,
+                    justifyContent: "flex-end",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setEditingPass(null)}
+                    style={styles.cancelEditBtn}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingEdit}
+                    style={styles.saveEditBtn}
+                  >
+                    {savingEdit ? "Saving Changes..." : "💾 Save Updated Pass"}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
@@ -1223,18 +1542,25 @@ export default function OutPassPortal() {
                     />
                     <div style={styles.chipGroup}>
                       {[
-                        "Medical / Consultation",
+                        "Medical / Hospital Case",
                         "Personal Purchase",
                         "Department / Official Work",
-                        "Banking / ATM",
-                        "Emergency Home Leave",
+                        "Multi-Day Home Leave",
+                        "Emergency Leave",
                       ].map((rsn) => {
                         const isSelected = purpose === rsn;
                         return (
                           <button
                             type="button"
                             key={rsn}
-                            onClick={() => setPurpose(rsn)}
+                            onClick={() => {
+                              setPurpose(rsn);
+                              // Automatically suggest Open Return if teacher clicks Medical Case
+                              if (rsn === "Medical / Hospital Case") {
+                                setIsOpenReturn(true);
+                                setActiveDurationChip("open");
+                              }
+                            }}
                             style={
                               isSelected
                                 ? styles.quickChipActive
@@ -1248,93 +1574,257 @@ export default function OutPassPortal() {
                     </div>
                   </div>
 
-                  {/* STEP 3: PERMITTED TIME WINDOW (WITH 12-HOUR AM/PM LIVE PREVIEW) */}
+                  {/* =========================================================
+                      STEP 4: EDITABLE DEPARTURE & RETURN DATE/TIME + MEDICAL OPEN LEAVE
+                     ========================================================= */}
                   <div style={{ marginBottom: 18 }}>
                     <label style={styles.fieldLabel}>
-                      4. Permitted Date &amp; Time Allowed
+                      4. Permitted Departure &amp; Return Schedule (Single Day,
+                      Multi-Day, or Open Medical)
                     </label>
-                    <div style={styles.dateRowGrid}>
-                      <div>
-                        <span style={styles.subFieldLabel}>
-                          Departure From:
-                        </span>
-                        <input
-                          type="datetime-local"
-                          value={permittedFrom}
-                          onChange={(e) => setPermittedFrom(e.target.value)}
-                          style={styles.textInput}
-                          required
-                        />
-                        <div style={styles.timePreview12h}>
-                          🕒 {formatDateTime12Hour(permittedFrom)}
-                        </div>
-                      </div>
-                      <div>
-                        <span style={styles.subFieldLabel}>
-                          Must Return Before:
-                        </span>
-                        <input
-                          type="datetime-local"
-                          value={permittedTo}
-                          onChange={(e) => {
-                            setPermittedTo(e.target.value);
-                            setActiveDurationChip("custom");
-                          }}
-                          style={styles.textInput}
-                          required
-                        />
-                        <div style={styles.timePreview12h}>
-                          ⏳ {formatDateTime12Hour(permittedTo)}
-                        </div>
-                      </div>
-                    </div>
 
-                    {/* Quick Duration Chips */}
-                    <div style={{ ...styles.chipGroup, marginTop: 10 }}>
+                    {/* Quick Presets Bar: Hours, Days, & Medical Open Return */}
+                    <div
+                      style={{
+                        ...styles.chipGroup,
+                        marginTop: 0,
+                        marginBottom: 12,
+                        background: "#f8fafc",
+                        padding: "10px",
+                        borderRadius: "12px",
+                        border: "1px solid #cbd5e1",
+                      }}
+                    >
                       <span
                         style={{
-                          fontSize: 12,
-                          fontWeight: 700,
+                          fontSize: 11,
+                          fontWeight: 800,
                           color: "#475569",
-                          alignSelf: "center",
-                          marginRight: 4,
+                          textTransform: "uppercase",
+                          width: "100%",
+                          marginBottom: 2,
                         }}
                       >
-                        Quick Duration:
+                        Quick Return Presets (Or edit Date &amp; Time manually below):
                       </span>
-                      {[
-                        { id: "1h", label: "⏱️ +1 Hour", hrs: 1 },
-                        { id: "2h", label: "⏱️ +2 Hours", hrs: 2 },
-                        { id: "4h", label: "⏱️ +4 Hours", hrs: 4 },
-                      ].map((d) => (
-                        <button
-                          key={d.id}
-                          type="button"
-                          onClick={() => applyDuration(d.hrs, d.id)}
-                          style={
-                            activeDurationChip === d.id
-                              ? styles.quickChipActive
-                              : styles.quickChip
-                          }
-                        >
-                          {d.label}
-                        </button>
-                      ))}
+
                       <button
                         type="button"
-                        onClick={applyUntilEvening}
+                        onClick={() => applyHoursDuration(1, "1h")}
                         style={
-                          activeDurationChip === "6pm"
+                          activeDurationChip === "1h" && !isOpenReturn
                             ? styles.quickChipActive
                             : styles.quickChip
                         }
                       >
-                        🌇 Until 06:00 PM
+                        ⏱️ +1 Hr
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => applyHoursDuration(2, "2h")}
+                        style={
+                          activeDurationChip === "2h" && !isOpenReturn
+                            ? styles.quickChipActive
+                            : styles.quickChip
+                        }
+                      >
+                        ⏱️ +2 Hrs
+                      </button>
+                      <button
+                        type="button"
+                        onClick={applyUntilEvening}
+                        style={
+                          activeDurationChip === "6pm" && !isOpenReturn
+                            ? styles.quickChipActive
+                            : styles.quickChip
+                        }
+                      >
+                        🌇 Today 6:00 PM
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyDaysDuration(1, "1d")}
+                        style={
+                          activeDurationChip === "1d" && !isOpenReturn
+                            ? styles.quickChipActive
+                            : styles.quickChip
+                        }
+                      >
+                        📅 +1 Day (Tomorrow)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyDaysDuration(2, "2d")}
+                        style={
+                          activeDurationChip === "2d" && !isOpenReturn
+                            ? styles.quickChipActive
+                            : styles.quickChip
+                        }
+                      >
+                        📅 +2 Days
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyDaysDuration(3, "3d")}
+                        style={
+                          activeDurationChip === "3d" && !isOpenReturn
+                            ? styles.quickChipActive
+                            : styles.quickChip
+                        }
+                      >
+                        📅 +3 Days
+                      </button>
+
+                      {/* Medical / No Specific Return Time Toggle */}
+                      <button
+                        type="button"
+                        onClick={toggleOpenReturnMode}
+                        style={
+                          isOpenReturn
+                            ? styles.medicalOpenBtnActive
+                            : styles.medicalOpenBtnInactive
+                        }
+                      >
+                        {isOpenReturn
+                          ? "✓ 🏥 No Specific Return Time (Medical / Open)"
+                          : "🏥 No Specific Return Time (Medical / Open)"}
+                      </button>
+                    </div>
+
+                    {/* Box A: Departure Date & Time (Fully Editable) */}
+                    <div style={styles.timePickerCard}>
+                      <div style={styles.timeSectionTitle}>
+                        🚶‍♂️ Permitted Departure (Date &amp; Time)
+                      </div>
+                      <div style={styles.dateRowGrid}>
+                        <div>
+                          <span style={styles.subFieldLabel}>
+                            📅 Departure Date:
+                          </span>
+                          <input
+                            type="date"
+                            value={fromDate}
+                            onChange={(e) => {
+                              setFromDate(e.target.value);
+                              if (toDate && e.target.value > toDate) {
+                                setToDate(e.target.value);
+                              }
+                            }}
+                            style={styles.textInput}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <span style={styles.subFieldLabel}>
+                            🕒 Departure Time:
+                          </span>
+                          <input
+                            type="time"
+                            value={fromTime}
+                            onChange={(e) => setFromTime(e.target.value)}
+                            style={styles.textInput}
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div style={styles.timePreview12h}>
+                        🕒 Leaving Campus:{" "}
+                        <strong>
+                          {formatDateTime12Hour(
+                            combineDateAndTimeToISO(fromDate, fromTime)
+                          )}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {/* Box B: Return Date & Time OR Open Medical Banner */}
+                    <div style={{ ...styles.timePickerCard, marginTop: 12 }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: 8,
+                          marginBottom: 8,
+                        }}
+                      >
+                        <div style={styles.timeSectionTitle}>
+                          ⏳ Permitted Return Deadline (Date &amp; Time)
+                        </div>
+                        {isOpenReturn && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsOpenReturn(false);
+                              setActiveDurationChip("custom");
+                            }}
+                            style={styles.setFixedTimeLinkBtn}
+                          >
+                            Set Fixed Return Time Instead
+                          </button>
+                        )}
+                      </div>
+
+                      {!isOpenReturn ? (
+                        <>
+                          <div style={styles.dateRowGrid}>
+                            <div>
+                              <span style={styles.subFieldLabel}>
+                                📅 Return Date (Can be 2+ days later):
+                              </span>
+                              <input
+                                type="date"
+                                value={toDate}
+                                min={fromDate}
+                                onChange={(e) => {
+                                  setToDate(e.target.value);
+                                  setActiveDurationChip("custom");
+                                }}
+                                style={styles.textInput}
+                                required
+                              />
+                            </div>
+                            <div>
+                              <span style={styles.subFieldLabel}>
+                                🕒 Return Time:
+                              </span>
+                              <input
+                                type="time"
+                                value={toTime}
+                                onChange={(e) => {
+                                  setToTime(e.target.value);
+                                  setActiveDurationChip("custom");
+                                }}
+                                style={styles.textInput}
+                                required
+                              />
+                            </div>
+                          </div>
+                          <div style={styles.timePreview12h}>
+                            ⏳ Must Return By:{" "}
+                            <strong>
+                              {formatDateTime12Hour(
+                                combineDateAndTimeToISO(toDate, toTime)
+                              )}
+                            </strong>
+                          </div>
+                        </>
+                      ) : (
+                        <div style={styles.openMedicalBanner}>
+                          🏥{" "}
+                          <strong>
+                            No Specific Return Time (Medical / Open Leave):
+                          </strong>{" "}
+                          The student is permitted to stay out without a fixed
+                          deadline. Return time will be recorded when they scan
+                          back in.
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* STEP 4: LOCKED OFFICIAL TEACHER SIGNATURE */}
+                  {/* STEP 5: LOCKED OFFICIAL TEACHER SIGNATURE */}
                   <div style={styles.teacherSignatureBox}>
                     <div>
                       <div
@@ -1503,8 +1993,7 @@ export default function OutPassPortal() {
               ) : (
                 <div style={styles.passListScroll}>
                   {filteredTeacherPasses.map((p) => {
-                    const isOverdue =
-                      p.status === "OUTSIDE" && new Date(p.permittedTo) < now;
+                    const isOverdue = isPassOverdue(p);
                     return (
                       <div
                         key={p.id}
@@ -1514,6 +2003,8 @@ export default function OutPassPortal() {
                             p.status === "OUTSIDE"
                               ? isOverdue
                                 ? "5px solid #dc2626"
+                                : p.isOpenReturn
+                                ? "5px solid #0284c7"
                                 : "5px solid #f59e0b"
                               : "5px solid #10b981",
                         }}
@@ -1527,7 +2018,7 @@ export default function OutPassPortal() {
                             flexWrap: "wrap",
                           }}
                         >
-                          <div style={{ flex: 1, minWidth: 200 }}>
+                          <div style={{ flex: 1, minWidth: 210 }}>
                             <div
                               style={{
                                 display: "flex",
@@ -1571,20 +2062,29 @@ export default function OutPassPortal() {
                                 color: "#475569",
                                 marginTop: 6,
                                 display: "flex",
-                                gap: 14,
-                                flexWrap: "wrap",
+                                flexDirection: "column",
+                                gap: 3,
                               }}
                             >
                               <span>
-                                🕒 Out:{" "}
+                                🕒 Departure:{" "}
                                 <strong>
-                                  {formatTime12Hour(p.permittedFrom)}
+                                  {formatDateTime12Hour(p.permittedFrom)}
                                 </strong>
                               </span>
                               <span>
-                                ⏳ Due:{" "}
-                                <strong>
-                                  {formatDateTime12Hour(p.permittedTo)}
+                                ⏳ Permitted Return:{" "}
+                                <strong
+                                  style={{
+                                    color: p.isOpenReturn
+                                      ? "#0369a1"
+                                      : "#0f172a",
+                                  }}
+                                >
+                                  {formatDateTime12Hour(
+                                    p.permittedTo,
+                                    p.isOpenReturn
+                                  )}
                                 </strong>
                               </span>
                             </div>
@@ -1595,10 +2095,14 @@ export default function OutPassPortal() {
                                   marginTop: 6,
                                   fontSize: 12,
                                   fontWeight: 700,
-                                  color: isOverdue ? "#dc2626" : "#d97706",
+                                  color: isOverdue
+                                    ? "#dc2626"
+                                    : p.isOpenReturn
+                                    ? "#0284c7"
+                                    : "#d97706",
                                 }}
                               >
-                                ⏱️ {getRemainingTimeText(p.permittedTo)}
+                                ⏱️ {getRemainingTimeText(p)}
                               </div>
                             )}
 
@@ -1626,15 +2130,11 @@ export default function OutPassPortal() {
                               gap: 8,
                             }}
                           >
-                            <span
-                              style={getStatusBadgeStyle(
-                                p.status,
-                                p.permittedTo,
-                                now
-                              )}
-                            >
+                            <span style={getStatusBadgeStyle(p, now)}>
                               {p.status === "OUTSIDE" && isOverdue
                                 ? "🚨 OVERDUE / LATE"
+                                : p.status === "OUTSIDE" && p.isOpenReturn
+                                ? "🏥 MEDICAL / OPEN OUT"
                                 : p.status === "OUTSIDE"
                                 ? "🟠 OUTSIDE CAMPUS"
                                 : p.status === "RETURNED"
@@ -1643,13 +2143,29 @@ export default function OutPassPortal() {
                             </span>
 
                             {p.status === "OUTSIDE" && (
-                              <button
-                                type="button"
-                                onClick={() => handleConfirmReturn(p)}
-                                style={styles.markReturnedBtn}
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: 6,
+                                  flexWrap: "wrap",
+                                  justifyContent: "flex-end",
+                                }}
                               >
-                                ✓ Mark Returned
-                              </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openEditPassModal(p)}
+                                  style={styles.editPassBtn}
+                                >
+                                  ✏️ Edit Time/Date
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleConfirmReturn(p)}
+                                  style={styles.markReturnedBtn}
+                                >
+                                  ✓ Mark Returned
+                                </button>
+                              </div>
                             )}
 
                             {(p.status === "APPROVED" ||
@@ -1773,7 +2289,6 @@ export default function OutPassPortal() {
 
             {/* Admin Control & Filter Bar */}
             <div style={styles.adminToolbarCard}>
-              {/* Left: View Switcher Segmented Buttons */}
               <div style={styles.segmentedBarAdmin}>
                 {[
                   {
@@ -1819,7 +2334,6 @@ export default function OutPassPortal() {
                 })}
               </div>
 
-              {/* Right: Search, Class Filter, Official Teacher Filter, CSV Export */}
               <div
                 style={{
                   display: "flex",
@@ -1954,7 +2468,7 @@ export default function OutPassPortal() {
                       <th style={styles.th}>Student Details</th>
                       <th style={styles.th}>Destination &amp; Reason</th>
                       <th style={styles.th}>Permitted Teacher</th>
-                      <th style={styles.th}>Permitted Time (12h)</th>
+                      <th style={styles.th}>Permitted Schedule (12h)</th>
                       <th style={styles.th}>Actual Out / Return</th>
                       <th style={styles.th}>Live Status &amp; Action</th>
                     </tr>
@@ -1994,9 +2508,7 @@ export default function OutPassPortal() {
                       })
                       .slice(0, 100)
                       .map((p) => {
-                        const isOverdue =
-                          p.status === "OUTSIDE" &&
-                          new Date(p.permittedTo) < now;
+                        const isOverdue = isPassOverdue(p);
                         return (
                           <tr key={p.id} style={styles.tr}>
                             <td style={styles.td}>
@@ -2044,7 +2556,6 @@ export default function OutPassPortal() {
                               </div>
                             </td>
 
-                            {/* OFFICIAL TEACHER NAME IN ADMIN TABLE */}
                             <td style={styles.td}>
                               <div
                                 style={{
@@ -2064,7 +2575,6 @@ export default function OutPassPortal() {
                               </div>
                             </td>
 
-                            {/* 12-HOUR AM/PM PERMITTED WINDOW */}
                             <td style={styles.td}>
                               <div style={{ fontSize: 12, color: "#475569" }}>
                                 From:{" "}
@@ -2079,9 +2589,18 @@ export default function OutPassPortal() {
                                   marginTop: 3,
                                 }}
                               >
-                                Due:{" "}
-                                <strong style={{ color: "#0f172a" }}>
-                                  {formatDateTime12Hour(p.permittedTo)}
+                                Return:{" "}
+                                <strong
+                                  style={{
+                                    color: p.isOpenReturn
+                                      ? "#0369a1"
+                                      : "#0f172a",
+                                  }}
+                                >
+                                  {formatDateTime12Hour(
+                                    p.permittedTo,
+                                    p.isOpenReturn
+                                  )}
                                 </strong>
                               </div>
                               {p.status === "OUTSIDE" && (
@@ -2089,21 +2608,24 @@ export default function OutPassPortal() {
                                   style={{
                                     fontSize: 11,
                                     fontWeight: 700,
-                                    color: isOverdue ? "#dc2626" : "#d97706",
+                                    color: isOverdue
+                                      ? "#dc2626"
+                                      : p.isOpenReturn
+                                      ? "#0284c7"
+                                      : "#d97706",
                                     marginTop: 4,
                                   }}
                                 >
-                                  ⏱️ {getRemainingTimeText(p.permittedTo)}
+                                  ⏱️ {getRemainingTimeText(p)}
                                 </div>
                               )}
                             </td>
 
-                            {/* 12-HOUR AM/PM ACTUAL OUT & RETURN */}
                             <td style={styles.td}>
                               <div style={{ fontSize: 12, color: "#334155" }}>
                                 Out:{" "}
                                 <strong>
-                                  {formatTime12Hour(p.actualDepartureTime)}
+                                  {formatDateTime12Hour(p.actualDepartureTime)}
                                 </strong>
                               </div>
                               <div
@@ -2118,7 +2640,7 @@ export default function OutPassPortal() {
                               >
                                 In:{" "}
                                 {p.actualReturnTime
-                                  ? formatTime12Hour(p.actualReturnTime)
+                                  ? formatDateTime12Hour(p.actualReturnTime)
                                   : "Still Outside"}
                               </div>
                             </td>
@@ -2128,19 +2650,15 @@ export default function OutPassPortal() {
                                 style={{
                                   display: "flex",
                                   alignItems: "center",
-                                  gap: 8,
+                                  gap: 6,
                                   flexWrap: "wrap",
                                 }}
                               >
-                                <span
-                                  style={getStatusBadgeStyle(
-                                    p.status,
-                                    p.permittedTo,
-                                    now
-                                  )}
-                                >
+                                <span style={getStatusBadgeStyle(p, now)}>
                                   {p.status === "OUTSIDE" && isOverdue
                                     ? "🚨 OVERDUE"
+                                    : p.status === "OUTSIDE" && p.isOpenReturn
+                                    ? "🏥 MEDICAL / OPEN"
                                     : p.status === "OUTSIDE"
                                     ? "🟠 OUTSIDE"
                                     : p.status === "RETURNED"
@@ -2149,13 +2667,22 @@ export default function OutPassPortal() {
                                 </span>
 
                                 {p.status === "OUTSIDE" && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleConfirmReturn(p)}
-                                    style={styles.markReturnedBtnSmall}
-                                  >
-                                    ✓ Mark Returned
-                                  </button>
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditPassModal(p)}
+                                      style={styles.editPassBtnSmall}
+                                    >
+                                      ✏️ Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleConfirmReturn(p)}
+                                      style={styles.markReturnedBtnSmall}
+                                    >
+                                      ✓ Returned
+                                    </button>
+                                  </>
                                 )}
                               </div>
                             </td>
@@ -2174,13 +2701,32 @@ export default function OutPassPortal() {
 }
 
 // High-Contrast Status Pill Helper
-function getStatusBadgeStyle(status, permittedTo, now) {
-  const isOverdue = status === "OUTSIDE" && new Date(permittedTo) < now;
+function getStatusBadgeStyle(pass, now) {
+  const status = pass.status;
+  const isOverdue =
+    status === "OUTSIDE" &&
+    !pass.isOpenReturn &&
+    pass.permittedTo &&
+    new Date(pass.permittedTo) < now;
+
   if (isOverdue) {
     return {
       background: "#fef2f2",
       color: "#b91c1c",
       border: "1px solid #fecaca",
+      padding: "5px 10px",
+      borderRadius: "999px",
+      fontSize: "11px",
+      fontWeight: 800,
+      letterSpacing: "0.3px",
+      display: "inline-block",
+    };
+  }
+  if (status === "OUTSIDE" && pass.isOpenReturn) {
+    return {
+      background: "#e0f2fe",
+      color: "#0369a1",
+      border: "1px solid #bae6fd",
       padding: "5px 10px",
       borderRadius: "999px",
       fontSize: "11px",
@@ -2440,16 +2986,70 @@ const styles = {
     color: "#475569",
     marginBottom: "4px",
   },
-  timePreview12h: {
-    marginTop: "5px",
+  timePickerCard: {
+    background: "#f8fafc",
+    border: "1.5px solid #cbd5e1",
+    borderRadius: "12px",
+    padding: "14px",
+  },
+  timeSectionTitle: {
     fontSize: "12px",
     fontWeight: 800,
+    color: "#0f172a",
+    marginBottom: "8px",
+    textTransform: "uppercase",
+    letterSpacing: "0.4px",
+  },
+  timePreview12h: {
+    marginTop: "8px",
+    fontSize: "12px",
+    fontWeight: 700,
     color: "#0f766e",
     background: "#f0fdfa",
-    border: "1px solid #ccfbf1",
-    padding: "4px 10px",
-    borderRadius: "6px",
+    border: "1px solid #99f6e4",
+    padding: "5px 10px",
+    borderRadius: "8px",
     display: "inline-block",
+  },
+  medicalOpenBtnInactive: {
+    background: "#e0f2fe",
+    color: "#0369a1",
+    border: "1.5px solid #7dd3fc",
+    borderRadius: "999px",
+    padding: "6px 14px",
+    fontSize: "12px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  medicalOpenBtnActive: {
+    background: "#0284c7",
+    color: "#ffffff",
+    border: "1.5px solid #0284c7",
+    borderRadius: "999px",
+    padding: "6px 14px",
+    fontSize: "12px",
+    fontWeight: 800,
+    cursor: "pointer",
+    boxShadow: "0 2px 8px rgba(2, 132, 199, 0.3)",
+  },
+  openMedicalBanner: {
+    background: "#e0f2fe",
+    border: "1px solid #7dd3fc",
+    color: "#0c4a6e",
+    padding: "12px 14px",
+    borderRadius: "10px",
+    fontSize: "13px",
+    lineHeight: 1.5,
+  },
+  setFixedTimeLinkBtn: {
+    background: "#ffffff",
+    color: "#0369a1",
+    border: "1px solid #7dd3fc",
+    borderRadius: "6px",
+    padding: "4px 10px",
+    fontSize: "11px",
+    fontWeight: 800,
+    cursor: "pointer",
   },
   searchInput: {
     width: "100%",
@@ -2593,12 +3193,13 @@ const styles = {
   },
   textInput: {
     width: "100%",
-    padding: "11px 14px",
+    padding: "10px 12px",
     borderRadius: "10px",
     border: "1.5px solid #cbd5e1",
     fontSize: "14px",
     color: "#0f172a",
     background: "#ffffff",
+    fontWeight: 600,
   },
   chipGroup: {
     display: "flex",
@@ -2607,7 +3208,7 @@ const styles = {
     marginTop: "8px",
   },
   quickChip: {
-    background: "#f8fafc",
+    background: "#ffffff",
     color: "#334155",
     border: "1px solid #cbd5e1",
     borderRadius: "999px",
@@ -2628,7 +3229,7 @@ const styles = {
   },
   dateRowGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
     gap: "12px",
   },
   teacherSignatureBox: {
@@ -2775,7 +3376,7 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: "12px",
-    maxHeight: "620px",
+    maxHeight: "650px",
     overflowY: "auto",
     paddingRight: "4px",
   },
@@ -2820,6 +3421,26 @@ const styles = {
     fontSize: "11px",
     fontWeight: 800,
   },
+  editPassBtn: {
+    background: "#f1f5f9",
+    color: "#0f172a",
+    border: "1px solid #cbd5e1",
+    borderRadius: "8px",
+    padding: "8px 12px",
+    fontSize: "12px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  editPassBtnSmall: {
+    background: "#f1f5f9",
+    color: "#0f172a",
+    border: "1px solid #cbd5e1",
+    borderRadius: "8px",
+    padding: "6px 10px",
+    fontSize: "12px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
   markReturnedBtn: {
     background: "#059669",
     color: "#ffffff",
@@ -2847,6 +3468,26 @@ const styles = {
     borderRadius: "6px",
     padding: "4px 10px",
     fontSize: "11px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  saveEditBtn: {
+    background: "#0f766e",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "10px",
+    padding: "10px 18px",
+    fontSize: "13px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  cancelEditBtn: {
+    background: "#f1f5f9",
+    color: "#334155",
+    border: "1px solid #cbd5e1",
+    borderRadius: "10px",
+    padding: "10px 16px",
+    fontSize: "13px",
     fontWeight: 700,
     cursor: "pointer",
   },

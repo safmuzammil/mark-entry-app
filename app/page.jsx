@@ -3339,6 +3339,10 @@ export default function UnifiedSchoolPortal() {
   const [loggedInTeacherData, setLoggedInTeacherData] = useState(null);
   const [activeAdminTab, setActiveAdminTab] = useState('teachers');
 
+  // 🌟 NEW STATES: Admin Proxy Mark Entry on behalf of Teachers
+  const [adminTeachersList, setAdminTeachersList] = useState([]);
+  const [proxyTeacherUsername, setProxyTeacherUsername] = useState('');
+
   useEffect(() => {
     if (localStorage.getItem('isAdminAuth') === 'true') {
       setUserRole('admin');
@@ -3357,6 +3361,21 @@ export default function UnifiedSchoolPortal() {
     });
     return () => unsubscribe();
   }, []);
+
+  // Fetch teachers list when Admin opens the "Enter Marks for Teacher" tab
+  useEffect(() => {
+    if (userRole === 'admin' && activeAdminTab === 'proxy_marks') {
+      getDocs(collection(db, 'teachers')).then(snap => {
+        const list = [];
+        snap.forEach(d => list.push(d.data()));
+        list.sort((a, b) => (a.fullName || '').localeCompare(b.fullName || ''));
+        setAdminTeachersList(list);
+        if (list.length > 0 && !proxyTeacherUsername) {
+          setProxyTeacherUsername(list[0].username);
+        }
+      }).catch(err => console.error("Error loading teachers for proxy:", err));
+    }
+  }, [userRole, activeAdminTab, proxyTeacherUsername]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -3410,6 +3429,8 @@ export default function UnifiedSchoolPortal() {
   };
 
   if (userRole === 'admin') {
+    const selectedProxyTeacher = adminTeachersList.find(t => t.username === proxyTeacherUsername);
+
     return (
       <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', padding: '32px 20px', fontFamily: 'Inter, system-ui, sans-serif' }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
@@ -3417,9 +3438,9 @@ export default function UnifiedSchoolPortal() {
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
             <h1 style={{ margin: 0, fontSize: '26px', fontWeight: '800', color: '#0f172a' }}>Admin Dashboard</h1>
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
               <Link href="/outpass" style={{ background: "#0f766e", color: "#ffffff", padding: "10px 16px", borderRadius: "8px", fontWeight: "bold", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
-                🪪 Students' Out-Pass Portal
+                🪪 Students&apos; Out-Pass Portal
               </Link>
               <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
             </div>
@@ -3428,14 +3449,67 @@ export default function UnifiedSchoolPortal() {
           <div style={{ display: 'flex', gap: '12px', marginBottom: '28px', flexWrap: 'wrap' }}>
             <button onClick={() => setActiveAdminTab('teachers')} style={{ padding: '12px 22px', background: activeAdminTab === 'teachers' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'teachers' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>👥 Manage Teachers</button>
             <button onClick={() => setActiveAdminTab('students')} style={{ padding: '12px 22px', background: activeAdminTab === 'students' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'students' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>🎓 Manage Students</button>
+            <button onClick={() => setActiveAdminTab('proxy_marks')} style={{ padding: '12px 22px', background: activeAdminTab === 'proxy_marks' ? '#059669' : '#ffffff', color: activeAdminTab === 'proxy_marks' ? '#ffffff' : '#059669', border: '2px solid #059669', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>📝 Enter Marks for Teacher</button>
             <button onClick={() => setActiveAdminTab('reports')} style={{ padding: '12px 22px', background: activeAdminTab === 'reports' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'reports' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>📊 Reports & Export</button>
             <button onClick={() => setActiveAdminTab('reminders')} style={{ padding: '12px 22px', background: activeAdminTab === 'reminders' ? '#2563eb' : '#ffffff', color: activeAdminTab === 'reminders' ? '#ffffff' : '#1e293b', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>🔔 Weekly Reminders</button>
           </div>
 
-          {activeAdminTab === 'teachers' && <TeacherManager />}
+          {activeAdminTab === 'teachers' && (
+            <TeacherManager 
+              onOpenProxyMarks={(teacherUsername) => {
+                setProxyTeacherUsername(teacherUsername);
+                setActiveAdminTab('proxy_marks');
+              }} 
+            />
+          )}
           {activeAdminTab === 'students' && <StudentManager />}
           {activeAdminTab === 'reports' && <ReportManager />}
           {activeAdminTab === 'reminders' && <ReminderManager />}
+
+          {/* 🌟 ADMIN PROXY MARK ENTRY VIEW */}
+          {activeAdminTab === 'proxy_marks' && (
+            <div>
+              <div style={{ ...styles.card, background: '#ecfdf5', border: '2px solid #10b981', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                  <div>
+                    <span style={{ background: '#059669', color: '#ffffff', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', textTransform: 'uppercase' }}>
+                      Admin Proxy Mode
+                    </span>
+                    <h3 style={{ margin: '8px 0 4px 0', fontSize: '20px', color: '#065f46', fontWeight: '800' }}>
+                      👨‍🏫 Enter or Upload Marks on Behalf of a Teacher
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '14px', color: '#047857', fontWeight: '600' }}>
+                      Select a teacher below to access their assigned subjects, unlock any level, and type or upload marks via CSV/Excel.
+                    </p>
+                  </div>
+                  <div style={{ minWidth: '280px', flex: '1 1 280px', maxWidth: '400px' }}>
+                    <label style={{ ...styles.label, color: '#065f46' }}>Select Teacher Account:</label>
+                    <select
+                      value={proxyTeacherUsername}
+                      onChange={(e) => setProxyTeacherUsername(e.target.value)}
+                      style={{ ...styles.input, border: '2px solid #059669', fontWeight: '800', color: '#0f172a', cursor: 'pointer' }}
+                    >
+                      {adminTeachersList.map(t => (
+                        <option key={t.username} value={t.username}>
+                          {t.fullName} ({t.username}) — {(t.enrollments || []).length} subjects
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {selectedProxyTeacher ? (
+                <TeacherPortalView
+                  key={selectedProxyTeacher.username}
+                  loggedInTeacher={selectedProxyTeacher}
+                  onLogout={() => setActiveAdminTab('teachers')}
+                />
+              ) : (
+                <div style={styles.card}>Loading teacher workspace...</div>
+              )}
+            </div>
+          )}
 
         </div>
       </div>
@@ -3472,7 +3546,7 @@ export default function UnifiedSchoolPortal() {
             <div>
               <label style={styles.label}>Password</label>
               <div style={{ display: 'flex', position: 'relative' }}>
-                <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required style={styles.input} />
+                <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setShowPassword(e.target.value)} placeholder="••••••••" required style={styles.input} />
                 <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#2563eb', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>{showPassword ? "Hide" : "Show"}</button>
               </div>
             </div>
