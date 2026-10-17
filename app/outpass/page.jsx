@@ -46,10 +46,16 @@ export default function OutPassPortal() {
   const [destination, setDestination] = useState("");
   const [purpose, setPurpose] = useState("");
 
-  const [fromDate, setFromDate] = useState("");
-  const [fromTime, setFromTime] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [toTime, setToTime] = useState("");
+  const [fromDate, setFromDate] = useState(() => toLocalDateStr(new Date()));
+  const [fromTime, setFromTime] = useState(() => toLocalTimeStr(new Date()));
+  const [toDate, setToDate] = useState(() => {
+    const d = new Date(Date.now() + 2 * 3600000);
+    return toLocalDateStr(d);
+  });
+  const [toTime, setToTime] = useState(() => {
+    const d = new Date(Date.now() + 2 * 3600000);
+    return toLocalTimeStr(d);
+  });
   const [isOpenReturn, setIsOpenReturn] = useState(false); // Medical / No specific return time
   const [activeDurationChip, setActiveDurationChip] = useState("2h");
 
@@ -1575,7 +1581,7 @@ export default function OutPassPortal() {
                       </button>
                     </div>
 
-                    {/* Departure Picker */}
+                   {/* Departure Picker */}
                     <div style={styles.timePickerCard}>
                       <div style={styles.timeSectionTitle}>
                         🚶‍♂️ Permitted Departure (Date &amp; Time)
@@ -1587,7 +1593,7 @@ export default function OutPassPortal() {
                           </span>
                           <input
                             type="date"
-                            value={fromDate}
+                            value={fromDate || ""}
                             onChange={(e) => setFromDate(e.target.value)}
                             style={styles.textInput}
                             required
@@ -1599,7 +1605,7 @@ export default function OutPassPortal() {
                           </span>
                           <input
                             type="time"
-                            value={fromTime}
+                            value={fromTime || ""}
                             onChange={(e) => setFromTime(e.target.value)}
                             style={styles.textInput}
                             required
@@ -1650,11 +1656,11 @@ export default function OutPassPortal() {
                           <div style={styles.dateRowGrid}>
                             <div>
                               <span style={styles.subFieldLabel}>
-                                📅 Return Date (Any day):
+                                📅 Return Date:
                               </span>
                               <input
                                 type="date"
-                                value={toDate}
+                                value={toDate || ""}
                                 onChange={(e) => {
                                   setToDate(e.target.value);
                                   setActiveDurationChip("custom");
@@ -1669,7 +1675,7 @@ export default function OutPassPortal() {
                               </span>
                               <input
                                 type="time"
-                                value={toTime}
+                                value={toTime || ""}
                                 onChange={(e) => {
                                   setToTime(e.target.value);
                                   setActiveDurationChip("custom");
