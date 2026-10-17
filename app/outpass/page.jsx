@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = 'force-dynamic'; // Prevents Next.js static prerendering errors
+
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { db, auth } from "@/lib/firebase";
@@ -26,6 +28,61 @@ const ADMIN_EMAILS = [
 ];
 // ============================================================================
 
+// Helper functions placed safely BEFORE the component
+const toLocalDateStr = (d) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const toLocalTimeStr = (d) => {
+  const hours = String(d.getHours()).padStart(2, "0");
+  const mins = String(d.getMinutes()).padStart(2, "0");
+  return `${hours}:${mins}`;
+};
+
+const combineDateAndTimeToISO = (dateStr, timeStr) => {
+  if (!dateStr) return null;
+  const safeTime = timeStr || "00:00";
+  const combined = new Date(`${dateStr}T${safeTime}:00`);
+  return isNaN(combined.getTime()) ? null : combined.toISOString();
+};
+
+const formatTime12Hour = (isoString) => {
+  if (!isoString) return "—";
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return "—";
+  return d
+    .toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    })
+    .toUpperCase();
+};
+
+const formatDateTime12Hour = (isoString, openReturnFlag = false) => {
+  if (openReturnFlag || !isoString) {
+    return openReturnFlag ? "🏥 Open Return (No Fixed Time)" : "—";
+  }
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return "—";
+  const datePart = d.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  const timePart = d
+    .toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    })
+    .toUpperCase();
+  return `${datePart}, ${timePart}`;
+};
+
 export default function OutPassPortal() {
   // Auth & Strict Role State
   const [currentUser, setCurrentUser] = useState(null);
@@ -40,7 +97,7 @@ export default function OutPassPortal() {
   const [teachersMap, setTeachersMap] = useState({});
   const [loading, setLoading] = useState(true);
 
-  // Teacher Issue Form State (100% Unrestricted Date & Time Selection)
+  // Teacher Issue Form State
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [destination, setDestination] = useState("");
@@ -56,14 +113,15 @@ export default function OutPassPortal() {
     const d = new Date(Date.now() + 2 * 3600000);
     return toLocalTimeStr(d);
   });
-  const [isOpenReturn, setIsOpenReturn] = useState(false); // Medical / No specific return time
+
+  const [isOpenReturn, setIsOpenReturn] = useState(false);
   const [activeDurationChip, setActiveDurationChip] = useState("2h");
 
   const [submitting, setSubmitting] = useState(false);
   const [teacherStatusFilter, setTeacherStatusFilter] = useState("ALL");
   const [teacherSearch, setTeacherSearch] = useState("");
 
-  // Edit Existing Pass Modal State (Full Freedom for Teacher & Admin)
+  // Edit Existing Pass Modal State
   const [editingPass, setEditingPass] = useState(null);
   const [editFromDate, setEditFromDate] = useState("");
   const [editFromTime, setEditFromTime] = useState("");
@@ -86,65 +144,10 @@ export default function OutPassPortal() {
   const [adminSearch, setAdminSearch] = useState("");
   const [now, setNow] = useState(new Date());
 
-  // Live clock every 30 seconds
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(timer);
   }, []);
-
-  const toLocalDateStr = (d) => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-
-  const toLocalTimeStr = (d) => {
-    const hours = String(d.getHours()).padStart(2, "0");
-    const mins = String(d.getMinutes()).padStart(2, "0");
-    return `${hours}:${mins}`;
-  };
-
-  const combineDateAndTimeToISO = (dateStr, timeStr) => {
-    if (!dateStr) return null;
-    const safeTime = timeStr || "00:00";
-    const combined = new Date(`${dateStr}T${safeTime}:00`);
-    return isNaN(combined.getTime()) ? null : combined.toISOString();
-  };
-
-  const formatTime12Hour = (isoString) => {
-    if (!isoString) return "—";
-    const d = new Date(isoString);
-    if (isNaN(d.getTime())) return "—";
-    return d
-      .toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true,
-      })
-      .toUpperCase();
-  };
-
-  const formatDateTime12Hour = (isoString, openReturnFlag = false) => {
-    if (openReturnFlag || !isoString) {
-      return openReturnFlag ? "🏥 Open Return (No Fixed Time)" : "—";
-    }
-    const d = new Date(isoString);
-    if (isNaN(d.getTime())) return "—";
-    const datePart = d.toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-    const timePart = d
-      .toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true,
-      })
-      .toUpperCase();
-    return `${datePart}, ${timePart}`;
-  };
 
   const getOfficialTeacherName = (rawNameOrUsername) => {
     if (!rawNameOrUsername) return "Teacher";
@@ -155,21 +158,6 @@ export default function OutPassPortal() {
     const prefix = key.split("@")[0];
     return teachersMap[key] || teachersMap[prefix] || cleaned;
   };
-
-  const resetDefaultTimes = () => {
-    const current = new Date();
-    const twoHoursLater = new Date(current.getTime() + 2 * 60 * 60 * 1000);
-    setFromDate(toLocalDateStr(current));
-    setFromTime(toLocalTimeStr(current));
-    setToDate(toLocalDateStr(twoHoursLater));
-    setToTime(toLocalTimeStr(twoHoursLater));
-    setIsOpenReturn(false);
-    setActiveDurationChip("2h");
-  };
-
-  useEffect(() => {
-    resetDefaultTimes();
-  }, []);
 
   // 1. Auth & Data Loading
   useEffect(() => {
@@ -464,7 +452,6 @@ export default function OutPassPortal() {
     setActiveDurationChip(nextVal ? "open" : "custom");
   };
 
-  // 3. Teacher Submit: Issue Pass (100% Unrestricted Date/Time freedom)
   const handleIssuePass = async (e) => {
     e.preventDefault();
     if (!selectedStudent) return alert("Please select or scan a student first.");
@@ -526,7 +513,6 @@ export default function OutPassPortal() {
       setSelectedStudent(null);
       setDestination("");
       setPurpose("");
-      resetDefaultTimes();
     } catch (error) {
       console.error("Error issuing pass:", error);
       alert("Failed to create out-pass. Please check your connection.");
@@ -535,7 +521,6 @@ export default function OutPassPortal() {
     }
   };
 
-  // 4. Edit Pass Modal Handler (Full Freedom for both Teacher & Admin)
   const openEditPassModal = (pass) => {
     const fDate = pass.permittedFrom ? new Date(pass.permittedFrom) : new Date();
     const tDate = pass.permittedTo
@@ -621,7 +606,6 @@ export default function OutPassPortal() {
     }
   };
 
-  // CSV Export
   const handleExportCSV = () => {
     const headers = [
       "Ad.No",
@@ -664,7 +648,6 @@ export default function OutPassPortal() {
     document.body.removeChild(link);
   };
 
-  // Data Selections
   const myPermittedPasses = passes.filter((p) => {
     if (currentUser?.uid && p.teacherId === currentUser.uid) return true;
     if (
@@ -1581,7 +1564,7 @@ export default function OutPassPortal() {
                       </button>
                     </div>
 
-                   {/* Departure Picker */}
+                    {/* Departure Picker */}
                     <div style={styles.timePickerCard}>
                       <div style={styles.timeSectionTitle}>
                         🚶‍♂️ Permitted Departure (Date &amp; Time)
@@ -1656,7 +1639,7 @@ export default function OutPassPortal() {
                           <div style={styles.dateRowGrid}>
                             <div>
                               <span style={styles.subFieldLabel}>
-                                📅 Return Date:
+                                📅 Return Date (Any day):
                               </span>
                               <input
                                 type="date"
