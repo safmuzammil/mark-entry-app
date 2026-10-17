@@ -22,9 +22,9 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-latest/xlsx-latest.tgz"
   },
   "devDependencies": {
-    "eslint": "^9",
-    "eslint-config-next": "^14.2.35"
-  },
+  "eslint": "^8.57.1",
+  "eslint-config-next": "^14.2.35"
+},
   "overrides": {
     "@grpc/grpc-js": "^1.14.5",
     "braces": "^3.0.3",
