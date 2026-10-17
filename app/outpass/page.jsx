@@ -48,8 +48,10 @@ export default function OutPassPortal() {
   const [purpose, setPurpose] = useState("");
   const [permittedFrom, setPermittedFrom] = useState("");
   const [permittedTo, setPermittedTo] = useState("");
+  const [activeDurationChip, setActiveDurationChip] = useState("2h");
   const [submitting, setSubmitting] = useState(false);
   const [teacherStatusFilter, setTeacherStatusFilter] = useState("ALL"); // "ALL" | "OUTSIDE" | "RETURNED"
+  const [teacherSearch, setTeacherSearch] = useState("");
 
   // Barcode Scanner State
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -58,13 +60,13 @@ export default function OutPassPortal() {
   const scannerRef = useRef(null);
 
   // Admin Filter State
-  const [adminViewMode, setAdminViewMode] = useState("OUTSIDE"); // "OUTSIDE" | "APPROVED" | "INSIDE" | "HISTORY"
+  const [adminViewMode, setAdminViewMode] = useState("OUTSIDE"); // "OUTSIDE" | "INSIDE" | "HISTORY"
   const [classFilter, setClassFilter] = useState("ALL");
   const [teacherFilter, setTeacherFilter] = useState("ALL");
   const [adminSearch, setAdminSearch] = useState("");
   const [now, setNow] = useState(new Date());
 
-  // Live clock for overdue calculation every 30 seconds
+  // Live clock for overdue & countdown calculation every 30 seconds
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(timer);
@@ -82,6 +84,7 @@ export default function OutPassPortal() {
     const twoHoursLater = new Date(current.getTime() + 2 * 60 * 60 * 1000);
     setPermittedFrom(formatDateTimeLocal(current));
     setPermittedTo(formatDateTimeLocal(twoHoursLater));
+    setActiveDurationChip("2h");
   };
 
   useEffect(() => {
@@ -91,7 +94,6 @@ export default function OutPassPortal() {
   // 1. Check Auth, Verify Admin vs Teacher Role, & Load Data
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
-      // Check if logged in via main app's Admin session (`isAdminAuth` in localStorage)
       const localAdminFlag =
         typeof window !== "undefined" &&
         localStorage.getItem("isAdminAuth") === "true";
@@ -112,7 +114,6 @@ export default function OutPassPortal() {
           user.email?.split("@")[0]?.replace(/[._]/g, " ") ||
           "Teacher";
 
-        // Try to match teacher's real name from `teachers` collection in Firestore
         try {
           const teacherSnap = await getDocs(collection(db, "teachers"));
           const matchedTeacher = teacherSnap.docs
@@ -127,15 +128,16 @@ export default function OutPassPortal() {
             resolvedName = matchedTeacher.name || matchedTeacher.firstName;
           }
         } catch (e) {
-          // Ignore if teachers collection is structured differently
+          // Fallback to email display name
         }
 
-        setStaffName(userHasAdminAccess && !user ? "Administrator" : resolvedName);
+        setStaffName(
+          userHasAdminAccess && !user ? "Administrator" : resolvedName
+        );
       } else if (localAdminFlag) {
-        // Admin logged in via custom admin/admin123 login without Firebase user
         setCurrentUser({ uid: "admin", email: "admin" });
         setStaffName("Administrator");
-        setActiveTab("admin"); // Default Admin straight to the Admin dashboard
+        setActiveTab("admin");
       } else {
         setCurrentUser(null);
       }
@@ -154,8 +156,8 @@ export default function OutPassPortal() {
             adNo: String(data.adNo || data.regNo || data.rollNo || "").trim(),
             name: data.firstName || data.name || "Unknown Student",
             studentClass: Array.isArray(data.classes)
-              ? data.classes[0] || "N/A"
-              : data.class || data.department || "N/A",
+              ? data.classes[0] || "General"
+              : data.class || data.department || "General",
             raw: data,
           };
         });
@@ -191,7 +193,7 @@ export default function OutPassPortal() {
     };
   }, []);
 
-  // Security guard: Prevent non-admins from ever switching to the "admin" tab
+  // Security guard: Prevent non-admins from switching to the "admin" tab
   useEffect(() => {
     if (!isAdmin && activeTab === "admin") {
       setActiveTab("teacher");
@@ -252,7 +254,6 @@ export default function OutPassPortal() {
         alert(`Scanned ID "${code}", but no matching Ad.No was found.`);
       }
     } else if (scannerMode === "return") {
-      // Quick Scan to Return Student (Teachers can only return their own passes; Admins can return any)
       const activePass = passes.find(
         (p) =>
           String(p.adNo).toLowerCase() === code.toLowerCase() &&
@@ -277,7 +278,7 @@ export default function OutPassPortal() {
     }
   };
 
-  // Helper: Check if student already has an active pass (APPROVED or OUTSIDE) across the school
+  // Helper: Check if student already has an active pass
   const getActivePassForStudent = (adNo) => {
     return passes.find(
       (p) =>
@@ -296,17 +297,29 @@ export default function OutPassPortal() {
     ).length;
   };
 
-  // Quick Duration Setter for Teacher
-  const applyDuration = (hours) => {
+  // Helper: Format live remaining time or overdue duration
+  const getRemainingTimeText = (permittedToISO) => {
+    const diffMs = new Date(permittedToISO) - now;
+    const absMins = Math.round(Math.abs(diffMs) / 60000);
+    const hrs = Math.floor(absMins / 60);
+    const mins = absMins % 60;
+    const timeStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+    return diffMs < 0 ? `Overdue by ${timeStr}` : `${timeStr} remaining`;
+  };
+
+  // Quick Duration Setter
+  const applyDuration = (hours, chipId) => {
     const start = permittedFrom ? new Date(permittedFrom) : new Date();
     const end = new Date(start.getTime() + hours * 60 * 60 * 1000);
     setPermittedTo(formatDateTimeLocal(end));
+    setActiveDurationChip(chipId);
   };
 
   const applyUntilEvening = () => {
     const end = new Date();
-    end.setHours(18, 0, 0, 0); // 6:00 PM
+    end.setHours(18, 0, 0, 0);
     setPermittedTo(formatDateTimeLocal(end));
+    setActiveDurationChip("6pm");
   };
 
   // 3. Teacher Submit: Issue Out-Pass
@@ -351,11 +364,6 @@ export default function OutPassPortal() {
         createdAt: nowISO,
       });
 
-      alert(
-        USE_STRICT_GATEKEEPER
-          ? `Out-Pass Approved for ${selectedStudent.name}! Waiting for Gatekeeper verification.`
-          : `✅ Out-Pass Issued! ${selectedStudent.name} is now marked as OUTSIDE.`
-      );
       setSelectedStudent(null);
       setDestination("");
       setPurpose("");
@@ -427,10 +435,55 @@ export default function OutPassPortal() {
     }
   };
 
+  // Export CSV for Admin
+  const handleExportCSV = () => {
+    const headers = [
+      "Ad.No",
+      "Student Name",
+      "Class",
+      "Destination",
+      "Reason",
+      "Permitted Teacher",
+      "Permitted From",
+      "Permitted To",
+      "Actual Departure",
+      "Actual Return",
+      "Status",
+    ];
+    const rows = passes.map((p) => [
+      p.adNo,
+      `"${(p.studentName || "").replace(/"/g, '""')}"`,
+      p.studentClass,
+      `"${(p.destination || "").replace(/"/g, '""')}"`,
+      `"${(p.purpose || "").replace(/"/g, '""')}"`,
+      `"${(p.teacherName || "").replace(/"/g, '""')}"`,
+      p.permittedFrom ? new Date(p.permittedFrom).toLocaleString("en-IN") : "",
+      p.permittedTo ? new Date(p.permittedTo).toLocaleString("en-IN") : "",
+      p.actualDepartureTime
+        ? new Date(p.actualDepartureTime).toLocaleString("en-IN")
+        : "",
+      p.actualReturnTime
+        ? new Date(p.actualReturnTime).toLocaleString("en-IN")
+        : "",
+      p.status,
+    ]);
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute(
+      "download",
+      `DHIU_OutPass_Report_${new Date().toISOString().slice(0, 10)}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // ============================================================================
   // STRICT DATA SEPARATION:
-  // 1. `myPermittedPasses`: ONLY passes approved by the currently logged-in Teacher
-  // 2. Global counts: Used strictly inside the Admin Portal
   // ============================================================================
   const myPermittedPasses = passes.filter((p) => {
     if (currentUser?.uid && p.teacherId === currentUser.uid) return true;
@@ -454,10 +507,23 @@ export default function OutPassPortal() {
   const myOutsideCount = myPermittedPasses.filter(
     (p) => p.status === "OUTSIDE"
   ).length;
+  const myReturnedCount = myPermittedPasses.filter(
+    (p) => p.status === "RETURNED"
+  ).length;
 
   const filteredTeacherPasses = myPermittedPasses.filter((p) => {
-    if (teacherStatusFilter === "OUTSIDE") return p.status === "OUTSIDE";
-    if (teacherStatusFilter === "RETURNED") return p.status === "RETURNED";
+    if (teacherStatusFilter === "OUTSIDE" && p.status !== "OUTSIDE")
+      return false;
+    if (teacherStatusFilter === "RETURNED" && p.status !== "RETURNED")
+      return false;
+    if (teacherSearch.trim()) {
+      const q = teacherSearch.toLowerCase();
+      return (
+        p.studentName?.toLowerCase().includes(q) ||
+        String(p.adNo).toLowerCase().includes(q) ||
+        p.destination?.toLowerCase().includes(q)
+      );
+    }
     return true;
   });
 
@@ -503,30 +569,34 @@ export default function OutPassPortal() {
   // Block unauthenticated users
   if (!authChecking && !currentUser && !isAdmin) {
     return (
-      <div style={styles.pageWrapper}>
+      <div className="op-root" style={styles.pageWrapper}>
         <div
           style={{
             ...styles.card,
             maxWidth: 460,
             margin: "80px auto",
             textAlign: "center",
+            padding: "36px 28px",
           }}
         >
-          <h2>🔒 Login Required</h2>
-          <p style={{ color: "#64748b", fontSize: 14 }}>
-            Please log in with your Teacher or Admin account on the main portal
-            to access the Students&apos; Out-Pass system.
+          <div style={{ fontSize: 42, marginBottom: 12 }}>🔒</div>
+          <h2 style={{ margin: "0 0 8px", color: "#0f172a" }}>
+            Staff Login Required
+          </h2>
+          <p style={{ color: "#475569", fontSize: 14, lineHeight: 1.6 }}>
+            Please sign in with your Teacher or Administrator account on the
+            main portal to access the Students&apos; Out-Pass System.
           </p>
           <Link
             href="/"
             style={{
-              ...styles.submitBtn,
+              ...styles.primarySubmitBtn,
               display: "inline-block",
               textDecoration: "none",
-              marginTop: 12,
+              marginTop: 18,
             }}
           >
-            ← Go to Login Page
+            ← Return to Login Portal
           </Link>
         </div>
       </div>
@@ -534,962 +604,929 @@ export default function OutPassPortal() {
   }
 
   return (
-    <div style={styles.pageWrapper}>
-      {/* Top Header */}
-      <header style={styles.header}>
-        <div>
-          <div style={styles.uniBadge}>DARUL HUDA ISLAMIC UNIVERSITY</div>
-          <h1 style={styles.title}>Digital Students&apos; Out-Pass (SMS)</h1>
-        </div>
-        <div style={styles.headerRight}>
-          <div style={styles.staffBadge}>
-            {isAdmin ? "🛡️ Admin:" : "👨‍🏫 Teacher:"}{" "}
-            <strong>{staffName || "Staff"}</strong>
+    <div className="op-root" style={styles.pageWrapper}>
+      {/* Scoped CSS Reset so globals.css NEVER makes text or buttons invisible */}
+      <style>{`
+        .op-root * {
+          box-sizing: border-box;
+        }
+        .op-root input, .op-root select, .op-root textarea {
+          color: #0f172a !important;
+          background-color: #ffffff !important;
+          font-family: inherit;
+        }
+        .op-root input::placeholder {
+          color: #94a3b8 !important;
+          opacity: 1 !important;
+        }
+        .op-root input:focus, .op-root select:focus {
+          outline: 2px solid #0d9488 !important;
+          border-color: #0d9488 !important;
+        }
+        .op-root button {
+          font-family: inherit;
+          transition: all 0.15s ease;
+        }
+        .op-root button:active {
+          transform: scale(0.98);
+        }
+        .op-student-item:hover {
+          background-color: #f0fdfa !important;
+        }
+      `}</style>
+
+      <div style={styles.container}>
+        {/* =========================================================
+            TOP INSTITUTIONAL HEADER
+           ========================================================= */}
+        <header style={styles.header}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={styles.logoCircle}>🪪</div>
+            <div>
+              <div style={styles.uniBadge}>
+                DARUL HUDA ISLAMIC UNIVERSITY • CHEMMAD
+              </div>
+              <h1 style={styles.title}>
+                Students&apos; Movement &amp; Out-Pass Portal
+              </h1>
+            </div>
           </div>
-          <Link href="/" style={styles.backLink}>
-            ← Back to Main Portal
-          </Link>
-        </div>
-      </header>
 
-      {/* Role Switcher Navigation (Admin Tab is STRICTLY hidden for non-admins) */}
-      <div style={styles.tabBar}>
-        <button
-          onClick={() => setActiveTab("teacher")}
-          style={{
-            ...styles.tabBtn,
-            ...(activeTab === "teacher" ? styles.tabBtnActive : {}),
-          }}
-        >
-          👨‍🏫 Teacher Pass Portal (My Active Outside: {myOutsideCount})
-        </button>
-
-        {USE_STRICT_GATEKEEPER && (
-          <button
-            onClick={() => setActiveTab("gatekeeper")}
-            style={{
-              ...styles.tabBtn,
-              ...(activeTab === "gatekeeper" ? styles.tabBtnActive : {}),
-            }}
-          >
-            🛂 Gatekeeper Verification
-          </button>
-        )}
-
-        {/* STRICT ADMIN CHECK: Only rendered if logged-in user is Admin */}
-        {isAdmin && (
-          <button
-            onClick={() => setActiveTab("admin")}
-            style={{
-              ...styles.tabBtn,
-              ...(activeTab === "admin" ? styles.tabBtnActive : {}),
-            }}
-          >
-            📊 Admin Live Portal (Outside: {currentlyOutsidePasses.length} |
-            Inside: {insideStudents.length})
-          </button>
-        )}
-      </div>
-
-      {/* Camera Barcode Modal */}
-      {scannerOpen && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalCard}>
-            <h3 style={{ marginTop: 0, marginBottom: 8 }}>
-              {scannerMode === "return"
-                ? "📷 Scan Returning Student ID"
-                : "📷 Scan Student ID Barcode"}
-            </h3>
-            <p style={{ fontSize: 13, color: "#64748b", marginTop: 0 }}>
-              Hold the Student ID card barcode steady in front of the camera.
-            </p>
-            <div
-              id="barcode-reader-region"
-              style={{
-                width: "100%",
-                minHeight: "240px",
-                background: "#000",
-                borderRadius: "8px",
-                overflow: "hidden",
-              }}
-            />
-            <button
-              onClick={() => setScannerOpen(false)}
-              style={styles.closeModalBtn}
-            >
-              Close Camera
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* =========================================================
-          TAB 1: TEACHER PORTAL
-          - Issue Leave Pass
-          - View ONLY students approved by THIS logged-in teacher
-         ========================================================= */}
-      {activeTab === "teacher" && (
-        <div style={styles.gridTwoCol}>
-          {/* Left: Issue Pass Digital Slip */}
-          <div style={styles.slipCard}>
-            <div style={styles.slipHeader}>
-              <h2 style={{ margin: 0, fontSize: 18 }}>
-                STUDENTS&apos; OUT PASS PERMISSION SLIP
-              </h2>
-              <span style={{ fontSize: 12, opacity: 0.9 }}>
-                Date: {new Date().toLocaleDateString("en-IN")}
+          <div style={styles.headerRight}>
+            <div style={styles.userPill}>
+              <span style={styles.roleDot(isAdmin)} />
+              <span style={{ color: "#cbd5e1", fontSize: 12 }}>
+                {isAdmin ? "Admin:" : "Teacher:"}
               </span>
+              <strong style={{ color: "#ffffff", fontSize: 13 }}>
+                {staffName || "Staff"}
+              </strong>
+            </div>
+            <Link href="/" style={styles.backBtn}>
+              ← Main Portal
+            </Link>
+          </div>
+        </header>
+
+        {/* =========================================================
+            NAVIGATION BAR (Teacher vs Admin Strictly Separated)
+           ========================================================= */}
+        <div style={styles.navBar}>
+          <div style={styles.navSegmentGroup}>
+            <button
+              type="button"
+              onClick={() => setActiveTab("teacher")}
+              style={
+                activeTab === "teacher"
+                  ? styles.mainTabActive
+                  : styles.mainTabInactive
+              }
+            >
+              <span>👨‍🏫 Teacher Out-Pass Desk</span>
+              <span
+                style={
+                  activeTab === "teacher"
+                    ? styles.tabCounterActive
+                    : styles.tabCounterInactive
+                }
+              >
+                {myOutsideCount} Active Out
+              </span>
+            </button>
+
+            {USE_STRICT_GATEKEEPER && (
+              <button
+                type="button"
+                onClick={() => setActiveTab("gatekeeper")}
+                style={
+                  activeTab === "gatekeeper"
+                    ? styles.mainTabActive
+                    : styles.mainTabInactive
+                }
+              >
+                <span>🛂 Gatekeeper Scanner</span>
+              </button>
+            )}
+
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setActiveTab("admin")}
+                style={
+                  activeTab === "admin"
+                    ? styles.mainTabActive
+                    : styles.mainTabInactive
+                }
+              >
+                <span>📊 Admin Live Dashboard</span>
+                <span
+                  style={
+                    activeTab === "admin"
+                      ? styles.tabCounterActive
+                      : styles.tabCounterInactive
+                  }
+                >
+                  {currentlyOutsidePasses.length} Outside
+                </span>
+              </button>
+            )}
+          </div>
+
+          {/* Quick Scan to Return Button Always Accessible */}
+          <button
+            type="button"
+            onClick={() => {
+              setScannerMode("return");
+              setScannerOpen(true);
+            }}
+            style={styles.quickScanReturnHeaderBtn}
+          >
+            📷 Scan Returning Student ID
+          </button>
+        </div>
+
+        {/* =========================================================
+            BARCODE CAMERA MODAL
+           ========================================================= */}
+        {scannerOpen && (
+          <div style={styles.modalOverlay}>
+            <div style={styles.modalCard}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 10,
+                }}
+              >
+                <h3 style={{ margin: 0, color: "#0f172a", fontSize: 18 }}>
+                  {scannerMode === "return"
+                    ? "📷 Scan ID to Mark Returned"
+                    : "📷 Scan Student ID Barcode"}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setScannerOpen(false)}
+                  style={styles.iconCloseBtn}
+                >
+                  ✕
+                </button>
+              </div>
+              <p
+                style={{
+                  fontSize: 13,
+                  color: "#475569",
+                  marginTop: 0,
+                  marginBottom: 14,
+                }}
+              >
+                Align the Student ID card barcode inside the frame below.
+              </p>
+              <div
+                id="barcode-reader-region"
+                style={{
+                  width: "100%",
+                  minHeight: "250px",
+                  background: "#0f172a",
+                  borderRadius: "12px",
+                  overflow: "hidden",
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setScannerOpen(false)}
+                style={styles.closeModalBtn}
+              >
+                Cancel &amp; Close Camera
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================
+            TAB 1: TEACHER PORTAL (ISSUE LEAVE & MY APPROVED STUDENTS)
+           ========================================================= */}
+        {activeTab === "teacher" && (
+          <div style={styles.twoColGrid}>
+            {/* LEFT COLUMN: OFFICIAL DIGITAL OUT-PASS SLIP FORM */}
+            <div style={styles.slipContainer}>
+              <div style={styles.slipBanner}>
+                <div>
+                  <div style={styles.slipBannerSub}>
+                    OFFICIAL MOVEMENT PERMISSION
+                  </div>
+                  <h2 style={styles.slipBannerTitle}>
+                    Issue Student Out-Pass (SMS)
+                  </h2>
+                </div>
+                <div style={styles.slipDatePill}>
+                  📅{" "}
+                  {new Date().toLocaleDateString("en-IN", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                </div>
+              </div>
+
+              <div style={styles.slipBody}>
+                {/* STEP 1: STUDENT SELECTION */}
+                <div style={{ marginBottom: 20 }}>
+                  <label style={styles.fieldLabel}>
+                    1. Select Student (Scan Barcode or Search Ad.No / Name)
+                  </label>
+
+                  {!selectedStudent ? (
+                    <div style={{ position: "relative" }}>
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <div style={{ position: "relative", flex: 1 }}>
+                          <input
+                            type="text"
+                            placeholder="Search by Admission No. (e.g. 4512) or Name..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            style={styles.searchInput}
+                          />
+                          {searchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => setSearchQuery("")}
+                              title="Clear search"
+                              style={styles.searchClearIconBtn}
+                            >
+                              ✕ Clear
+                            </button>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setScannerMode("teacher");
+                            setScannerOpen(true);
+                          }}
+                          style={styles.barcodeScanBtn}
+                        >
+                          📷 Scan ID Card
+                        </button>
+                      </div>
+
+                      {/* Auto-complete Dropdown */}
+                      {matchingStudents.length > 0 && (
+                        <div style={styles.searchDropdown}>
+                          <div style={styles.dropdownHeader}>
+                            Matching Students ({matchingStudents.length})
+                          </div>
+                          {matchingStudents.map((st) => {
+                            const activePass = getActivePassForStudent(st.adNo);
+                            return (
+                              <div
+                                key={st.id}
+                                className="op-student-item"
+                                onClick={() => {
+                                  setSelectedStudent(st);
+                                  setSearchQuery("");
+                                }}
+                                style={styles.dropdownRow}
+                              >
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 10,
+                                  }}
+                                >
+                                  <div style={styles.studentAvatarMini}>
+                                    {st.name.charAt(0).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <div
+                                      style={{
+                                        fontWeight: 700,
+                                        color: "#0f172a",
+                                        fontSize: 14,
+                                      }}
+                                    >
+                                      {st.name}
+                                    </div>
+                                    <div
+                                      style={{
+                                        fontSize: 12,
+                                        color: "#475569",
+                                      }}
+                                    >
+                                      Ad.No:{" "}
+                                      <strong style={{ color: "#0d9488" }}>
+                                        #{st.adNo}
+                                      </strong>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                  }}
+                                >
+                                  {activePass && (
+                                    <span style={styles.alreadyOutMiniTag}>
+                                      Currently Outside
+                                    </span>
+                                  )}
+                                  <span style={styles.classPill}>
+                                    Class {st.studentClass}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {searchQuery.trim() && matchingStudents.length === 0 && (
+                        <div style={styles.noMatchBox}>
+                          No student found matching &ldquo;{searchQuery}&rdquo;.
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* SELECTED STUDENT PROFILE CARD */
+                    <div style={styles.selectedProfileCard}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          gap: 12,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 14,
+                          }}
+                        >
+                          <div style={styles.studentAvatarLarge}>
+                            {selectedStudent.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <span
+                                style={{
+                                  fontSize: 18,
+                                  fontWeight: 800,
+                                  color: "#0f172a",
+                                }}
+                              >
+                                {selectedStudent.name}
+                              </span>
+                              <span style={styles.classPillActive}>
+                                Class {selectedStudent.studentClass}
+                              </span>
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 13,
+                                color: "#334155",
+                                marginTop: 4,
+                                display: "flex",
+                                gap: 14,
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <span>
+                                Ad.No:{" "}
+                                <strong style={{ color: "#0f766e" }}>
+                                  #{selectedStudent.adNo}
+                                </strong>
+                              </span>
+                              <span style={styles.monthOutingsBadge}>
+                                📊 Outings this month:{" "}
+                                <strong>
+                                  {getMonthlyOutCount(selectedStudent.adNo)}
+                                </strong>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setSelectedStudent(null)}
+                          style={styles.changeStudentBtn}
+                        >
+                          ✕ Change Student
+                        </button>
+                      </div>
+
+                      {/* Duplicate Pass Warning Banner */}
+                      {getActivePassForStudent(selectedStudent.adNo) && (
+                        <div style={styles.duplicateWarningBox}>
+                          ⚠️ <strong>Active Pass Alert:</strong> This student is
+                          already marked{" "}
+                          <strong>
+                            {
+                              getActivePassForStudent(selectedStudent.adNo)
+                                .status
+                            }
+                          </strong>{" "}
+                          (Permitted by{" "}
+                          {
+                            getActivePassForStudent(selectedStudent.adNo)
+                              .teacherName
+                          }
+                          ). They must be marked returned before issuing a new
+                          pass.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* STEP 2: DESTINATION & PURPOSE */}
+                <form onSubmit={handleIssuePass}>
+                  <div style={{ marginBottom: 18 }}>
+                    <label style={styles.fieldLabel}>
+                      2. Destination (Where is the student going?)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Enter destination (e.g. Chemmad Town, Hospital, Home)..."
+                      value={destination}
+                      onChange={(e) => setDestination(e.target.value)}
+                      style={styles.textInput}
+                      required
+                    />
+                    <div style={styles.chipGroup}>
+                      {[
+                        "Chemmad Town",
+                        "Tirurangadi Hospital",
+                        "Bank / ATM",
+                        "Barber Shop",
+                        "Medical Store",
+                        "Home",
+                      ].map((place) => {
+                        const isSelected = destination === place;
+                        return (
+                          <button
+                            type="button"
+                            key={place}
+                            onClick={() => setDestination(place)}
+                            style={
+                              isSelected
+                                ? styles.quickChipActive
+                                : styles.quickChip
+                            }
+                          >
+                            📍 {place}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 18 }}>
+                    <label style={styles.fieldLabel}>
+                      3. Purpose / Reason for Outing
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Specify reason for leaving campus..."
+                      value={purpose}
+                      onChange={(e) => setPurpose(e.target.value)}
+                      style={styles.textInput}
+                      required
+                    />
+                    <div style={styles.chipGroup}>
+                      {[
+                        "Medical / Consultation",
+                        "Personal Purchase",
+                        "Department / Official Work",
+                        "Banking / ATM",
+                        "Emergency Home Leave",
+                      ].map((rsn) => {
+                        const isSelected = purpose === rsn;
+                        return (
+                          <button
+                            type="button"
+                            key={rsn}
+                            onClick={() => setPurpose(rsn)}
+                            style={
+                              isSelected
+                                ? styles.quickChipActive
+                                : styles.quickChip
+                            }
+                          >
+                            📝 {rsn}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* STEP 3: PERMITTED TIME WINDOW */}
+                  <div style={{ marginBottom: 18 }}>
+                    <label style={styles.fieldLabel}>
+                      4. Permitted Date &amp; Time Allowed
+                    </label>
+                    <div style={styles.dateRowGrid}>
+                      <div>
+                        <span style={styles.subFieldLabel}>
+                          Departure From:
+                        </span>
+                        <input
+                          type="datetime-local"
+                          value={permittedFrom}
+                          onChange={(e) => setPermittedFrom(e.target.value)}
+                          style={styles.textInput}
+                          required
+                        />
+                      </div>
+                      <div>
+                        <span style={styles.subFieldLabel}>
+                          Must Return Before:
+                        </span>
+                        <input
+                          type="datetime-local"
+                          value={permittedTo}
+                          onChange={(e) => {
+                            setPermittedTo(e.target.value);
+                            setActiveDurationChip("custom");
+                          }}
+                          style={styles.textInput}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    {/* Quick Duration Chips */}
+                    <div style={{ ...styles.chipGroup, marginTop: 10 }}>
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: "#475569",
+                          alignSelf: "center",
+                          marginRight: 4,
+                        }}
+                      >
+                        Quick Duration:
+                      </span>
+                      {[
+                        { id: "1h", label: "⏱️ +1 Hour", hrs: 1 },
+                        { id: "2h", label: "⏱️ +2 Hours", hrs: 2 },
+                        { id: "4h", label: "⏱️ +4 Hours", hrs: 4 },
+                      ].map((d) => (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() => applyDuration(d.hrs, d.id)}
+                          style={
+                            activeDurationChip === d.id
+                              ? styles.quickChipActive
+                              : styles.quickChip
+                          }
+                        >
+                          {d.label}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={applyUntilEvening}
+                        style={
+                          activeDurationChip === "6pm"
+                            ? styles.quickChipActive
+                            : styles.quickChip
+                        }
+                      >
+                        🌇 Until 6:00 PM
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* STEP 4: LOCKED TEACHER SIGNATURE */}
+                  <div style={styles.teacherSignatureBox}>
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "#64748b",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Permitted By Teacher (Digital Signature)
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 15,
+                          fontWeight: 800,
+                          color: "#0f172a",
+                          marginTop: 2,
+                        }}
+                      >
+                        👨‍🏫 {staffName}
+                      </div>
+                    </div>
+                    <span style={styles.verifiedAccountBadge}>
+                      ✓ Verified Account
+                    </span>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={submitting || !selectedStudent}
+                    style={{
+                      ...styles.primarySubmitBtn,
+                      opacity: submitting || !selectedStudent ? 0.55 : 1,
+                      cursor:
+                        submitting || !selectedStudent
+                          ? "not-allowed"
+                          : "pointer",
+                    }}
+                  >
+                    {submitting
+                      ? "Issuing Digital Out-Pass..."
+                      : USE_STRICT_GATEKEEPER
+                      ? "✅ Issue Out-Pass & Send to Gatekeeper"
+                      : "✅ Approve & Mark Student OUTSIDE Now"}
+                  </button>
+                </form>
+              </div>
             </div>
 
-            {/* Step 1: Scan or Search Student */}
-            <div style={{ marginBottom: 16 }}>
-              <label style={styles.label}>
-                1. Find Student (Scan Barcode or Search Ad.No / Name)
-              </label>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  type="text"
-                  placeholder="Type Ad.No or Student Name..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={styles.input}
-                />
+            {/* RIGHT COLUMN: MY APPROVED STUDENTS (SCOPED TO THIS TEACHER) */}
+            <div style={styles.card}>
+              <div style={styles.cardHeaderRow}>
+                <div>
+                  <h3 style={styles.cardTitle}>
+                    📋 My Permitted Students
+                  </h3>
+                  <p style={styles.cardSubtitle}>
+                    Live status of students permitted by{" "}
+                    <strong style={{ color: "#0f172a" }}>{staffName}</strong>
+                  </p>
+                </div>
+
                 <button
                   type="button"
                   onClick={() => {
-                    setScannerMode("teacher");
+                    setScannerMode("return");
                     setScannerOpen(true);
                   }}
-                  style={styles.scanBtn}
+                  style={styles.scanReturnSmallBtn}
                 >
-                  📷 Scan ID
+                  📷 Scan Return
                 </button>
               </div>
 
-              {/* Search Dropdown Results */}
-              {matchingStudents.length > 0 && (
-                <div style={styles.dropdownList}>
-                  {matchingStudents.map((st) => (
-                    <div
-                      key={st.id}
-                      onClick={() => {
-                        setSelectedStudent(st);
-                        setSearchQuery("");
-                      }}
-                      style={styles.dropdownItem}
-                    >
-                      <strong>#{st.adNo}</strong> — {st.name}{" "}
-                      <span style={styles.classBadge}>{st.studentClass}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Selected Student Banner */}
-            {selectedStudent && (
-              <div style={styles.selectedStudentBox}>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <div>
-                    <div
-                      style={{
-                        fontSize: 12,
-                        color: "#0f766e",
-                        fontWeight: 700,
-                      }}
-                    >
-                      SELECTED STUDENT
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 18,
-                        fontWeight: 700,
-                        color: "#0f172a",
-                      }}
-                    >
-                      {selectedStudent.name}
-                    </div>
-                    <div style={{ fontSize: 13, color: "#334155" }}>
-                      Ad.No: <strong>{selectedStudent.adNo}</strong> | Class:{" "}
-                      <strong>{selectedStudent.studentClass}</strong>
-                    </div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={styles.outingCountBadge}>
-                      Outings this month:{" "}
-                      {getMonthlyOutCount(selectedStudent.adNo)}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedStudent(null)}
-                      style={styles.clearBtn}
-                    >
-                      Change Student
-                    </button>
-                  </div>
-                </div>
-
-                {/* Duplicate Active Pass Warning */}
-                {getActivePassForStudent(selectedStudent.adNo) && (
-                  <div style={styles.warningAlert}>
-                    ⚠️ <strong>Warning:</strong> This student is already marked
-                    as{" "}
-                    <strong>
-                      {getActivePassForStudent(selectedStudent.adNo).status}
-                    </strong>{" "}
-                    (Permitted by{" "}
-                    {getActivePassForStudent(selectedStudent.adNo).teacherName}
-                    ). They must return before a new pass can be issued.
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Step 2: Out Pass Form */}
-            <form onSubmit={handleIssuePass}>
-              <div style={{ marginBottom: 14 }}>
-                <label style={styles.label}>Destination</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Chemmad Town, Hospital, Bank, Home..."
-                  value={destination}
-                  onChange={(e) => setDestination(e.target.value)}
-                  style={styles.input}
-                  required
-                />
-                <div style={styles.chipRow}>
-                  {[
-                    "Chemmad Town",
-                    "Tirurangadi Hospital",
-                    "Bank / ATM",
-                    "Barber Shop",
-                    "Home",
-                  ].map((place) => (
-                    <button
-                      type="button"
-                      key={place}
-                      onClick={() => setDestination(place)}
-                      style={styles.quickChip}
-                    >
-                      {place}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ marginBottom: 14 }}>
-                <label style={styles.label}>Purpose / Reason</label>
-                <input
-                  type="text"
-                  placeholder="Enter reason for going outside..."
-                  value={purpose}
-                  onChange={(e) => setPurpose(e.target.value)}
-                  style={styles.input}
-                  required
-                />
-                <div style={styles.chipRow}>
-                  {[
-                    "Medical / Clinic",
-                    "Personal Purchase",
-                    "Official / Dept Work",
-                    "Emergency Home Leave",
-                  ].map((rsn) => (
-                    <button
-                      type="button"
-                      key={rsn}
-                      onClick={() => setPurpose(rsn)}
-                      style={styles.quickChip}
-                    >
-                      {rsn}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={styles.twoInputRow}>
-                <div style={{ flex: 1 }}>
-                  <label style={styles.label}>
-                    Permitted From (Date & Time)
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={permittedFrom}
-                    onChange={(e) => setPermittedFrom(e.target.value)}
-                    style={styles.input}
-                    required
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label style={styles.label}>
-                    Permitted To (Return Deadline)
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={permittedTo}
-                    onChange={(e) => setPermittedTo(e.target.value)}
-                    style={styles.input}
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* Quick Duration Buttons */}
-              <div style={{ ...styles.chipRow, marginBottom: 16 }}>
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: "#64748b",
-                    alignSelf: "center",
-                  }}
-                >
-                  Quick Duration:
-                </span>
-                <button
-                  type="button"
-                  onClick={() => applyDuration(1)}
-                  style={styles.quickChip}
-                >
-                  +1 Hour
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyDuration(2)}
-                  style={styles.quickChip}
-                >
-                  +2 Hours
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyDuration(4)}
-                  style={styles.quickChip}
-                >
-                  +4 Hours
-                </button>
-                <button
-                  type="button"
-                  onClick={applyUntilEvening}
-                  style={styles.quickChip}
-                >
-                  Until 6:00 PM
-                </button>
-              </div>
-
-              {/* Strictly Locked Teacher Name */}
-              <div style={{ marginBottom: 18 }}>
-                <label style={styles.label}>
-                  Permitted Teacher (Locked to Logged-in Account)
-                </label>
-                <input
-                  type="text"
-                  value={staffName}
-                  readOnly
-                  style={{
-                    ...styles.input,
-                    background: "#e2e8f0",
-                    color: "#0f172a",
-                    fontWeight: 700,
-                    cursor: "not-allowed",
-                  }}
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={submitting || !selectedStudent}
-                style={{
-                  ...styles.submitBtn,
-                  opacity: submitting || !selectedStudent ? 0.6 : 1,
-                }}
-              >
-                {submitting
-                  ? "Issuing Digital Pass..."
-                  : USE_STRICT_GATEKEEPER
-                  ? "✅ Approve & Send to Gatekeeper"
-                  : "✅ Approve & Mark Student OUTSIDE"}
-              </button>
-            </form>
-          </div>
-
-          {/* Right: ONLY Students Approved by This Logged-in Teacher */}
-          <div style={styles.card}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                flexWrap: "wrap",
-                gap: 8,
-                marginBottom: 12,
-              }}
-            >
-              <div>
-                <h3 style={{ margin: 0 }}>
-                  📋 My Approved Students ({myPermittedPasses.length})
-                </h3>
-                <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0" }}>
-                  Showing only students permitted by{" "}
-                  <strong>{staffName}</strong>.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setScannerMode("return");
-                  setScannerOpen(true);
-                }}
-                style={styles.returnActionBtn}
-              >
-                📷 Scan ID to Return
-              </button>
-            </div>
-
-            {/* Filter pills for Teacher's own list */}
-            <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-              {[
-                { id: "ALL", label: `All My Passes (${myPermittedPasses.length})` },
-                { id: "OUTSIDE", label: `Currently Outside (${myOutsideCount})` },
-                {
-                  id: "RETURNED",
-                  label: `Returned (${
-                    myPermittedPasses.filter((p) => p.status === "RETURNED")
-                      .length
-                  })`,
-                },
-              ].map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => setTeacherStatusFilter(f.id)}
-                  style={{
-                    ...styles.subTabBtn,
-                    padding: "6px 10px",
-                    fontSize: "12px",
-                    ...(teacherStatusFilter === f.id
-                      ? styles.subTabBtnActive
-                      : {}),
-                  }}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-
-            {filteredTeacherPasses.length === 0 ? (
-              <div
-                style={{
-                  padding: "30px 16px",
-                  textAlign: "center",
-                  color: "#64748b",
-                  fontSize: 14,
-                  background: "#f8fafc",
-                  borderRadius: 8,
-                }}
-              >
-                No student passes found under your account for this filter.
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {filteredTeacherPasses.map((p) => {
-                  const isOverdue =
-                    p.status === "OUTSIDE" && new Date(p.permittedTo) < now;
+              {/* Segmented Filter Control (Crystal Clear Readability) */}
+              <div style={styles.segmentedBar}>
+                {[
+                  {
+                    id: "ALL",
+                    label: "All My Passes",
+                    count: myPermittedPasses.length,
+                  },
+                  {
+                    id: "OUTSIDE",
+                    label: "Currently Outside",
+                    count: myOutsideCount,
+                  },
+                  {
+                    id: "RETURNED",
+                    label: "Returned",
+                    count: myReturnedCount,
+                  },
+                ].map((tab) => {
+                  const active = teacherStatusFilter === tab.id;
                   return (
-                    <div
-                      key={p.id}
-                      style={{
-                        ...styles.passRowItem,
-                        borderLeft:
-                          p.status === "OUTSIDE"
-                            ? isOverdue
-                              ? "4px solid #dc2626"
-                              : "4px solid #ea580c"
-                            : "4px solid #16a34a",
-                      }}
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setTeacherStatusFilter(tab.id)}
+                      style={
+                        active
+                          ? styles.segmentBtnActive
+                          : styles.segmentBtnInactive
+                      }
                     >
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: 15 }}>
-                          {p.studentName}{" "}
-                          <span style={{ fontWeight: 400, color: "#64748b" }}>
-                            (#{p.adNo} • Class {p.studentClass})
-                          </span>
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 13,
-                            color: "#334155",
-                            marginTop: 2,
-                          }}
-                        >
-                          📍 <strong>{p.destination}</strong> — Reason:{" "}
-                          {p.purpose}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 12,
-                            color: "#64748b",
-                            marginTop: 4,
-                          }}
-                        >
-                          Permitted:{" "}
-                          {new Date(p.permittedFrom).toLocaleTimeString(
-                            "en-IN",
-                            {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            }
-                          )}{" "}
-                          →{" "}
-                          <strong>
-                            {new Date(p.permittedTo).toLocaleString("en-IN", {
-                              dateStyle: "short",
-                              timeStyle: "short",
-                            })}
-                          </strong>
-                        </div>
-                        {p.actualReturnTime && (
-                          <div
-                            style={{
-                              fontSize: 12,
-                              color: "#15803d",
-                              marginTop: 2,
-                              fontWeight: 600,
-                            }}
-                          >
-                            ✓ Returned at:{" "}
-                            {new Date(p.actualReturnTime).toLocaleString(
-                              "en-IN",
-                              {
-                                dateStyle: "short",
-                                timeStyle: "short",
-                              }
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      <div
-                        style={{
-                          textAlign: "right",
-                          display: "flex",
-                          flexDirection: "column",
-                          alignItems: "flex-end",
-                          gap: 6,
-                        }}
+                      <span>{tab.label}</span>
+                      <span
+                        style={
+                          active
+                            ? styles.segmentBadgeActive
+                            : styles.segmentBadgeInactive
+                        }
                       >
-                        <span
-                          style={getStatusBadgeStyle(
-                            p.status,
-                            p.permittedTo,
-                            now
-                          )}
-                        >
-                          {p.status === "APPROVED"
-                            ? "WAITING AT GATE"
-                            : isOverdue
-                            ? "LATE / OVERDUE"
-                            : p.status}
-                        </span>
-
-                        {p.status === "OUTSIDE" && (
-                          <button
-                            onClick={() => handleConfirmReturn(p)}
-                            style={{
-                              ...styles.returnActionBtn,
-                              padding: "6px 10px",
-                              fontSize: "12px",
-                            }}
-                          >
-                            ✓ Mark Returned
-                          </button>
-                        )}
-
-                        {(p.status === "APPROVED" ||
-                          p.status === "OUTSIDE") && (
-                          <button
-                            onClick={() => handleCancelPass(p)}
-                            style={styles.cancelLinkBtn}
-                          >
-                            Cancel Pass
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                        {tab.count}
+                      </span>
+                    </button>
                   );
                 })}
               </div>
-            )}
-          </div>
-        </div>
-      )}
 
-      {/* =========================================================
-          TAB 2: STRICT GATEKEEPER PORTAL
-         ========================================================= */}
-      {activeTab === "gatekeeper" && USE_STRICT_GATEKEEPER && (
-        <div>
-          <div style={styles.gateScannerHero}>
-            <div>
-              <h2 style={{ margin: 0, fontSize: 20 }}>
-                🛂 Strict Gatekeeper Verification Desk
-              </h2>
-              <p style={{ margin: "4px 0 0", fontSize: 13, opacity: 0.9 }}>
-                Scan Student ID Barcode at the Gate to verify teacher approval
-                and log exact Departure & Return times.
-              </p>
-            </div>
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <input
-                type="text"
-                placeholder="Enter Ad.No + Press Enter"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && e.target.value.trim()) {
-                    handleGateLookupByAdNo(e.target.value.trim());
-                    e.target.value = "";
-                  }
-                }}
-                style={{ ...styles.input, width: 210, background: "#fff" }}
-              />
-              <button
-                onClick={() => {
-                  setScannerMode("gate");
-                  setScannerOpen(true);
-                }}
-                style={styles.gateBigScanBtn}
-              >
-                📷 Scan ID at Gate
-              </button>
-            </div>
-          </div>
+              {/* Search within Teacher's passes */}
+              <div style={{ position: "relative", marginBottom: 14 }}>
+                <input
+                  type="text"
+                  placeholder="Filter your approved students by name, Ad.No, or place..."
+                  value={teacherSearch}
+                  onChange={(e) => setTeacherSearch(e.target.value)}
+                  style={styles.searchInputSmall}
+                />
+                {teacherSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setTeacherSearch("")}
+                    style={styles.searchClearIconBtn}
+                  >
+                    ✕ Clear
+                  </button>
+                )}
+              </div>
 
-          {gateScanResult && (
-            <div style={styles.gateVerifyModal}>
-              <div>
-                <div
-                  style={{ fontSize: 12, fontWeight: 700, color: "#0369a1" }}
-                >
-                  VERIFIED PASS FOUND
+              {/* List of Teacher's Approved Passes */}
+              {filteredTeacherPasses.length === 0 ? (
+                <div style={styles.emptyStateBox}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      color: "#334155",
+                      fontSize: 15,
+                    }}
+                  >
+                    No Out-Passes Found
+                  </div>
+                  <div
+                    style={{
+                      color: "#64748b",
+                      fontSize: 13,
+                      marginTop: 4,
+                    }}
+                  >
+                    Students you permit will appear here with their live return
+                    status.
+                  </div>
                 </div>
-                <h3 style={{ margin: "4px 0", fontSize: 22 }}>
-                  {gateScanResult.studentName} (#{gateScanResult.adNo} •{" "}
-                  {gateScanResult.studentClass})
-                </h3>
-                <p style={{ margin: 0, fontSize: 14 }}>
-                  📍 <strong>{gateScanResult.destination}</strong> (
-                  {gateScanResult.purpose}) | Permitted by:{" "}
-                  <strong>{gateScanResult.teacherName}</strong>
-                </p>
-              </div>
-              <div style={{ display: "flex", gap: 10 }}>
-                {gateScanResult.status === "APPROVED" && (
-                  <button
-                    onClick={() => handleConfirmDeparture(gateScanResult)}
-                    style={styles.departActionBtn}
-                  >
-                    🚶‍♂️ Verify & Mark GOING OUT Now
-                  </button>
-                )}
-                {gateScanResult.status === "OUTSIDE" && (
-                  <button
-                    onClick={() => handleConfirmReturn(gateScanResult)}
-                    style={styles.returnActionBtn}
-                  >
-                    ✅ Verify & Mark RETURNED Now
-                  </button>
-                )}
-                <button
-                  onClick={() => setGateScanResult(null)}
-                  style={styles.clearBtn}
-                >
-                  Dismiss
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+              ) : (
+                <div style={styles.passListScroll}>
+                  {filteredTeacherPasses.map((p) => {
+                    const isOverdue =
+                      p.status === "OUTSIDE" && new Date(p.permittedTo) < now;
+                    return (
+                      <div
+                        key={p.id}
+                        style={{
+                          ...styles.passCardItem,
+                          borderLeft:
+                            p.status === "OUTSIDE"
+                              ? isOverdue
+                                ? "5px solid #dc2626"
+                                : "5px solid #f59e0b"
+                              : "5px solid #10b981",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "flex-start",
+                            gap: 12,
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <div style={{ flex: 1, minWidth: 200 }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <span
+                                style={{
+                                  fontWeight: 800,
+                                  fontSize: 16,
+                                  color: "#0f172a",
+                                }}
+                              >
+                                {p.studentName}
+                              </span>
+                              <span style={styles.adNoBadge}>#{p.adNo}</span>
+                              <span style={styles.classPill}>
+                                Class {p.studentClass}
+                              </span>
+                            </div>
 
-      {/* =========================================================
-          TAB 3: ADMIN PORTAL (STRICTLY FOR ADMIN ONLY)
-         ========================================================= */}
-      {activeTab === "admin" && isAdmin && (
-        <div>
-          {/* Summary KPI Cards */}
-          <div style={styles.kpiGrid}>
-            <div
-              onClick={() => setAdminViewMode("INSIDE")}
-              style={{
-                ...styles.kpiCard,
-                borderBottom: "4px solid #16a34a",
-                cursor: "pointer",
-              }}
-            >
-              <div style={styles.kpiLabel}>🟢 INSIDE CAMPUS</div>
-              <div style={styles.kpiValue}>{insideStudents.length}</div>
-              <div style={styles.kpiSub}>Click to view all inside students</div>
-            </div>
+                            <div
+                              style={{
+                                fontSize: 13,
+                                color: "#1e293b",
+                                marginTop: 6,
+                                fontWeight: 500,
+                              }}
+                            >
+                              📍 <strong>{p.destination}</strong>{" "}
+                              <span style={{ color: "#64748b" }}>
+                                — {p.purpose}
+                              </span>
+                            </div>
 
-            <div
-              onClick={() => setAdminViewMode("OUTSIDE")}
-              style={{
-                ...styles.kpiCard,
-                borderBottom: "4px solid #ea580c",
-                cursor: "pointer",
-              }}
-            >
-              <div style={styles.kpiLabel}>🟠 CURRENTLY OUTSIDE</div>
-              <div style={styles.kpiValue}>{currentlyOutsidePasses.length}</div>
-              <div style={styles.kpiSub}>Click to view outside students</div>
-            </div>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: "#475569",
+                                marginTop: 6,
+                                display: "flex",
+                                gap: 12,
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <span>
+                                🕒 Out:{" "}
+                                <strong>
+                                  {new Date(p.permittedFrom).toLocaleTimeString(
+                                    "en-IN",
+                                    {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    }
+                                  )}
+                                </strong>
+                              </span>
+                              <span>
+                                ⏳ Due:{" "}
+                                <strong>
+                                  {new Date(p.permittedTo).toLocaleString(
+                                    "en-IN",
+                                    {
+                                      day: "2-digit",
+                                      month: "short",
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    }
+                                  )}
+                                </strong>
+                              </span>
+                            </div>
 
-            <div
-              onClick={() => setAdminViewMode("OUTSIDE")}
-              style={{
-                ...styles.kpiCard,
-                borderBottom: "4px solid #dc2626",
-                cursor: "pointer",
-              }}
-            >
-              <div style={styles.kpiLabel}>🔴 OVERDUE / LATE</div>
-              <div style={{ ...styles.kpiValue, color: "#dc2626" }}>
-                {overduePasses.length}
-              </div>
-              <div style={styles.kpiSub}>Exceeded permitted time</div>
-            </div>
+                            {p.status === "OUTSIDE" && (
+                              <div
+                                style={{
+                                  marginTop: 6,
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  color: isOverdue ? "#dc2626" : "#d97706",
+                                }}
+                              >
+                                ⏱️ {getRemainingTimeText(p.permittedTo)}
+                              </div>
+                            )}
 
-            <div
-              onClick={() => setAdminViewMode("HISTORY")}
-              style={{
-                ...styles.kpiCard,
-                borderBottom: "4px solid #0284c7",
-                cursor: "pointer",
-              }}
-            >
-              <div style={styles.kpiLabel}>📜 TOTAL PASSES LOGGED</div>
-              <div style={styles.kpiValue}>{passes.length}</div>
-              <div style={styles.kpiSub}>Click to view complete history</div>
-            </div>
-          </div>
-
-          {/* Filter & View Switcher Bar */}
-          <div style={styles.filterBar}>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {[
-                {
-                  id: "OUTSIDE",
-                  label: `🟠 Outside Students (${currentlyOutsidePasses.length})`,
-                },
-                {
-                  id: "INSIDE",
-                  label: `🟢 Inside Students (${insideStudents.length})`,
-                },
-                {
-                  id: "HISTORY",
-                  label: `📜 All Pass History (${passes.length})`,
-                },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setAdminViewMode(tab.id)}
-                  style={{
-                    ...styles.subTabBtn,
-                    ...(adminViewMode === tab.id ? styles.subTabBtnActive : {}),
-                  }}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <input
-                type="text"
-                placeholder="Search name, Ad.No, reason..."
-                value={adminSearch}
-                onChange={(e) => setAdminSearch(e.target.value)}
-                style={{ ...styles.input, width: 200 }}
-              />
-              <select
-                value={classFilter}
-                onChange={(e) => setClassFilter(e.target.value)}
-                style={{ ...styles.input, width: 130 }}
-              >
-                {allClasses.map((c) => (
-                  <option key={c} value={c}>
-                    Class: {c}
-                  </option>
-                ))}
-              </select>
-              {adminViewMode !== "INSIDE" && (
-                <select
-                  value={teacherFilter}
-                  onChange={(e) => setTeacherFilter(e.target.value)}
-                  style={{ ...styles.input, width: 160 }}
-                >
-                  {allTeachers.map((t) => (
-                    <option key={t} value={t}>
-                      Teacher: {t}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          </div>
-
-          {/* Admin Data Table */}
-          <div style={styles.tableCard}>
-            {adminViewMode === "INSIDE" ? (
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>Ad.No</th>
-                    <th style={styles.th}>Student Name</th>
-                    <th style={styles.th}>Class</th>
-                    <th style={styles.th}>Current Status</th>
-                    <th style={styles.th}>Outings This Month</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {insideStudents
-                    .filter(
-                      (s) =>
-                        (classFilter === "ALL" ||
-                          s.studentClass === classFilter) &&
-                        (s.name
-                          .toLowerCase()
-                          .includes(adminSearch.toLowerCase()) ||
-                          s.adNo
-                            .toLowerCase()
-                            .includes(adminSearch.toLowerCase()))
-                    )
-                    .slice(0, 100)
-                    .map((s) => (
-                      <tr key={s.id} style={styles.tr}>
-                        <td style={styles.td}>
-                          <strong>#{s.adNo}</strong>
-                        </td>
-                        <td style={styles.td}>{s.name}</td>
-                        <td style={styles.td}>{s.studentClass}</td>
-                        <td style={styles.td}>
-                          <span style={styles.insideBadge}>
-                            🟢 INSIDE CAMPUS
-                          </span>
-                        </td>
-                        <td style={styles.td}>{getMonthlyOutCount(s.adNo)}</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            ) : (
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>Student (Ad.No / Class)</th>
-                    <th style={styles.th}>Destination & Reason</th>
-                    <th style={styles.th}>Permitted Teacher</th>
-                    <th style={styles.th}>Allowed Time Window</th>
-                    <th style={styles.th}>Departure / Return</th>
-                    <th style={styles.th}>Status / Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {passes
-                    .filter((p) => {
-                      if (adminViewMode === "OUTSIDE" && p.status !== "OUTSIDE")
-                        return false;
-                      if (
-                        classFilter !== "ALL" &&
-                        p.studentClass !== classFilter
-                      )
-                        return false;
-                      if (
-                        teacherFilter !== "ALL" &&
-                        p.teacherName !== teacherFilter
-                      )
-                        return false;
-                      if (adminSearch.trim()) {
-                        const q = adminSearch.toLowerCase();
-                        return (
-                          p.studentName?.toLowerCase().includes(q) ||
-                          String(p.adNo).toLowerCase().includes(q) ||
-                          p.destination?.toLowerCase().includes(q) ||
-                          p.purpose?.toLowerCase().includes(q)
-                        );
-                      }
-                      return true;
-                    })
-                    .slice(0, 100)
-                    .map((p) => (
-                      <tr key={p.id} style={styles.tr}>
-                        <td style={styles.td}>
-                          <div style={{ fontWeight: 700 }}>{p.studentName}</div>
-                          <div style={{ fontSize: 12, color: "#64748b" }}>
-                            #{p.adNo} • Class {p.studentClass}
-                          </div>
-                        </td>
-                        <td style={styles.td}>
-                          <div style={{ fontWeight: 600 }}>
-                            📍 {p.destination}
-                          </div>
-                          <div style={{ fontSize: 12, color: "#475569" }}>
-                            Reason: {p.purpose}
-                          </div>
-                        </td>
-                        <td style={styles.td}>
-                          <strong>{p.teacherName}</strong>
-                        </td>
-                        <td style={styles.td}>
-                          <div style={{ fontSize: 12 }}>
-                            From:{" "}
-                            {new Date(p.permittedFrom).toLocaleString("en-IN", {
-                              dateStyle: "short",
-                              timeStyle: "short",
-                            })}
-                          </div>
-                          <div style={{ fontSize: 12, fontWeight: 700 }}>
-                            To:{" "}
-                            {new Date(p.permittedTo).toLocaleString("en-IN", {
-                              dateStyle: "short",
-                              timeStyle: "short",
-                            })}
-                          </div>
-                        </td>
-                        <td style={styles.td}>
-                          <div style={{ fontSize: 12 }}>
-                            Out:{" "}
-                            {p.actualDepartureTime
-                              ? new Date(
-                                  p.actualDepartureTime
-                                ).toLocaleTimeString("en-IN", {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })
-                              : "—"}
-                          </div>
-                          <div style={{ fontSize: 12 }}>
-                            In:{" "}
-                            {p.actualReturnTime
-                              ? new Date(p.actualReturnTime).toLocaleTimeString(
+                            {p.actualReturnTime && (
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  color: "#059669",
+                                  marginTop: 6,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                ✓ Returned at:{" "}
+                                {new Date(p.actualReturnTime).toLocaleString(
                                   "en-IN",
                                   {
+                                    day: "2-digit",
+                                    month: "short",
                                     hour: "2-digit",
                                     minute: "2-digit",
                                   }
-                                )
-                              : "Still Outside"}
+                                )}
+                              </div>
+                            )}
                           </div>
-                        </td>
-                        <td style={styles.td}>
+
+                          {/* Right Actions Column */}
                           <div
                             style={{
                               display: "flex",
-                              alignItems: "center",
+                              flexDirection: "column",
+                              alignItems: "flex-end",
                               gap: 8,
-                              flexWrap: "wrap",
                             }}
                           >
                             <span
@@ -1499,121 +1536,667 @@ export default function OutPassPortal() {
                                 now
                               )}
                             >
-                              {p.status === "OUTSIDE" &&
-                              new Date(p.permittedTo) < now
-                                ? "OVERDUE / LATE"
+                              {p.status === "OUTSIDE" && isOverdue
+                                ? "🚨 OVERDUE / LATE"
+                                : p.status === "OUTSIDE"
+                                ? "🟠 OUTSIDE CAMPUS"
+                                : p.status === "RETURNED"
+                                ? "🟢 RETURNED"
                                 : p.status}
                             </span>
 
                             {p.status === "OUTSIDE" && (
                               <button
+                                type="button"
                                 onClick={() => handleConfirmReturn(p)}
-                                style={{
-                                  ...styles.returnActionBtn,
-                                  padding: "5px 10px",
-                                  fontSize: "11px",
-                                }}
+                                style={styles.markReturnedBtn}
                               >
                                 ✓ Mark Returned
                               </button>
                             )}
+
+                            {(p.status === "APPROVED" ||
+                              p.status === "OUTSIDE") && (
+                              <button
+                                type="button"
+                                onClick={() => handleCancelPass(p)}
+                                style={styles.cancelPassBtn}
+                              >
+                                Cancel Pass
+                              </button>
+                            )}
                           </div>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* =========================================================
+            TAB 3: ADMIN LIVE PORTAL (STRICTLY FOR ADMIN ONLY)
+           ========================================================= */}
+        {activeTab === "admin" && isAdmin && (
+          <div>
+            {/* 4 Interactive KPI Summary Cards */}
+            <div style={styles.kpiGrid}>
+              <div
+                onClick={() => setAdminViewMode("OUTSIDE")}
+                style={{
+                  ...styles.kpiCard,
+                  borderTop: "4px solid #f59e0b",
+                  outline:
+                    adminViewMode === "OUTSIDE" ? "2px solid #f59e0b" : "none",
+                }}
+              >
+                <div style={styles.kpiTopRow}>
+                  <span style={styles.kpiLabel}>CURRENTLY OUTSIDE</span>
+                  <span style={styles.kpiIconBox("#fef3c7", "#d97706")}>
+                    🟠
+                  </span>
+                </div>
+                <div style={{ ...styles.kpiNumber, color: "#d97706" }}>
+                  {currentlyOutsidePasses.length}
+                </div>
+                <div style={styles.kpiFooter}>
+                  Active students off-campus right now
+                </div>
+              </div>
+
+              <div
+                onClick={() => setAdminViewMode("OUTSIDE")}
+                style={{
+                  ...styles.kpiCard,
+                  borderTop: "4px solid #dc2626",
+                }}
+              >
+                <div style={styles.kpiTopRow}>
+                  <span style={styles.kpiLabel}>OVERDUE / LATE</span>
+                  <span style={styles.kpiIconBox("#fee2e2", "#dc2626")}>
+                    🚨
+                  </span>
+                </div>
+                <div style={{ ...styles.kpiNumber, color: "#dc2626" }}>
+                  {overduePasses.length}
+                </div>
+                <div style={styles.kpiFooter}>
+                  Exceeded permitted return time
+                </div>
+              </div>
+
+              <div
+                onClick={() => setAdminViewMode("INSIDE")}
+                style={{
+                  ...styles.kpiCard,
+                  borderTop: "4px solid #10b981",
+                  outline:
+                    adminViewMode === "INSIDE" ? "2px solid #10b981" : "none",
+                }}
+              >
+                <div style={styles.kpiTopRow}>
+                  <span style={styles.kpiLabel}>INSIDE CAMPUS</span>
+                  <span style={styles.kpiIconBox("#d1fae5", "#059669")}>
+                    🟢
+                  </span>
+                </div>
+                <div style={{ ...styles.kpiNumber, color: "#059669" }}>
+                  {insideStudents.length}
+                </div>
+                <div style={styles.kpiFooter}>
+                  Students currently present inside
+                </div>
+              </div>
+
+              <div
+                onClick={() => setAdminViewMode("HISTORY")}
+                style={{
+                  ...styles.kpiCard,
+                  borderTop: "4px solid #0284c7",
+                  outline:
+                    adminViewMode === "HISTORY" ? "2px solid #0284c7" : "none",
+                }}
+              >
+                <div style={styles.kpiTopRow}>
+                  <span style={styles.kpiLabel}>TOTAL MOVEMENTS</span>
+                  <span style={styles.kpiIconBox("#e0f2fe", "#0284c7")}>
+                    📜
+                  </span>
+                </div>
+                <div style={{ ...styles.kpiNumber, color: "#0284c7" }}>
+                  {passes.length}
+                </div>
+                <div style={styles.kpiFooter}>
+                  Complete historical out-pass log
+                </div>
+              </div>
+            </div>
+
+            {/* Admin Control & Filter Bar */}
+            <div style={styles.adminToolbarCard}>
+              {/* Left: View Switcher Segmented Buttons */}
+              <div style={styles.segmentedBarAdmin}>
+                {[
+                  {
+                    id: "OUTSIDE",
+                    label: "🟠 Currently Outside",
+                    count: currentlyOutsidePasses.length,
+                  },
+                  {
+                    id: "INSIDE",
+                    label: "🟢 Inside Students",
+                    count: insideStudents.length,
+                  },
+                  {
+                    id: "HISTORY",
+                    label: "📜 All Pass History",
+                    count: passes.length,
+                  },
+                ].map((tab) => {
+                  const active = adminViewMode === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setAdminViewMode(tab.id)}
+                      style={
+                        active
+                          ? styles.segmentBtnActive
+                          : styles.segmentBtnInactive
+                      }
+                    >
+                      <span>{tab.label}</span>
+                      <span
+                        style={
+                          active
+                            ? styles.segmentBadgeActive
+                            : styles.segmentBadgeInactive
+                        }
+                      >
+                        {tab.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Right: Search, Class Filter, Teacher Filter, CSV Export */}
+              <div
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                }}
+              >
+                <div style={{ position: "relative", minWidth: 220 }}>
+                  <input
+                    type="text"
+                    placeholder="Search student, Ad.No, reason..."
+                    value={adminSearch}
+                    onChange={(e) => setAdminSearch(e.target.value)}
+                    style={styles.filterInput}
+                  />
+                  {adminSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setAdminSearch("")}
+                      style={styles.searchClearIconBtn}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                <select
+                  value={classFilter}
+                  onChange={(e) => setClassFilter(e.target.value)}
+                  style={styles.filterSelect}
+                >
+                  {allClasses.map((c) => (
+                    <option key={c} value={c}>
+                      {c === "ALL" ? "All Classes" : `Class: ${c}`}
+                    </option>
+                  ))}
+                </select>
+
+                {adminViewMode !== "INSIDE" && (
+                  <select
+                    value={teacherFilter}
+                    onChange={(e) => setTeacherFilter(e.target.value)}
+                    style={styles.filterSelect}
+                  >
+                    {allTeachers.map((t) => (
+                      <option key={t} value={t}>
+                        {t === "ALL" ? "All Teachers" : `By: ${t}`}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  style={styles.exportCsvBtn}
+                >
+                  ⬇️ Export CSV
+                </button>
+              </div>
+            </div>
+
+            {/* Admin Data Table */}
+            <div style={styles.tableContainer}>
+              {adminViewMode === "INSIDE" ? (
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>Ad.No</th>
+                      <th style={styles.th}>Student Name</th>
+                      <th style={styles.th}>Class</th>
+                      <th style={styles.th}>Campus Status</th>
+                      <th style={styles.th}>Outings This Month</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {insideStudents
+                      .filter(
+                        (s) =>
+                          (classFilter === "ALL" ||
+                            s.studentClass === classFilter) &&
+                          (s.name
+                            .toLowerCase()
+                            .includes(adminSearch.toLowerCase()) ||
+                            s.adNo
+                              .toLowerCase()
+                              .includes(adminSearch.toLowerCase()))
+                      )
+                      .slice(0, 100)
+                      .map((s) => (
+                        <tr key={s.id} style={styles.tr}>
+                          <td style={styles.td}>
+                            <span style={styles.adNoBadge}>#{s.adNo}</span>
+                          </td>
+                          <td
+                            style={{
+                              ...styles.td,
+                              fontWeight: 700,
+                              color: "#0f172a",
+                            }}
+                          >
+                            {s.name}
+                          </td>
+                          <td style={styles.td}>
+                            <span style={styles.classPill}>
+                              Class {s.studentClass}
+                            </span>
+                          </td>
+                          <td style={styles.td}>
+                            <span style={styles.insideStatusBadge}>
+                              🟢 Inside Campus
+                            </span>
+                          </td>
+                          <td
+                            style={{
+                              ...styles.td,
+                              fontWeight: 700,
+                              color: "#334155",
+                            }}
+                          >
+                            {getMonthlyOutCount(s.adNo)} outings
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              ) : (
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>Student Details</th>
+                      <th style={styles.th}>Destination &amp; Reason</th>
+                      <th style={styles.th}>Permitted Teacher</th>
+                      <th style={styles.th}>Permitted Time Window</th>
+                      <th style={styles.th}>Actual Out / Return</th>
+                      <th style={styles.th}>Live Status &amp; Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {passes
+                      .filter((p) => {
+                        if (
+                          adminViewMode === "OUTSIDE" &&
+                          p.status !== "OUTSIDE"
+                        )
+                          return false;
+                        if (
+                          classFilter !== "ALL" &&
+                          p.studentClass !== classFilter
+                        )
+                          return false;
+                        if (
+                          teacherFilter !== "ALL" &&
+                          p.teacherName !== teacherFilter
+                        )
+                          return false;
+                        if (adminSearch.trim()) {
+                          const q = adminSearch.toLowerCase();
+                          return (
+                            p.studentName?.toLowerCase().includes(q) ||
+                            String(p.adNo).toLowerCase().includes(q) ||
+                            p.destination?.toLowerCase().includes(q) ||
+                            p.purpose?.toLowerCase().includes(q)
+                          );
+                        }
+                        return true;
+                      })
+                      .slice(0, 100)
+                      .map((p) => {
+                        const isOverdue =
+                          p.status === "OUTSIDE" &&
+                          new Date(p.permittedTo) < now;
+                        return (
+                          <tr key={p.id} style={styles.tr}>
+                            <td style={styles.td}>
+                              <div
+                                style={{
+                                  fontWeight: 800,
+                                  color: "#0f172a",
+                                  fontSize: 15,
+                                }}
+                              >
+                                {p.studentName}
+                              </div>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: 6,
+                                  marginTop: 4,
+                                  alignItems: "center",
+                                }}
+                              >
+                                <span style={styles.adNoBadge}>#{p.adNo}</span>
+                                <span style={styles.classPill}>
+                                  Class {p.studentClass}
+                                </span>
+                              </div>
+                            </td>
+
+                            <td style={styles.td}>
+                              <div
+                                style={{
+                                  fontWeight: 700,
+                                  color: "#0f172a",
+                                }}
+                              >
+                                📍 {p.destination}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 13,
+                                  color: "#475569",
+                                  marginTop: 2,
+                                }}
+                              >
+                                {p.purpose}
+                              </div>
+                            </td>
+
+                            <td style={styles.td}>
+                              <div
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                  background: "#f1f5f9",
+                                  padding: "5px 10px",
+                                  borderRadius: 8,
+                                  fontWeight: 700,
+                                  color: "#1e293b",
+                                  fontSize: 13,
+                                }}
+                              >
+                                👨‍🏫 {p.teacherName}
+                              </div>
+                            </td>
+
+                            <td style={styles.td}>
+                              <div style={{ fontSize: 12, color: "#475569" }}>
+                                From:{" "}
+                                <strong style={{ color: "#0f172a" }}>
+                                  {new Date(p.permittedFrom).toLocaleString(
+                                    "en-IN",
+                                    {
+                                      dateStyle: "short",
+                                      timeStyle: "short",
+                                    }
+                                  )}
+                                </strong>
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  color: "#475569",
+                                  marginTop: 3,
+                                }}
+                              >
+                                Due:{" "}
+                                <strong style={{ color: "#0f172a" }}>
+                                  {new Date(p.permittedTo).toLocaleString(
+                                    "en-IN",
+                                    {
+                                      dateStyle: "short",
+                                      timeStyle: "short",
+                                    }
+                                  )}
+                                </strong>
+                              </div>
+                              {p.status === "OUTSIDE" && (
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    color: isOverdue ? "#dc2626" : "#d97706",
+                                    marginTop: 4,
+                                  }}
+                                >
+                                  ⏱️ {getRemainingTimeText(p.permittedTo)}
+                                </div>
+                              )}
+                            </td>
+
+                            <td style={styles.td}>
+                              <div style={{ fontSize: 12, color: "#334155" }}>
+                                Out:{" "}
+                                <strong>
+                                  {p.actualDepartureTime
+                                    ? new Date(
+                                        p.actualDepartureTime
+                                      ).toLocaleTimeString("en-IN", {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })
+                                    : "—"}
+                                </strong>
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  color: p.actualReturnTime
+                                    ? "#059669"
+                                    : "#d97706",
+                                  fontWeight: 600,
+                                  marginTop: 3,
+                                }}
+                              >
+                                In:{" "}
+                                {p.actualReturnTime
+                                  ? new Date(
+                                      p.actualReturnTime
+                                    ).toLocaleTimeString("en-IN", {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })
+                                  : "Still Outside"}
+                              </div>
+                            </td>
+
+                            <td style={styles.td}>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 8,
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                <span
+                                  style={getStatusBadgeStyle(
+                                    p.status,
+                                    p.permittedTo,
+                                    now
+                                  )}
+                                >
+                                  {p.status === "OUTSIDE" && isOverdue
+                                    ? "🚨 OVERDUE"
+                                    : p.status === "OUTSIDE"
+                                    ? "🟠 OUTSIDE"
+                                    : p.status === "RETURNED"
+                                    ? "🟢 RETURNED"
+                                    : p.status}
+                                </span>
+
+                                {p.status === "OUTSIDE" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleConfirmReturn(p)}
+                                    style={styles.markReturnedBtnSmall}
+                                  >
+                                    ✓ Mark Returned
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-// Helper for status pill colors
+// High-Contrast Status Pill Helper
 function getStatusBadgeStyle(status, permittedTo, now) {
   const isOverdue = status === "OUTSIDE" && new Date(permittedTo) < now;
   if (isOverdue) {
     return {
-      background: "#fee2e2",
+      background: "#fef2f2",
       color: "#b91c1c",
-      padding: "4px 10px",
+      border: "1px solid #fecaca",
+      padding: "5px 10px",
       borderRadius: "999px",
       fontSize: "11px",
-      fontWeight: 700,
+      fontWeight: 800,
+      letterSpacing: "0.3px",
+      display: "inline-block",
     };
   }
   if (status === "OUTSIDE") {
     return {
-      background: "#ffedd5",
-      color: "#c2410c",
-      padding: "4px 10px",
+      background: "#fffbeb",
+      color: "#b45309",
+      border: "1px solid #fde68a",
+      padding: "5px 10px",
       borderRadius: "999px",
       fontSize: "11px",
-      fontWeight: 700,
-    };
-  }
-  if (status === "APPROVED") {
-    return {
-      background: "#fef9c3",
-      color: "#a16207",
-      padding: "4px 10px",
-      borderRadius: "999px",
-      fontSize: "11px",
-      fontWeight: 700,
+      fontWeight: 800,
+      letterSpacing: "0.3px",
+      display: "inline-block",
     };
   }
   if (status === "RETURNED") {
     return {
-      background: "#dcfce7",
-      color: "#15803d",
-      padding: "4px 10px",
+      background: "#ecfdf5",
+      color: "#047857",
+      border: "1px solid #a7f3d0",
+      padding: "5px 10px",
       borderRadius: "999px",
       fontSize: "11px",
-      fontWeight: 700,
+      fontWeight: 800,
+      letterSpacing: "0.3px",
+      display: "inline-block",
     };
   }
   return {
-    background: "#e2e8f0",
-    color: "#475569",
-    padding: "4px 10px",
+    background: "#f1f5f9",
+    color: "#334155",
+    border: "1px solid #cbd5e1",
+    padding: "5px 10px",
     borderRadius: "999px",
     fontSize: "11px",
-    fontWeight: 700,
+    fontWeight: 800,
+    display: "inline-block",
   };
 }
 
+// ============================================================================
+// 🎨 HIGH-CONTRAST PROFESSIONAL DESIGN SYSTEM
+// Every button, badge, and input explicitly defines both `background` and `color`
+// ============================================================================
 const styles = {
   pageWrapper: {
     minHeight: "100vh",
     background: "#f1f5f9",
-    padding: "20px",
-    fontFamily: "system-ui, -apple-system, sans-serif",
+    padding: "20px 16px 48px",
+    fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
     color: "#0f172a",
+  },
+  container: {
+    maxWidth: "1340px",
+    margin: "0 auto",
   },
   header: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
     flexWrap: "wrap",
-    gap: "12px",
-    background: "#0f3d3e",
+    gap: "16px",
+    background: "linear-gradient(135deg, #064e3b 0%, #0f766e 100%)",
     color: "#ffffff",
-    padding: "16px 22px",
+    padding: "20px 26px",
+    borderRadius: "16px",
+    boxShadow: "0 10px 25px -5px rgba(6, 78, 59, 0.25)",
+    marginBottom: "20px",
+  },
+  logoCircle: {
+    width: "48px",
+    height: "48px",
     borderRadius: "12px",
-    marginBottom: "18px",
+    background: "rgba(255, 255, 255, 0.15)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "24px",
   },
   uniBadge: {
     fontSize: "11px",
-    letterSpacing: "1.2px",
-    color: "#99f6e4",
-    fontWeight: 700,
+    letterSpacing: "1.4px",
+    color: "#a7f3d0",
+    fontWeight: 800,
+    textTransform: "uppercase",
   },
   title: {
-    margin: "2px 0 0",
+    margin: "3px 0 0",
     fontSize: "22px",
     fontWeight: 800,
+    color: "#ffffff",
   },
   headerRight: {
     display: "flex",
@@ -1621,292 +2204,654 @@ const styles = {
     gap: "12px",
     flexWrap: "wrap",
   },
-  staffBadge: {
-    background: "rgba(255,255,255,0.12)",
-    padding: "6px 12px",
-    borderRadius: "8px",
-    fontSize: "13px",
-  },
-  backLink: {
-    background: "#ffffff",
-    color: "#0f3d3e",
-    padding: "7px 14px",
-    borderRadius: "8px",
-    fontSize: "13px",
-    fontWeight: 700,
-    textDecoration: "none",
-  },
-  tabBar: {
+  userPill: {
     display: "flex",
-    gap: "10px",
-    marginBottom: "20px",
-    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "8px",
+    background: "rgba(15, 23, 42, 0.35)",
+    border: "1px solid rgba(255, 255, 255, 0.2)",
+    padding: "8px 14px",
+    borderRadius: "999px",
   },
-  tabBtn: {
-    padding: "11px 18px",
-    borderRadius: "10px",
-    border: "1px solid #cbd5e1",
+  roleDot: (isAdmin) => ({
+    width: "8px",
+    height: "8px",
+    borderRadius: "50%",
+    background: isAdmin ? "#fbbf24" : "#34d399",
+  }),
+  backBtn: {
     background: "#ffffff",
-    color: "#334155",
-    fontWeight: 700,
-    fontSize: "14px",
-    cursor: "pointer",
+    color: "#064e3b",
+    padding: "9px 16px",
+    borderRadius: "10px",
+    fontSize: "13px",
+    fontWeight: 800,
+    textDecoration: "none",
+    boxShadow: "0 2px 6px rgba(0,0,0,0.08)",
   },
-  tabBtnActive: {
-    background: "#0f766e",
-    color: "#ffffff",
-    borderColor: "#0f766e",
-  },
-  gridTwoCol: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
-    gap: "20px",
-  },
-  slipCard: {
-    background: "#ecfeff",
-    border: "2px solid #0f766e",
-    borderRadius: "12px",
-    padding: "20px",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
-  },
-  slipHeader: {
-    background: "#0f766e",
-    color: "#fff",
-    padding: "10px 14px",
-    borderRadius: "8px",
-    marginBottom: "16px",
+  navBar: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
+    flexWrap: "wrap",
+    gap: "12px",
+    marginBottom: "22px",
   },
-  card: {
-    background: "#ffffff",
-    border: "1px solid #e2e8f0",
+  navSegmentGroup: {
+    display: "flex",
+    gap: "8px",
+    background: "#e2e8f0",
+    padding: "6px",
+    borderRadius: "14px",
+    flexWrap: "wrap",
+  },
+  mainTabActive: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    padding: "10px 18px",
+    borderRadius: "10px",
+    border: "none",
+    background: "#0f172a",
+    color: "#ffffff",
+    fontWeight: 700,
+    fontSize: "14px",
+    cursor: "pointer",
+    boxShadow: "0 2px 8px rgba(15, 23, 42, 0.2)",
+  },
+  mainTabInactive: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    padding: "10px 18px",
+    borderRadius: "10px",
+    border: "none",
+    background: "transparent",
+    color: "#334155",
+    fontWeight: 700,
+    fontSize: "14px",
+    cursor: "pointer",
+  },
+  tabCounterActive: {
+    background: "#0d9488",
+    color: "#ffffff",
+    padding: "2px 8px",
+    borderRadius: "999px",
+    fontSize: "11px",
+    fontWeight: 800,
+  },
+  tabCounterInactive: {
+    background: "#cbd5e1",
+    color: "#1e293b",
+    padding: "2px 8px",
+    borderRadius: "999px",
+    fontSize: "11px",
+    fontWeight: 800,
+  },
+  quickScanReturnHeaderBtn: {
+    background: "#059669",
+    color: "#ffffff",
+    border: "none",
+    padding: "11px 18px",
     borderRadius: "12px",
-    padding: "20px",
-    boxShadow: "0 2px 8px rgba(0,0,0,0.03)",
+    fontWeight: 800,
+    fontSize: "13px",
+    cursor: "pointer",
+    boxShadow: "0 4px 12px rgba(5, 150, 105, 0.25)",
   },
-  label: {
+  twoColGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))",
+    gap: "24px",
+    alignItems: "start",
+  },
+  slipContainer: {
+    background: "#ffffff",
+    borderRadius: "16px",
+    border: "1px solid #cbd5e1",
+    overflow: "hidden",
+    boxShadow: "0 4px 16px rgba(15, 23, 42, 0.05)",
+  },
+  slipBanner: {
+    background: "linear-gradient(135deg, #0f766e 0%, #115e59 100%)",
+    color: "#ffffff",
+    padding: "18px 22px",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: "10px",
+    borderBottom: "3px solid #f59e0b",
+  },
+  slipBannerSub: {
+    fontSize: "10px",
+    fontWeight: 800,
+    letterSpacing: "1.2px",
+    color: "#99f6e4",
+  },
+  slipBannerTitle: {
+    margin: "2px 0 0",
+    fontSize: "18px",
+    fontWeight: 800,
+    color: "#ffffff",
+  },
+  slipDatePill: {
+    background: "rgba(255,255,255,0.16)",
+    color: "#ffffff",
+    padding: "6px 12px",
+    borderRadius: "8px",
+    fontSize: "12px",
+    fontWeight: 700,
+  },
+  slipBody: {
+    padding: "22px",
+  },
+  fieldLabel: {
     display: "block",
     fontSize: "13px",
-    fontWeight: 700,
-    color: "#1e293b",
-    marginBottom: "6px",
+    fontWeight: 800,
+    color: "#0f172a",
+    marginBottom: "8px",
   },
-  input: {
+  subFieldLabel: {
+    display: "block",
+    fontSize: "11px",
+    fontWeight: 700,
+    color: "#475569",
+    marginBottom: "4px",
+  },
+  searchInput: {
     width: "100%",
-    padding: "10px 12px",
-    borderRadius: "8px",
-    border: "1px solid #cbd5e1",
+    padding: "12px 75px 12px 14px",
+    borderRadius: "10px",
+    border: "1.5px solid #94a3b8",
     fontSize: "14px",
-    boxSizing: "border-box",
+    color: "#0f172a",
+    background: "#ffffff",
+    fontWeight: 500,
   },
-  scanBtn: {
+  searchInputSmall: {
+    width: "100%",
+    padding: "10px 75px 10px 14px",
+    borderRadius: "10px",
+    border: "1px solid #cbd5e1",
+    fontSize: "13px",
+    color: "#0f172a",
+    background: "#ffffff",
+  },
+  searchClearIconBtn: {
+    position: "absolute",
+    right: "8px",
+    top: "50%",
+    transform: "translateY(-50%)",
+    background: "#fee2e2",
+    color: "#b91c1c",
+    border: "1px solid #fecaca",
+    borderRadius: "6px",
+    padding: "4px 8px",
+    fontSize: "11px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  barcodeScanBtn: {
     background: "#0f172a",
-    color: "#fff",
+    color: "#ffffff",
     border: "none",
-    borderRadius: "8px",
-    padding: "0 16px",
-    fontWeight: 700,
+    borderRadius: "10px",
+    padding: "0 18px",
+    fontWeight: 800,
+    fontSize: "13px",
     cursor: "pointer",
     whiteSpace: "nowrap",
   },
-  dropdownList: {
-    background: "#fff",
-    border: "1px solid #cbd5e1",
-    borderRadius: "8px",
-    marginTop: "4px",
-    maxHeight: "200px",
+  searchDropdown: {
+    marginTop: "6px",
+    background: "#ffffff",
+    border: "1.5px solid #0d9488",
+    borderRadius: "12px",
+    boxShadow: "0 12px 24px rgba(15, 23, 42, 0.12)",
+    maxHeight: "260px",
     overflowY: "auto",
+    zIndex: 20,
   },
-  dropdownItem: {
-    padding: "10px 12px",
+  dropdownHeader: {
+    padding: "8px 14px",
+    background: "#f0fdfa",
+    color: "#0f766e",
+    fontSize: "11px",
+    fontWeight: 800,
+    textTransform: "uppercase",
+    borderBottom: "1px solid #ccfbf1",
+  },
+  dropdownRow: {
+    padding: "11px 14px",
     borderBottom: "1px solid #f1f5f9",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
     cursor: "pointer",
-    fontSize: "14px",
+    background: "#ffffff",
   },
-  classBadge: {
-    background: "#e2e8f0",
-    color: "#334155",
+  studentAvatarMini: {
+    width: "34px",
+    height: "34px",
+    borderRadius: "8px",
+    background: "#ccfbf1",
+    color: "#0f766e",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 800,
+    fontSize: "15px",
+  },
+  studentAvatarLarge: {
+    width: "48px",
+    height: "48px",
+    borderRadius: "12px",
+    background: "#0f766e",
+    color: "#ffffff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 800,
+    fontSize: "20px",
+  },
+  noMatchBox: {
+    marginTop: "6px",
+    padding: "12px",
+    background: "#fff1f2",
+    border: "1px solid #fecdd3",
+    color: "#be123c",
+    borderRadius: "10px",
+    fontSize: "13px",
+    fontWeight: 600,
+  },
+  selectedProfileCard: {
+    background: "#f0fdfa",
+    border: "2px solid #0d9488",
+    borderRadius: "14px",
+    padding: "16px",
+  },
+  changeStudentBtn: {
+    background: "#fee2e2",
+    color: "#b91c1c",
+    border: "1px solid #fca5a5",
+    borderRadius: "8px",
+    padding: "7px 12px",
+    fontSize: "12px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  monthOutingsBadge: {
+    background: "#ffffff",
+    color: "#0f172a",
+    border: "1px solid #cbd5e1",
     padding: "2px 8px",
     borderRadius: "6px",
     fontSize: "12px",
-    marginLeft: "6px",
   },
-  selectedStudentBox: {
-    background: "#ffffff",
-    border: "2px solid #14b8a6",
-    borderRadius: "10px",
-    padding: "12px 14px",
-    marginBottom: "16px",
-  },
-  outingCountBadge: {
-    background: "#f0fdf4",
-    color: "#166534",
-    border: "1px solid #bbf7d0",
-    padding: "3px 8px",
-    borderRadius: "6px",
-    fontSize: "12px",
-    fontWeight: 700,
-    marginBottom: "6px",
-  },
-  warningAlert: {
-    marginTop: "10px",
+  duplicateWarningBox: {
+    marginTop: "12px",
     background: "#fef2f2",
-    border: "1px solid #fecaca",
+    border: "1px solid #fca5a5",
     color: "#991b1b",
-    padding: "8px 10px",
-    borderRadius: "6px",
+    padding: "10px 12px",
+    borderRadius: "8px",
     fontSize: "12px",
+    lineHeight: 1.5,
   },
-  chipRow: {
+  textInput: {
+    width: "100%",
+    padding: "11px 14px",
+    borderRadius: "10px",
+    border: "1.5px solid #cbd5e1",
+    fontSize: "14px",
+    color: "#0f172a",
+    background: "#ffffff",
+  },
+  chipGroup: {
     display: "flex",
     gap: "6px",
     flexWrap: "wrap",
-    marginTop: "6px",
+    marginTop: "8px",
   },
   quickChip: {
-    background: "#ffffff",
-    border: "1px solid #94a3b8",
-    borderRadius: "999px",
-    padding: "4px 10px",
-    fontSize: "12px",
-    cursor: "pointer",
+    background: "#f8fafc",
     color: "#334155",
+    border: "1px solid #cbd5e1",
+    borderRadius: "999px",
+    padding: "6px 12px",
+    fontSize: "12px",
+    fontWeight: 700,
+    cursor: "pointer",
   },
-  twoInputRow: {
-    display: "flex",
+  quickChipActive: {
+    background: "#0f766e",
+    color: "#ffffff",
+    border: "1px solid #0f766e",
+    borderRadius: "999px",
+    padding: "6px 12px",
+    fontSize: "12px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  dateRowGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
     gap: "12px",
-    flexWrap: "wrap",
-    marginBottom: "8px",
   },
-  submitBtn: {
+  teacherSignatureBox: {
+    background: "#f8fafc",
+    border: "1px solid #cbd5e1",
+    borderRadius: "12px",
+    padding: "12px 16px",
+    marginBottom: "18px",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  verifiedAccountBadge: {
+    background: "#dcfce7",
+    color: "#166534",
+    border: "1px solid #bbf7d0",
+    padding: "4px 10px",
+    borderRadius: "999px",
+    fontSize: "11px",
+    fontWeight: 800,
+  },
+  primarySubmitBtn: {
     width: "100%",
-    padding: "13px",
+    padding: "14px 20px",
     background: "#0f766e",
     color: "#ffffff",
     border: "none",
-    borderRadius: "8px",
+    borderRadius: "12px",
     fontSize: "15px",
-    fontWeight: 700,
-    cursor: "pointer",
+    fontWeight: 800,
+    boxShadow: "0 4px 14px rgba(15, 118, 110, 0.3)",
   },
-  passRowItem: {
+  card: {
+    background: "#ffffff",
+    borderRadius: "16px",
+    border: "1px solid #cbd5e1",
+    padding: "22px",
+    boxShadow: "0 4px 16px rgba(15, 23, 42, 0.05)",
+  },
+  cardHeaderRow: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: "12px",
+    flexWrap: "wrap",
+    gap: "10px",
+    marginBottom: "16px",
+  },
+  cardTitle: {
+    margin: 0,
+    fontSize: "18px",
+    fontWeight: 800,
+    color: "#0f172a",
+  },
+  cardSubtitle: {
+    margin: "3px 0 0",
+    fontSize: "13px",
+    color: "#64748b",
+  },
+  scanReturnSmallBtn: {
+    background: "#059669",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "10px",
+    padding: "9px 14px",
+    fontSize: "12px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  segmentedBar: {
+    display: "flex",
+    gap: "6px",
+    background: "#f1f5f9",
+    padding: "5px",
+    borderRadius: "12px",
+    marginBottom: "14px",
+    border: "1px solid #e2e8f0",
+    flexWrap: "wrap",
+  },
+  segmentedBarAdmin: {
+    display: "flex",
+    gap: "6px",
+    background: "#f1f5f9",
+    padding: "5px",
+    borderRadius: "12px",
+    border: "1px solid #e2e8f0",
+    flexWrap: "wrap",
+  },
+  segmentBtnActive: {
+    flex: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    padding: "9px 14px",
     borderRadius: "8px",
+    border: "none",
+    background: "#0f766e",
+    color: "#ffffff",
+    fontSize: "13px",
+    fontWeight: 800,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  segmentBtnInactive: {
+    flex: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    padding: "9px 14px",
+    borderRadius: "8px",
+    border: "none",
+    background: "transparent",
+    color: "#334155",
+    fontSize: "13px",
+    fontWeight: 700,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  segmentBadgeActive: {
+    background: "#ffffff",
+    color: "#0f766e",
+    padding: "2px 7px",
+    borderRadius: "999px",
+    fontSize: "11px",
+    fontWeight: 800,
+  },
+  segmentBadgeInactive: {
+    background: "#cbd5e1",
+    color: "#0f172a",
+    padding: "2px 7px",
+    borderRadius: "999px",
+    fontSize: "11px",
+    fontWeight: 800,
+  },
+  emptyStateBox: {
+    padding: "40px 20px",
+    textAlign: "center",
+    background: "#f8fafc",
+    borderRadius: "12px",
+    border: "1px dashed #cbd5e1",
+  },
+  passListScroll: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+    maxHeight: "620px",
+    overflowY: "auto",
+    paddingRight: "4px",
+  },
+  passCardItem: {
     background: "#f8fafc",
     border: "1px solid #e2e8f0",
-  },
-  gateScannerHero: {
-    background: "#1e293b",
-    color: "#fff",
-    padding: "18px 22px",
     borderRadius: "12px",
-    marginBottom: "18px",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: "12px",
+    padding: "14px 16px",
   },
-  gateBigScanBtn: {
-    background: "#14b8a6",
-    color: "#0f172a",
-    border: "none",
-    padding: "11px 18px",
-    borderRadius: "8px",
-    fontWeight: 800,
-    fontSize: "14px",
-    cursor: "pointer",
-  },
-  gateVerifyModal: {
+  adNoBadge: {
     background: "#e0f2fe",
-    border: "2px solid #0284c7",
-    borderRadius: "12px",
-    padding: "16px 20px",
-    marginBottom: "18px",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: "14px",
+    color: "#0369a1",
+    border: "1px solid #bae6fd",
+    padding: "2px 8px",
+    borderRadius: "6px",
+    fontSize: "12px",
+    fontWeight: 800,
   },
-  departActionBtn: {
-    background: "#ea580c",
-    color: "#fff",
+  classPill: {
+    background: "#f1f5f9",
+    color: "#334155",
+    border: "1px solid #cbd5e1",
+    padding: "2px 8px",
+    borderRadius: "6px",
+    fontSize: "12px",
+    fontWeight: 700,
+  },
+  classPillActive: {
+    background: "#0f766e",
+    color: "#ffffff",
+    padding: "3px 10px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    fontWeight: 700,
+  },
+  alreadyOutMiniTag: {
+    background: "#fef2f2",
+    color: "#dc2626",
+    border: "1px solid #fecaca",
+    padding: "2px 8px",
+    borderRadius: "6px",
+    fontSize: "11px",
+    fontWeight: 800,
+  },
+  markReturnedBtn: {
+    background: "#059669",
+    color: "#ffffff",
     border: "none",
-    padding: "10px 14px",
     borderRadius: "8px",
+    padding: "8px 14px",
+    fontSize: "12px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  markReturnedBtnSmall: {
+    background: "#059669",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "8px",
+    padding: "6px 12px",
+    fontSize: "12px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  cancelPassBtn: {
+    background: "#fff1f2",
+    color: "#be123c",
+    border: "1px solid #fecdd3",
+    borderRadius: "6px",
+    padding: "4px 10px",
+    fontSize: "11px",
     fontWeight: 700,
     cursor: "pointer",
-    whiteSpace: "nowrap",
-  },
-  returnActionBtn: {
-    background: "#16a34a",
-    color: "#fff",
-    border: "none",
-    padding: "10px 14px",
-    borderRadius: "8px",
-    fontWeight: 700,
-    cursor: "pointer",
-    whiteSpace: "nowrap",
   },
   kpiGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-    gap: "14px",
-    marginBottom: "18px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "16px",
+    marginBottom: "20px",
   },
   kpiCard: {
     background: "#ffffff",
-    padding: "16px",
-    borderRadius: "12px",
-    boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
+    padding: "18px 20px",
+    borderRadius: "14px",
+    border: "1px solid #e2e8f0",
+    boxShadow: "0 2px 10px rgba(15, 23, 42, 0.04)",
+    cursor: "pointer",
+  },
+  kpiTopRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   kpiLabel: {
     fontSize: "12px",
     fontWeight: 800,
+    color: "#475569",
+    letterSpacing: "0.5px",
+  },
+  kpiIconBox: (bg, color) => ({
+    width: "34px",
+    height: "34px",
+    borderRadius: "10px",
+    background: bg,
+    color: color,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "16px",
+  }),
+  kpiNumber: {
+    fontSize: "34px",
+    fontWeight: 900,
+    margin: "6px 0 4px",
+  },
+  kpiFooter: {
+    fontSize: "12px",
     color: "#64748b",
+    fontWeight: 500,
   },
-  kpiValue: {
-    fontSize: "30px",
-    fontWeight: 800,
-    margin: "4px 0",
-  },
-  kpiSub: {
-    fontSize: "11px",
-    color: "#94a3b8",
-  },
-  filterBar: {
+  adminToolbarCard: {
+    background: "#ffffff",
+    padding: "14px 18px",
+    borderRadius: "14px",
+    border: "1px solid #cbd5e1",
+    marginBottom: "16px",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
     flexWrap: "wrap",
-    gap: "12px",
-    marginBottom: "14px",
+    gap: "14px",
   },
-  subTabBtn: {
-    padding: "8px 14px",
+  filterInput: {
+    width: "100%",
+    padding: "9px 36px 9px 12px",
     borderRadius: "8px",
     border: "1px solid #cbd5e1",
-    background: "#fff",
+    fontSize: "13px",
+    color: "#0f172a",
+    background: "#ffffff",
+  },
+  filterSelect: {
+    padding: "9px 12px",
+    borderRadius: "8px",
+    border: "1px solid #cbd5e1",
     fontSize: "13px",
     fontWeight: 600,
+    color: "#0f172a",
+    background: "#ffffff",
     cursor: "pointer",
   },
-  subTabBtnActive: {
+  exportCsvBtn: {
     background: "#0f172a",
-    color: "#fff",
-    borderColor: "#0f172a",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "8px",
+    padding: "9px 14px",
+    fontSize: "13px",
+    fontWeight: 700,
+    cursor: "pointer",
   },
-  tableCard: {
+  tableContainer: {
     background: "#ffffff",
-    borderRadius: "12px",
-    border: "1px solid #e2e8f0",
+    borderRadius: "16px",
+    border: "1px solid #cbd5e1",
     overflowX: "auto",
+    boxShadow: "0 4px 16px rgba(15, 23, 42, 0.04)",
   },
   table: {
     width: "100%",
@@ -1915,48 +2860,36 @@ const styles = {
     fontSize: "14px",
   },
   th: {
-    padding: "12px 16px",
+    padding: "14px 18px",
     background: "#f8fafc",
-    borderBottom: "1px solid #e2e8f0",
+    borderBottom: "2px solid #e2e8f0",
     fontSize: "12px",
+    fontWeight: 800,
     textTransform: "uppercase",
-    color: "#475569",
+    color: "#334155",
+    letterSpacing: "0.4px",
   },
   tr: {
     borderBottom: "1px solid #f1f5f9",
   },
   td: {
-    padding: "12px 16px",
-    verticalAlign: "top",
+    padding: "14px 18px",
+    verticalAlign: "middle",
+    color: "#1e293b",
   },
-  insideBadge: {
-    background: "#dcfce7",
-    color: "#166534",
-    padding: "4px 10px",
+  insideStatusBadge: {
+    background: "#ecfdf5",
+    color: "#047857",
+    border: "1px solid #a7f3d0",
+    padding: "5px 12px",
     borderRadius: "999px",
-    fontSize: "11px",
-    fontWeight: 700,
-  },
-  clearBtn: {
-    background: "transparent",
-    border: "1px solid #94a3b8",
-    borderRadius: "6px",
-    padding: "4px 8px",
     fontSize: "12px",
-    cursor: "pointer",
-  },
-  cancelLinkBtn: {
-    background: "none",
-    border: "none",
-    color: "#dc2626",
-    fontSize: "11px",
-    cursor: "pointer",
-    textDecoration: "underline",
+    fontWeight: 800,
   },
   modalOverlay: {
     position: "fixed",
     inset: 0,
-    background: "rgba(0,0,0,0.65)",
+    background: "rgba(15, 23, 42, 0.75)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -1964,22 +2897,33 @@ const styles = {
     padding: "16px",
   },
   modalCard: {
-    background: "#fff",
-    padding: "20px",
-    borderRadius: "12px",
-    maxWidth: "400px",
+    background: "#ffffff",
+    padding: "24px",
+    borderRadius: "16px",
+    maxWidth: "420px",
     width: "100%",
-    textAlign: "center",
+    boxShadow: "0 20px 40px rgba(0,0,0,0.3)",
+  },
+  iconCloseBtn: {
+    background: "#f1f5f9",
+    color: "#334155",
+    border: "1px solid #cbd5e1",
+    borderRadius: "8px",
+    width: "32px",
+    height: "32px",
+    fontWeight: 800,
+    cursor: "pointer",
   },
   closeModalBtn: {
-    marginTop: "14px",
+    marginTop: "16px",
     width: "100%",
-    padding: "10px",
-    background: "#ef4444",
-    color: "#fff",
+    padding: "12px",
+    background: "#dc2626",
+    color: "#ffffff",
     border: "none",
-    borderRadius: "8px",
-    fontWeight: 700,
+    borderRadius: "10px",
+    fontWeight: 800,
+    fontSize: "14px",
     cursor: "pointer",
   },
 };
