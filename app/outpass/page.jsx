@@ -17,10 +17,8 @@ import { onAuthStateChanged } from "firebase/auth";
 
 // ============================================================================
 // 🔧 MASTER CONFIGURATION SWITCHES
-// 1. Set USE_STRICT_GATEKEEPER to `true` later when you add a Gatekeeper!
 const USE_STRICT_GATEKEEPER = false;
 
-// 2. Add any Admin emails here (in addition to your main app's `isAdminAuth` session)
 const ADMIN_EMAILS = [
   "admin@dhiu.in",
   "admin@gmail.com",
@@ -34,7 +32,7 @@ export default function OutPassPortal() {
   const [staffName, setStaffName] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
-  const [activeTab, setActiveTab] = useState("teacher"); // "teacher" | "gatekeeper" | "admin"
+  const [activeTab, setActiveTab] = useState("teacher"); // "teacher" | "admin"
 
   // Master Data
   const [students, setStudents] = useState([]);
@@ -42,7 +40,7 @@ export default function OutPassPortal() {
   const [teachersMap, setTeachersMap] = useState({});
   const [loading, setLoading] = useState(true);
 
-  // Teacher Issue Form State (Separate Date & Time for smooth editing!)
+  // Teacher Issue Form State (100% Unrestricted Date & Time Selection)
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [destination, setDestination] = useState("");
@@ -56,10 +54,10 @@ export default function OutPassPortal() {
   const [activeDurationChip, setActiveDurationChip] = useState("2h");
 
   const [submitting, setSubmitting] = useState(false);
-  const [teacherStatusFilter, setTeacherStatusFilter] = useState("ALL"); // "ALL" | "OUTSIDE" | "RETURNED"
+  const [teacherStatusFilter, setTeacherStatusFilter] = useState("ALL");
   const [teacherSearch, setTeacherSearch] = useState("");
 
-  // Edit Existing Pass Modal State (So Teacher/Admin can edit Departure/Return Date & Time anytime)
+  // Edit Existing Pass Modal State (Full Freedom for Teacher & Admin)
   const [editingPass, setEditingPass] = useState(null);
   const [editFromDate, setEditFromDate] = useState("");
   const [editFromTime, setEditFromTime] = useState("");
@@ -72,26 +70,22 @@ export default function OutPassPortal() {
 
   // Barcode Scanner State
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [scannerMode, setScannerMode] = useState("teacher"); // "teacher" | "return" | "gate"
-  const [gateScanResult, setGateScanResult] = useState(null);
+  const [scannerMode, setScannerMode] = useState("teacher");
   const scannerRef = useRef(null);
 
   // Admin Filter State
-  const [adminViewMode, setAdminViewMode] = useState("OUTSIDE"); // "OUTSIDE" | "INSIDE" | "HISTORY"
+  const [adminViewMode, setAdminViewMode] = useState("OUTSIDE");
   const [classFilter, setClassFilter] = useState("ALL");
   const [teacherFilter, setTeacherFilter] = useState("ALL");
   const [adminSearch, setAdminSearch] = useState("");
   const [now, setNow] = useState(new Date());
 
-  // Live clock for overdue & countdown calculation every 30 seconds
+  // Live clock every 30 seconds
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(timer);
   }, []);
 
-  // ============================================================================
-  // 🕒 DATE & 12-HOUR CLOCK (AM/PM) HELPERS
-  // ============================================================================
   const toLocalDateStr = (d) => {
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, "0");
@@ -146,7 +140,6 @@ export default function OutPassPortal() {
     return `${datePart}, ${timePart}`;
   };
 
-  // Resolves any saved username/email to the Official Teacher Name (fullName with Hudawi/Sir)
   const getOfficialTeacherName = (rawNameOrUsername) => {
     if (!rawNameOrUsername) return "Teacher";
     const cleaned = String(rawNameOrUsername)
@@ -157,7 +150,6 @@ export default function OutPassPortal() {
     return teachersMap[key] || teachersMap[prefix] || cleaned;
   };
 
-  // Initialize Default Times (+2 hours by default)
   const resetDefaultTimes = () => {
     const current = new Date();
     const twoHoursLater = new Date(current.getTime() + 2 * 60 * 60 * 1000);
@@ -173,7 +165,7 @@ export default function OutPassPortal() {
     resetDefaultTimes();
   }, []);
 
-  // 1. Check Auth, Load Official Teacher Names (`fullName`), & Load Students/Passes
+  // 1. Auth & Data Loading
   useEffect(() => {
     let teacherLookupCache = {};
 
@@ -214,7 +206,7 @@ export default function OutPassPortal() {
           }
         }
       } catch (err) {
-        console.error("Error loading teachers collection:", err);
+        console.error("Error loading teachers:", err);
       }
 
       try {
@@ -265,44 +257,6 @@ export default function OutPassPortal() {
           emailPrefix ||
           "Teacher";
 
-        if (
-          !teacherLookupCache[emailLower] &&
-          !teacherLookupCache[emailPrefix]
-        ) {
-          try {
-            const teacherSnap = await getDocs(collection(db, "teachers"));
-            const map = {};
-            teacherSnap.docs.forEach((d) => {
-              const t = d.data();
-              const officialName = (
-                t.fullName ||
-                t.name ||
-                t.firstName ||
-                ""
-              ).trim();
-              if (officialName) {
-                if (t.username) {
-                  const u = String(t.username).toLowerCase().trim();
-                  map[u] = officialName;
-                  map[u.split("@")[0]] = officialName;
-                }
-                if (t.email) {
-                  const em = String(t.email).toLowerCase().trim();
-                  map[em] = officialName;
-                  map[em.split("@")[0]] = officialName;
-                }
-                map[officialName.toLowerCase()] = officialName;
-              }
-            });
-            setTeachersMap(map);
-            if (map[emailLower] || map[emailPrefix]) {
-              resolvedName = map[emailLower] || map[emailPrefix];
-            }
-          } catch (e) {
-            console.error("Error matching teacher fullName:", e);
-          }
-        }
-
         setStaffName(
           userHasAdminAccess && !user ? "Administrator" : resolvedName
         );
@@ -317,7 +271,6 @@ export default function OutPassPortal() {
       setAuthChecking(false);
     });
 
-    // Real-time listener for Out-Passes
     const q = query(collection(db, "out_passes"), orderBy("createdAt", "desc"));
     const unsubPasses = onSnapshot(
       q,
@@ -330,7 +283,7 @@ export default function OutPassPortal() {
         setLoading(false);
       },
       (err) => {
-        console.error("Error listening to out_passes:", err);
+        console.error("Error listening to passes:", err);
         setLoading(false);
       }
     );
@@ -341,14 +294,13 @@ export default function OutPassPortal() {
     };
   }, []);
 
-  // Security guard: Prevent non-admins from switching to the "admin" tab
   useEffect(() => {
     if (!isAdmin && activeTab === "admin") {
       setActiveTab("teacher");
     }
   }, [isAdmin, activeTab]);
 
-  // 2. Barcode Camera Scanner Handler
+  // Barcode Scanner Handler
   useEffect(() => {
     let html5QrCode = null;
 
@@ -368,9 +320,7 @@ export default function OutPassPortal() {
           )
           .catch((err) => {
             console.error("Camera start error:", err);
-            alert(
-              "Could not access camera. Please allow camera permissions or use manual search."
-            );
+            alert("Could not access camera.");
             setScannerOpen(false);
           });
       });
@@ -425,7 +375,6 @@ export default function OutPassPortal() {
     }
   };
 
-  // Helper: Check if student already has an active pass
   const getActivePassForStudent = (adNo) => {
     return passes.find(
       (p) =>
@@ -434,14 +383,12 @@ export default function OutPassPortal() {
     );
   };
 
-  // Helper: Check if a pass is currently Overdue (Never overdue if isOpenReturn is true!)
   const isPassOverdue = (pass) => {
     if (!pass || pass.status !== "OUTSIDE") return false;
     if (pass.isOpenReturn || !pass.permittedTo) return false;
     return new Date(pass.permittedTo) < now;
   };
 
-  // Helper: Count how many times student went out this month
   const getMonthlyOutCount = (adNo) => {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     return passes.filter(
@@ -451,7 +398,6 @@ export default function OutPassPortal() {
     ).length;
   };
 
-  // Helper: Format live remaining time or multi-day / open medical status
   const getRemainingTimeText = (pass) => {
     if (pass.isOpenReturn || !pass.permittedTo) {
       return "🏥 Open Return Time (Medical / Unspecified)";
@@ -471,9 +417,6 @@ export default function OutPassPortal() {
     return diffMs < 0 ? `Overdue by ${timeStr}` : `${timeStr} remaining`;
   };
 
-  // ============================================================================
-  // ⏱️ QUICK DURATION & MULTI-DAY HELPERS FOR TEACHER FORM
-  // ============================================================================
   const getBaseDepartureDate = () => {
     const iso = combineDateAndTimeToISO(fromDate, fromTime);
     return iso ? new Date(iso) : new Date();
@@ -493,9 +436,6 @@ export default function OutPassPortal() {
     const start = getBaseDepartureDate();
     const end = new Date(start);
     end.setHours(18, 0, 0, 0);
-    if (end <= start) {
-      end.setDate(end.getDate() + 1);
-    }
     setToDate(toLocalDateStr(end));
     setToTime(toLocalTimeStr(end));
     setActiveDurationChip("6pm");
@@ -506,7 +446,6 @@ export default function OutPassPortal() {
     const start = getBaseDepartureDate();
     const end = new Date(start);
     end.setDate(end.getDate() + days);
-    // Default return time on multi-day leave to 6:00 PM (editable by teacher)
     end.setHours(18, 0, 0, 0);
     setToDate(toLocalDateStr(end));
     setToTime(toLocalTimeStr(end));
@@ -519,7 +458,7 @@ export default function OutPassPortal() {
     setActiveDurationChip(nextVal ? "open" : "custom");
   };
 
-  // 3. Teacher Submit: Issue Out-Pass
+  // 3. Teacher Submit: Issue Pass (100% Unrestricted Date/Time freedom)
   const handleIssuePass = async (e) => {
     e.preventDefault();
     if (!selectedStudent) return alert("Please select or scan a student first.");
@@ -537,12 +476,7 @@ export default function OutPassPortal() {
       toISO = combineDateAndTimeToISO(toDate, toTime);
       if (!toISO) {
         return alert(
-          "Please select a Return Date & Time, or enable 'No Specific Return Time (Medical / Open)'."
-        );
-      }
-      if (new Date(toISO) <= new Date(fromISO)) {
-        return alert(
-          "Return Date & Time must be after the Departure Date & Time!"
+          "Please select a Return Date & Time, or enable 'No Specific Return Time'."
         );
       }
     }
@@ -595,9 +529,7 @@ export default function OutPassPortal() {
     }
   };
 
-  // ============================================================================
-  // ✏️ EDIT ACTIVE PASS MODAL HANDLERS (Update Departure/Return Date & Time)
-  // ============================================================================
+  // 4. Edit Pass Modal Handler (Full Freedom for both Teacher & Admin)
   const openEditPassModal = (pass) => {
     const fDate = pass.permittedFrom ? new Date(pass.permittedFrom) : new Date();
     const tDate = pass.permittedTo
@@ -629,9 +561,6 @@ export default function OutPassPortal() {
       if (!updatedToISO) {
         return alert("Please enter a valid Return Date & Time.");
       }
-      if (new Date(updatedToISO) <= new Date(updatedFromISO)) {
-        return alert("Return Date & Time must be after Departure Date & Time.");
-      }
     }
 
     setSavingEdit(true);
@@ -654,7 +583,6 @@ export default function OutPassPortal() {
     }
   };
 
-  // 4. Return & Cancel Actions
   const handleConfirmReturn = async (pass) => {
     try {
       const returnTime = new Date();
@@ -687,7 +615,7 @@ export default function OutPassPortal() {
     }
   };
 
-  // Export CSV for Admin
+  // CSV Export
   const handleExportCSV = () => {
     const headers = [
       "Ad.No",
@@ -730,9 +658,7 @@ export default function OutPassPortal() {
     document.body.removeChild(link);
   };
 
-  // ============================================================================
-  // STRICT DATA SEPARATION:
-  // ============================================================================
+  // Data Selections
   const myPermittedPasses = passes.filter((p) => {
     if (currentUser?.uid && p.teacherId === currentUser.uid) return true;
     if (
@@ -776,7 +702,6 @@ export default function OutPassPortal() {
     return true;
   });
 
-  // Global Lists (Strictly for Admin)
   const currentlyOutsidePasses = passes.filter((p) => p.status === "OUTSIDE");
   const overduePasses = currentlyOutsidePasses.filter((p) => isPassOverdue(p));
 
@@ -814,7 +739,6 @@ export default function OutPassPortal() {
         .slice(0, 8)
     : [];
 
-  // Block unauthenticated users
   if (!authChecking && !currentUser && !isAdmin) {
     return (
       <div className="op-root" style={styles.pageWrapper}>
@@ -853,40 +777,18 @@ export default function OutPassPortal() {
 
   return (
     <div className="op-root" style={styles.pageWrapper}>
-      {/* Scoped CSS Reset so globals.css NEVER makes text or buttons invisible */}
       <style>{`
-        .op-root * {
-          box-sizing: border-box;
-        }
-        .op-root input, .op-root select, .op-root textarea {
-          color: #0f172a !important;
-          background-color: #ffffff !important;
-          font-family: inherit;
-        }
-        .op-root input::placeholder {
-          color: #94a3b8 !important;
-          opacity: 1 !important;
-        }
-        .op-root input:focus, .op-root select:focus {
-          outline: 2px solid #0d9488 !important;
-          border-color: #0d9488 !important;
-        }
-        .op-root button {
-          font-family: inherit;
-          transition: all 0.15s ease;
-        }
-        .op-root button:active {
-          transform: scale(0.98);
-        }
-        .op-student-item:hover {
-          background-color: #f0fdfa !important;
-        }
+        .op-root * { box-sizing: border-box; }
+        .op-root input, .op-root select, .op-root textarea { color: #0f172a !important; background-color: #ffffff !important; font-family: inherit; }
+        .op-root input::placeholder { color: #94a3b8 !important; opacity: 1 !important; }
+        .op-root input:focus, .op-root select:focus { outline: 2px solid #0d9488 !important; border-color: #0d9488 !important; }
+        .op-root button { font-family: inherit; transition: all 0.15s ease; }
+        .op-root button:active { transform: scale(0.98); }
+        .op-student-item:hover { background-color: #f0fdfa !important; }
       `}</style>
 
       <div style={styles.container}>
-        {/* =========================================================
-            TOP INSTITUTIONAL HEADER
-           ========================================================= */}
+        {/* HEADER */}
         <header style={styles.header}>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <div style={styles.logoCircle}>🪪</div>
@@ -916,9 +818,7 @@ export default function OutPassPortal() {
           </div>
         </header>
 
-        {/* =========================================================
-            NAVIGATION BAR (Teacher vs Admin Strictly Separated)
-           ========================================================= */}
+        {/* NAVIGATION BAR */}
         <div style={styles.navBar}>
           <div style={styles.navSegmentGroup}>
             <button
@@ -978,9 +878,7 @@ export default function OutPassPortal() {
           </button>
         </div>
 
-        {/* =========================================================
-            MODAL 1: BARCODE CAMERA SCANNER
-           ========================================================= */}
+        {/* BARCODE MODAL */}
         {scannerOpen && (
           <div style={styles.modalOverlay}>
             <div style={styles.modalCard}>
@@ -1036,9 +934,7 @@ export default function OutPassPortal() {
           </div>
         )}
 
-        {/* =========================================================
-            MODAL 2: EDIT EXISTING OUT-PASS (DATE / TIME / MEDICAL OPEN RETURN)
-           ========================================================= */}
+        {/* EDIT PASS MODAL */}
         {editingPass && (
           <div style={styles.modalOverlay}>
             <div style={{ ...styles.modalCard, maxWidth: "540px" }}>
@@ -1061,7 +957,7 @@ export default function OutPassPortal() {
                       textTransform: "uppercase",
                     }}
                   >
-                    Modify Active Out-Pass
+                    Modify Active Out-Pass (Full Freedom)
                   </div>
                   <h3 style={{ margin: "2px 0 0", color: "#0f172a", fontSize: 18 }}>
                     ✏️ {editingPass.studentName} (#{editingPass.adNo})
@@ -1100,7 +996,7 @@ export default function OutPassPortal() {
                   </div>
                 </div>
 
-                {/* Edit Departure Date & Time */}
+                {/* Edit Departure */}
                 <div style={styles.timePickerCard}>
                   <div style={styles.timeSectionTitle}>
                     🚶‍♂️ Departure Date &amp; Time
@@ -1135,7 +1031,7 @@ export default function OutPassPortal() {
                   </div>
                 </div>
 
-                {/* Edit Return Date & Time OR Medical Open Return */}
+                {/* Edit Return */}
                 <div style={{ ...styles.timePickerCard, marginTop: 12 }}>
                   <div
                     style={{
@@ -1173,7 +1069,6 @@ export default function OutPassPortal() {
                           <input
                             type="date"
                             value={editToDate}
-                            min={editFromDate}
                             onChange={(e) => setEditToDate(e.target.value)}
                             style={styles.textInput}
                             required
@@ -1200,8 +1095,7 @@ export default function OutPassPortal() {
                   ) : (
                     <div style={styles.openMedicalBanner}>
                       🏥 <strong>Open-Ended / Medical Leave:</strong> No fixed
-                      return time is required. This student will not be marked
-                      overdue until they return.
+                      return time is required.
                     </div>
                   )}
                 </div>
@@ -1235,11 +1129,11 @@ export default function OutPassPortal() {
         )}
 
         {/* =========================================================
-            TAB 1: TEACHER PORTAL (ISSUE LEAVE & MY APPROVED STUDENTS)
+            TAB 1: TEACHER PORTAL
            ========================================================= */}
         {activeTab === "teacher" && (
           <div style={styles.twoColGrid}>
-            {/* LEFT COLUMN: OFFICIAL DIGITAL OUT-PASS SLIP FORM */}
+            {/* LEFT: ISSUE FORM */}
             <div style={styles.slipContainer}>
               <div style={styles.slipBanner}>
                 <div>
@@ -1303,7 +1197,6 @@ export default function OutPassPortal() {
                         </button>
                       </div>
 
-                      {/* Auto-complete Dropdown */}
                       {matchingStudents.length > 0 && (
                         <div style={styles.searchDropdown}>
                           <div style={styles.dropdownHeader}>
@@ -1384,7 +1277,6 @@ export default function OutPassPortal() {
                       )}
                     </div>
                   ) : (
-                    /* SELECTED STUDENT PROFILE CARD */
                     <div style={styles.selectedProfileCard}>
                       <div
                         style={{
@@ -1462,7 +1354,6 @@ export default function OutPassPortal() {
                         </button>
                       </div>
 
-                      {/* Duplicate Pass Warning Banner */}
                       {getActivePassForStudent(selectedStudent.adNo) && (
                         <div style={styles.duplicateWarningBox}>
                           ⚠️ <strong>Active Pass Alert:</strong> This student is
@@ -1478,15 +1369,13 @@ export default function OutPassPortal() {
                             getActivePassForStudent(selectedStudent.adNo)
                               .teacherName
                           )}
-                          ). They must be marked returned before issuing a new
-                          pass.
+                          ).
                         </div>
                       )}
                     </div>
                   )}
                 </div>
 
-                {/* STEP 2: DESTINATION & PURPOSE */}
                 <form onSubmit={handleIssuePass}>
                   <div style={{ marginBottom: 18 }}>
                     <label style={styles.fieldLabel}>
@@ -1555,7 +1444,6 @@ export default function OutPassPortal() {
                             key={rsn}
                             onClick={() => {
                               setPurpose(rsn);
-                              // Automatically suggest Open Return if teacher clicks Medical Case
                               if (rsn === "Medical / Hospital Case") {
                                 setIsOpenReturn(true);
                                 setActiveDurationChip("open");
@@ -1574,16 +1462,13 @@ export default function OutPassPortal() {
                     </div>
                   </div>
 
-                  {/* =========================================================
-                      STEP 4: EDITABLE DEPARTURE & RETURN DATE/TIME + MEDICAL OPEN LEAVE
-                     ========================================================= */}
+                  {/* STEP 4: UNRESTRICTED SCHEDULE SELECTORS */}
                   <div style={{ marginBottom: 18 }}>
                     <label style={styles.fieldLabel}>
-                      4. Permitted Departure &amp; Return Schedule (Single Day,
-                      Multi-Day, or Open Medical)
+                      4. Permitted Departure &amp; Return Schedule (Full
+                      Freedom to Pick Any Date &amp; Time)
                     </label>
 
-                    {/* Quick Presets Bar: Hours, Days, & Medical Open Return */}
                     <div
                       style={{
                         ...styles.chipGroup,
@@ -1605,7 +1490,7 @@ export default function OutPassPortal() {
                           marginBottom: 2,
                         }}
                       >
-                        Quick Return Presets (Or edit Date &amp; Time manually below):
+                        Quick Return Presets (Or select manually below):
                       </span>
 
                       <button
@@ -1650,7 +1535,7 @@ export default function OutPassPortal() {
                             : styles.quickChip
                         }
                       >
-                        📅 +1 Day (Tomorrow)
+                        📅 +1 Day
                       </button>
                       <button
                         type="button"
@@ -1675,7 +1560,6 @@ export default function OutPassPortal() {
                         📅 +3 Days
                       </button>
 
-                      {/* Medical / No Specific Return Time Toggle */}
                       <button
                         type="button"
                         onClick={toggleOpenReturnMode}
@@ -1691,7 +1575,7 @@ export default function OutPassPortal() {
                       </button>
                     </div>
 
-                    {/* Box A: Departure Date & Time (Fully Editable) */}
+                    {/* Departure Picker */}
                     <div style={styles.timePickerCard}>
                       <div style={styles.timeSectionTitle}>
                         🚶‍♂️ Permitted Departure (Date &amp; Time)
@@ -1704,12 +1588,7 @@ export default function OutPassPortal() {
                           <input
                             type="date"
                             value={fromDate}
-                            onChange={(e) => {
-                              setFromDate(e.target.value);
-                              if (toDate && e.target.value > toDate) {
-                                setToDate(e.target.value);
-                              }
-                            }}
+                            onChange={(e) => setFromDate(e.target.value)}
                             style={styles.textInput}
                             required
                           />
@@ -1728,7 +1607,7 @@ export default function OutPassPortal() {
                         </div>
                       </div>
                       <div style={styles.timePreview12h}>
-                        🕒 Leaving Campus:{" "}
+                        🕒 Leaving:{" "}
                         <strong>
                           {formatDateTime12Hour(
                             combineDateAndTimeToISO(fromDate, fromTime)
@@ -1737,7 +1616,7 @@ export default function OutPassPortal() {
                       </div>
                     </div>
 
-                    {/* Box B: Return Date & Time OR Open Medical Banner */}
+                    {/* Return Picker */}
                     <div style={{ ...styles.timePickerCard, marginTop: 12 }}>
                       <div
                         style={{
@@ -1771,12 +1650,11 @@ export default function OutPassPortal() {
                           <div style={styles.dateRowGrid}>
                             <div>
                               <span style={styles.subFieldLabel}>
-                                📅 Return Date (Can be 2+ days later):
+                                📅 Return Date (Any day):
                               </span>
                               <input
                                 type="date"
                                 value={toDate}
-                                min={fromDate}
                                 onChange={(e) => {
                                   setToDate(e.target.value);
                                   setActiveDurationChip("custom");
@@ -1802,7 +1680,7 @@ export default function OutPassPortal() {
                             </div>
                           </div>
                           <div style={styles.timePreview12h}>
-                            ⏳ Must Return By:{" "}
+                            ⏳ Return By:{" "}
                             <strong>
                               {formatDateTime12Hour(
                                 combineDateAndTimeToISO(toDate, toTime)
@@ -1816,15 +1694,13 @@ export default function OutPassPortal() {
                           <strong>
                             No Specific Return Time (Medical / Open Leave):
                           </strong>{" "}
-                          The student is permitted to stay out without a fixed
-                          deadline. Return time will be recorded when they scan
-                          back in.
+                          Student can remain outside without deadline until marked
+                          returned.
                         </div>
                       )}
                     </div>
                   </div>
 
-                  {/* STEP 5: LOCKED OFFICIAL TEACHER SIGNATURE */}
                   <div style={styles.teacherSignatureBox}>
                     <div>
                       <div
@@ -1867,15 +1743,13 @@ export default function OutPassPortal() {
                   >
                     {submitting
                       ? "Issuing Digital Out-Pass..."
-                      : USE_STRICT_GATEKEEPER
-                      ? "✅ Issue Out-Pass & Send to Gatekeeper"
                       : "✅ Approve & Mark Student OUTSIDE Now"}
                   </button>
                 </form>
               </div>
             </div>
 
-            {/* RIGHT COLUMN: MY APPROVED STUDENTS (SCOPED TO THIS TEACHER) */}
+            {/* RIGHT: MY APPROVED STUDENTS */}
             <div style={styles.card}>
               <div style={styles.cardHeaderRow}>
                 <div>
@@ -1900,7 +1774,6 @@ export default function OutPassPortal() {
                 </button>
               </div>
 
-              {/* Segmented Filter Control */}
               <div style={styles.segmentedBar}>
                 {[
                   {
@@ -1946,7 +1819,6 @@ export default function OutPassPortal() {
                 })}
               </div>
 
-              {/* Search within Teacher's passes */}
               <div style={{ position: "relative", marginBottom: 14 }}>
                 <input
                   type="text"
@@ -1966,7 +1838,6 @@ export default function OutPassPortal() {
                 )}
               </div>
 
-              {/* List of Teacher's Approved Passes */}
               {filteredTeacherPasses.length === 0 ? (
                 <div style={styles.emptyStateBox}>
                   <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
@@ -1978,16 +1849,6 @@ export default function OutPassPortal() {
                     }}
                   >
                     No Out-Passes Found
-                  </div>
-                  <div
-                    style={{
-                      color: "#64748b",
-                      fontSize: 13,
-                      marginTop: 4,
-                    }}
-                  >
-                    Students you permit will appear here with their live return
-                    status.
                   </div>
                 </div>
               ) : (
@@ -2121,7 +1982,6 @@ export default function OutPassPortal() {
                             )}
                           </div>
 
-                          {/* Right Actions Column */}
                           <div
                             style={{
                               display: "flex",
@@ -2134,7 +1994,7 @@ export default function OutPassPortal() {
                               {p.status === "OUTSIDE" && isOverdue
                                 ? "🚨 OVERDUE / LATE"
                                 : p.status === "OUTSIDE" && p.isOpenReturn
-                                ? "🏥 MEDICAL / OPEN OUT"
+                                ? "🏥 MEDICAL / OPEN"
                                 : p.status === "OUTSIDE"
                                 ? "🟠 OUTSIDE CAMPUS"
                                 : p.status === "RETURNED"
@@ -2190,11 +2050,10 @@ export default function OutPassPortal() {
         )}
 
         {/* =========================================================
-            TAB 3: ADMIN LIVE PORTAL (STRICTLY FOR ADMIN ONLY)
+            TAB 2: ADMIN LIVE PORTAL
            ========================================================= */}
         {activeTab === "admin" && isAdmin && (
           <div>
-            {/* 4 Interactive KPI Summary Cards */}
             <div style={styles.kpiGrid}>
               <div
                 onClick={() => setAdminViewMode("OUTSIDE")}
@@ -2287,7 +2146,6 @@ export default function OutPassPortal() {
               </div>
             </div>
 
-            {/* Admin Control & Filter Bar */}
             <div style={styles.adminToolbarCard}>
               <div style={styles.segmentedBarAdmin}>
                 {[
@@ -2397,7 +2255,6 @@ export default function OutPassPortal() {
               </div>
             </div>
 
-            {/* Admin Data Table */}
             <div style={styles.tableContainer}>
               {adminViewMode === "INSIDE" ? (
                 <table style={styles.table}>
@@ -2658,7 +2515,7 @@ export default function OutPassPortal() {
                                   {p.status === "OUTSIDE" && isOverdue
                                     ? "🚨 OVERDUE"
                                     : p.status === "OUTSIDE" && p.isOpenReturn
-                                    ? "🏥 MEDICAL / OPEN"
+                                    ? "🏥 MEDICAL"
                                     : p.status === "OUTSIDE"
                                     ? "🟠 OUTSIDE"
                                     : p.status === "RETURNED"
@@ -2700,7 +2557,6 @@ export default function OutPassPortal() {
   );
 }
 
-// High-Contrast Status Pill Helper
 function getStatusBadgeStyle(pass, now) {
   const status = pass.status;
   const isOverdue =
@@ -2718,7 +2574,6 @@ function getStatusBadgeStyle(pass, now) {
       borderRadius: "999px",
       fontSize: "11px",
       fontWeight: 800,
-      letterSpacing: "0.3px",
       display: "inline-block",
     };
   }
@@ -2731,7 +2586,6 @@ function getStatusBadgeStyle(pass, now) {
       borderRadius: "999px",
       fontSize: "11px",
       fontWeight: 800,
-      letterSpacing: "0.3px",
       display: "inline-block",
     };
   }
@@ -2744,7 +2598,6 @@ function getStatusBadgeStyle(pass, now) {
       borderRadius: "999px",
       fontSize: "11px",
       fontWeight: 800,
-      letterSpacing: "0.3px",
       display: "inline-block",
     };
   }
@@ -2757,7 +2610,6 @@ function getStatusBadgeStyle(pass, now) {
       borderRadius: "999px",
       fontSize: "11px",
       fontWeight: 800,
-      letterSpacing: "0.3px",
       display: "inline-block",
     };
   }
@@ -2773,9 +2625,6 @@ function getStatusBadgeStyle(pass, now) {
   };
 }
 
-// ============================================================================
-// 🎨 HIGH-CONTRAST PROFESSIONAL DESIGN SYSTEM
-// ============================================================================
 const styles = {
   pageWrapper: {
     minHeight: "100vh",
@@ -2998,7 +2847,6 @@ const styles = {
     color: "#0f172a",
     marginBottom: "8px",
     textTransform: "uppercase",
-    letterSpacing: "0.4px",
   },
   timePreview12h: {
     marginTop: "8px",
@@ -3030,7 +2878,6 @@ const styles = {
     fontSize: "12px",
     fontWeight: 800,
     cursor: "pointer",
-    boxShadow: "0 2px 8px rgba(2, 132, 199, 0.3)",
   },
   openMedicalBanner: {
     background: "#e0f2fe",
@@ -3189,7 +3036,6 @@ const styles = {
     padding: "10px 12px",
     borderRadius: "8px",
     fontSize: "12px",
-    lineHeight: 1.5,
   },
   textInput: {
     width: "100%",
