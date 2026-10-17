@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth, db } from '../lib/firebase';
+import Link from "next/link";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, getAuth, signOut, updatePassword, onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, getDoc, getDocs, collection, deleteDoc, arrayUnion } from 'firebase/firestore';
 import { getApp, initializeApp } from 'firebase/app';
@@ -593,12 +594,15 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
           <h1 style={{ margin: '0 0 4px 0', fontSize: '24px', fontWeight: '800', color: '#0f172a' }}>Teacher Portal</h1>
           <p style={{ margin: 0, color: '#64748b', fontSize: '15px' }}>Welcome, <strong>{loggedInTeacher?.fullName || 'Teacher'}</strong></p>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
           {selectedEnrollmentId && activeView === 'marks' && (
             <button onClick={() => handleSelectSubject('')} style={{ padding: '10px 16px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>
               📚 All My Subjects
             </button>
           )}
+          <Link href="/outpass" style={{ background: "#0f766e", color: "#ffffff", padding: "10px 16px", borderRadius: "8px", fontWeight: "bold", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
+            🪪 Out-Pass Portal
+          </Link>
           <button onClick={() => setActiveView(activeView === 'marks' ? 'settings' : 'marks')} style={{ padding: '10px 16px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '14px' }}>
             {activeView === 'marks' ? '⚙️ Settings' : '⬅ Back to Marks'}
           </button>
@@ -3413,7 +3417,12 @@ export default function UnifiedSchoolPortal() {
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
             <h1 style={{ margin: 0, fontSize: '26px', fontWeight: '800', color: '#0f172a' }}>Admin Dashboard</h1>
-            <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <Link href="/outpass" style={{ background: "#0f766e", color: "#ffffff", padding: "10px 16px", borderRadius: "8px", fontWeight: "bold", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
+                🪪 Students' Out-Pass Portal
+              </Link>
+              <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
+            </div>
           </div>
 
           <div style={{ display: 'flex', gap: '12px', marginBottom: '28px', flexWrap: 'wrap' }}>
