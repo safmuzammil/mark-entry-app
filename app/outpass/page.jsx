@@ -16,16 +16,24 @@ import {
 import { onAuthStateChanged } from "firebase/auth";
 
 // ============================================================================
-// 🔧 MASTER CONFIGURATION SWITCH
-// Set to `false` right now for testing (Teacher issues pass -> Student is immediately OUTSIDE).
-// Change to `true` later when you want Strict Gatekeeper verification at the gate!
-// ============================================================================
+// 🔧 MASTER CONFIGURATION SWITCHES
+// 1. Set USE_STRICT_GATEKEEPER to `true` later when you add a Gatekeeper!
 const USE_STRICT_GATEKEEPER = false;
 
+// 2. Add any Admin emails here (in addition to your main app's `isAdminAuth` session)
+const ADMIN_EMAILS = [
+  "admin@dhiu.in",
+  "admin@gmail.com",
+  "dhdegreeclearance@gmail.com",
+];
+// ============================================================================
+
 export default function OutPassPortal() {
-  // Auth & User State
+  // Auth & Strict Role State
   const [currentUser, setCurrentUser] = useState(null);
   const [staffName, setStaffName] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
   const [activeTab, setActiveTab] = useState("teacher"); // "teacher" | "gatekeeper" | "admin"
 
   // Master Data
@@ -41,6 +49,7 @@ export default function OutPassPortal() {
   const [permittedFrom, setPermittedFrom] = useState("");
   const [permittedTo, setPermittedTo] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [teacherStatusFilter, setTeacherStatusFilter] = useState("ALL"); // "ALL" | "OUTSIDE" | "RETURNED"
 
   // Barcode Scanner State
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -79,22 +88,62 @@ export default function OutPassPortal() {
     resetDefaultTimes();
   }, []);
 
-  // 1. Check Auth & Load Students + Real-time OutPasses
+  // 1. Check Auth, Verify Admin vs Teacher Role, & Load Data
   useEffect(() => {
-    const unsubAuth = onAuthStateChanged(auth, (user) => {
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
+      // Check if logged in via main app's Admin session (`isAdminAuth` in localStorage)
+      const localAdminFlag =
+        typeof window !== "undefined" &&
+        localStorage.getItem("isAdminAuth") === "true";
+
+      const emailIsAdmin =
+        user?.email &&
+        ADMIN_EMAILS.map((e) => e.toLowerCase()).includes(
+          user.email.toLowerCase()
+        );
+
+      const userHasAdminAccess = Boolean(localAdminFlag || emailIsAdmin);
+      setIsAdmin(userHasAdminAccess);
+
       if (user) {
         setCurrentUser(user);
-        const displayName =
+        let resolvedName =
           user.displayName ||
           user.email?.split("@")[0]?.replace(/[._]/g, " ") ||
           "Teacher";
-        setStaffName(displayName);
+
+        // Try to match teacher's real name from `teachers` collection in Firestore
+        try {
+          const teacherSnap = await getDocs(collection(db, "teachers"));
+          const matchedTeacher = teacherSnap.docs
+            .map((d) => d.data())
+            .find(
+              (t) =>
+                t.email &&
+                user.email &&
+                t.email.toLowerCase() === user.email.toLowerCase()
+            );
+          if (matchedTeacher?.name || matchedTeacher?.firstName) {
+            resolvedName = matchedTeacher.name || matchedTeacher.firstName;
+          }
+        } catch (e) {
+          // Ignore if teachers collection is structured differently
+        }
+
+        setStaffName(userHasAdminAccess && !user ? "Administrator" : resolvedName);
+      } else if (localAdminFlag) {
+        // Admin logged in via custom admin/admin123 login without Firebase user
+        setCurrentUser({ uid: "admin", email: "admin" });
+        setStaffName("Administrator");
+        setActiveTab("admin"); // Default Admin straight to the Admin dashboard
       } else {
         setCurrentUser(null);
       }
+
+      setAuthChecking(false);
     });
 
-    // Fetch Master Students List once
+    // Fetch Master Students List
     const fetchStudents = async () => {
       try {
         const snap = await getDocs(collection(db, "students"));
@@ -142,6 +191,13 @@ export default function OutPassPortal() {
     };
   }, []);
 
+  // Security guard: Prevent non-admins from ever switching to the "admin" tab
+  useEffect(() => {
+    if (!isAdmin && activeTab === "admin") {
+      setActiveTab("teacher");
+    }
+  }, [isAdmin, activeTab]);
+
   // 2. Barcode Camera Scanner Handler
   useEffect(() => {
     let html5QrCode = null;
@@ -185,7 +241,6 @@ export default function OutPassPortal() {
     setScannerOpen(false);
 
     if (scannerMode === "teacher") {
-      // Scan to fill student details in Teacher Form
       const found = students.find(
         (s) => s.adNo.toLowerCase() === code.toLowerCase()
       );
@@ -197,24 +252,32 @@ export default function OutPassPortal() {
         alert(`Scanned ID "${code}", but no matching Ad.No was found.`);
       }
     } else if (scannerMode === "return") {
-      // Quick Scan to Return Student (No-Gatekeeper mode)
+      // Quick Scan to Return Student (Teachers can only return their own passes; Admins can return any)
       const activePass = passes.find(
         (p) =>
           String(p.adNo).toLowerCase() === code.toLowerCase() &&
-          p.status === "OUTSIDE"
+          p.status === "OUTSIDE" &&
+          (isAdmin ||
+            p.teacherId === currentUser?.uid ||
+            p.teacherEmail === currentUser?.email ||
+            p.teacherName === staffName)
       );
       if (activePass) {
         handleConfirmReturn(activePass);
-        alert(`✅ Marked ${activePass.studentName} (#${activePass.adNo}) as RETURNED!`);
+        alert(
+          `✅ Marked ${activePass.studentName} (#${activePass.adNo}) as RETURNED!`
+        );
       } else {
-        alert(`No active OUTSIDE pass found for scanned ID: ${code}`);
+        alert(
+          `No active OUTSIDE pass (approved by you) found for scanned ID: ${code}`
+        );
       }
     } else if (scannerMode === "gate") {
       handleGateLookupByAdNo(code);
     }
   };
 
-  // Helper: Check if student already has an active pass (APPROVED or OUTSIDE)
+  // Helper: Check if student already has an active pass (APPROVED or OUTSIDE) across the school
   const getActivePassForStudent = (adNo) => {
     return passes.find(
       (p) =>
@@ -247,7 +310,6 @@ export default function OutPassPortal() {
   };
 
   // 3. Teacher Submit: Issue Out-Pass
-  // Automatically uses "OUTSIDE" when USE_STRICT_GATEKEEPER is false!
   const handleIssuePass = async (e) => {
     e.preventDefault();
     if (!selectedStudent) return alert("Please select or scan a student first.");
@@ -258,7 +320,7 @@ export default function OutPassPortal() {
     const existingActive = getActivePassForStudent(selectedStudent.adNo);
     if (existingActive) {
       return alert(
-        `Cannot issue pass! ${selectedStudent.name} is already marked as ${existingActive.status}.`
+        `Cannot issue pass! ${selectedStudent.name} is already marked as ${existingActive.status} (Permitted by ${existingActive.teacherName}).`
       );
     }
 
@@ -276,6 +338,7 @@ export default function OutPassPortal() {
         permittedFrom: new Date(permittedFrom).toISOString(),
         permittedTo: new Date(permittedTo).toISOString(),
         teacherId: currentUser?.uid || "staff",
+        teacherEmail: currentUser?.email || "",
         teacherName: staffName || "Teacher",
         status: initialStatus,
         actualDepartureTime: USE_STRICT_GATEKEEPER ? null : nowISO,
@@ -318,7 +381,6 @@ export default function OutPassPortal() {
     }
   };
 
-  // Confirm Student Going OUTSIDE (Used when Gatekeeper is enabled)
   const handleConfirmDeparture = async (pass) => {
     try {
       const passRef = doc(db, "out_passes", pass.id);
@@ -334,7 +396,6 @@ export default function OutPassPortal() {
     }
   };
 
-  // Confirm Student RETURNED to Campus (Works in Teacher, Admin, & Gatekeeper views!)
   const handleConfirmReturn = async (pass) => {
     try {
       const returnTime = new Date();
@@ -355,7 +416,6 @@ export default function OutPassPortal() {
     }
   };
 
-  // Cancel a pass
   const handleCancelPass = async (pass) => {
     if (!confirm(`Cancel out-pass for ${pass.studentName}?`)) return;
     try {
@@ -367,14 +427,47 @@ export default function OutPassPortal() {
     }
   };
 
-  // Derived Counts & Lists
+  // ============================================================================
+  // STRICT DATA SEPARATION:
+  // 1. `myPermittedPasses`: ONLY passes approved by the currently logged-in Teacher
+  // 2. Global counts: Used strictly inside the Admin Portal
+  // ============================================================================
+  const myPermittedPasses = passes.filter((p) => {
+    if (currentUser?.uid && p.teacherId === currentUser.uid) return true;
+    if (
+      currentUser?.email &&
+      p.teacherEmail &&
+      p.teacherEmail.toLowerCase() === currentUser.email.toLowerCase()
+    ) {
+      return true;
+    }
+    if (
+      staffName &&
+      p.teacherName &&
+      p.teacherName.toLowerCase() === staffName.toLowerCase()
+    ) {
+      return true;
+    }
+    return false;
+  });
+
+  const myOutsideCount = myPermittedPasses.filter(
+    (p) => p.status === "OUTSIDE"
+  ).length;
+
+  const filteredTeacherPasses = myPermittedPasses.filter((p) => {
+    if (teacherStatusFilter === "OUTSIDE") return p.status === "OUTSIDE";
+    if (teacherStatusFilter === "RETURNED") return p.status === "RETURNED";
+    return true;
+  });
+
+  // Global Lists (Strictly for Admin / Gatekeeper)
   const approvedWaitingPasses = passes.filter((p) => p.status === "APPROVED");
   const currentlyOutsidePasses = passes.filter((p) => p.status === "OUTSIDE");
   const overduePasses = currentlyOutsidePasses.filter(
     (p) => new Date(p.permittedTo) < now
   );
 
-  // Set of AdNos currently outside
   const outsideAdNos = new Set(
     currentlyOutsidePasses.map((p) => String(p.adNo).toLowerCase())
   );
@@ -382,7 +475,6 @@ export default function OutPassPortal() {
     (s) => !outsideAdNos.has(String(s.adNo).toLowerCase())
   );
 
-  // Unique classes & teachers for Admin dropdown filters
   const allClasses = [
     "ALL",
     ...Array.from(
@@ -398,7 +490,6 @@ export default function OutPassPortal() {
     ...Array.from(new Set(passes.map((p) => p.teacherName))).filter(Boolean),
   ];
 
-  // Filtered student search for Teacher form
   const matchingStudents = searchQuery.trim()
     ? students
         .filter(
@@ -408,6 +499,39 @@ export default function OutPassPortal() {
         )
         .slice(0, 8)
     : [];
+
+  // Block unauthenticated users
+  if (!authChecking && !currentUser && !isAdmin) {
+    return (
+      <div style={styles.pageWrapper}>
+        <div
+          style={{
+            ...styles.card,
+            maxWidth: 460,
+            margin: "80px auto",
+            textAlign: "center",
+          }}
+        >
+          <h2>🔒 Login Required</h2>
+          <p style={{ color: "#64748b", fontSize: 14 }}>
+            Please log in with your Teacher or Admin account on the main portal
+            to access the Students&apos; Out-Pass system.
+          </p>
+          <Link
+            href="/"
+            style={{
+              ...styles.submitBtn,
+              display: "inline-block",
+              textDecoration: "none",
+              marginTop: 12,
+            }}
+          >
+            ← Go to Login Page
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.pageWrapper}>
@@ -419,15 +543,16 @@ export default function OutPassPortal() {
         </div>
         <div style={styles.headerRight}>
           <div style={styles.staffBadge}>
-            👤 Logged in: <strong>{staffName || "Staff"}</strong>
+            {isAdmin ? "🛡️ Admin:" : "👨‍🏫 Teacher:"}{" "}
+            <strong>{staffName || "Staff"}</strong>
           </div>
           <Link href="/" style={styles.backLink}>
-            ← Back to Mark Entry
+            ← Back to Main Portal
           </Link>
         </div>
       </header>
 
-      {/* Role Switcher Navigation */}
+      {/* Role Switcher Navigation (Admin Tab is STRICTLY hidden for non-admins) */}
       <div style={styles.tabBar}>
         <button
           onClick={() => setActiveTab("teacher")}
@@ -436,10 +561,9 @@ export default function OutPassPortal() {
             ...(activeTab === "teacher" ? styles.tabBtnActive : {}),
           }}
         >
-          👨‍🏫 Teacher Portal (Issue & Return)
+          👨‍🏫 Teacher Pass Portal (My Active Outside: {myOutsideCount})
         </button>
 
-        {/* Only show Gatekeeper tab if USE_STRICT_GATEKEEPER is set to true */}
         {USE_STRICT_GATEKEEPER && (
           <button
             onClick={() => setActiveTab("gatekeeper")}
@@ -448,21 +572,23 @@ export default function OutPassPortal() {
               ...(activeTab === "gatekeeper" ? styles.tabBtnActive : {}),
             }}
           >
-            🛂 Gatekeeper Verification (
-            {approvedWaitingPasses.length + currentlyOutsidePasses.length})
+            🛂 Gatekeeper Verification
           </button>
         )}
 
-        <button
-          onClick={() => setActiveTab("admin")}
-          style={{
-            ...styles.tabBtn,
-            ...(activeTab === "admin" ? styles.tabBtnActive : {}),
-          }}
-        >
-          📊 Admin Portal (Outside: {currentlyOutsidePasses.length} | Inside:{" "}
-          {insideStudents.length})
-        </button>
+        {/* STRICT ADMIN CHECK: Only rendered if logged-in user is Admin */}
+        {isAdmin && (
+          <button
+            onClick={() => setActiveTab("admin")}
+            style={{
+              ...styles.tabBtn,
+              ...(activeTab === "admin" ? styles.tabBtnActive : {}),
+            }}
+          >
+            📊 Admin Live Portal (Outside: {currentlyOutsidePasses.length} |
+            Inside: {insideStudents.length})
+          </button>
+        )}
       </div>
 
       {/* Camera Barcode Modal */}
@@ -498,7 +624,9 @@ export default function OutPassPortal() {
       )}
 
       {/* =========================================================
-          TAB 1: TEACHER PORTAL (ISSUE OUT PASS + MARK RETURN)
+          TAB 1: TEACHER PORTAL
+          - Issue Leave Pass
+          - View ONLY students approved by THIS logged-in teacher
          ========================================================= */}
       {activeTab === "teacher" && (
         <div style={styles.gridTwoCol}>
@@ -752,20 +880,22 @@ export default function OutPassPortal() {
                 </button>
               </div>
 
+              {/* Strictly Locked Teacher Name */}
               <div style={{ marginBottom: 18 }}>
                 <label style={styles.label}>
-                  Permitted Teacher (Logged-in Account)
+                  Permitted Teacher (Locked to Logged-in Account)
                 </label>
                 <input
                   type="text"
                   value={staffName}
-                  onChange={(e) => setStaffName(e.target.value)}
+                  readOnly
                   style={{
                     ...styles.input,
-                    background: "#f1f5f9",
-                    fontWeight: 600,
+                    background: "#e2e8f0",
+                    color: "#0f172a",
+                    fontWeight: 700,
+                    cursor: "not-allowed",
                   }}
-                  required
                 />
               </div>
 
@@ -786,7 +916,7 @@ export default function OutPassPortal() {
             </form>
           </div>
 
-          {/* Right: Active Outside Students & Quick Return */}
+          {/* Right: ONLY Students Approved by This Logged-in Teacher */}
           <div style={styles.card}>
             <div
               style={{
@@ -800,10 +930,11 @@ export default function OutPassPortal() {
             >
               <div>
                 <h3 style={{ margin: 0 }}>
-                  🟠 Currently Outside ({currentlyOutsidePasses.length})
+                  📋 My Approved Students ({myPermittedPasses.length})
                 </h3>
                 <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0" }}>
-                  Scan returning student&apos;s ID or click &quot;Mark Returned&quot; when they come back.
+                  Showing only students permitted by{" "}
+                  <strong>{staffName}</strong>.
                 </p>
               </div>
               <button
@@ -818,112 +949,186 @@ export default function OutPassPortal() {
               </button>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {passes.slice(0, 12).map((p) => {
-                const isOverdue =
-                  p.status === "OUTSIDE" && new Date(p.permittedTo) < now;
-                return (
-                  <div
-                    key={p.id}
-                    style={{
-                      ...styles.passRowItem,
-                      borderLeft:
-                        p.status === "OUTSIDE"
-                          ? isOverdue
-                            ? "4px solid #dc2626"
-                            : "4px solid #ea580c"
-                          : "4px solid #16a34a",
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 15 }}>
-                        {p.studentName}{" "}
-                        <span style={{ fontWeight: 400, color: "#64748b" }}>
-                          (#{p.adNo} • {p.studentClass})
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 13,
-                          color: "#334155",
-                          marginTop: 2,
-                        }}
-                      >
-                        📍 <strong>{p.destination}</strong> — {p.purpose}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: "#64748b",
-                          marginTop: 4,
-                        }}
-                      >
-                        Allowed until:{" "}
-                        <strong>
-                          {new Date(p.permittedTo).toLocaleString("en-IN", {
-                            dateStyle: "short",
-                            timeStyle: "short",
-                          })}
-                        </strong>{" "}
-                        • By {p.teacherName}
-                      </div>
-                    </div>
+            {/* Filter pills for Teacher's own list */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+              {[
+                { id: "ALL", label: `All My Passes (${myPermittedPasses.length})` },
+                { id: "OUTSIDE", label: `Currently Outside (${myOutsideCount})` },
+                {
+                  id: "RETURNED",
+                  label: `Returned (${
+                    myPermittedPasses.filter((p) => p.status === "RETURNED")
+                      .length
+                  })`,
+                },
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setTeacherStatusFilter(f.id)}
+                  style={{
+                    ...styles.subTabBtn,
+                    padding: "6px 10px",
+                    fontSize: "12px",
+                    ...(teacherStatusFilter === f.id
+                      ? styles.subTabBtnActive
+                      : {}),
+                  }}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
 
+            {filteredTeacherPasses.length === 0 ? (
+              <div
+                style={{
+                  padding: "30px 16px",
+                  textAlign: "center",
+                  color: "#64748b",
+                  fontSize: 14,
+                  background: "#f8fafc",
+                  borderRadius: 8,
+                }}
+              >
+                No student passes found under your account for this filter.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {filteredTeacherPasses.map((p) => {
+                  const isOverdue =
+                    p.status === "OUTSIDE" && new Date(p.permittedTo) < now;
+                  return (
                     <div
+                      key={p.id}
                       style={{
-                        textAlign: "right",
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "flex-end",
-                        gap: 6,
+                        ...styles.passRowItem,
+                        borderLeft:
+                          p.status === "OUTSIDE"
+                            ? isOverdue
+                              ? "4px solid #dc2626"
+                              : "4px solid #ea580c"
+                            : "4px solid #16a34a",
                       }}
                     >
-                      <span
-                        style={getStatusBadgeStyle(
-                          p.status,
-                          p.permittedTo,
-                          now
-                        )}
-                      >
-                        {p.status === "APPROVED"
-                          ? "WAITING AT GATE"
-                          : isOverdue
-                          ? "LATE / OVERDUE"
-                          : p.status}
-                      </span>
-
-                      {p.status === "OUTSIDE" && (
-                        <button
-                          onClick={() => handleConfirmReturn(p)}
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 15 }}>
+                          {p.studentName}{" "}
+                          <span style={{ fontWeight: 400, color: "#64748b" }}>
+                            (#{p.adNo} • Class {p.studentClass})
+                          </span>
+                        </div>
+                        <div
                           style={{
-                            ...styles.returnActionBtn,
-                            padding: "6px 10px",
-                            fontSize: "12px",
+                            fontSize: 13,
+                            color: "#334155",
+                            marginTop: 2,
                           }}
                         >
-                          ✓ Mark Returned
-                        </button>
-                      )}
-
-                      {(p.status === "APPROVED" || p.status === "OUTSIDE") && (
-                        <button
-                          onClick={() => handleCancelPass(p)}
-                          style={styles.cancelLinkBtn}
+                          📍 <strong>{p.destination}</strong> — Reason:{" "}
+                          {p.purpose}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: "#64748b",
+                            marginTop: 4,
+                          }}
                         >
-                          Cancel Pass
-                        </button>
-                      )}
+                          Permitted:{" "}
+                          {new Date(p.permittedFrom).toLocaleTimeString(
+                            "en-IN",
+                            {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            }
+                          )}{" "}
+                          →{" "}
+                          <strong>
+                            {new Date(p.permittedTo).toLocaleString("en-IN", {
+                              dateStyle: "short",
+                              timeStyle: "short",
+                            })}
+                          </strong>
+                        </div>
+                        {p.actualReturnTime && (
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "#15803d",
+                              marginTop: 2,
+                              fontWeight: 600,
+                            }}
+                          >
+                            ✓ Returned at:{" "}
+                            {new Date(p.actualReturnTime).toLocaleString(
+                              "en-IN",
+                              {
+                                dateStyle: "short",
+                                timeStyle: "short",
+                              }
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div
+                        style={{
+                          textAlign: "right",
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "flex-end",
+                          gap: 6,
+                        }}
+                      >
+                        <span
+                          style={getStatusBadgeStyle(
+                            p.status,
+                            p.permittedTo,
+                            now
+                          )}
+                        >
+                          {p.status === "APPROVED"
+                            ? "WAITING AT GATE"
+                            : isOverdue
+                            ? "LATE / OVERDUE"
+                            : p.status}
+                        </span>
+
+                        {p.status === "OUTSIDE" && (
+                          <button
+                            onClick={() => handleConfirmReturn(p)}
+                            style={{
+                              ...styles.returnActionBtn,
+                              padding: "6px 10px",
+                              fontSize: "12px",
+                            }}
+                          >
+                            ✓ Mark Returned
+                          </button>
+                        )}
+
+                        {(p.status === "APPROVED" ||
+                          p.status === "OUTSIDE") && (
+                          <button
+                            onClick={() => handleCancelPass(p)}
+                            style={styles.cancelLinkBtn}
+                          >
+                            Cancel Pass
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {/* =========================================================
-          TAB 2: STRICT GATEKEEPER PORTAL (Only used when USE_STRICT_GATEKEEPER = true)
+          TAB 2: STRICT GATEKEEPER PORTAL
          ========================================================= */}
       {activeTab === "gatekeeper" && USE_STRICT_GATEKEEPER && (
         <div>
@@ -1009,9 +1214,9 @@ export default function OutPassPortal() {
       )}
 
       {/* =========================================================
-          TAB 3: ADMIN PORTAL (OUTSIDE / INSIDE / FULL LOGS)
+          TAB 3: ADMIN PORTAL (STRICTLY FOR ADMIN ONLY)
          ========================================================= */}
-      {activeTab === "admin" && (
+      {activeTab === "admin" && isAdmin && (
         <div>
           {/* Summary KPI Cards */}
           <div style={styles.kpiGrid}>
