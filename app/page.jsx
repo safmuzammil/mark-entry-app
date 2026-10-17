@@ -999,7 +999,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
 // ==========================================
 // 🌟 TEACHER MANAGER (With Advanced Student Assignment)
 // ==========================================
-function TeacherManager() {
+function TeacherManager({ onOpenProxyMarks }) {
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -1066,20 +1066,44 @@ function TeacherManager() {
 
   const handleAddOrUpdateTeacher = async (e) => {
     e.preventDefault();
+    if (!isEditing && password.trim().length < 6) {
+      return alert("Password must be at least 6 characters.");
+    }
+    if (isEditing && password.trim().length > 0 && password.trim().length < 6) {
+      return alert("New password must be at least 6 characters.");
+    }
+
     setIsLoading(true);
     setStatusMsg(isEditing ? 'Updating teacher profile...' : 'Registering teacher securely...');
     const safeUsername = username.trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '');
     const fakeEmail = `${safeUsername}@school.com`;
 
     try {
-      if (!isEditing) {
-        await createUserWithEmailAndPassword(auth, fakeEmail, password);
+      // Use SecondaryApp so creating/updating a teacher never logs out the Admin!
+      if (!isEditing || password.trim().length >= 6) {
+        const primaryApp = getApp();
+        let secondaryApp;
+        try { secondaryApp = getApp("SecondaryApp"); } catch (err) { secondaryApp = initializeApp(primaryApp.options, "SecondaryApp"); }
+        const secondaryAuth = getAuth(secondaryApp);
+
+        try {
+          await createUserWithEmailAndPassword(secondaryAuth, fakeEmail, password.trim());
+        } catch (authErr) {
+          if (authErr.code !== 'auth/email-already-in-use') throw authErr;
+        }
+        await signOut(secondaryAuth);
       }
-      await setDoc(doc(db, 'teachers', safeUsername), {
+
+      const teacherDocData = {
         fullName,
         username: safeUsername,
         enrollments
-      }, { merge: true });
+      };
+      if (password.trim().length >= 6) {
+        teacherDocData.password = password.trim(); // Saves reference in Firestore
+      }
+
+      await setDoc(doc(db, 'teachers', safeUsername), teacherDocData, { merge: true });
 
       setIsLoading(false);
       setStatusMsg(isEditing ? 'Teacher updated successfully!' : 'Teacher registered successfully!');
@@ -1191,7 +1215,10 @@ function TeacherManager() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
             <div><label style={styles.label}>Full Name</label><input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} required style={styles.input} /></div>
             <div><label style={styles.label}>Username</label><input type="text" value={username} onChange={(e) => setUsername(e.target.value)} disabled={isEditing} required style={{ ...styles.input, backgroundColor: isEditing ? '#f1f5f9' : '#ffffff', color: isEditing ? '#94a3b8' : '#0f172a' }} /></div>
-            {!isEditing && <div><label style={styles.label}>Password (Min 6 chars)</label><input type="text" value={password} onChange={(e) => setPassword(e.target.value)} required style={styles.input} /></div>}
+            <div>
+              <label style={styles.label}>{isEditing ? 'Password (Optional - Leave blank to keep current)' : 'Password (Min 6 chars)'}</label>
+              <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={isEditing ? "Type new password or leave blank..." : "Enter password (min 6 chars)"} required={!isEditing} style={styles.input} />
+            </div>
           </div>
 
           <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
@@ -1393,6 +1420,11 @@ function TeacherManager() {
                   </td>
                   <td style={{ padding: '16px', textAlign: 'right' }}>
                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                      {onOpenProxyMarks && (
+                        <button onClick={() => onOpenProxyMarks(teacher.username)} style={{ padding: '8px 14px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '13px' }}>
+                          📝 Enter Marks
+                        </button>
+                      )}
                       <button onClick={() => handleEditClick(teacher)} style={{ padding: '8px 14px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '13px' }}>Edit</button>
                       <button onClick={() => handleDeleteClick(teacher.username)} style={{ padding: '8px 14px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '13px' }}>Delete</button>
                     </div>
@@ -3545,9 +3577,22 @@ export default function UnifiedSchoolPortal() {
             </div>
             <div>
               <label style={styles.label}>Password</label>
-              <div style={{ display: 'flex', position: 'relative' }}>
-                <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setShowPassword(e.target.value)} placeholder="••••••••" required style={styles.input} />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#2563eb', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>{showPassword ? "Hide" : "Show"}</button>
+              <div style={{ position: 'relative', width: '100%' }}>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  style={{ ...styles.input, paddingRight: '65px' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#2563eb', fontWeight: '700', cursor: 'pointer', fontSize: '14px', zIndex: 2 }}
+                >
+                  {showPassword ? "Hide" : "Show"}
+                </button>
               </div>
             </div>
 
