@@ -39,6 +39,7 @@ export default function OutPassPortal() {
   // Master Data
   const [students, setStudents] = useState([]);
   const [passes, setPasses] = useState([]);
+  const [teachersMap, setTeachersMap] = useState({});
   const [loading, setLoading] = useState(true);
 
   // Teacher Issue Form State
@@ -78,6 +79,51 @@ export default function OutPassPortal() {
     return d.toISOString().slice(0, 16);
   };
 
+  // ============================================================================
+  // 🕒 12-HOUR CLOCK (AM/PM) & OFFICIAL TEACHER NAME HELPERS
+  // ============================================================================
+  const formatTime12Hour = (isoString) => {
+    if (!isoString) return "—";
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return "—";
+    return d
+      .toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      })
+      .toUpperCase();
+  };
+
+  const formatDateTime12Hour = (isoString) => {
+    if (!isoString) return "—";
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return "—";
+    const datePart = d.toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+    });
+    const timePart = d
+      .toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      })
+      .toUpperCase();
+    return `${datePart}, ${timePart}`;
+  };
+
+  // Resolves any saved username/email to the Official Teacher Name (fullName with Hudawi/Sir)
+  const getOfficialTeacherName = (rawNameOrUsername) => {
+    if (!rawNameOrUsername) return "Teacher";
+    const cleaned = String(rawNameOrUsername)
+      .replace(/\s*\(Direct\)\s*$/i, "")
+      .trim();
+    const key = cleaned.toLowerCase();
+    const prefix = key.split("@")[0];
+    return teachersMap[key] || teachersMap[prefix] || cleaned;
+  };
+
   // Initialize Default Times (+2 hours by default)
   const resetDefaultTimes = () => {
     const current = new Date();
@@ -91,63 +137,49 @@ export default function OutPassPortal() {
     resetDefaultTimes();
   }, []);
 
-  // 1. Check Auth, Verify Admin vs Teacher Role, & Load Data
+  // 1. Check Auth, Load Official Teacher Names (`fullName`), & Load Students/Passes
   useEffect(() => {
-    const unsubAuth = onAuthStateChanged(auth, async (user) => {
-      const localAdminFlag =
-        typeof window !== "undefined" &&
-        localStorage.getItem("isAdminAuth") === "true";
+    let teacherLookupCache = {};
 
-      const emailIsAdmin =
-        user?.email &&
-        ADMIN_EMAILS.map((e) => e.toLowerCase()).includes(
-          user.email.toLowerCase()
-        );
-
-      const userHasAdminAccess = Boolean(localAdminFlag || emailIsAdmin);
-      setIsAdmin(userHasAdminAccess);
-
-      if (user) {
-        setCurrentUser(user);
-        let resolvedName =
-          user.displayName ||
-          user.email?.split("@")[0]?.replace(/[._]/g, " ") ||
-          "Teacher";
-
-        try {
-          const teacherSnap = await getDocs(collection(db, "teachers"));
-          const matchedTeacher = teacherSnap.docs
-            .map((d) => d.data())
-            .find(
-              (t) =>
-                t.email &&
-                user.email &&
-                t.email.toLowerCase() === user.email.toLowerCase()
-            );
-          if (matchedTeacher?.name || matchedTeacher?.firstName) {
-            resolvedName = matchedTeacher.name || matchedTeacher.firstName;
+    const loadTeachersAndStudents = async () => {
+      try {
+        // Load Teachers Collection to map username -> fullName (Hudawi / Sir)
+        const teacherSnap = await getDocs(collection(db, "teachers"));
+        const map = {};
+        teacherSnap.docs.forEach((d) => {
+          const t = d.data();
+          const officialName = (t.fullName || t.name || t.firstName || "").trim();
+          if (officialName) {
+            if (t.username) {
+              const u = String(t.username).toLowerCase().trim();
+              map[u] = officialName;
+              map[u.split("@")[0]] = officialName;
+            }
+            if (t.email) {
+              const em = String(t.email).toLowerCase().trim();
+              map[em] = officialName;
+              map[em.split("@")[0]] = officialName;
+            }
+            map[officialName.toLowerCase()] = officialName;
           }
-        } catch (e) {
-          // Fallback to email display name
-        }
+        });
+        teacherLookupCache = map;
+        setTeachersMap(map);
 
-        setStaffName(
-          userHasAdminAccess && !user ? "Administrator" : resolvedName
-        );
-      } else if (localAdminFlag) {
-        setCurrentUser({ uid: "admin", email: "admin" });
-        setStaffName("Administrator");
-        setActiveTab("admin");
-      } else {
-        setCurrentUser(null);
+        // If user is already logged in, immediately update their displayed staffName to official fullName
+        if (auth.currentUser) {
+          const email = (auth.currentUser.email || "").toLowerCase().trim();
+          const prefix = email.split("@")[0];
+          if (map[email] || map[prefix]) {
+            setStaffName(map[email] || map[prefix]);
+          }
+        }
+      } catch (err) {
+        console.error("Error loading teachers collection:", err);
       }
 
-      setAuthChecking(false);
-    });
-
-    // Fetch Master Students List
-    const fetchStudents = async () => {
       try {
+        // Load Master Students Collection
         const snap = await getDocs(collection(db, "students"));
         const list = snap.docs.map((d) => {
           const data = d.data();
@@ -167,7 +199,86 @@ export default function OutPassPortal() {
       }
     };
 
-    fetchStudents();
+    loadTeachersAndStudents();
+
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
+      const localAdminFlag =
+        typeof window !== "undefined" &&
+        localStorage.getItem("isAdminAuth") === "true";
+
+      const emailIsAdmin =
+        user?.email &&
+        ADMIN_EMAILS.map((e) => e.toLowerCase()).includes(
+          user.email.toLowerCase()
+        );
+
+      const userHasAdminAccess = Boolean(localAdminFlag || emailIsAdmin);
+      setIsAdmin(userHasAdminAccess);
+
+      if (user) {
+        setCurrentUser(user);
+        const emailLower = (user.email || "").toLowerCase().trim();
+        const emailPrefix = emailLower.split("@")[0];
+
+        let resolvedName =
+          teacherLookupCache[emailLower] ||
+          teacherLookupCache[emailPrefix] ||
+          user.displayName ||
+          emailPrefix ||
+          "Teacher";
+
+        // If teacherLookupCache wasn't populated yet, query teachers once
+        if (
+          !teacherLookupCache[emailLower] &&
+          !teacherLookupCache[emailPrefix]
+        ) {
+          try {
+            const teacherSnap = await getDocs(collection(db, "teachers"));
+            const map = {};
+            teacherSnap.docs.forEach((d) => {
+              const t = d.data();
+              const officialName = (
+                t.fullName ||
+                t.name ||
+                t.firstName ||
+                ""
+              ).trim();
+              if (officialName) {
+                if (t.username) {
+                  const u = String(t.username).toLowerCase().trim();
+                  map[u] = officialName;
+                  map[u.split("@")[0]] = officialName;
+                }
+                if (t.email) {
+                  const em = String(t.email).toLowerCase().trim();
+                  map[em] = officialName;
+                  map[em.split("@")[0]] = officialName;
+                }
+                map[officialName.toLowerCase()] = officialName;
+              }
+            });
+            setTeachersMap(map);
+            if (map[emailLower] || map[emailPrefix]) {
+              resolvedName = map[emailLower] || map[emailPrefix];
+            }
+          } catch (e) {
+            console.error("Error matching teacher fullName:", e);
+          }
+        }
+
+        setStaffName(
+          userHasAdminAccess && !user ? "Administrator" : resolvedName
+        );
+      } else if (localAdminFlag) {
+        setCurrentUser({ uid: "admin", email: "admin" });
+        setStaffName("Administrator");
+        setActiveTab("admin");
+      } else {
+        setCurrentUser(null);
+      }
+
+      setAuthChecking(false);
+    });
 
     // Real-time listener for Out-Passes
     const q = query(collection(db, "out_passes"), orderBy("createdAt", "desc"));
@@ -261,7 +372,8 @@ export default function OutPassPortal() {
           (isAdmin ||
             p.teacherId === currentUser?.uid ||
             p.teacherEmail === currentUser?.email ||
-            p.teacherName === staffName)
+            getOfficialTeacherName(p.teacherName).toLowerCase() ===
+              staffName.toLowerCase())
       );
       if (activePass) {
         handleConfirmReturn(activePass);
@@ -322,7 +434,7 @@ export default function OutPassPortal() {
     setActiveDurationChip("6pm");
   };
 
-  // 3. Teacher Submit: Issue Out-Pass
+  // 3. Teacher Submit: Issue Out-Pass (Saves Official Teacher Name)
   const handleIssuePass = async (e) => {
     e.preventDefault();
     if (!selectedStudent) return alert("Please select or scan a student first.");
@@ -333,7 +445,9 @@ export default function OutPassPortal() {
     const existingActive = getActivePassForStudent(selectedStudent.adNo);
     if (existingActive) {
       return alert(
-        `Cannot issue pass! ${selectedStudent.name} is already marked as ${existingActive.status} (Permitted by ${existingActive.teacherName}).`
+        `Cannot issue pass! ${selectedStudent.name} is already marked as ${
+          existingActive.status
+        } (Permitted by ${getOfficialTeacherName(existingActive.teacherName)}).`
       );
     }
 
@@ -341,6 +455,7 @@ export default function OutPassPortal() {
     try {
       const nowISO = new Date().toISOString();
       const initialStatus = USE_STRICT_GATEKEEPER ? "APPROVED" : "OUTSIDE";
+      const officialTeacher = getOfficialTeacherName(staffName);
 
       await addDoc(collection(db, "out_passes"), {
         adNo: selectedStudent.adNo,
@@ -352,13 +467,11 @@ export default function OutPassPortal() {
         permittedTo: new Date(permittedTo).toISOString(),
         teacherId: currentUser?.uid || "staff",
         teacherEmail: currentUser?.email || "",
-        teacherName: staffName || "Teacher",
+        teacherName: officialTeacher,
         status: initialStatus,
         actualDepartureTime: USE_STRICT_GATEKEEPER ? null : nowISO,
         actualReturnTime: null,
-        departureClerkName: USE_STRICT_GATEKEEPER
-          ? null
-          : `${staffName || "Teacher"} (Direct)`,
+        departureClerkName: USE_STRICT_GATEKEEPER ? null : officialTeacher,
         returnClerkName: null,
         wasLateReturn: false,
         createdAt: nowISO,
@@ -395,7 +508,7 @@ export default function OutPassPortal() {
       await updateDoc(passRef, {
         status: "OUTSIDE",
         actualDepartureTime: new Date().toISOString(),
-        departureClerkName: staffName || "Gatekeeper",
+        departureClerkName: getOfficialTeacherName(staffName) || "Gatekeeper",
       });
       setGateScanResult(null);
     } catch (err) {
@@ -414,7 +527,7 @@ export default function OutPassPortal() {
       await updateDoc(passRef, {
         status: "RETURNED",
         actualReturnTime: returnTime.toISOString(),
-        returnClerkName: staffName || "Staff",
+        returnClerkName: getOfficialTeacherName(staffName) || "Staff",
         wasLateReturn: isLate,
       });
       setGateScanResult(null);
@@ -435,7 +548,7 @@ export default function OutPassPortal() {
     }
   };
 
-  // Export CSV for Admin
+  // Export CSV for Admin (Uses Official Teacher Name & 12-Hour AM/PM Clock)
   const handleExportCSV = () => {
     const headers = [
       "Ad.No",
@@ -444,10 +557,10 @@ export default function OutPassPortal() {
       "Destination",
       "Reason",
       "Permitted Teacher",
-      "Permitted From",
-      "Permitted To",
-      "Actual Departure",
-      "Actual Return",
+      "Permitted From (12h)",
+      "Permitted To (12h)",
+      "Actual Departure (12h)",
+      "Actual Return (12h)",
       "Status",
     ];
     const rows = passes.map((p) => [
@@ -456,15 +569,11 @@ export default function OutPassPortal() {
       p.studentClass,
       `"${(p.destination || "").replace(/"/g, '""')}"`,
       `"${(p.purpose || "").replace(/"/g, '""')}"`,
-      `"${(p.teacherName || "").replace(/"/g, '""')}"`,
-      p.permittedFrom ? new Date(p.permittedFrom).toLocaleString("en-IN") : "",
-      p.permittedTo ? new Date(p.permittedTo).toLocaleString("en-IN") : "",
-      p.actualDepartureTime
-        ? new Date(p.actualDepartureTime).toLocaleString("en-IN")
-        : "",
-      p.actualReturnTime
-        ? new Date(p.actualReturnTime).toLocaleString("en-IN")
-        : "",
+      `"${getOfficialTeacherName(p.teacherName).replace(/"/g, '""')}"`,
+      `"${formatDateTime12Hour(p.permittedFrom)}"`,
+      `"${formatDateTime12Hour(p.permittedTo)}"`,
+      `"${formatDateTime12Hour(p.actualDepartureTime)}"`,
+      `"${formatDateTime12Hour(p.actualReturnTime)}"`,
       p.status,
     ]);
     const csvContent =
@@ -497,7 +606,8 @@ export default function OutPassPortal() {
     if (
       staffName &&
       p.teacherName &&
-      p.teacherName.toLowerCase() === staffName.toLowerCase()
+      getOfficialTeacherName(p.teacherName).toLowerCase() ===
+        getOfficialTeacherName(staffName).toLowerCase()
     ) {
       return true;
     }
@@ -528,7 +638,6 @@ export default function OutPassPortal() {
   });
 
   // Global Lists (Strictly for Admin / Gatekeeper)
-  const approvedWaitingPasses = passes.filter((p) => p.status === "APPROVED");
   const currentlyOutsidePasses = passes.filter((p) => p.status === "OUTSIDE");
   const overduePasses = currentlyOutsidePasses.filter(
     (p) => new Date(p.permittedTo) < now
@@ -551,9 +660,12 @@ export default function OutPassPortal() {
     ).filter(Boolean),
   ];
 
+  // Admin dropdown shows Official Teacher Names (Hudawi / Sir)
   const allTeachers = [
     "ALL",
-    ...Array.from(new Set(passes.map((p) => p.teacherName))).filter(Boolean),
+    ...Array.from(
+      new Set(passes.map((p) => getOfficialTeacherName(p.teacherName)))
+    ).filter(Boolean),
   ];
 
   const matchingStudents = searchQuery.trim()
@@ -659,7 +771,7 @@ export default function OutPassPortal() {
                 {isAdmin ? "Admin:" : "Teacher:"}
               </span>
               <strong style={{ color: "#ffffff", fontSize: 13 }}>
-                {staffName || "Staff"}
+                {getOfficialTeacherName(staffName)}
               </strong>
             </div>
             <Link href="/" style={styles.backBtn}>
@@ -825,7 +937,8 @@ export default function OutPassPortal() {
                     day: "2-digit",
                     month: "short",
                     year: "numeric",
-                  })}
+                  })}{" "}
+                  • {formatTime12Hour(now.toISOString())}
                 </div>
               </div>
 
@@ -1042,10 +1155,10 @@ export default function OutPassPortal() {
                             }
                           </strong>{" "}
                           (Permitted by{" "}
-                          {
+                          {getOfficialTeacherName(
                             getActivePassForStudent(selectedStudent.adNo)
                               .teacherName
-                          }
+                          )}
                           ). They must be marked returned before issuing a new
                           pass.
                         </div>
@@ -1135,7 +1248,7 @@ export default function OutPassPortal() {
                     </div>
                   </div>
 
-                  {/* STEP 3: PERMITTED TIME WINDOW */}
+                  {/* STEP 3: PERMITTED TIME WINDOW (WITH 12-HOUR AM/PM LIVE PREVIEW) */}
                   <div style={{ marginBottom: 18 }}>
                     <label style={styles.fieldLabel}>
                       4. Permitted Date &amp; Time Allowed
@@ -1152,6 +1265,9 @@ export default function OutPassPortal() {
                           style={styles.textInput}
                           required
                         />
+                        <div style={styles.timePreview12h}>
+                          🕒 {formatDateTime12Hour(permittedFrom)}
+                        </div>
                       </div>
                       <div>
                         <span style={styles.subFieldLabel}>
@@ -1167,6 +1283,9 @@ export default function OutPassPortal() {
                           style={styles.textInput}
                           required
                         />
+                        <div style={styles.timePreview12h}>
+                          ⏳ {formatDateTime12Hour(permittedTo)}
+                        </div>
                       </div>
                     </div>
 
@@ -1210,12 +1329,12 @@ export default function OutPassPortal() {
                             : styles.quickChip
                         }
                       >
-                        🌇 Until 6:00 PM
+                        🌇 Until 06:00 PM
                       </button>
                     </div>
                   </div>
 
-                  {/* STEP 4: LOCKED TEACHER SIGNATURE */}
+                  {/* STEP 4: LOCKED OFFICIAL TEACHER SIGNATURE */}
                   <div style={styles.teacherSignatureBox}>
                     <div>
                       <div
@@ -1226,21 +1345,21 @@ export default function OutPassPortal() {
                           textTransform: "uppercase",
                         }}
                       >
-                        Permitted By Teacher (Digital Signature)
+                        Permitted By Teacher (Official Name)
                       </div>
                       <div
                         style={{
-                          fontSize: 15,
+                          fontSize: 16,
                           fontWeight: 800,
                           color: "#0f172a",
                           marginTop: 2,
                         }}
                       >
-                        👨‍🏫 {staffName}
+                        👨‍🏫 {getOfficialTeacherName(staffName)}
                       </div>
                     </div>
                     <span style={styles.verifiedAccountBadge}>
-                      ✓ Verified Account
+                      ✓ Verified Staff
                     </span>
                   </div>
 
@@ -1270,12 +1389,12 @@ export default function OutPassPortal() {
             <div style={styles.card}>
               <div style={styles.cardHeaderRow}>
                 <div>
-                  <h3 style={styles.cardTitle}>
-                    📋 My Permitted Students
-                  </h3>
+                  <h3 style={styles.cardTitle}>📋 My Permitted Students</h3>
                   <p style={styles.cardSubtitle}>
                     Live status of students permitted by{" "}
-                    <strong style={{ color: "#0f172a" }}>{staffName}</strong>
+                    <strong style={{ color: "#0f172a" }}>
+                      {getOfficialTeacherName(staffName)}
+                    </strong>
                   </p>
                 </div>
 
@@ -1291,7 +1410,7 @@ export default function OutPassPortal() {
                 </button>
               </div>
 
-              {/* Segmented Filter Control (Crystal Clear Readability) */}
+              {/* Segmented Filter Control */}
               <div style={styles.segmentedBar}>
                 {[
                   {
@@ -1452,34 +1571,20 @@ export default function OutPassPortal() {
                                 color: "#475569",
                                 marginTop: 6,
                                 display: "flex",
-                                gap: 12,
+                                gap: 14,
                                 flexWrap: "wrap",
                               }}
                             >
                               <span>
                                 🕒 Out:{" "}
                                 <strong>
-                                  {new Date(p.permittedFrom).toLocaleTimeString(
-                                    "en-IN",
-                                    {
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    }
-                                  )}
+                                  {formatTime12Hour(p.permittedFrom)}
                                 </strong>
                               </span>
                               <span>
                                 ⏳ Due:{" "}
                                 <strong>
-                                  {new Date(p.permittedTo).toLocaleString(
-                                    "en-IN",
-                                    {
-                                      day: "2-digit",
-                                      month: "short",
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    }
-                                  )}
+                                  {formatDateTime12Hour(p.permittedTo)}
                                 </strong>
                               </span>
                             </div>
@@ -1507,15 +1612,7 @@ export default function OutPassPortal() {
                                 }}
                               >
                                 ✓ Returned at:{" "}
-                                {new Date(p.actualReturnTime).toLocaleString(
-                                  "en-IN",
-                                  {
-                                    day: "2-digit",
-                                    month: "short",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  }
-                                )}
+                                {formatDateTime12Hour(p.actualReturnTime)}
                               </div>
                             )}
                           </div>
@@ -1722,7 +1819,7 @@ export default function OutPassPortal() {
                 })}
               </div>
 
-              {/* Right: Search, Class Filter, Teacher Filter, CSV Export */}
+              {/* Right: Search, Class Filter, Official Teacher Filter, CSV Export */}
               <div
                 style={{
                   display: "flex",
@@ -1857,7 +1954,7 @@ export default function OutPassPortal() {
                       <th style={styles.th}>Student Details</th>
                       <th style={styles.th}>Destination &amp; Reason</th>
                       <th style={styles.th}>Permitted Teacher</th>
-                      <th style={styles.th}>Permitted Time Window</th>
+                      <th style={styles.th}>Permitted Time (12h)</th>
                       <th style={styles.th}>Actual Out / Return</th>
                       <th style={styles.th}>Live Status &amp; Action</th>
                     </tr>
@@ -1877,7 +1974,8 @@ export default function OutPassPortal() {
                           return false;
                         if (
                           teacherFilter !== "ALL" &&
-                          p.teacherName !== teacherFilter
+                          getOfficialTeacherName(p.teacherName) !==
+                            teacherFilter
                         )
                           return false;
                         if (adminSearch.trim()) {
@@ -1886,7 +1984,10 @@ export default function OutPassPortal() {
                             p.studentName?.toLowerCase().includes(q) ||
                             String(p.adNo).toLowerCase().includes(q) ||
                             p.destination?.toLowerCase().includes(q) ||
-                            p.purpose?.toLowerCase().includes(q)
+                            p.purpose?.toLowerCase().includes(q) ||
+                            getOfficialTeacherName(p.teacherName)
+                              .toLowerCase()
+                              .includes(q)
                           );
                         }
                         return true;
@@ -1943,35 +2044,32 @@ export default function OutPassPortal() {
                               </div>
                             </td>
 
+                            {/* OFFICIAL TEACHER NAME IN ADMIN TABLE */}
                             <td style={styles.td}>
                               <div
                                 style={{
                                   display: "inline-flex",
                                   alignItems: "center",
                                   gap: 6,
-                                  background: "#f1f5f9",
-                                  padding: "5px 10px",
+                                  background: "#f0fdfa",
+                                  border: "1px solid #99f6e4",
+                                  padding: "6px 12px",
                                   borderRadius: 8,
-                                  fontWeight: 700,
-                                  color: "#1e293b",
+                                  fontWeight: 800,
+                                  color: "#0f766e",
                                   fontSize: 13,
                                 }}
                               >
-                                👨‍🏫 {p.teacherName}
+                                👨‍🏫 {getOfficialTeacherName(p.teacherName)}
                               </div>
                             </td>
 
+                            {/* 12-HOUR AM/PM PERMITTED WINDOW */}
                             <td style={styles.td}>
                               <div style={{ fontSize: 12, color: "#475569" }}>
                                 From:{" "}
                                 <strong style={{ color: "#0f172a" }}>
-                                  {new Date(p.permittedFrom).toLocaleString(
-                                    "en-IN",
-                                    {
-                                      dateStyle: "short",
-                                      timeStyle: "short",
-                                    }
-                                  )}
+                                  {formatDateTime12Hour(p.permittedFrom)}
                                 </strong>
                               </div>
                               <div
@@ -1983,13 +2081,7 @@ export default function OutPassPortal() {
                               >
                                 Due:{" "}
                                 <strong style={{ color: "#0f172a" }}>
-                                  {new Date(p.permittedTo).toLocaleString(
-                                    "en-IN",
-                                    {
-                                      dateStyle: "short",
-                                      timeStyle: "short",
-                                    }
-                                  )}
+                                  {formatDateTime12Hour(p.permittedTo)}
                                 </strong>
                               </div>
                               {p.status === "OUTSIDE" && (
@@ -2006,18 +2098,12 @@ export default function OutPassPortal() {
                               )}
                             </td>
 
+                            {/* 12-HOUR AM/PM ACTUAL OUT & RETURN */}
                             <td style={styles.td}>
                               <div style={{ fontSize: 12, color: "#334155" }}>
                                 Out:{" "}
                                 <strong>
-                                  {p.actualDepartureTime
-                                    ? new Date(
-                                        p.actualDepartureTime
-                                      ).toLocaleTimeString("en-IN", {
-                                        hour: "2-digit",
-                                        minute: "2-digit",
-                                      })
-                                    : "—"}
+                                  {formatTime12Hour(p.actualDepartureTime)}
                                 </strong>
                               </div>
                               <div
@@ -2026,18 +2112,13 @@ export default function OutPassPortal() {
                                   color: p.actualReturnTime
                                     ? "#059669"
                                     : "#d97706",
-                                  fontWeight: 600,
+                                  fontWeight: 700,
                                   marginTop: 3,
                                 }}
                               >
                                 In:{" "}
                                 {p.actualReturnTime
-                                  ? new Date(
-                                      p.actualReturnTime
-                                    ).toLocaleTimeString("en-IN", {
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })
+                                  ? formatTime12Hour(p.actualReturnTime)
                                   : "Still Outside"}
                               </div>
                             </td>
@@ -2148,7 +2229,6 @@ function getStatusBadgeStyle(status, permittedTo, now) {
 
 // ============================================================================
 // 🎨 HIGH-CONTRAST PROFESSIONAL DESIGN SYSTEM
-// Every button, badge, and input explicitly defines both `background` and `color`
 // ============================================================================
 const styles = {
   pageWrapper: {
@@ -2359,6 +2439,17 @@ const styles = {
     fontWeight: 700,
     color: "#475569",
     marginBottom: "4px",
+  },
+  timePreview12h: {
+    marginTop: "5px",
+    fontSize: "12px",
+    fontWeight: 800,
+    color: "#0f766e",
+    background: "#f0fdfa",
+    border: "1px solid #ccfbf1",
+    padding: "4px 10px",
+    borderRadius: "6px",
+    display: "inline-block",
   },
   searchInput: {
     width: "100%",
