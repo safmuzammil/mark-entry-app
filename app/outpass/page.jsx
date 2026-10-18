@@ -514,7 +514,13 @@ export default function OutPassPortal() {
         teacherLookupCache = map;
         setTeachersMap(map);
 
-        if (auth.currentUser) {
+        const isLocalAdmin =
+          typeof window !== "undefined" &&
+          localStorage.getItem("isAdminAuth") === "true";
+
+        if (isLocalAdmin) {
+          setStaffName("Admin");
+        } else if (auth.currentUser) {
           const email = (auth.currentUser.email || "").toLowerCase().trim();
           const prefix = email.split("@")[0];
           if (map[email] || map[prefix]) {
@@ -567,7 +573,14 @@ export default function OutPassPortal() {
       const userHasAdminAccess = Boolean(localAdminFlag || emailIsAdmin);
       setIsAdmin(userHasAdminAccess);
 
-      if (user) {
+      // 1. PRIORITY: If logged in as Admin via main portal, ALWAYS set name to "Admin"
+      // and ignore any leftover student/teacher Firebase session (like 240615)
+      if (localAdminFlag) {
+        setCurrentUser({ uid: "admin", email: "admin@dhiu.in" });
+        setStaffName("Admin");
+        setActiveTab("admin");
+      } else if (user) {
+        // 2. Otherwise, it's a Teacher/Staff logged in via Firebase
         setCurrentUser(user);
         const emailLower = (user.email || "").toLowerCase().trim();
         const emailPrefix = emailLower.split("@")[0];
@@ -579,13 +592,7 @@ export default function OutPassPortal() {
           emailPrefix ||
           "Teacher";
 
-        setStaffName(
-          userHasAdminAccess && !user ? "Administrator" : resolvedName
-        );
-      } else if (localAdminFlag) {
-        setCurrentUser({ uid: "admin", email: "admin" });
-        setStaffName("Administrator");
-        setActiveTab("admin");
+        setStaffName(emailIsAdmin ? "Admin" : resolvedName);
       } else {
         setCurrentUser(null);
       }
