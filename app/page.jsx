@@ -660,9 +660,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
               📚 All My Subjects
             </button>
           )}
-          <Link href="/outpass" style={{ background: "#0f766e", color: "#ffffff", padding: "10px 16px", borderRadius: "8px", fontWeight: "bold", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
-            🪪 Out-Pass Portal
-          </Link>
+          
           <button onClick={() => setActiveView(activeView === 'marks' ? 'settings' : 'marks')} style={{ padding: '10px 16px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '14px' }}>
             {activeView === 'marks' ? '⚙️ Settings' : '⬅ Back to Marks'}
           </button>
@@ -3663,9 +3661,7 @@ export default function UnifiedSchoolPortal() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
             <h1 style={{ margin: 0, fontSize: '26px', fontWeight: '800', color: '#0f172a' }}>Admin Dashboard</h1>
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <Link href="/outpass" style={{ background: "#0f766e", color: "#ffffff", padding: "10px 16px", borderRadius: "8px", fontWeight: "bold", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
-                🪪 Students&apos; Out-Pass Portal
-              </Link>
+
               <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
             </div>
           </div>
