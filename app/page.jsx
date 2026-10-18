@@ -147,20 +147,15 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
   const teacherEnrollments = loggedInTeacher?.enrollments || [];
 
   const [activeView, setActiveView] = useState('marks');
-  // 🌟 Starts empty so teacher explicitly chooses their subject first
   const [selectedEnrollmentId, setSelectedEnrollmentId] = useState('');
-  // 🌟 Starts empty so teacher explicitly chooses which level to grade
   const [cceLevel, setCceLevel] = useState('');
-  // 🌟 Teacher's personal safety lock (Default: Locked/Read-Only)
   const [isEditingUnlocked, setIsEditingUnlocked] = useState(false);
-  // 🌟 Mobile Quick-Entry Toggle
   const [isCompactMode, setIsCompactMode] = useState(false);
 
   const currentEnrollment = teacherEnrollments.find(e => e.id === selectedEnrollmentId);
   const isHifz = currentEnrollment?.subject?.toUpperCase() === 'HIFZ';
   const activeLevels = isHifz ? HIFZ_LEVELS : CCE_LEVELS;
 
-  // Automatically re-lock the sheet whenever the teacher changes subject or level
   const handleSelectSubject = (envId) => {
     setSelectedEnrollmentId(envId);
     setCceLevel('');
@@ -170,7 +165,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
 
   const handleSelectLevel = (newLevel) => {
     setCceLevel(newLevel);
-    setIsEditingUnlocked(false); // Always starts locked when switching levels for safety
+    setIsEditingUnlocked(false);
   };
 
   const assessmentMaxMark = cceLevel ? activeLevels[cceLevel] : null;
@@ -199,7 +194,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
             let configs = reminderData.targetConfigs;
             if (!configs && reminderData.targetSubjects) {
               configs = {};
-              reminderData.targetSubjects.forEach(s => configs[s] = reminderData.level || "15");
+              reminderData.targetSubjects.forEach(s => configs[s] = [reminderData.level || "15"]);
             }
 
             for (const env of teacherEnrollments) {
@@ -209,38 +204,65 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
 
               if (!matchingSubKey) continue;
 
-              const requiredLevel = configs[matchingSubKey];
-              const matchedStudents = allStudentsCache.filter(student => env.studentIds && env.studentIds.includes(student.regNo));
+              const rawLevels = configs[matchingSubKey];
+              const requiredLevelsArray = Array.isArray(rawLevels) ? rawLevels : [rawLevels];
+
+              const envAliasLower = String(env.alias || '').trim().toLowerCase();
+              const envLang = (env.langTag || '').toLowerCase();
+
+              const matchedStudents = allStudentsCache.filter(student => {
+                const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
+                const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
+                if (env.studentIds && Array.isArray(env.studentIds) && env.studentIds.length > 0) {
+                  const savedIds = env.studentIds.map(id => String(id).trim());
+                  if (savedIds.includes(student.regNo) || savedIds.includes(student.adNo)) return true;
+                }
+                let classMatch = studentClassesLower.some(cls => envAliasLower.includes(cls));
+                if (!classMatch && envAliasLower.includes('m10')) {
+                  if (studentClassesLower.some(cls => cls.includes('3')) && !isUrdu) classMatch = true;
+                }
+                if (classMatch) {
+                  if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
+                  if (envLang.includes('gen') || envLang.includes('non') || envLang === '') return !isUrdu;
+                  return true;
+                }
+                return false;
+              });
+
               if (matchedStudents.length === 0) continue;
 
-              let missingCount = 0;
               const markPromises = matchedStudents.map(st => getDoc(doc(db, 'marks', st.regNo)));
               const markDocs = await Promise.all(markPromises);
 
-              markDocs.forEach(docSnap => {
-                let hasMark = false;
-                if (docSnap.exists()) {
-                  const mData = docSnap.data();
-                  const foundKey = Object.keys(mData).find(k => {
-                    const kUp = k.trim().toUpperCase();
-                    if (actUp.includes('U :FIQH') || actUp.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
-                    if (actUp === 'FIQH') return kUp === 'FIQH';
-                    return kUp === actUp;
-                  });
-                  if (foundKey && mData[foundKey] && mData[foundKey][requiredLevel] !== undefined && mData[foundKey][requiredLevel] !== '') {
-                    hasMark = true;
+              for (const requiredLevel of requiredLevelsArray) {
+                let missingCount = 0;
+                markDocs.forEach(docSnap => {
+                  let hasMark = false;
+                  if (docSnap.exists()) {
+                    const mData = docSnap.data();
+                    const foundKey = Object.keys(mData).find(k => {
+                      const kUp = k.trim().toUpperCase();
+                      if (actUp.includes('U :FIQH') || actUp.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
+                      if (actUp === 'FIQH') return kUp === 'FIQH';
+                      return kUp === actUp;
+                    });
+                    if (foundKey && mData[foundKey] && mData[foundKey][requiredLevel] !== undefined && mData[foundKey][requiredLevel] !== '') {
+                      hasMark = true;
+                    }
                   }
-                }
-                if (!hasMark) missingCount++;
-              });
+                  if (!hasMark) missingCount++;
+                });
 
-              checklist.push({
-                alias: env.alias || env.subject,
-                targetLevel: String(requiredLevel).replace('_1', '').replace('_2', ''),
-                missing: missingCount,
-                entered: matchedStudents.length - missingCount,
-                total: matchedStudents.length
-              });
+                const lvlDisplay = requiredLevel === '50_1' ? 'Part 1 (50)' : requiredLevel === '50_2' ? 'Part 2 (50)' : `${requiredLevel} max`;
+
+                checklist.push({
+                  alias: env.alias || env.subject,
+                  targetLevel: lvlDisplay,
+                  missing: missingCount,
+                  entered: matchedStudents.length - missingCount,
+                  total: matchedStudents.length
+                });
+              }
             }
             setReminderChecklist(checklist);
           }
@@ -540,7 +562,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     try {
       await Promise.all(firestorePromises);
       setIsDirty(false);
-      setIsEditingUnlocked(false); // 🌟 Auto-lock after final save for safety!
+      setIsEditingUnlocked(false);
       
       if (selectedEnrollmentId) {
         localStorage.removeItem(`draft_marks_${selectedEnrollmentId}`);
@@ -626,7 +648,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
           </div>
           <div style={{ marginTop: '8px', background: '#ffffff', padding: '16px', borderRadius: '8px', border: '1px solid #dbeafe' }}>
             <h5 style={{ margin: '0 0 12px 0', color: '#0f172a', fontSize: '14px', fontWeight: '800' }}>Your Assigned Tasks:</h5>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
               {reminderChecklist.map((item, idx) => {
                 const isDone = item.missing === 0;
                 const inProgress = item.entered > 0 && item.missing > 0;
@@ -636,7 +658,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
                 else if (inProgress) { color = '#d97706'; icon = '⏳'; } 
                 return (
                   <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: '700', color: color }}>
-                    {icon} {item.alias} <span style={{ color: '#64748b', fontSize: '12px', marginLeft: '6px' }}>(/ {item.targetLevel} max)</span>
+                    {icon} {item.alias} <span style={{ color: '#64748b', fontSize: '12px', marginLeft: '4px' }}>({item.targetLevel})</span>
                     {!isDone && <span style={{ fontSize: '12px', fontWeight: '600', color: '#ef4444' }}>({item.missing} pending)</span>}
                   </div>
                 );
@@ -991,11 +1013,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     </div>
   );
 }
-// ==========================================
-// ADMIN COMPONENTS
 
-// ADMIN COMPONENTS
-// ==========================================
 // ==========================================
 // 🌟 TEACHER MANAGER (With Advanced Student Assignment)
 // ==========================================
@@ -1006,7 +1024,6 @@ function TeacherManager({ onOpenProxyMarks }) {
   const [enrollments, setEnrollments] = useState([]);
   const [registeredTeachers, setRegisteredTeachers] = useState([]);
 
-  // 🌟 New States for Student Assignment
   const [allStudents, setAllStudents] = useState([]);
   const [assigningEnvId, setAssigningEnvId] = useState(null);
   const [assignFilterClasses, setAssignFilterClasses] = useState([]);
@@ -1037,7 +1054,6 @@ function TeacherManager({ onOpenProxyMarks }) {
 
       const studentsData = [];
       sSnap.forEach(doc => studentsData.push({ id: doc.id, ...doc.data() }));
-      // Sort students numerically by roll number for a cleaner list
       studentsData.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
       setAllStudents(studentsData);
     } catch (err) {
@@ -1056,7 +1072,7 @@ function TeacherManager({ onOpenProxyMarks }) {
       subject: envSubject,
       alias: generatedAlias,
       langTag: envLangTag,
-      studentIds: [] // Initializes empty array for specific assignments
+      studentIds: []
     };
     setEnrollments([...enrollments, newEnv]);
     setEnvLangTag('');
@@ -1079,7 +1095,6 @@ function TeacherManager({ onOpenProxyMarks }) {
     const fakeEmail = `${safeUsername}@school.com`;
 
     try {
-      // Use SecondaryApp so creating/updating a teacher never logs out the Admin!
       if (!isEditing || password.trim().length >= 6) {
         const primaryApp = getApp();
         let secondaryApp;
@@ -1100,7 +1115,7 @@ function TeacherManager({ onOpenProxyMarks }) {
         enrollments
       };
       if (password.trim().length >= 6) {
-        teacherDocData.password = password.trim(); // Saves reference in Firestore
+        teacherDocData.password = password.trim();
       }
 
       await setDoc(doc(db, 'teachers', safeUsername), teacherDocData, { merge: true });
@@ -1140,21 +1155,15 @@ function TeacherManager({ onOpenProxyMarks }) {
     setEnrollments([]); setStatusMsg(''); setAssigningEnvId(null);
   };
 
-  // 🌟 ADVANCED STUDENT ASSIGNMENT LOGIC
   const filteredStudentsForAssign = allStudents.filter(s => {
-    // Multi-select check for Class
     if (assignFilterClasses.length > 0 && !assignFilterClasses.some(c => (s.classes || []).includes(c))) return false;
-
-    // Multi-select check for Department
     if (assignFilterDepts.length > 0 && !assignFilterDepts.includes((s.department || 'GENERAL').toUpperCase())) return false;
     if (assignFilterMadhab !== 'All' && (s.madhab || 'General') !== assignFilterMadhab) return false;
-    // Multi-select check for Language (Urdu / Non-Urdu)
     if (assignFilterLangs.length > 0) {
       const isUrdu = String(s.adNo || '').toUpperCase().startsWith('U');
       if (assignFilterLangs.includes('Urdu') && !assignFilterLangs.includes('Non-Urdu') && !isUrdu) return false;
       if (assignFilterLangs.includes('Non-Urdu') && !assignFilterLangs.includes('Urdu') && isUrdu) return false;
     }
-    // Grade Filter Check
     if (assignFilterGrade !== 'All') {
       const studentLevels = (s.classes || []).map(c => {
         const match = String(c).match(/\d+/);
@@ -1240,8 +1249,6 @@ function TeacherManager({ onOpenProxyMarks }) {
 
                   return (
                     <div key={env.id} style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #cbd5e1', overflow: 'hidden' }}>
-
-                      {/* Enrollment Header */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', background: isAssigning ? '#f8fafc' : '#ffffff', borderBottom: isAssigning ? '1px solid #e2e8f0' : 'none' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                           <h4 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>{env.alias || `${env.grade} ${env.subject}`}</h4>
@@ -1257,11 +1264,8 @@ function TeacherManager({ onOpenProxyMarks }) {
                         </div>
                       </div>
 
-                      {/* Advanced Assignment Dropdown */}
                       {isAssigning && (
                         <div style={{ padding: '20px', borderTop: '1px solid #e2e8f0' }}>
-
-                          {/* Alias Input Bar */}
                           <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
                             <input type="text" value={env.alias} onChange={(e) => updateEnvAlias(env.id, e.target.value)} placeholder="Class Alias (e.g. FCL1 Balagha)" style={{ ...styles.input, flex: 1 }} />
                             <button type="button" onClick={() => updateEnvAlias(env.id, `Grade ${env.grade} ${env.subject}`)} style={{ padding: '0 20px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>
@@ -1269,9 +1273,7 @@ function TeacherManager({ onOpenProxyMarks }) {
                             </button>
                           </div>
 
-                          {/* Filters */}
                           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '16px', padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                            {/* Multi-Select Classes */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                               <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b' }}>Select Classes (Multiple):</span>
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxWidth: '300px' }}>
@@ -1288,7 +1290,6 @@ function TeacherManager({ onOpenProxyMarks }) {
                               </div>
                             </div>
 
-                            {/* Multi-Select Departments */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderLeft: '1px solid #cbd5e1', paddingLeft: '12px', marginLeft: '6px' }}>
                               <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b' }}>Select Depts (Multiple):</span>
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxWidth: '300px' }}>
@@ -1304,7 +1305,7 @@ function TeacherManager({ onOpenProxyMarks }) {
                                 {assignFilterDepts.length > 0 && <span onClick={() => setAssignFilterDepts([])} style={{ fontSize: '12px', color: '#ef4444', cursor: 'pointer', padding: '6px', fontWeight: 'bold' }}>Clear</span>}
                               </div>
                             </div>
-                            {/* Multi-Select Language (Urdu/Non-Urdu) */}
+
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderLeft: '1px solid #cbd5e1', paddingLeft: '12px', marginLeft: '6px' }}>
                               <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b' }}>Select Language:</span>
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
@@ -1331,7 +1332,6 @@ function TeacherManager({ onOpenProxyMarks }) {
                             <input type="text" placeholder="Search name or ad.no..." value={assignSearch} onChange={(e) => setAssignSearch(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', flex: 1, minWidth: '150px' }} />
                           </div>
 
-                          {/* Checkbox List */}
                           <div style={{ border: '1px solid #cbd5e1', borderRadius: '8px', overflow: 'hidden' }}>
                             <div style={{ padding: '12px 16px', background: '#f1f5f9', borderBottom: '1px solid #cbd5e1', display: 'flex', alignItems: 'center' }}>
                               <input
@@ -1365,7 +1365,6 @@ function TeacherManager({ onOpenProxyMarks }) {
                             </div>
                           </div>
 
-                          {/* Done Button */}
                           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
                             <button type="button" onClick={() => setAssigningEnvId(null)} style={{ padding: '10px 24px', background: '#10b981', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '14px' }}>
                               Done Selecting
@@ -1466,7 +1465,6 @@ function StudentManager() {
   const [statusMsg, setStatusMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // 🌟 NEW STATES: Mass RegNo Migration
   const [isRegNoEditMode, setIsRegNoEditMode] = useState(false);
   const [regNoDrafts, setRegNoDrafts] = useState({});
 
@@ -1626,7 +1624,6 @@ function StudentManager() {
 
   const resetForm = () => { setIsEditing(false); setRollNo(''); setRegNo(''); setAdNo(''); setFirstName(''); setDepartment(DEPARTMENTS[0]); setMadhab('Hanafi'); setSelectedClasses([]); setStatusMsg(''); };
 
-  // 🌟 ANTI-CRASH SAFEGUARD: Forces any stored data into a clean array before rendering
   const getSafeClassesArray = (student) => {
     if (Array.isArray(student.classes)) return student.classes;
     if (typeof student.classes === 'string') return [student.classes];
@@ -1668,7 +1665,6 @@ function StudentManager() {
     else setSelectedRows(filteredArray.map(s => s.regNo));
   };
 
-  // 🌟 MIGRATION FUNCTIONS
   const handleRegNoDraftChange = (oldRegNo, val) => {
     setRegNoDrafts(prev => ({ ...prev, [oldRegNo]: val }));
   };
@@ -1973,7 +1969,8 @@ function ReportManager() {
   const [auditPreset, setAuditPreset] = useState('ALL');
   const [exportDepartment, setExportDepartment] = useState('All');
   const [exportClassFilter, setExportClassFilter] = useState('All');
-  const [exportMetric, setExportMetric] = useState('490');
+  // 🌟 Defaults to STATUS (Formula-based Current Status %)
+  const [exportMetric, setExportMetric] = useState('STATUS');
   const [exportSubject, setExportSubject] = useState(DEFAULT_SUBJECTS[0]);
   const [thresholdCondition, setThresholdCondition] = useState('Below');
   const [thresholdScore, setThresholdScore] = useState(40);
@@ -1987,8 +1984,7 @@ function ReportManager() {
   const [inspectorTeacherUsername, setInspectorTeacherUsername] = useState('');
   const [inspectorTeacherEnrollmentId, setInspectorTeacherEnrollmentId] = useState('');
 
-  // 🌟 NEW STATES FOR ANALYTICS AND AVERAGES
-  const [analyticsMode, setAnalyticsMode] = useState('grade'); // Changed to 'grade'
+  const [analyticsMode, setAnalyticsMode] = useState('grade');
   const [analyticsGrade, setAnalyticsGrade] = useState('1');
   const [analyticsTeacherUsername, setAnalyticsTeacherUsername] = useState('');
   const [analyticsData, setAnalyticsData] = useState(null);
@@ -2008,7 +2004,7 @@ function ReportManager() {
       setAllTeachers(tData);
       if (tData.length > 0) {
         setInspectorTeacherUsername(tData[0].username);
-        setAnalyticsTeacherUsername(tData[0].username); // Set default for analytics
+        setAnalyticsTeacherUsername(tData[0].username);
         if (tData[0].enrollments?.length > 0) {
           setInspectorTeacherEnrollmentId(tData[0].enrollments[0].id);
         }
@@ -2061,20 +2057,30 @@ function ReportManager() {
     fetchReportData();
   }, []);
 
-  // Helper to compute a student's local metric from Firebase Marks
+  // Helper to compute a student's local metric using the exact Google Sheet formula:
+  // SUM(Marks Entered) / SUM(Max Marks of Entered Levels)
   const computeStudentLocalMetrics = (student) => {
     const stMarks = localFirebaseMarks[student.regNo] || localFirebaseMarks[student.id] || localFirebaseMarks[student.adNo];
     if (!stMarks || Object.keys(stMarks).length === 0) {
-      return { hasAnyData: false, total1400: 0, total490: 0, overallPct: 0, getSubjectScore: () => null };
+      return {
+        hasAnyData: false,
+        total1400: 0,
+        total490: 0,
+        overallPct: 0,
+        getSubjectScore: () => null,
+        getSubjectStatusPct: () => null
+      };
     }
 
     let total1400 = 0;
     let total490 = 0;
+    let totalEnteredObtained = 0;
+    let totalEnteredMaxPossible = 0;
     let hasAnyData = false;
 
-    const getSubjectScore = (targetSub) => {
+    const findMatchingKey = (targetSub) => {
       const exactSub = targetSub.trim().toUpperCase();
-      const foundKey = Object.keys(stMarks).find(k => {
+      return Object.keys(stMarks).find(k => {
         const kUp = k.trim().toUpperCase();
         const isActUsul = exactSub.includes('U :FIQH') || exactSub.includes('U:FIQH');
         const isKUsul = kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
@@ -2082,50 +2088,111 @@ function ReportManager() {
         if (exactSub === 'FIQH') return kUp === 'FIQH' && !isKUsul;
         return kUp === exactSub;
       });
+    };
 
+    // Formula for a single subject: SUM(F5:I5)/SUMPRODUCT(--ISNUMBER(F5:I5),F$3:I$3)
+    const getSubjectStatusPct = (targetSub) => {
+      const exactSub = targetSub.trim().toUpperCase();
+      const foundKey = findMatchingKey(targetSub);
       if (!foundKey || !stMarks[foundKey]) return null;
+
+      const m = stMarks[foundKey];
+      let subObtained = 0;
+      let subMaxPossible = 0;
+
+      if (exactSub === 'HIFZ') {
+        if (m['50_1'] !== undefined && m['50_1'] !== '' && !isNaN(parseFloat(m['50_1']))) {
+          subObtained += parseFloat(m['50_1']);
+          subMaxPossible += 50;
+        }
+        if (m['50_2'] !== undefined && m['50_2'] !== '' && !isNaN(parseFloat(m['50_2']))) {
+          subObtained += parseFloat(m['50_2']);
+          subMaxPossible += 50;
+        }
+      } else {
+        ['15', '20', '25', '40'].forEach(lvl => {
+          if (m[lvl] !== undefined && m[lvl] !== '' && !isNaN(parseFloat(m[lvl]))) {
+            subObtained += parseFloat(m[lvl]);
+            subMaxPossible += Number(lvl);
+          }
+        });
+      }
+
+      if (subMaxPossible === 0) return null;
+      return Number(((subObtained / subMaxPossible) * 100).toFixed(2));
+    };
+
+    const getSubjectScore = (targetSub) => {
+      const exactSub = targetSub.trim().toUpperCase();
+      const foundKey = findMatchingKey(targetSub);
+      if (!foundKey || !stMarks[foundKey]) return null;
+
       const m = stMarks[foundKey];
       let t100 = 0;
       let subHasData = false;
 
       if (exactSub === 'HIFZ') {
-        if (m['50_1'] !== undefined && m['50_1'] !== '') { t100 += parseFloat(m['50_1']); subHasData = true; }
-        if (m['50_2'] !== undefined && m['50_2'] !== '') { t100 += parseFloat(m['50_2']); subHasData = true; }
+        if (m['50_1'] !== undefined && m['50_1'] !== '' && !isNaN(parseFloat(m['50_1']))) { t100 += parseFloat(m['50_1']); subHasData = true; }
+        if (m['50_2'] !== undefined && m['50_2'] !== '' && !isNaN(parseFloat(m['50_2']))) { t100 += parseFloat(m['50_2']); subHasData = true; }
         return subHasData ? Number(t100.toFixed(1)) : null;
       } else {
-        if (m['15'] !== undefined && m['15'] !== '') { t100 += parseFloat(m['15']); subHasData = true; }
-        if (m['20'] !== undefined && m['20'] !== '') { t100 += parseFloat(m['20']); subHasData = true; }
-        if (m['25'] !== undefined && m['25'] !== '') { t100 += parseFloat(m['25']); subHasData = true; }
-        if (m['40'] !== undefined && m['40'] !== '') { t100 += parseFloat(m['40']); subHasData = true; }
+        ['15', '20', '25', '40'].forEach(lvl => {
+          if (m[lvl] !== undefined && m[lvl] !== '' && !isNaN(parseFloat(m[lvl]))) {
+            t100 += parseFloat(m[lvl]);
+            subHasData = true;
+          }
+        });
         return subHasData ? Number(((t100 / 100) * 30).toFixed(1)) : null;
       }
     };
 
     Object.keys(stMarks).forEach(subKey => {
       const m = stMarks[subKey];
+      if (!m || typeof m !== 'object') return;
       const isHifz = subKey.trim().toUpperCase() === 'HIFZ';
       let subSumObtained = 0;
-      let subHasData = false;
+      let subMaxPossible = 0;
 
       if (isHifz) {
-        if (m['50_1'] !== undefined && m['50_1'] !== '') { subSumObtained += parseFloat(m['50_1']); subHasData = true; }
-        if (m['50_2'] !== undefined && m['50_2'] !== '') { subSumObtained += parseFloat(m['50_2']); subHasData = true; }
+        if (m['50_1'] !== undefined && m['50_1'] !== '' && !isNaN(parseFloat(m['50_1']))) {
+          subSumObtained += parseFloat(m['50_1']);
+          subMaxPossible += 50;
+        }
+        if (m['50_2'] !== undefined && m['50_2'] !== '' && !isNaN(parseFloat(m['50_2']))) {
+          subSumObtained += parseFloat(m['50_2']);
+          subMaxPossible += 50;
+        }
       } else {
-        if (m['15'] !== undefined && m['15'] !== '') { subSumObtained += parseFloat(m['15']); subHasData = true; }
-        if (m['20'] !== undefined && m['20'] !== '') { subSumObtained += parseFloat(m['20']); subHasData = true; }
-        if (m['25'] !== undefined && m['25'] !== '') { subSumObtained += parseFloat(m['25']); subHasData = true; }
-        if (m['40'] !== undefined && m['40'] !== '') { subSumObtained += parseFloat(m['40']); subHasData = true; }
+        ['15', '20', '25', '40'].forEach(lvl => {
+          if (m[lvl] !== undefined && m[lvl] !== '' && !isNaN(parseFloat(m[lvl]))) {
+            subSumObtained += parseFloat(m[lvl]);
+            subMaxPossible += Number(lvl);
+          }
+        });
       }
 
-      if (subHasData) {
+      if (subMaxPossible > 0) {
         hasAnyData = true;
         total1400 += subSumObtained;
         total490 += isHifz ? subSumObtained : Number(((subSumObtained / 100) * 30).toFixed(1));
+        totalEnteredObtained += subSumObtained;
+        totalEnteredMaxPossible += subMaxPossible;
       }
     });
 
-    const overallPct = hasAnyData ? Number((((total1400 + total490) / 1890) * 100).toFixed(2)) : 0;
-    return { hasAnyData, total1400, total490: Number(total490.toFixed(1)), overallPct, getSubjectScore };
+    // 🌟 Current Status % based ONLY on marks entered so far (replicates Sheet SUM / SUMPRODUCT formula)
+    const overallPct = totalEnteredMaxPossible > 0
+      ? Number(((totalEnteredObtained / totalEnteredMaxPossible) * 100).toFixed(2))
+      : 0;
+
+    return {
+      hasAnyData,
+      total1400,
+      total490: Number(total490.toFixed(1)),
+      overallPct,
+      getSubjectScore,
+      getSubjectStatusPct
+    };
   };
 
   const generateFilteredList = () => {
@@ -2153,18 +2220,19 @@ function ReportManager() {
 
       if (!metrics.hasAnyData) return false;
 
-      let score = null;
-      if (exportMetric === 'STATUS') score = metrics.overallPct;
-      else if (exportMetric === '1400') score = metrics.total1400;
-      else if (exportMetric === '490') score = metrics.total490;
-      else if (exportMetric === 'SUBJECT') score = metrics.getSubjectScore(exportSubject);
-
-      if (score === null || isNaN(score)) return false;
-
-      if (auditPreset === 'FAIL' && metrics.overallPct >= 40) return false;
-      if (auditPreset === 'TOP' && metrics.overallPct < 80) return false;
+      // 🌟 FAIL (< 40%) and TOP (>= 80%) evaluate the formula-based Current Status %
+      if (auditPreset === 'FAIL') return metrics.overallPct < 40;
+      if (auditPreset === 'TOP') return metrics.overallPct >= 80;
 
       if (auditPreset === 'CUSTOM') {
+        let score = null;
+        if (exportMetric === 'STATUS') score = metrics.overallPct;
+        else if (exportMetric === 'SUBJECT_STATUS') score = metrics.getSubjectStatusPct(exportSubject);
+        else if (exportMetric === '1400') score = metrics.total1400;
+        else if (exportMetric === '490') score = metrics.total490;
+        else if (exportMetric === 'SUBJECT') score = metrics.getSubjectScore(exportSubject);
+
+        if (score === null || isNaN(score)) return false;
         if (thresholdCondition === 'Below' && score >= Number(thresholdScore)) return false;
         if (thresholdCondition === 'Above' && score < Number(thresholdScore)) return false;
       }
@@ -2176,13 +2244,18 @@ function ReportManager() {
       let printedMetric = 'Missing / -';
       const metrics = computeStudentLocalMetrics(s);
 
-      if (exportMetric === 'SUBJECT') {
+      if (auditPreset === 'FAIL' || auditPreset === 'TOP') {
+        printedMetric = metrics.hasAnyData ? `${metrics.overallPct.toFixed(2)}%` : 'Missing / -';
+      } else if (exportMetric === 'SUBJECT_STATUS') {
+        const subPct = metrics.getSubjectStatusPct(exportSubject);
+        printedMetric = subPct !== null ? `${subPct.toFixed(2)}%` : 'Missing / -';
+      } else if (exportMetric === 'SUBJECT') {
         const subScore = metrics.getSubjectScore(exportSubject);
         printedMetric = subScore !== null ? subScore.toString() : 'Missing / -';
       } else if (metrics.hasAnyData) {
-        if (exportMetric === '490') printedMetric = metrics.total490.toFixed(1);
+        if (exportMetric === 'STATUS') printedMetric = `${metrics.overallPct.toFixed(2)}%`;
+        else if (exportMetric === '490') printedMetric = metrics.total490.toFixed(1);
         else if (exportMetric === '1400') printedMetric = metrics.total1400.toString();
-        else if (exportMetric === 'STATUS') printedMetric = metrics.overallPct.toFixed(2) + '%';
       }
 
       return { ...s, displayMetric: printedMetric };
@@ -2200,7 +2273,6 @@ function ReportManager() {
     else setStatusMsg(`Found ${sortedMappedResults.length} students matching your filter criteria.`);
   };
 
-  // 🌟 FIXED: Counts directly from Firebase marks instead of stale Google Sheets cache!
   const totalStudentsCount = registeredStudents.length;
   const studentsWithMarks = registeredStudents.filter(s => {
     const stMarks = localFirebaseMarks[s.regNo] || localFirebaseMarks[s.id] || localFirebaseMarks[s.adNo];
@@ -2208,7 +2280,7 @@ function ReportManager() {
   }).length;
   const missingMarksCount = totalStudentsCount - studentsWithMarks;
 
-const fetchClassSubjectMarks = async () => {
+  const fetchClassSubjectMarks = async () => {
     setIsInspecting(true);
     try {
       const studentSnap = await getDocs(collection(db, 'students'));
@@ -2256,7 +2328,6 @@ const fetchClassSubjectMarks = async () => {
         targetTeacherName = selectedTeacher.fullName;
       }
 
-      // Helper for distinct subject match
       const isMatchingSubject = (inspSub, envSub, envAliasUpper) => {
         const isInspUsul = inspSub === 'U :FIQH' || inspSub === 'U:FIQH';
         const isEnvUsul = envSub === 'U :FIQH' || envSub === 'U:FIQH' || envAliasUpper.includes('U :FIQH') || envAliasUpper.includes('U:FIQH');
@@ -2279,19 +2350,13 @@ const fetchClassSubjectMarks = async () => {
         let assignedTeacher = 'Unassigned';
         let shouldInclude = false;
 
-        // ==========================================
-        // STRICT MODE 1: FILTER BY CLASS & SUBJECT
-        // ==========================================
         if (inspectorMode === 'class') {
           const targetClassLower = inspectorClass.toLowerCase();
-          
-          // STRICT MATCH: Only include if the student's exact class matches the dropdown selection
           let classMatch = studentClassesLower.some(c => c === targetClassLower || c.includes(targetClassLower));
 
-          if (!classMatch) continue; // Exclude immediately if not in the exact class
+          if (!classMatch) continue;
           shouldInclude = true;
 
-          // Find who teaches this subject to this specific student
           for (const teacher of teachersList) {
             const matchingEnv = teacher.enrollments.find(env => {
               const envSub = String(env.subject || '').trim().toUpperCase();
@@ -2309,9 +2374,9 @@ const fetchClassSubjectMarks = async () => {
               if (!cMatch && envAliasLower.includes('m10') && studentClassesLower.some(c=>c.includes('3'))) cMatch = true;
               
               if (cMatch) {
-                  if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
-                  if (envLang.includes('gen') || envLang.includes('non') || envLang === '') return !isUrdu;
-                  return true;
+                if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
+                if (envLang.includes('gen') || envLang.includes('non') || envLang === '') return !isUrdu;
+                return true;
               }
               return false;
             });
@@ -2321,11 +2386,7 @@ const fetchClassSubjectMarks = async () => {
               break;
             }
           }
-        } 
-        // ==========================================
-        // STRICT MODE 2: FILTER BY TEACHER ASSIGNMENT
-        // ==========================================
-        else if (inspectorMode === 'teacher') {
+        } else if (inspectorMode === 'teacher') {
           if (!targetEnv) continue;
           
           const envAliasLower = String(targetEnv.alias || '').trim().toLowerCase();
@@ -2342,8 +2403,8 @@ const fetchClassSubjectMarks = async () => {
               if (studentClassesLower.some(cls => cls.includes('3')) && !isUrdu) cMatch = true;
             }
             if (!cMatch) {
-               const envG = String(targetEnv.grade || '');
-               if (envG && studentClassesLower.some(c => c.includes(envG))) cMatch = true;
+              const envG = String(targetEnv.grade || '');
+              if (envG && studentClassesLower.some(c => c.includes(envG))) cMatch = true;
             }
 
             if (cMatch) {
@@ -2353,7 +2414,7 @@ const fetchClassSubjectMarks = async () => {
             }
           }
 
-          if (!matchesEnv) continue; // Exclude immediately if not enrolled in this specific assignment
+          if (!matchesEnv) continue;
           shouldInclude = true;
           assignedTeacher = targetTeacherName;
         }
@@ -2363,7 +2424,6 @@ const fetchClassSubjectMarks = async () => {
         teacherRecord[student.regNo || student.id] = assignedTeacher;
         finalMatchedStudents.push(student);
 
-        // Fetch their marks securely
         let markSnap = null;
         const possibleKeys = [student.regNo, student.id, student.adNo, student.admissionNo].filter(Boolean);
         for (const key of possibleKeys) {
@@ -2440,7 +2500,6 @@ const fetchClassSubjectMarks = async () => {
       const res = await fetch(WEB_APP_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        // Added an 'action' tag so your app script knows it's a bulk mass-sync
         body: JSON.stringify({ marks: allMarksPayload, action: 'massSync' }) 
       });
 
@@ -2456,15 +2515,12 @@ const fetchClassSubjectMarks = async () => {
     }
     setIsLoading(false);
   };
-  // 🌟 NEW: FUNCTION TO GENERATE CLASS OR TEACHER AVERAGES ANALYTICS
-  // 🌟 REPLACE the entire generateAnalytics function inside ReportManager
-  // 🌟 REPLACE the first part of generateAnalytics inside ReportManager
+
   const generateAnalytics = async () => {
     setIsFetchingAnalytics(true);
     try {
       let targetEnrollments = [];
 
-      // Gather Enrollments by Grade (1, 2, 3) or by Teacher
       if (analyticsMode === 'grade') {
         allTeachers.forEach(t => {
           (t.enrollments || []).forEach(env => {
@@ -2498,7 +2554,7 @@ const fetchClassSubjectMarks = async () => {
           const studentClassesLower = (student.classes || []).map(c => String(c).trim().toLowerCase());
           const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
 
-          if (env.studentIds && Array.isArray(env.studentIds)) {
+          if (env.studentIds && Array.isArray(env.studentIds) && env.studentIds.length > 0) {
             const savedIds = env.studentIds.map(id => String(id).trim());
             if (savedIds.includes(student.regNo) || savedIds.includes(student.adNo)) return true;
           }
@@ -2524,7 +2580,6 @@ const fetchClassSubjectMarks = async () => {
         matchedStudents.forEach(st => {
           const stMarksData = allMarks[st.regNo] || allMarks[st.id] || allMarks[st.adNo];
           if (stMarksData) {
-            // Updated key finder logic included here to match Hifz perfectly
             const foundSubjectKey = Object.keys(stMarksData).find(k => {
               const kUp = k.trim().toUpperCase();
               const actUp = exactSubject.trim().toUpperCase();
@@ -2604,29 +2659,44 @@ const fetchClassSubjectMarks = async () => {
     });
   };
 
+  let isHifzInsp = false;
+  if (inspectorMode === 'class') {
+    isHifzInsp = inspectorSubject.toUpperCase() === 'HIFZ';
+  } else {
+    const selectedTeacher = allTeachers.find(t => t.username === inspectorTeacherUsername);
+    const selectedEnv = selectedTeacher?.enrollments?.find(e => e.id === inspectorTeacherEnrollmentId);
+    isHifzInsp = selectedEnv?.subject?.toUpperCase() === 'HIFZ';
+  }
+
   // ==========================================
   // 🌟 EXPORT HANDLERS FOR MARK INSPECTOR
   // ==========================================
   const handleDownloadInspectorExcel = () => {
     if (!subjectLevelMarks.students || subjectLevelMarks.students.length === 0) return alert("No data to download.");
 
-    let csvContent = 'data:text/csv;charset=utf-8,Roll,Ad.No,Student Name,Reg.No,Lvl 1 (15),Lvl 2 (20),Lvl 3 (25),Lvl 4 (40),Total (/100),Scaled (/30)';
+    let csvContent = isHifzInsp
+      ? 'data:text/csv;charset=utf-8,Roll,Ad.No,Student Name,Reg.No,Part 1 (50),Part 2 (50),-,-,Total (/100),Scaled (/30)'
+      : 'data:text/csv;charset=utf-8,Roll,Ad.No,Student Name,Reg.No,Lvl 1 (15),Lvl 2 (20),Lvl 3 (25),Lvl 4 (40),Total (/100),Scaled (/30)';
     if (inspectorMode === 'class') csvContent += ',Teacher';
     csvContent += '\n';
 
     subjectLevelMarks.students.forEach((student) => {
       const marks = subjectLevelMarks.records[student.regNo || student.id] || {};
       const teacherName = subjectLevelMarks.teachers[student.regNo || student.id] || 'Unassigned';
-      const m1 = parseFloat(marks['15']) || 0;
-      const m2 = parseFloat(marks['20']) || 0;
-      const m3 = parseFloat(marks['25']) || 0;
-      const m4 = parseFloat(marks['40']) || 0;
+      const m1 = parseFloat(marks[isHifzInsp ? '50_1' : '15']) || 0;
+      const m2 = parseFloat(marks[isHifzInsp ? '50_2' : '20']) || 0;
+      const m3 = isHifzInsp ? 0 : (parseFloat(marks['25']) || 0);
+      const m4 = isHifzInsp ? 0 : (parseFloat(marks['40']) || 0);
       const total100 = m1 + m2 + m3 + m4;
-      const scaled30 = total100 > 0 ? ((total100 / 100) * 30).toFixed(1) : '-';
+      const scaled30 = isHifzInsp ? '-' : (total100 > 0 ? ((total100 / 100) * 30).toFixed(1) : '-');
 
       const safeName = (student.firstName || '').replace(/"/g, '""');
+      const c1 = marks[isHifzInsp ? '50_1' : '15'] ?? '-';
+      const c2 = marks[isHifzInsp ? '50_2' : '20'] ?? '-';
+      const c3 = isHifzInsp ? '-' : (marks['25'] ?? '-');
+      const c4 = isHifzInsp ? '-' : (marks['40'] ?? '-');
 
-      csvContent += `${student.rollNo || '-'},${student.adNo},"${safeName}",${student.regNo},${marks['15'] || '-'},${marks['20'] || '-'},${marks['25'] || '-'},${marks['40'] || '-'},${total100 > 0 ? total100 : '-'},${scaled30}`;
+      csvContent += `${student.rollNo || '-'},${student.adNo},"${safeName}",${student.regNo},${c1},${c2},${c3},${c4},${total100 > 0 ? total100 : '-'},${scaled30}`;
       if (inspectorMode === 'class') csvContent += `,"${teacherName}"`;
       csvContent += '\n';
     });
@@ -2641,19 +2711,28 @@ const fetchClassSubjectMarks = async () => {
   const handleCopyInspectorToClipboard = () => {
     if (!subjectLevelMarks.students || subjectLevelMarks.students.length === 0) return alert("No data to copy.");
 
-    let tsvContent = 'Roll\tAd.No\tStudent Name\tReg.No\tLvl 1 (15)\tLvl 2 (20)\tLvl 3 (25)\tLvl 4 (40)\tTotal (/100)\tScaled (/30)';
+    let tsvContent = isHifzInsp
+      ? 'Roll\tAd.No\tStudent Name\tReg.No\tPart 1 (50)\tPart 2 (50)\t-\t-\tTotal (/100)\tScaled (/30)'
+      : 'Roll\tAd.No\tStudent Name\tReg.No\tLvl 1 (15)\tLvl 2 (20)\tLvl 3 (25)\tLvl 4 (40)\tTotal (/100)\tScaled (/30)';
     if (inspectorMode === 'class') tsvContent += '\tTeacher';
     tsvContent += '\n';
 
     subjectLevelMarks.students.forEach((student) => {
       const marks = subjectLevelMarks.records[student.regNo || student.id] || {};
       const teacherName = subjectLevelMarks.teachers[student.regNo || student.id] || 'Unassigned';
-      const m1 = parseFloat(marks['15']) || 0; const m2 = parseFloat(marks['20']) || 0;
-      const m3 = parseFloat(marks['25']) || 0; const m4 = parseFloat(marks['40']) || 0;
+      const m1 = parseFloat(marks[isHifzInsp ? '50_1' : '15']) || 0;
+      const m2 = parseFloat(marks[isHifzInsp ? '50_2' : '20']) || 0;
+      const m3 = isHifzInsp ? 0 : (parseFloat(marks['25']) || 0);
+      const m4 = isHifzInsp ? 0 : (parseFloat(marks['40']) || 0);
       const total100 = m1 + m2 + m3 + m4;
-      const scaled30 = total100 > 0 ? ((total100 / 100) * 30).toFixed(1) : '-';
+      const scaled30 = isHifzInsp ? '-' : (total100 > 0 ? ((total100 / 100) * 30).toFixed(1) : '-');
 
-      tsvContent += `${student.rollNo || '-'}\t${student.adNo}\t${student.firstName || ''}\t${student.regNo}\t${marks['15'] || '-'}\t${marks['20'] || '-'}\t${marks['25'] || '-'}\t${marks['40'] || '-'}\t${total100 > 0 ? total100 : '-'}\t${scaled30}`;
+      const c1 = marks[isHifzInsp ? '50_1' : '15'] ?? '-';
+      const c2 = marks[isHifzInsp ? '50_2' : '20'] ?? '-';
+      const c3 = isHifzInsp ? '-' : (marks['25'] ?? '-');
+      const c4 = isHifzInsp ? '-' : (marks['40'] ?? '-');
+
+      tsvContent += `${student.rollNo || '-'}\t${student.adNo}\t${student.firstName || ''}\t${student.regNo}\t${c1}\t${c2}\t${c3}\t${c4}\t${total100 > 0 ? total100 : '-'}\t${scaled30}`;
       if (inspectorMode === 'class') tsvContent += `\t${teacherName}`;
       tsvContent += '\n';
     });
@@ -2689,15 +2768,6 @@ const fetchClassSubjectMarks = async () => {
 
     navigator.clipboard.writeText(tsvContent).then(() => alert('✅ Analytics Table copied to clipboard!'));
   };
-  
-  let isHifzInsp = false;
-  if (inspectorMode === 'class') {
-    isHifzInsp = inspectorSubject.toUpperCase() === 'HIFZ';
-  } else {
-    const selectedTeacher = allTeachers.find(t => t.username === inspectorTeacherUsername);
-    const selectedEnv = selectedTeacher?.enrollments?.find(e => e.id === inspectorTeacherEnrollmentId);
-    isHifzInsp = selectedEnv?.subject?.toUpperCase() === 'HIFZ';
-  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -2774,13 +2844,14 @@ const fetchClassSubjectMarks = async () => {
             <div>
               <label style={styles.label}>Metric:</label>
               <select value={exportMetric} onChange={(e) => setExportMetric(e.target.value)} style={styles.input}>
+                <option value="STATUS">Current Status Percentage (%)</option>
+                <option value="SUBJECT_STATUS">Specific Subject Current Status (%)</option>
                 <option value="490">Total out of 490</option>
                 <option value="1400">Total out of 1400</option>
-                <option value="STATUS">Overall Percentage (%)</option>
-                <option value="SUBJECT">Specific Subject</option>
+                <option value="SUBJECT">Specific Subject Scaled (/30)</option>
               </select>
             </div>
-            {exportMetric === 'SUBJECT' && (
+            {(exportMetric === 'SUBJECT' || exportMetric === 'SUBJECT_STATUS') && (
               <div>
                 <label style={styles.label}>Subject:</label>
                 <select value={exportSubject} onChange={(e) => setExportSubject(e.target.value)} style={styles.input}>
@@ -2832,8 +2903,16 @@ const fetchClassSubjectMarks = async () => {
                     <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Name</th>
                     <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '150px' }}>Department</th>
                     <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '120px' }}>Class</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '160px', textAlign: 'right' }}>
-                      {exportMetric === '490' ? 'Score (/490)' : exportMetric === '1400' ? 'Score (/1400)' : exportMetric === 'STATUS' ? 'Percentage (%)' : 'Score'}
+                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '180px', textAlign: 'right' }}>
+                      {(auditPreset === 'FAIL' || auditPreset === 'TOP' || exportMetric === 'STATUS')
+                        ? 'Current Status (%)'
+                        : exportMetric === 'SUBJECT_STATUS'
+                        ? `${exportSubject} Status (%)`
+                        : exportMetric === '490'
+                        ? 'Score (/490)'
+                        : exportMetric === '1400'
+                        ? 'Score (/1400)'
+                        : `${exportSubject} Score`}
                     </th>
                   </tr>
                 </thead>
@@ -2952,21 +3031,17 @@ const fetchClassSubjectMarks = async () => {
                     <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '60px' }}>Roll</th>
                     <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '100px' }}>Ad.No</th>
                     <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Student Name</th>
-                    
-                    {/* 👇 THIS IS THE UPDATED PART 👇 */}
                     <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>{isHifzInsp ? 'Part 1 (50)' : 'Lvl 1 (15)'}</th>
                     <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>{isHifzInsp ? 'Part 2 (50)' : 'Lvl 2 (20)'}</th>
                     <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>{isHifzInsp ? '-' : 'Lvl 3 (25)'}</th>
                     <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '90px' }}>{isHifzInsp ? '-' : 'Lvl 4 (40)'}</th>
-                    {/* 👆 ======================= 👆 */}
-
                     <th style={{ padding: '14px 16px', color: '#1e40af', fontWeight: '800', width: '100px' }}>Total (/100)</th>
                     <th style={{ padding: '14px 16px', color: '#047857', fontWeight: '800', width: '100px' }}>Scaled (/30)</th>
                     {inspectorMode === 'class' && <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', width: '160px' }}>Teacher</th>}
                   </tr>
                 </thead>
                 <tbody>
-                 {subjectLevelMarks.students.map((student, idx) => {
+                  {subjectLevelMarks.students.map((student, idx) => {
                     const marks = subjectLevelMarks.records[student.regNo || student.id] || {};
                     const teacherName = subjectLevelMarks.teachers[student.regNo || student.id] || 'Unassigned';
                     const m1 = parseFloat(marks[isHifzInsp ? '50_1' : '15']) || 0;
@@ -3119,6 +3194,20 @@ function ReminderManager() {
   const [trackerData, setTrackerData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  const normalizeConfigToMapOfArrays = (rawConfigs) => {
+    const normalized = {};
+    if (!rawConfigs || typeof rawConfigs !== 'object') return normalized;
+    Object.keys(rawConfigs).forEach(sub => {
+      const val = rawConfigs[sub];
+      if (Array.isArray(val)) {
+        if (val.length > 0) normalized[sub] = val;
+      } else if (val) {
+        normalized[sub] = [String(val)];
+      }
+    });
+    return normalized;
+  };
+
   const fetchTrackerData = async () => {
     setIsLoading(true);
     try {
@@ -3129,6 +3218,8 @@ function ReminderManager() {
         getDoc(doc(db, 'systemCache', 'activeReminder'))
       ]);
 
+      let activeConfigs = {};
+
       if (cacheSnap.exists()) {
         const data = cacheSnap.data();
         setWeekName(data.weekName || 'Week 1');
@@ -3136,27 +3227,23 @@ function ReminderManager() {
         setIsActive(data.active || false);
 
         if (data.targetConfigs) {
-          setTargetConfigs(data.targetConfigs);
+          activeConfigs = normalizeConfigToMapOfArrays(data.targetConfigs);
         } else if (data.targetSubjects) {
           let migratedConf = {};
           const fallbackLvl = data.level || "15";
           if (data.targetSubjects.includes('All')) {
-            DEFAULT_SUBJECTS.forEach(s => migratedConf[s] = s.toUpperCase() === 'HIFZ' ? '50_1' : fallbackLvl);
+            DEFAULT_SUBJECTS.forEach(s => { migratedConf[s] = [s.toUpperCase() === 'HIFZ' ? '50_1' : fallbackLvl]; });
           } else {
-            data.targetSubjects.forEach(s => { if (s !== 'All') migratedConf[s] = s.toUpperCase() === 'HIFZ' ? '50_1' : fallbackLvl; });
+            data.targetSubjects.forEach(s => { if (s !== 'All') migratedConf[s] = [s.toUpperCase() === 'HIFZ' ? '50_1' : fallbackLvl]; });
           }
-          setTargetConfigs(migratedConf);
+          activeConfigs = migratedConf;
         }
+        setTargetConfigs(activeConfigs);
       }
 
       const students = []; sSnap.forEach(d => students.push({ id: d.id, ...d.data() }));
       const marks = {}; mSnap.forEach(d => marks[d.id] = d.data());
       const trackList = [];
-
-      let activeConfigs = targetConfigs;
-      if (cacheSnap.exists() && cacheSnap.data().targetConfigs) {
-        activeConfigs = cacheSnap.data().targetConfigs;
-      }
 
       tSnap.forEach(tDoc => {
         const teacher = tDoc.data();
@@ -3169,7 +3256,9 @@ function ReminderManager() {
           const matchingSubKey = Object.keys(activeConfigs).find(k => k.toUpperCase() === actUp);
           if (!matchingSubKey) return;
 
-          const requiredLevel = activeConfigs[matchingSubKey];
+          const rawLevels = activeConfigs[matchingSubKey];
+          const requiredLevelsArray = Array.isArray(rawLevels) ? rawLevels : [rawLevels];
+
           const envAliasLower = String(env.alias || '').trim().toLowerCase();
           const envLang = (env.langTag || '').toLowerCase();
 
@@ -3192,26 +3281,28 @@ function ReminderManager() {
             return false;
           });
 
-          let missingCount = 0;
-          matchedStudents.forEach(st => {
-            const stMarks = marks[st.regNo] || marks[st.id] || marks[st.adNo];
-            let hasMark = false;
-            if (stMarks) {
-              const foundKey = Object.keys(stMarks).find(k => {
-                const kUp = k.trim().toUpperCase();
-                if (actUp.includes('U :FIQH') || actUp.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
-                if (actUp === 'FIQH') return kUp === 'FIQH';
-                return kUp === actUp;
-              });
+          if (matchedStudents.length === 0) return;
 
-              if (foundKey && stMarks[foundKey] && stMarks[foundKey][requiredLevel] !== undefined && stMarks[foundKey][requiredLevel] !== '') {
-                hasMark = true;
+          requiredLevelsArray.forEach(requiredLevel => {
+            let missingCount = 0;
+            matchedStudents.forEach(st => {
+              const stMarks = marks[st.regNo] || marks[st.id] || marks[st.adNo];
+              let hasMark = false;
+              if (stMarks) {
+                const foundKey = Object.keys(stMarks).find(k => {
+                  const kUp = k.trim().toUpperCase();
+                  if (actUp.includes('U :FIQH') || actUp.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
+                  if (actUp === 'FIQH') return kUp === 'FIQH';
+                  return kUp === actUp;
+                });
+
+                if (foundKey && stMarks[foundKey] && stMarks[foundKey][requiredLevel] !== undefined && stMarks[foundKey][requiredLevel] !== '') {
+                  hasMark = true;
+                }
               }
-            }
-            if (!hasMark) missingCount++;
-          });
+              if (!hasMark) missingCount++;
+            });
 
-          if (matchedStudents.length > 0) {
             trackList.push({
               teacherName: teacher.fullName,
               subject: env.alias || env.subject,
@@ -3221,7 +3312,7 @@ function ReminderManager() {
               enteredCount: matchedStudents.length - missingCount,
               isComplete: missingCount === 0
             });
-          }
+          });
         });
       });
       setTrackerData(trackList);
@@ -3244,21 +3335,35 @@ function ReminderManager() {
     fetchTrackerData();
   };
 
-  // 🌟 FIXED: Defaults Hifz to "50_1" instead of "15"
   const toggleSubjectConfig = (sub) => {
     setTargetConfigs(prev => {
       const newConf = { ...prev };
-      if (newConf[sub]) {
+      if (newConf[sub] && newConf[sub].length > 0) {
         delete newConf[sub];
       } else {
-        newConf[sub] = sub.toUpperCase() === 'HIFZ' ? "50_1" : "15";
+        newConf[sub] = [sub.toUpperCase() === 'HIFZ' ? "50_1" : "15"];
       }
       return newConf;
     });
   };
 
-  const updateSubjectLevel = (sub, level) => {
-    setTargetConfigs(prev => ({ ...prev, [sub]: level }));
+  const toggleSubjectLevel = (sub, levelVal) => {
+    setTargetConfigs(prev => {
+      const currentLevels = Array.isArray(prev[sub]) ? prev[sub] : (prev[sub] ? [prev[sub]] : []);
+      let updatedLevels;
+      if (currentLevels.includes(levelVal)) {
+        updatedLevels = currentLevels.filter(l => l !== levelVal);
+      } else {
+        updatedLevels = [...currentLevels, levelVal];
+      }
+      const newConf = { ...prev };
+      if (updatedLevels.length === 0) {
+        delete newConf[sub];
+      } else {
+        newConf[sub] = updatedLevels;
+      }
+      return newConf;
+    });
   };
 
   return (
@@ -3279,23 +3384,50 @@ function ReminderManager() {
         </div>
 
         <div>
-          <label style={styles.label}>Select Subjects & Assign Specific Levels:</label>
+          <label style={styles.label}>Select Subjects & Check One or Multiple Levels:</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', background: '#ffffff', padding: '20px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
             {DEFAULT_SUBJECTS.map(sub => {
               const isSubHifz = sub.toUpperCase() === 'HIFZ';
               const levelOptions = isSubHifz ? HIFZ_LEVELS : CCE_LEVELS;
+              const selectedLevels = Array.isArray(targetConfigs[sub])
+                ? targetConfigs[sub]
+                : (targetConfigs[sub] ? [String(targetConfigs[sub])] : []);
+              const isSubjectChecked = selectedLevels.length > 0;
+
               return (
-                <div key={sub} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: targetConfigs[sub] ? '#eff6ff' : '#f8fafc', padding: '8px 12px', borderRadius: '8px', border: `1px solid ${targetConfigs[sub] ? '#bfdbfe' : '#e2e8f0'}` }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', cursor: 'pointer', color: '#0f172a', fontWeight: '700' }}>
-                    <input type="checkbox" checked={!!targetConfigs[sub]} onChange={() => toggleSubjectConfig(sub)} style={{ width: '16px', height: '16px', accentColor: '#2563eb' }} />
+                <div key={sub} style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: isSubjectChecked ? '#eff6ff' : '#f8fafc', padding: '10px 14px', borderRadius: '10px', border: `1px solid ${isSubjectChecked ? '#93c5fd' : '#e2e8f0'}` }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: 'pointer', color: '#0f172a', fontWeight: '800' }}>
+                    <input type="checkbox" checked={isSubjectChecked} onChange={() => toggleSubjectConfig(sub)} style={{ width: '16px', height: '16px', accentColor: '#2563eb' }} />
                     {sub}
                   </label>
-                  {targetConfigs[sub] && (
-                    <select value={targetConfigs[sub]} onChange={(e) => updateSubjectLevel(sub, e.target.value)} style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px', outline: 'none', fontWeight: '700', color: '#1e40af', background: '#ffffff', cursor: 'pointer' }}>
-                      {Object.entries(levelOptions).map(([name, val]) => (
-                        <option key={val} value={val}>{isSubHifz ? name : `${name} (/${val})`}</option>
-                      ))}
-                    </select>
+
+                  {isSubjectChecked && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', paddingTop: '4px', borderTop: '1px dashed #bfdbfe' }}>
+                      {Object.entries(levelOptions).map(([name, val]) => {
+                        const isLvlSelected = selectedLevels.includes(val);
+                        const shortLabel = isSubHifz ? name.replace(' (Max 50)', '') : `${name.replace('Level ', 'Lvl ')} (/${val})`;
+                        return (
+                          <button
+                            key={val}
+                            type="button"
+                            onClick={() => toggleSubjectLevel(sub, val)}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              fontWeight: '800',
+                              cursor: 'pointer',
+                              border: isLvlSelected ? '1px solid #2563eb' : '1px solid #cbd5e1',
+                              background: isLvlSelected ? '#2563eb' : '#ffffff',
+                              color: isLvlSelected ? '#ffffff' : '#475569',
+                              transition: '0.15s'
+                            }}
+                          >
+                            {isLvlSelected ? `✓ ${shortLabel}` : shortLabel}
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
               );
@@ -3333,24 +3465,29 @@ function ReminderManager() {
             {trackerData.length === 0 ? (
               <tr><td colSpan="6" style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>No teachers match this week's active targets.</td></tr>
             ) : (
-              trackerData.map((row, idx) => (
-                <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: '#ffffff' }}>
-                  <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>{row.teacherName}</td>
-                  <td style={{ padding: '14px 16px', color: '#334155', fontWeight: '700' }}>{row.subject}</td>
-                  <td style={{ padding: '14px 16px', textAlign: 'center' }}><span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 8px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>Max {String(row.levelRequired).replace('_1', '').replace('_2', '')}</span></td>
-                  <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: '#64748b' }}>{row.totalEnrolled}</td>
-                  <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '800', color: row.missingCount > 0 ? '#ef4444' : '#10b981' }}>{row.missingCount}</td>
-                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                    {row.missingCount === 0 ? (
-                      <span style={{ background: '#d1fae5', color: '#047857', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>✅ DONE</span>
-                    ) : row.enteredCount > 0 ? (
-                      <span style={{ background: '#fef3c7', color: '#d97706', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>⏳ IN PROGRESS</span>
-                    ) : (
-                      <span style={{ background: '#fee2e2', color: '#dc2626', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>❌ PENDING</span>
-                    )}
-                  </td>
-                </tr>
-              ))
+              trackerData.map((row, idx) => {
+                const lvlLabel = row.levelRequired === '50_1' ? 'Part 1 (/50)'
+                  : row.levelRequired === '50_2' ? 'Part 2 (/50)'
+                  : `Max ${row.levelRequired}`;
+                return (
+                  <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: '#ffffff' }}>
+                    <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>{row.teacherName}</td>
+                    <td style={{ padding: '14px 16px', color: '#334155', fontWeight: '700' }}>{row.subject}</td>
+                    <td style={{ padding: '14px 16px', textAlign: 'center' }}><span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 8px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>{lvlLabel}</span></td>
+                    <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: '#64748b' }}>{row.totalEnrolled}</td>
+                    <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '800', color: row.missingCount > 0 ? '#ef4444' : '#10b981' }}>{row.missingCount}</td>
+                    <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                      {row.missingCount === 0 ? (
+                        <span style={{ background: '#d1fae5', color: '#047857', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>✅ DONE</span>
+                      ) : row.enteredCount > 0 ? (
+                        <span style={{ background: '#fef3c7', color: '#d97706', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>⏳ IN PROGRESS</span>
+                      ) : (
+                        <span style={{ background: '#fee2e2', color: '#dc2626', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>❌ PENDING</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -3371,7 +3508,6 @@ export default function UnifiedSchoolPortal() {
   const [loggedInTeacherData, setLoggedInTeacherData] = useState(null);
   const [activeAdminTab, setActiveAdminTab] = useState('teachers');
 
-  // 🌟 NEW STATES: Admin Proxy Mark Entry on behalf of Teachers
   const [adminTeachersList, setAdminTeachersList] = useState([]);
   const [proxyTeacherUsername, setProxyTeacherUsername] = useState('');
 
@@ -3394,7 +3530,6 @@ export default function UnifiedSchoolPortal() {
     return () => unsubscribe();
   }, []);
 
-  // Fetch teachers list when Admin opens the "Enter Marks for Teacher" tab
   useEffect(() => {
     if (userRole === 'admin' && activeAdminTab === 'proxy_marks') {
       getDocs(collection(db, 'teachers')).then(snap => {

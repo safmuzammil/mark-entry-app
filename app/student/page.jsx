@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { auth, db } from '../../lib/firebase'; 
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
@@ -72,6 +73,7 @@ const doesStudentMatchEnrollment = (student, env) => {
   return false;
 };
 
+// 🌟 Student Weekly Reminder Banner Component (Supports Multi-Level Arrays)
 function StudentWeeklyReminder() {
   const [reminder, setReminder] = useState(null);
 
@@ -94,10 +96,20 @@ function StudentWeeklyReminder() {
   let configs = reminder.targetConfigs;
   if (!configs && reminder.targetSubjects) {
     configs = {};
-    reminder.targetSubjects.forEach(s => configs[s] = reminder.level || "15");
+    reminder.targetSubjects.forEach(s => {
+      configs[s] = [s.toUpperCase() === 'HIFZ' ? '50_1' : (reminder.level || "15")];
+    });
   }
 
   if (!configs || Object.keys(configs).length === 0) return null;
+
+  const formatLevelTag = (lvl) => {
+    const strLvl = String(lvl);
+    if (strLvl === '50_1') return 'Part 1 (/50)';
+    if (strLvl === '50_2') return 'Part 2 (/50)';
+    const cceName = Object.keys(CCE_LEVELS).find(key => CCE_LEVELS[key] === strLvl);
+    return cceName ? `${cceName} (/${strLvl})` : `Max ${strLvl}`;
+  };
 
   return (
     <div className="no-print" style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '20px', borderRadius: '14px', marginBottom: '24px' }}>
@@ -115,14 +127,17 @@ function StudentWeeklyReminder() {
       
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '14px' }}>
         {Object.keys(configs).map(sub => {
-          const cleanMax = String(configs[sub]).replace('_1', '').replace('_2', '');
-          const levelName = Object.keys(CCE_LEVELS).find(key => CCE_LEVELS[key] === configs[sub]) || `Max ${cleanMax}`;
+          const rawLvls = Array.isArray(configs[sub]) ? configs[sub] : [configs[sub]];
+          if (rawLvls.length === 0) return null;
+
           return (
-            <div key={sub} style={{ background: '#ffffff', border: '1px solid #fcd34d', padding: '8px 14px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div key={sub} style={{ background: '#ffffff', border: '1px solid #fcd34d', padding: '8px 14px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <span style={{ fontWeight: '800', color: '#0f172a', fontSize: '13px' }}>{sub}</span>
-              <span style={{ background: '#fef3c7', color: '#d97706', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '700' }}>
-                {levelName}
-              </span>
+              {rawLvls.map((lvl, i) => (
+                <span key={i} style={{ background: '#fef3c7', color: '#d97706', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '700' }}>
+                  {formatLevelTag(lvl)}
+                </span>
+              ))}
             </div>
           );
         })}
@@ -134,6 +149,7 @@ function StudentWeeklyReminder() {
 export default function StudentDashboard() {
   const [regNo, setRegNo] = useState(''); 
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   
   const [authenticated, setAuthenticated] = useState(false);
   const [loggedInStudent, setLoggedInStudent] = useState(null);
@@ -149,7 +165,7 @@ export default function StudentDashboard() {
     setErrorMsg('');
     setIsLoading(true);
 
-    const safeRegNo = regNo.toLowerCase().replace(/[^a-z0-9_.-]/g, '');
+    const safeRegNo = regNo.trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '');
     const fakeEmail = `${safeRegNo}@student.school.com`;
     const safeAdNo = password.trim(); 
     const firebasePassword = safeAdNo.length < 6 ? safeAdNo.padStart(6, '0') : safeAdNo;
@@ -235,7 +251,7 @@ export default function StudentDashboard() {
         Object.keys(pMarks).forEach(sub => {
           if (typeof pMarks[sub] === 'object') {
             Object.values(pMarks[sub]).forEach(val => {
-              if (val !== undefined && val !== '') sTotal += Number(val) || 0;
+              if (val !== undefined && val !== '' && !isNaN(Number(val))) sTotal += Number(val);
             });
           }
         });
@@ -256,6 +272,7 @@ export default function StudentDashboard() {
   const processMarksLocally = (studentData, marksData, expectedSubjects, myRank, allMarksData, allStudentsList, allTeachersList) => {
     let total1400 = 0;
     let total490 = 0;
+    let totalEnteredMaxPossible = 0;
     let hasAnyOverallData = false;
     const subjectList = [];
 
@@ -315,7 +332,6 @@ export default function StudentDashboard() {
           .filter(peer => doesStudentMatchEnrollment(peer, matchedTeacherEnv))
           .map(peer => peer.regNo);
       } else {
-        // Fallback: Only students in the exact same primary class AND same language stream
         const myPrimaryClass = (studentData.classes || [])[0];
         const amIUrdu = String(studentData.adNo || '').toUpperCase().startsWith('U');
         cohortStudentRegNos = allStudentsList
@@ -356,16 +372,16 @@ export default function StudentDashboard() {
       let assessments = {};
 
       if (isHifz) {
-        let h1 = subMarks['50_1'] !== undefined && subMarks['50_1'] !== '' ? Number(subMarks['50_1']) : '-';
-        let h2 = subMarks['50_2'] !== undefined && subMarks['50_2'] !== '' ? Number(subMarks['50_2']) : '-';
+        let h1 = subMarks['50_1'] !== undefined && subMarks['50_1'] !== '' && !isNaN(Number(subMarks['50_1'])) ? Number(subMarks['50_1']) : '-';
+        let h2 = subMarks['50_2'] !== undefined && subMarks['50_2'] !== '' && !isNaN(Number(subMarks['50_2'])) ? Number(subMarks['50_2']) : '-';
         assessments = { '50_1': h1, '50_2': h2 };
         if (h1 !== '-') { subSumObtained += h1; subSumMax += 50; hasData = true; }
         if (h2 !== '-') { subSumObtained += h2; subSumMax += 50; hasData = true; }
       } else {
-        let l1 = subMarks['15'] !== undefined && subMarks['15'] !== '' ? Number(subMarks['15']) : '-';
-        let l2 = subMarks['20'] !== undefined && subMarks['20'] !== '' ? Number(subMarks['20']) : '-';
-        let l3 = subMarks['25'] !== undefined && subMarks['25'] !== '' ? Number(subMarks['25']) : '-';
-        let l4 = subMarks['40'] !== undefined && subMarks['40'] !== '' ? Number(subMarks['40']) : '-';
+        let l1 = subMarks['15'] !== undefined && subMarks['15'] !== '' && !isNaN(Number(subMarks['15'])) ? Number(subMarks['15']) : '-';
+        let l2 = subMarks['20'] !== undefined && subMarks['20'] !== '' && !isNaN(Number(subMarks['20'])) ? Number(subMarks['20']) : '-';
+        let l3 = subMarks['25'] !== undefined && subMarks['25'] !== '' && !isNaN(Number(subMarks['25'])) ? Number(subMarks['25']) : '-';
+        let l4 = subMarks['40'] !== undefined && subMarks['40'] !== '' && !isNaN(Number(subMarks['40'])) ? Number(subMarks['40']) : '-';
         assessments = { '15': l1, '20': l2, '25': l3, '40': l4 };
         if (l1 !== '-') { subSumObtained += l1; subSumMax += 15; hasData = true; }
         if (l2 !== '-') { subSumObtained += l2; subSumMax += 20; hasData = true; }
@@ -375,11 +391,14 @@ export default function StudentDashboard() {
 
       let total100 = hasData ? subSumObtained : '-';
       let semScore = isHifz ? '-' : (hasData ? Number((subSumObtained * 0.3).toFixed(1)) : '-');
-      let status = hasData && subSumMax > 0 ? ((subSumObtained / subSumMax) * 100).toFixed(0) + '%' : '-';
+
+      // 🌟 Replicates Google Sheet Formula: SUM(F5:I5) / SUMPRODUCT(--ISNUMBER(F5:I5), F$3:I$3)
+      let status = hasData && subSumMax > 0 ? ((subSumObtained / subSumMax) * 100).toFixed(2) + '%' : '-';
 
       if (hasData) {
         total1400 += total100;
         total490 += isHifz ? total100 : Number((subSumObtained * 0.3).toFixed(1));
+        totalEnteredMaxPossible += subSumMax;
         hasAnyOverallData = true;
       }
 
@@ -396,11 +415,10 @@ export default function StudentDashboard() {
       });
     });
 
+    // 🌟 Overall Current Status % based strictly on marks entered so far
     let overallStatus = '-';
-    if (hasAnyOverallData) {
-      let overallObtained = total1400 + total490;
-      let overallMax = 1890; 
-      overallStatus = ((overallObtained / overallMax) * 100).toFixed(2) + '%';
+    if (hasAnyOverallData && totalEnteredMaxPossible > 0) {
+      overallStatus = ((total1400 / totalEnteredMaxPossible) * 100).toFixed(2) + '%';
     }
 
     setSubjectAggregates(subjectList);
@@ -443,7 +461,23 @@ export default function StudentDashboard() {
             </div>
             <div>
               <label style={styles.label}>Admission Number</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="e.g. U1278" required style={styles.input} />
+              <div style={{ position: 'relative', width: '100%' }}>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="e.g. U1278"
+                  required
+                  style={{ ...styles.input, paddingRight: '65px' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#2563eb', fontWeight: '700', cursor: 'pointer', fontSize: '13px' }}
+                >
+                  {showPassword ? "Hide" : "Show"}
+                </button>
+              </div>
             </div>
             <button type="submit" disabled={isLoading} style={{ ...styles.buttonPrimary, opacity: isLoading ? 0.7 : 1 }}>
               {isLoading ? 'Authenticating...' : 'Login to View Marks'}
@@ -474,7 +508,10 @@ export default function StudentDashboard() {
               ))}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <Link href="/outpass" style={{ background: "#0f766e", color: "#ffffff", padding: "10px 16px", borderRadius: "10px", fontWeight: "700", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
+              🪪 Out-Pass Portal
+            </Link>
             <button onClick={() => window.print()} style={{ padding: '10px 18px', background: '#f8fafc', color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>
               🖨️ Print Report
             </button>
@@ -505,7 +542,7 @@ export default function StudentDashboard() {
           </div>
 
           <div style={{ background: '#ffffff', padding: '22px', borderRadius: '16px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-            <h4 style={{ margin: '0 0 8px 0', color: '#64748b', fontSize: '12px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Current Progress</h4>
+            <h4 style={{ margin: '0 0 8px 0', color: '#64748b', fontSize: '12px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Current Status (%)</h4>
             <div style={{ fontSize: '28px', fontWeight: '900', color: '#10b981' }}>
               {overallStats.overallStatus}
             </div>
@@ -529,7 +566,7 @@ export default function StudentDashboard() {
                     <th style={{ padding: '14px 16px', color: '#334155', fontWeight: '800' }}>L4 (40)</th>
                     <th style={{ padding: '14px 16px', color: '#1e40af', fontWeight: '800', borderLeft: '1px solid #e2e8f0' }}>Total (100)</th>
                     <th style={{ padding: '14px 16px', color: '#047857', fontWeight: '800' }}>Scaled (30)</th>
-                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Score %</th>
+                    <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Current Status</th>
                   </tr>
                 </thead>
                 <tbody>
