@@ -457,6 +457,44 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
       if (prevInput) prevInput.focus();
     }
   };
+  // 🌟 NEW: Download Final Marks (Ad.No + Out of 30 / Out of 100 for Hifz) for External Portal
+  const handleDownloadExternalPortalCSV = () => {
+    if (classStudents.length === 0) return alert('No students found in this class to download.');
+
+    const headerLabel = isHifz ? 'Marks (Out of 100)' : 'Marks (Out of 30)';
+    let csvContent = `data:text/csv;charset=utf-8,Ad.No,${headerLabel}\n`;
+
+    classStudents.forEach(student => {
+      const marks = studentMarks[student.regNo] || {};
+      const m1 = parseFloat(marks[isHifz ? '50_1' : '15']) || 0;
+      const m2 = parseFloat(marks[isHifz ? '50_2' : '20']) || 0;
+      const m3 = isHifz ? 0 : (parseFloat(marks['25']) || 0);
+      const m4 = isHifz ? 0 : (parseFloat(marks['40']) || 0);
+      
+      const hasAnyMark = isHifz
+        ? (marks['50_1'] !== undefined && marks['50_1'] !== '') || (marks['50_2'] !== undefined && marks['50_2'] !== '')
+        : (marks['15'] !== undefined && marks['15'] !== '') || (marks['20'] !== undefined && marks['20'] !== '') || (marks['25'] !== undefined && marks['25'] !== '') || (marks['40'] !== undefined && marks['40'] !== '');
+
+      const total100 = m1 + m2 + m3 + m4;
+      
+      let finalScore = '';
+      if (hasAnyMark) {
+        finalScore = isHifz ? total100 : ((total100 / 100) * 30).toFixed(1);
+      }
+
+      csvContent += `${student.adNo},${finalScore}\n`;
+    });
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    const currentEnrollment = teacherEnrollments.find(e => e.id === selectedEnrollmentId);
+    const safeTitle = (currentEnrollment?.alias || 'Class').replace(/[^a-zA-Z0-9]/g, '_');
+    link.setAttribute("download", `${safeTitle}_${isHifz ? 'Out_of_100' : 'Out_of_30'}_Portal_Upload.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const handleDownloadMarksTemplate = () => {
     if (!assessmentMaxMark) return alert('Please select a Task Level first.');
@@ -792,6 +830,25 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
               </div>
 
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                {/* 🌟 NEW BUTTON: Always visible as soon as a subject is opened! */}
+                <button
+                  type="button"
+                  onClick={handleDownloadExternalPortalCSV}
+                  style={{
+                    padding: '10px 16px',
+                    background: '#10b981',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: '800',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    boxShadow: '0 2px 6px rgba(16, 185, 129, 0.25)'
+                  }}
+                >
+                  📊 Download {isHifz ? '(/100)' : '(/30)'} CSV for Portal
+                </button>
+
                 {cceLevel && (
                   <button
                     type="button"
