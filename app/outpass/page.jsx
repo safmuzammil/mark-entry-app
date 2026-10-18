@@ -1,6 +1,6 @@
 "use client";
 
-export const dynamic = 'force-dynamic'; // Prevents Next.js static prerendering errors
+export const dynamic = "force-dynamic";
 
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
@@ -19,6 +19,7 @@ import { onAuthStateChanged } from "firebase/auth";
 
 // ============================================================================
 // 🔧 MASTER CONFIGURATION SWITCHES
+// ============================================================================
 const USE_STRICT_GATEKEEPER = false;
 
 const ADMIN_EMAILS = [
@@ -26,30 +27,53 @@ const ADMIN_EMAILS = [
   "admin@gmail.com",
   "dhdegreeclearance@gmail.com",
 ];
-// ============================================================================
 
-// Helper functions placed safely BEFORE the component
-const toLocalDateStr = (d) => {
+// ============================================================================
+// 🕒 PURE DATE & 12-HOUR TIME HELPERS (NO NATIVE TIME-INPUT BUGS)
+// ============================================================================
+function getLocalDateString(dateObj = new Date()) {
+  const d = new Date(dateObj);
+  if (isNaN(d.getTime())) return "2026-01-01";
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-};
+}
 
-const toLocalTimeStr = (d) => {
-  const hours = String(d.getHours()).padStart(2, "0");
+function dateTo12HourParts(dateObj = new Date()) {
+  const d = new Date(dateObj);
+  if (isNaN(d.getTime())) {
+    return { date: getLocalDateString(new Date()), hour: "10", minute: "00", ampm: "AM" };
+  }
+  let hrs = d.getHours();
+  const ampm = hrs >= 12 ? "PM" : "AM";
+  hrs = hrs % 12;
+  if (hrs === 0) hrs = 12;
   const mins = String(d.getMinutes()).padStart(2, "0");
-  return `${hours}:${mins}`;
-};
+  return {
+    date: getLocalDateString(d),
+    hour: String(hrs),
+    minute: mins,
+    ampm,
+  };
+}
 
-const combineDateAndTimeToISO = (dateStr, timeStr) => {
+function partsToISOString(dateStr, hour12, minuteStr, ampm) {
   if (!dateStr) return null;
-  const safeTime = timeStr || "00:00";
-  const combined = new Date(`${dateStr}T${safeTime}:00`);
-  return isNaN(combined.getTime()) ? null : combined.toISOString();
-};
+  const [y, m, d] = String(dateStr).split("-").map(Number);
+  if (!y || !m || !d) return null;
+  let hr = parseInt(hour12, 10);
+  if (isNaN(hr) || hr < 1 || hr > 12) hr = 12;
+  const min = parseInt(minuteStr, 10) || 0;
 
-const formatTime12Hour = (isoString) => {
+  if (ampm === "PM" && hr < 12) hr += 12;
+  if (ampm === "AM" && hr === 12) hr = 0;
+
+  const constructed = new Date(y, m - 1, d, hr, min, 0, 0);
+  return isNaN(constructed.getTime()) ? null : constructed.toISOString();
+}
+
+function formatTime12Hour(isoString) {
   if (!isoString) return "—";
   const d = new Date(isoString);
   if (isNaN(d.getTime())) return "—";
@@ -60,9 +84,9 @@ const formatTime12Hour = (isoString) => {
       hour12: true,
     })
     .toUpperCase();
-};
+}
 
-const formatDateTime12Hour = (isoString, openReturnFlag = false) => {
+function formatDateTime12Hour(isoString, openReturnFlag = false) {
   if (openReturnFlag || !isoString) {
     return openReturnFlag ? "🏥 Open Return (No Fixed Time)" : "—";
   }
@@ -81,15 +105,281 @@ const formatDateTime12Hour = (isoString, openReturnFlag = false) => {
     })
     .toUpperCase();
   return `${datePart}, ${timePart}`;
-};
+}
 
+// Synthesize scanner beep sound without needing any external audio file
+function playScanSuccessBeep() {
+  try {
+    if (typeof window === "undefined") return;
+    if (navigator.vibrate) navigator.vibrate(150);
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(1046.5, ctx.currentTime); // High C beep
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.12);
+  } catch (e) {
+    // Ignore audio context restrictions
+  }
+}
+
+// ============================================================================
+// 🖼️ LIGHTWEIGHT STUDENT AVATAR COMPONENT (Supports URL, /public/students/{adNo}.jpg, or Initials)
+// ============================================================================
+function StudentAvatar({ name, adNo, photoUrl, size = 44, onClick }) {
+  const [imgStep, setImgStep] = useState(photoUrl ? 0 : 1);
+  // Step 0: Firestore `photoUrl`
+  // Step 1: `/students/${adNo}.jpg` inside public folder
+  // Step 2: Fallback to clean Initials Avatar
+
+  useEffect(() => {
+    setImgStep(photoUrl ? 0 : 1);
+  }, [photoUrl, adNo]);
+
+  const initial = (name || "S").trim().charAt(0).toUpperCase();
+  const srcToTry =
+    imgStep === 0
+      ? photoUrl
+      : imgStep === 1 && adNo
+      ? `/students/${adNo}.jpg`
+      : null;
+
+  return (
+    <div
+      onClick={onClick}
+      title={onClick ? "Click to enlarge photo" : name}
+      style={{
+        width: size,
+        height: size,
+        minWidth: size,
+        borderRadius: size > 48 ? "14px" : "10px",
+        background: "linear-gradient(135deg, #0f766e 0%, #0d9488 100%)",
+        color: "#ffffff",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontWeight: 800,
+        fontSize: Math.round(size * 0.42),
+        overflow: "hidden",
+        border: "2px solid #99f6e4",
+        cursor: onClick ? "zoom-in" : "default",
+        position: "relative",
+        boxShadow: "0 2px 6px rgba(15, 118, 110, 0.15)",
+      }}
+    >
+      {srcToTry && imgStep < 2 ? (
+        <img
+          src={srcToTry}
+          alt={name}
+          loading="lazy"
+          onError={() => setImgStep((prev) => prev + 1)}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            display: "block",
+          }}
+        />
+      ) : (
+        <span>{initial}</span>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// 📅 CUSTOM 12-HOUR DATE & TIME PICKER (100% EDITABLE ON ALL DEVICES)
+// ============================================================================
+const HOURS_12 = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+const MINUTES_60 = Array.from({ length: 60 }, (_, i) =>
+  String(i).padStart(2, "0")
+);
+
+function CustomDateTimePicker({
+  title,
+  dateValue,
+  onDateChange,
+  hourValue,
+  onHourChange,
+  minuteValue,
+  onMinuteChange,
+  ampmValue,
+  onAmpmChange,
+  onSetNow,
+  previewLabel,
+}) {
+  const dateInputRef = useRef(null);
+  const previewISO = partsToISOString(
+    dateValue,
+    hourValue,
+    minuteValue,
+    ampmValue
+  );
+
+  // Quick day jumper (-1 Day, Today, +1 Day, +2 Days)
+  const shiftDateByDays = (offsetDays, resetToToday = false) => {
+    const base = resetToToday
+      ? new Date()
+      : dateValue
+      ? new Date(`${dateValue}T12:00:00`)
+      : new Date();
+    if (!resetToToday) {
+      base.setDate(base.getDate() + offsetDays);
+    }
+    onDateChange(getLocalDateString(base));
+  };
+
+  return (
+    <div style={styles.timePickerCard}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 8,
+          marginBottom: 10,
+        }}
+      >
+        <div style={styles.timeSectionTitle}>{title}</div>
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={() => shiftDateByDays(-1)}
+            style={styles.miniDayStepBtn}
+          >
+            ◀ -1 Day
+          </button>
+          <button
+            type="button"
+            onClick={() => shiftDateByDays(0, true)}
+            style={styles.miniDayStepBtn}
+          >
+            📅 Today
+          </button>
+          <button
+            type="button"
+            onClick={() => shiftDateByDays(1)}
+            style={styles.miniDayStepBtn}
+          >
+            +1 Day ▶
+          </button>
+          {onSetNow && (
+            <button
+              type="button"
+              onClick={onSetNow}
+              style={{
+                ...styles.miniDayStepBtn,
+                background: "#ccfbf1",
+                color: "#0f766e",
+                borderColor: "#5eead4",
+              }}
+            >
+              🕒 Set Now
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div style={styles.customDateTimeGrid}>
+        {/* 1. Date Picker (Opens calendar on click anywhere) */}
+        <div>
+          <span style={styles.subFieldLabel}>📅 Select Date (Click to pick):</span>
+          <input
+            ref={dateInputRef}
+            type="date"
+            value={dateValue || ""}
+            onClick={() => {
+              try {
+                dateInputRef.current?.showPicker?.();
+              } catch (e) {}
+            }}
+            onChange={(e) => onDateChange(e.target.value)}
+            style={styles.dateInputBox}
+          />
+        </div>
+
+        {/* 2. Explicit 12-Hour Selector (Hour : Minute + AM/PM) */}
+        <div>
+          <span style={styles.subFieldLabel}>
+            🕒 Select Time (12-Hour AM / PM):
+          </span>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {/* Hour 1-12 */}
+            <select
+              value={String(parseInt(hourValue || "12", 10))}
+              onChange={(e) => onHourChange(e.target.value)}
+              style={styles.timeSelectBox}
+            >
+              {HOURS_12.map((h) => (
+                <option key={h} value={h}>
+                  {String(h).padStart(2, "0")} hr
+                </option>
+              ))}
+            </select>
+
+            <span style={{ fontWeight: 900, fontSize: 16, color: "#0f172a" }}>
+              :
+            </span>
+
+            {/* Minute 00-59 */}
+            <select
+              value={String(minuteValue || "00").padStart(2, "0")}
+              onChange={(e) => onMinuteChange(e.target.value)}
+              style={styles.timeSelectBox}
+            >
+              {MINUTES_60.map((m) => (
+                <option key={m} value={m}>
+                  {m} min
+                </option>
+              ))}
+            </select>
+
+            {/* AM / PM Toggle Buttons */}
+            <div style={styles.ampmToggleGroup}>
+              {["AM", "PM"].map((period) => {
+                const active = ampmValue === period;
+                return (
+                  <button
+                    key={period}
+                    type="button"
+                    onClick={() => onAmpmChange(period)}
+                    style={active ? styles.ampmBtnActive : styles.ampmBtnInactive}
+                  >
+                    {period}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Live 12-Hour Formatted Confirmation Badge */}
+      <div style={styles.timePreview12h}>
+        {previewLabel || "Selected"}:{" "}
+        <strong>{formatDateTime12Hour(previewISO)}</strong>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 🚀 MAIN OUT-PASS PORTAL COMPONENT
+// ============================================================================
 export default function OutPassPortal() {
   // Auth & Strict Role State
   const [currentUser, setCurrentUser] = useState(null);
   const [staffName, setStaffName] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
-  const [activeTab, setActiveTab] = useState("teacher"); // "teacher" | "admin"
+  const [activeTab, setActiveTab] = useState("teacher");
 
   // Master Data
   const [students, setStudents] = useState([]);
@@ -103,16 +393,16 @@ export default function OutPassPortal() {
   const [destination, setDestination] = useState("");
   const [purpose, setPurpose] = useState("");
 
-  const [fromDate, setFromDate] = useState(() => toLocalDateStr(new Date()));
-  const [fromTime, setFromTime] = useState(() => toLocalTimeStr(new Date()));
-  const [toDate, setToDate] = useState(() => {
-    const d = new Date(Date.now() + 2 * 3600000);
-    return toLocalDateStr(d);
-  });
-  const [toTime, setToTime] = useState(() => {
-    const d = new Date(Date.now() + 2 * 3600000);
-    return toLocalTimeStr(d);
-  });
+  // Explicit 12-Hour Departure & Return State
+  const [fromDate, setFromDate] = useState("2026-01-01");
+  const [fromHour, setFromHour] = useState("10");
+  const [fromMinute, setFromMinute] = useState("00");
+  const [fromAmpm, setFromAmpm] = useState("AM");
+
+  const [toDate, setToDate] = useState("2026-01-01");
+  const [toHour, setToHour] = useState("12");
+  const [toMinute, setToMinute] = useState("00");
+  const [toAmpm, setToAmpm] = useState("PM");
 
   const [isOpenReturn, setIsOpenReturn] = useState(false);
   const [activeDurationChip, setActiveDurationChip] = useState("2h");
@@ -121,16 +411,26 @@ export default function OutPassPortal() {
   const [teacherStatusFilter, setTeacherStatusFilter] = useState("ALL");
   const [teacherSearch, setTeacherSearch] = useState("");
 
-  // Edit Existing Pass Modal State
+  // Edit Existing Pass Modal State (Also uses Explicit 12-Hour Controls)
   const [editingPass, setEditingPass] = useState(null);
   const [editFromDate, setEditFromDate] = useState("");
-  const [editFromTime, setEditFromTime] = useState("");
+  const [editFromHour, setEditFromHour] = useState("10");
+  const [editFromMinute, setEditFromMinute] = useState("00");
+  const [editFromAmpm, setEditFromAmpm] = useState("AM");
+
   const [editToDate, setEditToDate] = useState("");
-  const [editToTime, setEditToTime] = useState("");
+  const [editToHour, setEditToHour] = useState("12");
+  const [editToMinute, setEditToMinute] = useState("00");
+  const [editToAmpm, setEditToAmpm] = useState("PM");
+
   const [editIsOpenReturn, setEditIsOpenReturn] = useState(false);
   const [editDestination, setEditDestination] = useState("");
   const [editPurpose, setEditPurpose] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // Digital Receipt / WhatsApp Share Modal + Photo Lightbox
+  const [receiptPass, setReceiptPass] = useState(null);
+  const [zoomPhotoStudent, setZoomPhotoStudent] = useState(null);
 
   // Barcode Scanner State
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -138,13 +438,35 @@ export default function OutPassPortal() {
   const scannerRef = useRef(null);
 
   // Admin Filter State
-  const [adminViewMode, setAdminViewMode] = useState("OUTSIDE");
+  const [adminViewMode, setAdminViewMode] = useState("OUTSIDE"); // "OUTSIDE" | "OVERDUE" | "INSIDE" | "HISTORY"
   const [classFilter, setClassFilter] = useState("ALL");
   const [teacherFilter, setTeacherFilter] = useState("ALL");
   const [adminSearch, setAdminSearch] = useState("");
   const [now, setNow] = useState(new Date());
 
+  // Initialize current client time safely on mount
+  const resetDefaultTimes = () => {
+    const current = new Date();
+    const twoHoursLater = new Date(current.getTime() + 2 * 60 * 60 * 1000);
+    const fParts = dateTo12HourParts(current);
+    const tParts = dateTo12HourParts(twoHoursLater);
+
+    setFromDate(fParts.date);
+    setFromHour(fParts.hour);
+    setFromMinute(fParts.minute);
+    setFromAmpm(fParts.ampm);
+
+    setToDate(tParts.date);
+    setToHour(tParts.hour);
+    setToMinute(tParts.minute);
+    setToAmpm(tParts.ampm);
+
+    setIsOpenReturn(false);
+    setActiveDurationChip("2h");
+  };
+
   useEffect(() => {
+    resetDefaultTimes();
     const timer = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(timer);
   }, []);
@@ -214,6 +536,12 @@ export default function OutPassPortal() {
             studentClass: Array.isArray(data.classes)
               ? data.classes[0] || "General"
               : data.class || data.department || "General",
+            photoUrl:
+              data.photoUrl ||
+              data.photo ||
+              data.imageUrl ||
+              data.avatar ||
+              null,
             raw: data,
           };
         });
@@ -314,7 +642,7 @@ export default function OutPassPortal() {
           )
           .catch((err) => {
             console.error("Camera start error:", err);
-            alert("Could not access camera.");
+            alert("Could not access camera. Please allow camera permissions.");
             setScannerOpen(false);
           });
       });
@@ -332,6 +660,7 @@ export default function OutPassPortal() {
   }, [scannerOpen]);
 
   const handleBarcodeDetected = (code) => {
+    playScanSuccessBeep();
     setScannerOpen(false);
 
     if (scannerMode === "teacher") {
@@ -367,6 +696,14 @@ export default function OutPassPortal() {
         );
       }
     }
+  };
+
+  // Lookup student photo URL by Ad.No
+  const getStudentPhotoByAdNo = (adNo) => {
+    const st = students.find(
+      (s) => String(s.adNo).toLowerCase() === String(adNo).toLowerCase()
+    );
+    return st?.photoUrl || null;
   };
 
   const getActivePassForStudent = (adNo) => {
@@ -411,39 +748,43 @@ export default function OutPassPortal() {
     return diffMs < 0 ? `Overdue by ${timeStr}` : `${timeStr} remaining`;
   };
 
+  // ============================================================================
+  // ⏱️ QUICK DURATION HELPERS (Updates 12-Hour Dropdowns Automatically)
+  // ============================================================================
   const getBaseDepartureDate = () => {
-    const iso = combineDateAndTimeToISO(fromDate, fromTime);
+    const iso = partsToISOString(fromDate, fromHour, fromMinute, fromAmpm);
     return iso ? new Date(iso) : new Date();
   };
 
-  const applyHoursDuration = (hours, chipId) => {
+  const setReturnFromDateObj = (endDateObj, chipId) => {
     setIsOpenReturn(false);
-    const start = getBaseDepartureDate();
-    const end = new Date(start.getTime() + hours * 60 * 60 * 1000);
-    setToDate(toLocalDateStr(end));
-    setToTime(toLocalTimeStr(end));
+    const parts = dateTo12HourParts(endDateObj);
+    setToDate(parts.date);
+    setToHour(parts.hour);
+    setToMinute(parts.minute);
+    setToAmpm(parts.ampm);
     setActiveDurationChip(chipId);
   };
 
+  const applyHoursDuration = (hours, chipId) => {
+    const start = getBaseDepartureDate();
+    const end = new Date(start.getTime() + hours * 60 * 60 * 1000);
+    setReturnFromDateObj(end, chipId);
+  };
+
   const applyUntilEvening = () => {
-    setIsOpenReturn(false);
     const start = getBaseDepartureDate();
     const end = new Date(start);
     end.setHours(18, 0, 0, 0);
-    setToDate(toLocalDateStr(end));
-    setToTime(toLocalTimeStr(end));
-    setActiveDurationChip("6pm");
+    setReturnFromDateObj(end, "6pm");
   };
 
   const applyDaysDuration = (days, chipId) => {
-    setIsOpenReturn(false);
     const start = getBaseDepartureDate();
     const end = new Date(start);
     end.setDate(end.getDate() + days);
     end.setHours(18, 0, 0, 0);
-    setToDate(toLocalDateStr(end));
-    setToTime(toLocalTimeStr(end));
-    setActiveDurationChip(chipId);
+    setReturnFromDateObj(end, chipId);
   };
 
   const toggleOpenReturnMode = () => {
@@ -452,6 +793,7 @@ export default function OutPassPortal() {
     setActiveDurationChip(nextVal ? "open" : "custom");
   };
 
+  // 3. Submit New Out-Pass
   const handleIssuePass = async (e) => {
     e.preventDefault();
     if (!selectedStudent) return alert("Please select or scan a student first.");
@@ -459,14 +801,14 @@ export default function OutPassPortal() {
       return alert("Please enter both Destination and Purpose.");
     }
 
-    const fromISO = combineDateAndTimeToISO(fromDate, fromTime);
+    const fromISO = partsToISOString(fromDate, fromHour, fromMinute, fromAmpm);
     if (!fromISO) {
       return alert("Please select a valid Departure Date and Time.");
     }
 
     let toISO = null;
     if (!isOpenReturn) {
-      toISO = combineDateAndTimeToISO(toDate, toTime);
+      toISO = partsToISOString(toDate, toHour, toMinute, toAmpm);
       if (!toISO) {
         return alert(
           "Please select a Return Date & Time, or enable 'No Specific Return Time'."
@@ -489,10 +831,11 @@ export default function OutPassPortal() {
       const initialStatus = USE_STRICT_GATEKEEPER ? "APPROVED" : "OUTSIDE";
       const officialTeacher = getOfficialTeacherName(staffName);
 
-      await addDoc(collection(db, "out_passes"), {
+      const newPassData = {
         adNo: selectedStudent.adNo,
         studentName: selectedStudent.name,
         studentClass: selectedStudent.studentClass,
+        studentPhotoUrl: selectedStudent.photoUrl || null,
         destination: destination.trim(),
         purpose: purpose.trim(),
         permittedFrom: fromISO,
@@ -508,7 +851,13 @@ export default function OutPassPortal() {
         returnClerkName: null,
         wasLateReturn: false,
         createdAt: nowISO,
-      });
+      };
+
+      const docRef = await addDoc(collection(db, "out_passes"), newPassData);
+      playScanSuccessBeep();
+
+      // Open Digital Pass Slip Receipt so teacher can share on WhatsApp or dismiss
+      setReceiptPass({ id: docRef.id, ...newPassData });
 
       setSelectedStudent(null);
       setDestination("");
@@ -521,19 +870,30 @@ export default function OutPassPortal() {
     }
   };
 
+  // 4. Open & Save Edit Pass Modal (Full Freedom for Teacher & Admin)
   const openEditPassModal = (pass) => {
     const fDate = pass.permittedFrom ? new Date(pass.permittedFrom) : new Date();
     const tDate = pass.permittedTo
       ? new Date(pass.permittedTo)
       : new Date(fDate.getTime() + 2 * 60 * 60 * 1000);
 
+    const fParts = dateTo12HourParts(fDate);
+    const tParts = dateTo12HourParts(tDate);
+
     setEditingPass(pass);
     setEditDestination(pass.destination || "");
     setEditPurpose(pass.purpose || "");
-    setEditFromDate(toLocalDateStr(fDate));
-    setEditFromTime(toLocalTimeStr(fDate));
-    setEditToDate(toLocalDateStr(tDate));
-    setEditToTime(toLocalTimeStr(tDate));
+
+    setEditFromDate(fParts.date);
+    setEditFromHour(fParts.hour);
+    setEditFromMinute(fParts.minute);
+    setEditFromAmpm(fParts.ampm);
+
+    setEditToDate(tParts.date);
+    setEditToHour(tParts.hour);
+    setEditToMinute(tParts.minute);
+    setEditToAmpm(tParts.ampm);
+
     setEditIsOpenReturn(Boolean(pass.isOpenReturn || !pass.permittedTo));
   };
 
@@ -541,14 +901,24 @@ export default function OutPassPortal() {
     e.preventDefault();
     if (!editingPass) return;
 
-    const updatedFromISO = combineDateAndTimeToISO(editFromDate, editFromTime);
+    const updatedFromISO = partsToISOString(
+      editFromDate,
+      editFromHour,
+      editFromMinute,
+      editFromAmpm
+    );
     if (!updatedFromISO) {
       return alert("Please enter a valid Departure Date & Time.");
     }
 
     let updatedToISO = null;
     if (!editIsOpenReturn) {
-      updatedToISO = combineDateAndTimeToISO(editToDate, editToTime);
+      updatedToISO = partsToISOString(
+        editToDate,
+        editToHour,
+        editToMinute,
+        editToAmpm
+      );
       if (!updatedToISO) {
         return alert("Please enter a valid Return Date & Time.");
       }
@@ -589,6 +959,7 @@ export default function OutPassPortal() {
         returnClerkName: getOfficialTeacherName(staffName) || "Staff",
         wasLateReturn: Boolean(isLate),
       });
+      playScanSuccessBeep();
     } catch (err) {
       console.error("Error marking return:", err);
       alert("Error updating return status.");
@@ -606,6 +977,30 @@ export default function OutPassPortal() {
     }
   };
 
+  // Share Digital Out-Pass via WhatsApp
+  const handleShareWhatsApp = (pass) => {
+    const text = [
+      `*DARUL HUDA ISLAMIC UNIVERSITY*`,
+      `*STUDENTS' DIGITAL OUT-PASS (SMS)*`,
+      `--------------------------------`,
+      `👤 *Student:* ${pass.studentName}`,
+      `🆔 *Ad.No:* #${pass.adNo} | *Class:* ${pass.studentClass}`,
+      `📍 *Destination:* ${pass.destination}`,
+      `📝 *Reason:* ${pass.purpose}`,
+      `🚶‍♂️ *Departure:* ${formatDateTime12Hour(pass.permittedFrom)}`,
+      `⏳ *Return By:* ${formatDateTime12Hour(
+        pass.permittedTo,
+        pass.isOpenReturn
+      )}`,
+      `👨‍🏫 *Permitted By:* ${getOfficialTeacherName(pass.teacherName)}`,
+      `📌 *Status:* ${pass.status}`,
+    ].join("\n");
+
+    const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(url, "_blank");
+  };
+
+  // CSV Export
   const handleExportCSV = () => {
     const headers = [
       "Ad.No",
@@ -648,6 +1043,7 @@ export default function OutPassPortal() {
     document.body.removeChild(link);
   };
 
+  // Scoped Lists
   const myPermittedPasses = passes.filter((p) => {
     if (currentUser?.uid && p.teacherId === currentUser.uid) return true;
     if (
@@ -768,7 +1164,12 @@ export default function OutPassPortal() {
     <div className="op-root" style={styles.pageWrapper}>
       <style>{`
         .op-root * { box-sizing: border-box; }
-        .op-root input, .op-root select, .op-root textarea { color: #0f172a !important; background-color: #ffffff !important; font-family: inherit; }
+        .op-root input, .op-root select, .op-root textarea {
+          color: #0f172a !important;
+          background-color: #ffffff !important;
+          color-scheme: light !important;
+          font-family: inherit;
+        }
         .op-root input::placeholder { color: #94a3b8 !important; opacity: 1 !important; }
         .op-root input:focus, .op-root select:focus { outline: 2px solid #0d9488 !important; border-color: #0d9488 !important; }
         .op-root button { font-family: inherit; transition: all 0.15s ease; }
@@ -867,7 +1268,9 @@ export default function OutPassPortal() {
           </button>
         </div>
 
-        {/* BARCODE MODAL */}
+        {/* =========================================================
+            MODAL 1: BARCODE CAMERA SCANNER
+           ========================================================= */}
         {scannerOpen && (
           <div style={styles.modalOverlay}>
             <div style={styles.modalCard}>
@@ -923,10 +1326,189 @@ export default function OutPassPortal() {
           </div>
         )}
 
-        {/* EDIT PASS MODAL */}
+        {/* =========================================================
+            MODAL 2: STUDENT PHOTO ZOOM LIGHTBOX
+           ========================================================= */}
+        {zoomPhotoStudent && (
+          <div
+            style={styles.modalOverlay}
+            onClick={() => setZoomPhotoStudent(null)}
+          >
+            <div
+              style={{
+                ...styles.modalCard,
+                maxWidth: 360,
+                textAlign: "center",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+                <StudentAvatar
+                  name={zoomPhotoStudent.name}
+                  adNo={zoomPhotoStudent.adNo}
+                  photoUrl={zoomPhotoStudent.photoUrl}
+                  size={180}
+                />
+              </div>
+              <h3 style={{ margin: "0 0 4px", color: "#0f172a" }}>
+                {zoomPhotoStudent.name}
+              </h3>
+              <p style={{ margin: 0, color: "#475569", fontSize: 13 }}>
+                Ad.No: <strong>#{zoomPhotoStudent.adNo}</strong> • Class{" "}
+                <strong>{zoomPhotoStudent.studentClass}</strong>
+              </p>
+              <button
+                type="button"
+                onClick={() => setZoomPhotoStudent(null)}
+                style={{ ...styles.closeModalBtn, background: "#0f172a" }}
+              >
+                Close Preview
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================
+            MODAL 3: DIGITAL OUT-PASS SLIP RECEIPT & WHATSAPP SHARE
+           ========================================================= */}
+        {receiptPass && (
+          <div style={styles.modalOverlay}>
+            <div style={{ ...styles.modalCard, maxWidth: 460, padding: 0, overflow: "hidden" }}>
+              <div
+                style={{
+                  background: "#064e3b",
+                  color: "#ffffff",
+                  padding: "16px 20px",
+                  textAlign: "center",
+                  borderBottom: "3px solid #f59e0b",
+                }}
+              >
+                <div style={{ fontSize: 11, color: "#a7f3d0", fontWeight: 800, letterSpacing: 1 }}>
+                  DARUL HUDA ISLAMIC UNIVERSITY
+                </div>
+                <h3 style={{ margin: "4px 0 0", fontSize: 18 }}>
+                  STUDENTS&apos; DIGITAL OUT-PASS (SMS)
+                </h3>
+              </div>
+
+              <div style={{ padding: "20px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 14,
+                    background: "#f0fdfa",
+                    padding: "12px",
+                    borderRadius: "12px",
+                    border: "1px solid #99f6e4",
+                    marginBottom: 14,
+                  }}
+                >
+                  <StudentAvatar
+                    name={receiptPass.studentName}
+                    adNo={receiptPass.adNo}
+                    photoUrl={
+                      receiptPass.studentPhotoUrl ||
+                      getStudentPhotoByAdNo(receiptPass.adNo)
+                    }
+                    size={56}
+                  />
+                  <div>
+                    <div style={{ fontSize: 17, fontWeight: 800, color: "#0f172a" }}>
+                      {receiptPass.studentName}
+                    </div>
+                    <div style={{ fontSize: 13, color: "#0f766e", fontWeight: 700 }}>
+                      Ad.No: #{receiptPass.adNo} • Class {receiptPass.studentClass}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 13, lineHeight: 1.8, color: "#1e293b" }}>
+                  <div>
+                    📍 <strong>Destination:</strong> {receiptPass.destination}
+                  </div>
+                  <div>
+                    📝 <strong>Purpose:</strong> {receiptPass.purpose}
+                  </div>
+                  <div>
+                    🚶‍♂️ <strong>Permitted From:</strong>{" "}
+                    {formatDateTime12Hour(receiptPass.permittedFrom)}
+                  </div>
+                  <div>
+                    ⏳ <strong>Return Deadline:</strong>{" "}
+                    <strong style={{ color: "#0f766e" }}>
+                      {formatDateTime12Hour(
+                        receiptPass.permittedTo,
+                        receiptPass.isOpenReturn
+                      )}
+                    </strong>
+                  </div>
+                  <div>
+                    👨‍🏫 <strong>Permitted Teacher:</strong>{" "}
+                    {getOfficialTeacherName(receiptPass.teacherName)}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    marginTop: 18,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleShareWhatsApp(receiptPass)}
+                    style={{
+                      flex: 1,
+                      padding: "12px",
+                      background: "#16a34a",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "10px",
+                      fontWeight: 800,
+                      fontSize: 13,
+                      cursor: "pointer",
+                    }}
+                  >
+                    💬 Share via WhatsApp
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReceiptPass(null)}
+                    style={{
+                      padding: "12px 18px",
+                      background: "#e2e8f0",
+                      color: "#0f172a",
+                      border: "none",
+                      borderRadius: "10px",
+                      fontWeight: 800,
+                      fontSize: 13,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================
+            MODAL 4: EDIT EXISTING OUT-PASS (100% EDITABLE 12-HOUR CONTROLS)
+           ========================================================= */}
         {editingPass && (
           <div style={styles.modalOverlay}>
-            <div style={{ ...styles.modalCard, maxWidth: "540px" }}>
+            <div
+              style={{
+                ...styles.modalCard,
+                maxWidth: "600px",
+                maxHeight: "92vh",
+                overflowY: "auto",
+              }}
+            >
               <div
                 style={{
                   display: "flex",
@@ -985,43 +1567,29 @@ export default function OutPassPortal() {
                   </div>
                 </div>
 
-                {/* Edit Departure */}
-                <div style={styles.timePickerCard}>
-                  <div style={styles.timeSectionTitle}>
-                    🚶‍♂️ Departure Date &amp; Time
-                  </div>
-                  <div style={styles.dateRowGrid}>
-                    <div>
-                      <span style={styles.subFieldLabel}>Departure Date</span>
-                      <input
-                        type="date"
-                        value={editFromDate}
-                        onChange={(e) => setEditFromDate(e.target.value)}
-                        style={styles.textInput}
-                        required
-                      />
-                    </div>
-                    <div>
-                      <span style={styles.subFieldLabel}>Departure Time</span>
-                      <input
-                        type="time"
-                        value={editFromTime}
-                        onChange={(e) => setEditFromTime(e.target.value)}
-                        style={styles.textInput}
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div style={styles.timePreview12h}>
-                    🕒 Selected:{" "}
-                    {formatDateTime12Hour(
-                      combineDateAndTimeToISO(editFromDate, editFromTime)
-                    )}
-                  </div>
-                </div>
+                {/* Custom 12-Hour Departure Picker */}
+                <CustomDateTimePicker
+                  title="🚶‍♂️ Departure Date & Time"
+                  dateValue={editFromDate}
+                  onDateChange={setEditFromDate}
+                  hourValue={editFromHour}
+                  onHourChange={setEditFromHour}
+                  minuteValue={editFromMinute}
+                  onMinuteChange={setEditFromMinute}
+                  ampmValue={editFromAmpm}
+                  onAmpmChange={setEditFromAmpm}
+                  onSetNow={() => {
+                    const p = dateTo12HourParts(new Date());
+                    setEditFromDate(p.date);
+                    setEditFromHour(p.hour);
+                    setEditFromMinute(p.minute);
+                    setEditFromAmpm(p.ampm);
+                  }}
+                  previewLabel="🕒 Leaving"
+                />
 
-                {/* Edit Return */}
-                <div style={{ ...styles.timePickerCard, marginTop: 12 }}>
+                {/* Return Toggle + Custom 12-Hour Return Picker */}
+                <div style={{ marginTop: 12 }}>
                   <div
                     style={{
                       display: "flex",
@@ -1032,9 +1600,9 @@ export default function OutPassPortal() {
                       marginBottom: 8,
                     }}
                   >
-                    <div style={styles.timeSectionTitle}>
-                      ⏳ Expected Return Date &amp; Time
-                    </div>
+                    <span style={styles.subFieldLabel}>
+                      Return Schedule Mode:
+                    </span>
                     <button
                       type="button"
                       onClick={() => setEditIsOpenReturn(!editIsOpenReturn)}
@@ -1051,36 +1619,18 @@ export default function OutPassPortal() {
                   </div>
 
                   {!editIsOpenReturn ? (
-                    <>
-                      <div style={styles.dateRowGrid}>
-                        <div>
-                          <span style={styles.subFieldLabel}>Return Date</span>
-                          <input
-                            type="date"
-                            value={editToDate}
-                            onChange={(e) => setEditToDate(e.target.value)}
-                            style={styles.textInput}
-                            required
-                          />
-                        </div>
-                        <div>
-                          <span style={styles.subFieldLabel}>Return Time</span>
-                          <input
-                            type="time"
-                            value={editToTime}
-                            onChange={(e) => setEditToTime(e.target.value)}
-                            style={styles.textInput}
-                            required
-                          />
-                        </div>
-                      </div>
-                      <div style={styles.timePreview12h}>
-                        ⏳ Return Deadline:{" "}
-                        {formatDateTime12Hour(
-                          combineDateAndTimeToISO(editToDate, editToTime)
-                        )}
-                      </div>
-                    </>
+                    <CustomDateTimePicker
+                      title="⏳ Expected Return Date & Time"
+                      dateValue={editToDate}
+                      onDateChange={setEditToDate}
+                      hourValue={editToHour}
+                      onHourChange={setEditToHour}
+                      minuteValue={editToMinute}
+                      onMinuteChange={setEditToMinute}
+                      ampmValue={editToAmpm}
+                      onAmpmChange={setEditToAmpm}
+                      previewLabel="⏳ Return By"
+                    />
                   ) : (
                     <div style={styles.openMedicalBanner}>
                       🏥 <strong>Open-Ended / Medical Leave:</strong> No fixed
@@ -1145,7 +1695,7 @@ export default function OutPassPortal() {
               </div>
 
               <div style={styles.slipBody}>
-                {/* STEP 1: STUDENT SELECTION */}
+                {/* STEP 1: STUDENT SELECTION WITH PHOTO AVATAR */}
                 <div style={{ marginBottom: 20 }}>
                   <label style={styles.fieldLabel}>
                     1. Select Student (Scan Barcode or Search Ad.No / Name)
@@ -1166,7 +1716,6 @@ export default function OutPassPortal() {
                             <button
                               type="button"
                               onClick={() => setSearchQuery("")}
-                              title="Clear search"
                               style={styles.searchClearIconBtn}
                             >
                               ✕ Clear
@@ -1207,12 +1756,15 @@ export default function OutPassPortal() {
                                   style={{
                                     display: "flex",
                                     alignItems: "center",
-                                    gap: 10,
+                                    gap: 12,
                                   }}
                                 >
-                                  <div style={styles.studentAvatarMini}>
-                                    {st.name.charAt(0).toUpperCase()}
-                                  </div>
+                                  <StudentAvatar
+                                    name={st.name}
+                                    adNo={st.adNo}
+                                    photoUrl={st.photoUrl}
+                                    size={38}
+                                  />
                                   <div>
                                     <div
                                       style={{
@@ -1283,9 +1835,13 @@ export default function OutPassPortal() {
                             gap: 14,
                           }}
                         >
-                          <div style={styles.studentAvatarLarge}>
-                            {selectedStudent.name.charAt(0).toUpperCase()}
-                          </div>
+                          <StudentAvatar
+                            name={selectedStudent.name}
+                            adNo={selectedStudent.adNo}
+                            photoUrl={selectedStudent.photoUrl}
+                            size={56}
+                            onClick={() => setZoomPhotoStudent(selectedStudent)}
+                          />
                           <div>
                             <div
                               style={{
@@ -1451,11 +2007,11 @@ export default function OutPassPortal() {
                     </div>
                   </div>
 
-                  {/* STEP 4: UNRESTRICTED SCHEDULE SELECTORS */}
+                  {/* STEP 4: CUSTOM 12-HOUR DATE & TIME SELECTORS */}
                   <div style={{ marginBottom: 18 }}>
                     <label style={styles.fieldLabel}>
-                      4. Permitted Departure &amp; Return Schedule (Full
-                      Freedom to Pick Any Date &amp; Time)
+                      4. Permitted Departure &amp; Return Schedule (100%
+                      Editable Date &amp; 12-Hour Time)
                     </label>
 
                     <div
@@ -1479,7 +2035,7 @@ export default function OutPassPortal() {
                           marginBottom: 2,
                         }}
                       >
-                        Quick Return Presets (Or select manually below):
+                        Quick Return Presets (Or pick any Date &amp; Time below):
                       </span>
 
                       <button
@@ -1564,127 +2120,84 @@ export default function OutPassPortal() {
                       </button>
                     </div>
 
-                    {/* Departure Picker */}
-                    <div style={styles.timePickerCard}>
-                      <div style={styles.timeSectionTitle}>
-                        🚶‍♂️ Permitted Departure (Date &amp; Time)
-                      </div>
-                      <div style={styles.dateRowGrid}>
-                        <div>
-                          <span style={styles.subFieldLabel}>
-                            📅 Departure Date:
-                          </span>
-                          <input
-                            type="date"
-                            value={fromDate || ""}
-                            onChange={(e) => setFromDate(e.target.value)}
-                            style={styles.textInput}
-                            required
-                          />
-                        </div>
-                        <div>
-                          <span style={styles.subFieldLabel}>
-                            🕒 Departure Time:
-                          </span>
-                          <input
-                            type="time"
-                            value={fromTime || ""}
-                            onChange={(e) => setFromTime(e.target.value)}
-                            style={styles.textInput}
-                            required
-                          />
-                        </div>
-                      </div>
-                      <div style={styles.timePreview12h}>
-                        🕒 Leaving:{" "}
-                        <strong>
-                          {formatDateTime12Hour(
-                            combineDateAndTimeToISO(fromDate, fromTime)
-                          )}
-                        </strong>
-                      </div>
-                    </div>
+                    {/* Departure Custom 12-Hour Picker */}
+                    <CustomDateTimePicker
+                      title="🚶‍♂️ Permitted Departure (Date & Time)"
+                      dateValue={fromDate}
+                      onDateChange={setFromDate}
+                      hourValue={fromHour}
+                      onHourChange={setFromHour}
+                      minuteValue={fromMinute}
+                      onMinuteChange={setFromMinute}
+                      ampmValue={fromAmpm}
+                      onAmpmChange={setFromAmpm}
+                      onSetNow={() => {
+                        const p = dateTo12HourParts(new Date());
+                        setFromDate(p.date);
+                        setFromHour(p.hour);
+                        setFromMinute(p.minute);
+                        setFromAmpm(p.ampm);
+                      }}
+                      previewLabel="🕒 Leaving Campus"
+                    />
 
-                    {/* Return Picker */}
-                    <div style={{ ...styles.timePickerCard, marginTop: 12 }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          flexWrap: "wrap",
-                          gap: 8,
-                          marginBottom: 8,
-                        }}
-                      >
-                        <div style={styles.timeSectionTitle}>
-                          ⏳ Permitted Return Deadline (Date &amp; Time)
-                        </div>
-                        {isOpenReturn && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsOpenReturn(false);
-                              setActiveDurationChip("custom");
-                            }}
-                            style={styles.setFixedTimeLinkBtn}
-                          >
-                            Set Fixed Return Time Instead
-                          </button>
-                        )}
-                      </div>
-
+                    {/* Return Custom 12-Hour Picker */}
+                    <div style={{ marginTop: 12 }}>
                       {!isOpenReturn ? (
-                        <>
-                          <div style={styles.dateRowGrid}>
-                            <div>
-                              <span style={styles.subFieldLabel}>
-                                📅 Return Date (Any day):
-                              </span>
-                              <input
-                                type="date"
-                                value={toDate || ""}
-                                onChange={(e) => {
-                                  setToDate(e.target.value);
-                                  setActiveDurationChip("custom");
-                                }}
-                                style={styles.textInput}
-                                required
-                              />
-                            </div>
-                            <div>
-                              <span style={styles.subFieldLabel}>
-                                🕒 Return Time:
-                              </span>
-                              <input
-                                type="time"
-                                value={toTime || ""}
-                                onChange={(e) => {
-                                  setToTime(e.target.value);
-                                  setActiveDurationChip("custom");
-                                }}
-                                style={styles.textInput}
-                                required
-                              />
-                            </div>
-                          </div>
-                          <div style={styles.timePreview12h}>
-                            ⏳ Return By:{" "}
-                            <strong>
-                              {formatDateTime12Hour(
-                                combineDateAndTimeToISO(toDate, toTime)
-                              )}
-                            </strong>
-                          </div>
-                        </>
+                        <CustomDateTimePicker
+                          title="⏳ Permitted Return Deadline (Date & Time)"
+                          dateValue={toDate}
+                          onDateChange={(val) => {
+                            setToDate(val);
+                            setActiveDurationChip("custom");
+                          }}
+                          hourValue={toHour}
+                          onHourChange={(val) => {
+                            setToHour(val);
+                            setActiveDurationChip("custom");
+                          }}
+                          minuteValue={toMinute}
+                          onMinuteChange={(val) => {
+                            setToMinute(val);
+                            setActiveDurationChip("custom");
+                          }}
+                          ampmValue={toAmpm}
+                          onAmpmChange={(val) => {
+                            setToAmpm(val);
+                            setActiveDurationChip("custom");
+                          }}
+                          previewLabel="⏳ Must Return By"
+                        />
                       ) : (
                         <div style={styles.openMedicalBanner}>
-                          🏥{" "}
-                          <strong>
-                            No Specific Return Time (Medical / Open Leave):
-                          </strong>{" "}
-                          Student can remain outside without deadline until marked
-                          returned.
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              gap: 8,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <div>
+                              🏥{" "}
+                              <strong>
+                                No Specific Return Time (Medical / Open Leave):
+                              </strong>{" "}
+                              Student can remain outside without deadline until
+                              marked returned.
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsOpenReturn(false);
+                                setActiveDurationChip("custom");
+                              }}
+                              style={styles.setFixedTimeLinkBtn}
+                            >
+                              Set Fixed Return Time Instead
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1844,6 +2357,8 @@ export default function OutPassPortal() {
                 <div style={styles.passListScroll}>
                   {filteredTeacherPasses.map((p) => {
                     const isOverdue = isPassOverdue(p);
+                    const photoUrl =
+                      p.studentPhotoUrl || getStudentPhotoByAdNo(p.adNo);
                     return (
                       <div
                         key={p.id}
@@ -1868,107 +2383,130 @@ export default function OutPassPortal() {
                             flexWrap: "wrap",
                           }}
                         >
-                          <div style={{ flex: 1, minWidth: 210 }}>
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 8,
-                                flexWrap: "wrap",
-                              }}
-                            >
-                              <span
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: 12,
+                              flex: 1,
+                              minWidth: 220,
+                            }}
+                          >
+                            <StudentAvatar
+                              name={p.studentName}
+                              adNo={p.adNo}
+                              photoUrl={photoUrl}
+                              size={46}
+                              onClick={() =>
+                                setZoomPhotoStudent({
+                                  name: p.studentName,
+                                  adNo: p.adNo,
+                                  studentClass: p.studentClass,
+                                  photoUrl,
+                                })
+                              }
+                            />
+                            <div>
+                              <div
                                 style={{
-                                  fontWeight: 800,
-                                  fontSize: 16,
-                                  color: "#0f172a",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 8,
+                                  flexWrap: "wrap",
                                 }}
                               >
-                                {p.studentName}
-                              </span>
-                              <span style={styles.adNoBadge}>#{p.adNo}</span>
-                              <span style={styles.classPill}>
-                                Class {p.studentClass}
-                              </span>
-                            </div>
-
-                            <div
-                              style={{
-                                fontSize: 13,
-                                color: "#1e293b",
-                                marginTop: 6,
-                                fontWeight: 500,
-                              }}
-                            >
-                              📍 <strong>{p.destination}</strong>{" "}
-                              <span style={{ color: "#64748b" }}>
-                                — {p.purpose}
-                              </span>
-                            </div>
-
-                            <div
-                              style={{
-                                fontSize: 12,
-                                color: "#475569",
-                                marginTop: 6,
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 3,
-                              }}
-                            >
-                              <span>
-                                🕒 Departure:{" "}
-                                <strong>
-                                  {formatDateTime12Hour(p.permittedFrom)}
-                                </strong>
-                              </span>
-                              <span>
-                                ⏳ Permitted Return:{" "}
-                                <strong
+                                <span
                                   style={{
-                                    color: p.isOpenReturn
-                                      ? "#0369a1"
-                                      : "#0f172a",
+                                    fontWeight: 800,
+                                    fontSize: 16,
+                                    color: "#0f172a",
                                   }}
                                 >
-                                  {formatDateTime12Hour(
-                                    p.permittedTo,
-                                    p.isOpenReturn
-                                  )}
-                                </strong>
-                              </span>
+                                  {p.studentName}
+                                </span>
+                                <span style={styles.adNoBadge}>#{p.adNo}</span>
+                                <span style={styles.classPill}>
+                                  Class {p.studentClass}
+                                </span>
+                              </div>
+
+                              <div
+                                style={{
+                                  fontSize: 13,
+                                  color: "#1e293b",
+                                  marginTop: 5,
+                                  fontWeight: 500,
+                                }}
+                              >
+                                📍 <strong>{p.destination}</strong>{" "}
+                                <span style={{ color: "#64748b" }}>
+                                  — {p.purpose}
+                                </span>
+                              </div>
+
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  color: "#475569",
+                                  marginTop: 5,
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: 2,
+                                }}
+                              >
+                                <span>
+                                  🕒 Departure:{" "}
+                                  <strong>
+                                    {formatDateTime12Hour(p.permittedFrom)}
+                                  </strong>
+                                </span>
+                                <span>
+                                  ⏳ Permitted Return:{" "}
+                                  <strong
+                                    style={{
+                                      color: p.isOpenReturn
+                                        ? "#0369a1"
+                                        : "#0f172a",
+                                    }}
+                                  >
+                                    {formatDateTime12Hour(
+                                      p.permittedTo,
+                                      p.isOpenReturn
+                                    )}
+                                  </strong>
+                                </span>
+                              </div>
+
+                              {p.status === "OUTSIDE" && (
+                                <div
+                                  style={{
+                                    marginTop: 5,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    color: isOverdue
+                                      ? "#dc2626"
+                                      : p.isOpenReturn
+                                      ? "#0284c7"
+                                      : "#d97706",
+                                  }}
+                                >
+                                  ⏱️ {getRemainingTimeText(p)}
+                                </div>
+                              )}
+
+                              {p.actualReturnTime && (
+                                <div
+                                  style={{
+                                    fontSize: 12,
+                                    color: "#059669",
+                                    marginTop: 5,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  ✓ Returned at:{" "}
+                                  {formatDateTime12Hour(p.actualReturnTime)}
+                                </div>
+                              )}
                             </div>
-
-                            {p.status === "OUTSIDE" && (
-                              <div
-                                style={{
-                                  marginTop: 6,
-                                  fontSize: 12,
-                                  fontWeight: 700,
-                                  color: isOverdue
-                                    ? "#dc2626"
-                                    : p.isOpenReturn
-                                    ? "#0284c7"
-                                    : "#d97706",
-                                }}
-                              >
-                                ⏱️ {getRemainingTimeText(p)}
-                              </div>
-                            )}
-
-                            {p.actualReturnTime && (
-                              <div
-                                style={{
-                                  fontSize: 12,
-                                  color: "#059669",
-                                  marginTop: 6,
-                                  fontWeight: 700,
-                                }}
-                              >
-                                ✓ Returned at:{" "}
-                                {formatDateTime12Hour(p.actualReturnTime)}
-                              </div>
-                            )}
                           </div>
 
                           <div
@@ -1976,7 +2514,7 @@ export default function OutPassPortal() {
                               display: "flex",
                               flexDirection: "column",
                               alignItems: "flex-end",
-                              gap: 8,
+                              gap: 6,
                             }}
                           >
                             <span style={getStatusBadgeStyle(p, now)}>
@@ -1991,31 +2529,40 @@ export default function OutPassPortal() {
                                 : p.status}
                             </span>
 
-                            {p.status === "OUTSIDE" && (
-                              <div
-                                style={{
-                                  display: "flex",
-                                  gap: 6,
-                                  flexWrap: "wrap",
-                                  justifyContent: "flex-end",
-                                }}
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: 6,
+                                flexWrap: "wrap",
+                                justifyContent: "flex-end",
+                              }}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setReceiptPass(p)}
+                                style={styles.editPassBtn}
                               >
-                                <button
-                                  type="button"
-                                  onClick={() => openEditPassModal(p)}
-                                  style={styles.editPassBtn}
-                                >
-                                  ✏️ Edit Time/Date
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleConfirmReturn(p)}
-                                  style={styles.markReturnedBtn}
-                                >
-                                  ✓ Mark Returned
-                                </button>
-                              </div>
-                            )}
+                                🎫 Pass Slip
+                              </button>
+                              {p.status === "OUTSIDE" && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditPassModal(p)}
+                                    style={styles.editPassBtn}
+                                  >
+                                    ✏️ Edit Time
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleConfirmReturn(p)}
+                                    style={styles.markReturnedBtn}
+                                  >
+                                    ✓ Mark Returned
+                                  </button>
+                                </>
+                              )}
+                            </div>
 
                             {(p.status === "APPROVED" ||
                               p.status === "OUTSIDE") && (
@@ -2043,6 +2590,29 @@ export default function OutPassPortal() {
            ========================================================= */}
         {activeTab === "admin" && isAdmin && (
           <div>
+            {/* Sticky Overdue Alert Ticker if any students are late */}
+            {overduePasses.length > 0 && (
+              <div style={styles.overdueBannerAlert}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>🚨</span>
+                  <div>
+                    <strong>
+                      {overduePasses.length} Student
+                      {overduePasses.length > 1 ? "s are" : " is"} currently
+                      OVERDUE past their permitted return time!
+                    </strong>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAdminViewMode("OVERDUE")}
+                  style={styles.overdueFilterQuickBtn}
+                >
+                  Show Overdue Students Only →
+                </button>
+              </div>
+            )}
+
             <div style={styles.kpiGrid}>
               <div
                 onClick={() => setAdminViewMode("OUTSIDE")}
@@ -2068,10 +2638,12 @@ export default function OutPassPortal() {
               </div>
 
               <div
-                onClick={() => setAdminViewMode("OUTSIDE")}
+                onClick={() => setAdminViewMode("OVERDUE")}
                 style={{
                   ...styles.kpiCard,
                   borderTop: "4px solid #dc2626",
+                  outline:
+                    adminViewMode === "OVERDUE" ? "2px solid #dc2626" : "none",
                 }}
               >
                 <div style={styles.kpiTopRow}>
@@ -2084,7 +2656,7 @@ export default function OutPassPortal() {
                   {overduePasses.length}
                 </div>
                 <div style={styles.kpiFooter}>
-                  Exceeded permitted return time
+                  Click to filter late students only
                 </div>
               </div>
 
@@ -2144,13 +2716,18 @@ export default function OutPassPortal() {
                     count: currentlyOutsidePasses.length,
                   },
                   {
+                    id: "OVERDUE",
+                    label: "🚨 Overdue Only",
+                    count: overduePasses.length,
+                  },
+                  {
                     id: "INSIDE",
                     label: "🟢 Inside Students",
                     count: insideStudents.length,
                   },
                   {
                     id: "HISTORY",
-                    label: "📜 All Pass History",
+                    label: "📜 All History",
                     count: passes.length,
                   },
                 ].map((tab) => {
@@ -2249,8 +2826,8 @@ export default function OutPassPortal() {
                 <table style={styles.table}>
                   <thead>
                     <tr>
+                      <th style={styles.th}>Student</th>
                       <th style={styles.th}>Ad.No</th>
-                      <th style={styles.th}>Student Name</th>
                       <th style={styles.th}>Class</th>
                       <th style={styles.th}>Campus Status</th>
                       <th style={styles.th}>Outings This Month</th>
@@ -2273,16 +2850,32 @@ export default function OutPassPortal() {
                       .map((s) => (
                         <tr key={s.id} style={styles.tr}>
                           <td style={styles.td}>
-                            <span style={styles.adNoBadge}>#{s.adNo}</span>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 10,
+                              }}
+                            >
+                              <StudentAvatar
+                                name={s.name}
+                                adNo={s.adNo}
+                                photoUrl={s.photoUrl}
+                                size={38}
+                                onClick={() => setZoomPhotoStudent(s)}
+                              />
+                              <span
+                                style={{
+                                  fontWeight: 700,
+                                  color: "#0f172a",
+                                }}
+                              >
+                                {s.name}
+                              </span>
+                            </div>
                           </td>
-                          <td
-                            style={{
-                              ...styles.td,
-                              fontWeight: 700,
-                              color: "#0f172a",
-                            }}
-                          >
-                            {s.name}
+                          <td style={styles.td}>
+                            <span style={styles.adNoBadge}>#{s.adNo}</span>
                           </td>
                           <td style={styles.td}>
                             <span style={styles.classPill}>
@@ -2328,6 +2921,11 @@ export default function OutPassPortal() {
                         )
                           return false;
                         if (
+                          adminViewMode === "OVERDUE" &&
+                          !isPassOverdue(p)
+                        )
+                          return false;
+                        if (
                           classFilter !== "ALL" &&
                           p.studentClass !== classFilter
                         )
@@ -2355,30 +2953,58 @@ export default function OutPassPortal() {
                       .slice(0, 100)
                       .map((p) => {
                         const isOverdue = isPassOverdue(p);
+                        const photoUrl =
+                          p.studentPhotoUrl || getStudentPhotoByAdNo(p.adNo);
                         return (
                           <tr key={p.id} style={styles.tr}>
                             <td style={styles.td}>
                               <div
                                 style={{
-                                  fontWeight: 800,
-                                  color: "#0f172a",
-                                  fontSize: 15,
-                                }}
-                              >
-                                {p.studentName}
-                              </div>
-                              <div
-                                style={{
                                   display: "flex",
-                                  gap: 6,
-                                  marginTop: 4,
                                   alignItems: "center",
+                                  gap: 10,
                                 }}
                               >
-                                <span style={styles.adNoBadge}>#{p.adNo}</span>
-                                <span style={styles.classPill}>
-                                  Class {p.studentClass}
-                                </span>
+                                <StudentAvatar
+                                  name={p.studentName}
+                                  adNo={p.adNo}
+                                  photoUrl={photoUrl}
+                                  size={42}
+                                  onClick={() =>
+                                    setZoomPhotoStudent({
+                                      name: p.studentName,
+                                      adNo: p.adNo,
+                                      studentClass: p.studentClass,
+                                      photoUrl,
+                                    })
+                                  }
+                                />
+                                <div>
+                                  <div
+                                    style={{
+                                      fontWeight: 800,
+                                      color: "#0f172a",
+                                      fontSize: 15,
+                                    }}
+                                  >
+                                    {p.studentName}
+                                  </div>
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      gap: 6,
+                                      marginTop: 4,
+                                      alignItems: "center",
+                                    }}
+                                  >
+                                    <span style={styles.adNoBadge}>
+                                      #{p.adNo}
+                                    </span>
+                                    <span style={styles.classPill}>
+                                      Class {p.studentClass}
+                                    </span>
+                                  </div>
+                                </div>
                               </div>
                             </td>
 
@@ -2511,6 +3137,14 @@ export default function OutPassPortal() {
                                     ? "🟢 RETURNED"
                                     : p.status}
                                 </span>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setReceiptPass(p)}
+                                  style={styles.editPassBtnSmall}
+                                >
+                                  🎫 Slip
+                                </button>
 
                                 {p.status === "OUTSIDE" && (
                                   <>
@@ -2822,7 +3456,7 @@ const styles = {
     fontSize: "11px",
     fontWeight: 700,
     color: "#475569",
-    marginBottom: "4px",
+    marginBottom: "5px",
   },
   timePickerCard: {
     background: "#f8fafc",
@@ -2834,11 +3468,75 @@ const styles = {
     fontSize: "12px",
     fontWeight: 800,
     color: "#0f172a",
-    marginBottom: "8px",
     textTransform: "uppercase",
   },
+  customDateTimeGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+    gap: "12px",
+    alignItems: "end",
+  },
+  dateInputBox: {
+    width: "100%",
+    padding: "10px 12px",
+    borderRadius: "10px",
+    border: "1.5px solid #0d9488",
+    fontSize: "14px",
+    fontWeight: 700,
+    color: "#0f172a",
+    background: "#ffffff",
+    cursor: "pointer",
+  },
+  timeSelectBox: {
+    flex: 1,
+    padding: "10px 8px",
+    borderRadius: "10px",
+    border: "1.5px solid #0d9488",
+    fontSize: "14px",
+    fontWeight: 800,
+    color: "#0f172a",
+    background: "#ffffff",
+    cursor: "pointer",
+  },
+  ampmToggleGroup: {
+    display: "flex",
+    background: "#e2e8f0",
+    padding: "3px",
+    borderRadius: "10px",
+    border: "1px solid #cbd5e1",
+  },
+  ampmBtnActive: {
+    background: "#0f766e",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "7px",
+    padding: "7px 10px",
+    fontSize: "12px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  ampmBtnInactive: {
+    background: "transparent",
+    color: "#334155",
+    border: "none",
+    borderRadius: "7px",
+    padding: "7px 10px",
+    fontSize: "12px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  miniDayStepBtn: {
+    background: "#ffffff",
+    color: "#334155",
+    border: "1px solid #cbd5e1",
+    borderRadius: "6px",
+    padding: "4px 8px",
+    fontSize: "11px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
   timePreview12h: {
-    marginTop: "8px",
+    marginTop: "10px",
     fontSize: "12px",
     fontWeight: 700,
     color: "#0f766e",
@@ -2882,8 +3580,32 @@ const styles = {
     color: "#0369a1",
     border: "1px solid #7dd3fc",
     borderRadius: "6px",
-    padding: "4px 10px",
+    padding: "5px 10px",
     fontSize: "11px",
+    fontWeight: 800,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  overdueBannerAlert: {
+    background: "#fef2f2",
+    border: "2px solid #ef4444",
+    color: "#991b1b",
+    padding: "12px 18px",
+    borderRadius: "14px",
+    marginBottom: "18px",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: "12px",
+  },
+  overdueFilterQuickBtn: {
+    background: "#dc2626",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "8px",
+    padding: "8px 14px",
+    fontSize: "12px",
     fontWeight: 800,
     cursor: "pointer",
   },
@@ -2958,30 +3680,6 @@ const styles = {
     alignItems: "center",
     cursor: "pointer",
     background: "#ffffff",
-  },
-  studentAvatarMini: {
-    width: "34px",
-    height: "34px",
-    borderRadius: "8px",
-    background: "#ccfbf1",
-    color: "#0f766e",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontWeight: 800,
-    fontSize: "15px",
-  },
-  studentAvatarLarge: {
-    width: "48px",
-    height: "48px",
-    borderRadius: "12px",
-    background: "#0f766e",
-    color: "#ffffff",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontWeight: 800,
-    fontSize: "20px",
   },
   noMatchBox: {
     marginTop: "6px",
@@ -3261,7 +3959,7 @@ const styles = {
     color: "#0f172a",
     border: "1px solid #cbd5e1",
     borderRadius: "8px",
-    padding: "8px 12px",
+    padding: "7px 10px",
     fontSize: "12px",
     fontWeight: 800,
     cursor: "pointer",
@@ -3281,7 +3979,7 @@ const styles = {
     color: "#ffffff",
     border: "none",
     borderRadius: "8px",
-    padding: "8px 14px",
+    padding: "7px 12px",
     fontSize: "12px",
     fontWeight: 800,
     cursor: "pointer",
