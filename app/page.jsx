@@ -3663,7 +3663,7 @@ export default function UnifiedSchoolPortal() {
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <img src="https://www.dhiu.in/resources/img/uni-logo.png" alt="DHIU Logo" style={{ width: '42px', height: '42px', borderRadius: '50%', objectFit: 'cover' }} />
+              <img src="https://ik.imagekit.io/syustaging/SYU_PREPROD/LOGO_XGQrxvsxO.webp?tr=w-3840" alt="DHIU Logo" style={{ width: '52px', height: '52px', borderRadius: '50%', objectFit: 'contain', backgroundColor: '#ffffff' }} />
               <h1 style={{ margin: 0, fontSize: '26px', fontWeight: '800', color: '#0f172a' }}>Admin Dashboard</h1>
             </div>
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>

@@ -500,7 +500,7 @@ export default function StudentDashboard() {
           
           {/* 🌟 New wrapper to place the logo and text side-by-side */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <img src="https://www.dhiu.in/resources/img/uni-logo.png" alt="DHIU Logo" style={{ width: '52px', height: '52px', borderRadius: '50%', objectFit: 'cover' }} />
+            <img src="https://ik.imagekit.io/syustaging/SYU_PREPROD/LOGO_XGQrxvsxO.webp?tr=w-3840" alt="DHIU Logo" style={{ width: '52px', height: '52px', borderRadius: '50%', objectFit: 'contain', backgroundColor: '#ffffff' }} />
             
             <div>
               <h1 style={{ margin: '0 0 6px 0', fontSize: '24px', color: '#0f172a', fontWeight: '800' }}>{loggedInStudent?.firstName}</h1>

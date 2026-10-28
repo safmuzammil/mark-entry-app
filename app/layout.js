@@ -16,8 +16,8 @@ export const metadata = {
   description: 'Teacher and Admin Management Portal',
   manifest: '/manifest.json?v=4', // Bumped version to force devices to fetch the new logo
   icons: {
-    icon: 'https://www.dhiu.in/resources/img/uni-logo.png',
-    apple: 'https://www.dhiu.in/resources/img/uni-logo.png', // Applies rounded logo on iOS
+    icon: 'https://ik.imagekit.io/syustaging/SYU_PREPROD/LOGO_XGQrxvsxO.webp?tr=w-3840',
+    apple: 'https://ik.imagekit.io/syustaging/SYU_PREPROD/LOGO_XGQrxvsxO.webp?tr=w-3840',
   },
   appleWebApp: {
     capable: true,
