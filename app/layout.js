@@ -14,7 +14,11 @@ const geistMono = Geist_Mono({
 export const metadata = {
   title: 'School Mark Portal',
   description: 'Teacher and Admin Management Portal',
-  manifest: '/manifest.json?v=3', // version bump
+  manifest: '/manifest.json?v=4', // Bumped version to force devices to fetch the new logo
+  icons: {
+    icon: 'https://www.dhiu.in/resources/img/uni-logo.png',
+    apple: 'https://www.dhiu.in/resources/img/uni-logo.png', // Applies rounded logo on iOS
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
@@ -27,7 +31,6 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <head>
         <meta name="theme-color" content="#2563eb" />
-        <link rel="apple-touch-icon" href="/icon-192.png?v=3" />
         {/* Register the Service Worker to unlock Android Installation */}
         <script
           dangerouslySetInnerHTML={{

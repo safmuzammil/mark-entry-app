@@ -497,17 +497,34 @@ export default function StudentDashboard() {
         <StudentWeeklyReminder />
 
         <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: '#ffffff', padding: '24px 28px', borderRadius: '16px', boxShadow: '0 4px 20px rgba(15, 23, 42, 0.04)', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '16px' }}>
-          <div>
-            <h1 style={{ margin: '0 0 6px 0', fontSize: '24px', color: '#0f172a', fontWeight: '800' }}>{loggedInStudent?.firstName}</h1>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ ...styles.badge, background: '#f1f5f9', color: '#334155' }}>Reg: {loggedInStudent?.regNo}</span>
-              <span style={{ ...styles.badge, background: '#f1f5f9', color: '#334155' }}>Ad.No: {loggedInStudent?.adNo}</span>
-              <span style={{ ...styles.badge, background: '#e0f2fe', color: '#0369a1' }}>{loggedInStudent?.department || 'General'}</span>
-              {loggedInStudent?.classes?.map((cls, i) => (
-                <span key={i} style={{ ...styles.badge, background: '#ede9fe', color: '#6d28d9' }}>{cls}</span>
-              ))}
+          
+          {/* 🌟 New wrapper to place the logo and text side-by-side */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <img src="https://www.dhiu.in/resources/img/uni-logo.png" alt="DHIU Logo" style={{ width: '52px', height: '52px', borderRadius: '50%', objectFit: 'cover' }} />
+            
+            <div>
+              <h1 style={{ margin: '0 0 6px 0', fontSize: '24px', color: '#0f172a', fontWeight: '800' }}>{loggedInStudent?.firstName}</h1>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ ...styles.badge, background: '#f1f5f9', color: '#334155' }}>Reg: {loggedInStudent?.regNo}</span>
+                <span style={{ ...styles.badge, background: '#f1f5f9', color: '#334155' }}>Ad.No: {loggedInStudent?.adNo}</span>
+                <span style={{ ...styles.badge, background: '#e0f2fe', color: '#0369a1' }}>{loggedInStudent?.department || 'General'}</span>
+                {loggedInStudent?.classes?.map((cls, i) => (
+                  <span key={i} style={{ ...styles.badge, background: '#ede9fe', color: '#6d28d9' }}>{cls}</span>
+                ))}
+              </div>
             </div>
+
+          {/* Buttons stay on the far right */}
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <Link href="/outpass" style={{ background: "#0f766e", color: "#ffffff", padding: "10px 16px", borderRadius: "10px", fontWeight: "700", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
+              🪪 Out-Pass Portal
+            </Link>
+            <button onClick={() => window.print()} style={{ padding: '10px 18px', background: '#f8fafc', color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>
+              🖨️ Print Report
+            </button>
+            <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
           </div>
+        </div>
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
             <Link href="/outpass" style={{ background: "#0f766e", color: "#ffffff", padding: "10px 16px", borderRadius: "10px", fontWeight: "700", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
               🪪 Out-Pass Portal

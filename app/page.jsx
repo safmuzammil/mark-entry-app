@@ -650,9 +650,12 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: '#ffffff', padding: '20px 24px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '16px' }}>
-        <div>
-          <h1 style={{ margin: '0 0 4px 0', fontSize: '24px', fontWeight: '800', color: '#0f172a' }}>Teacher Portal</h1>
-          <p style={{ margin: 0, color: '#64748b', fontSize: '15px' }}>Welcome, <strong>{loggedInTeacher?.fullName || 'Teacher'}</strong></p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <img src="https://www.dhiu.in/resources/img/uni-logo.png" alt="DHIU Logo" style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }} />
+          <div>
+            <h1 style={{ margin: '0 0 4px 0', fontSize: '24px', fontWeight: '800', color: '#0f172a' }}>Teacher Portal</h1>
+            <p style={{ margin: 0, color: '#64748b', fontSize: '15px' }}>Welcome, <strong>{loggedInTeacher?.fullName || 'Teacher'}</strong></p>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
           {selectedEnrollmentId && activeView === 'marks' && (
@@ -3659,7 +3662,10 @@ export default function UnifiedSchoolPortal() {
           <InstallAppBanner />
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px', background: '#ffffff', padding: '24px 32px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
-            <h1 style={{ margin: 0, fontSize: '26px', fontWeight: '800', color: '#0f172a' }}>Admin Dashboard</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <img src="https://www.dhiu.in/resources/img/uni-logo.png" alt="DHIU Logo" style={{ width: '42px', height: '42px', borderRadius: '50%', objectFit: 'cover' }} />
+              <h1 style={{ margin: 0, fontSize: '26px', fontWeight: '800', color: '#0f172a' }}>Admin Dashboard</h1>
+            </div>
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
 
               <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
@@ -3752,8 +3758,19 @@ export default function UnifiedSchoolPortal() {
       <div style={{ width: '100%', maxWidth: '440px' }}>
         <InstallAppBanner />
         <div style={{ background: '#ffffff', padding: '40px 32px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0', boxSizing: 'border-box' }}>
-          <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-            <span style={{ fontSize: '42px', display: 'block', marginBottom: '10px' }}>🏫</span>
+          <div style={{ textAlign: 'center', marginBottom: '32px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <img 
+              src="https://www.dhiu.in/resources/img/uni-logo.png" 
+              alt="DHIU Logo" 
+              style={{ 
+                width: '72px', 
+                height: '72px', 
+                borderRadius: '50%', // Makes it perfectly round
+                objectFit: 'cover',
+                marginBottom: '12px',
+                boxShadow: '0 4px 10px rgba(0,0,0,0.1)'
+              }} 
+            />
             <h2 style={{ color: '#0f172a', margin: '0 0 8px 0', fontSize: '26px', fontWeight: '800' }}>School Portal</h2>
             <p style={{ color: '#64748b', fontSize: '15px', margin: 0, fontWeight: '500' }}>Sign in with your Admin or Teacher Portal account</p>
           </div>

@@ -1,21 +1,15 @@
 {
-  "name": "School Mark Portal",
+  "name": "SMS Mark Entry",
   "short_name": "MarkPortal",
-  "description": "School Mark Entry and Admin Management Portal",
+  "description": "SMS Mark Entry and Admin Management Portal",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f0f2f5",
   "theme_color": "#2563eb",
   "icons": [
     {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
+      "src": "https://www.dhiu.in/resources/img/uni-logo.png",
+      "sizes": "192x192 512x512",
       "type": "image/png",
       "purpose": "any maskable"
     }
