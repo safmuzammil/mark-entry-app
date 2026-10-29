@@ -19,7 +19,7 @@ const MADHABS = ["Hanafi", "Shafi", "General"];
 
 const CCE_LEVELS = { "Level 1": "15", "Level 2": "20", "Level 3": "25", "Level 4": "40" };
 const HIFZ_LEVELS = { "Part 1 (Max 50)": "50_1", "Part 2 (Max 50)": "50_2" };
-
+const OUTPASS_BETA_TESTERS = ["muzammil", "admin"];
 const parseCSVLine = (str) => {
   let arr = [];
   let quote = false;
@@ -651,7 +651,7 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: '#ffffff', padding: '20px 24px', borderRadius: '16px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <img src="https://www.dhiu.in/resources/img/uni-logo.png" alt="DHIU Logo" style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }} />
+          <img src="https://ik.imagekit.io/syustaging/SYU_PREPROD/LOGO_XGQrxvsxO.webp?tr=w-3840" alt="DHIU Logo" style={{ width: '52px', height: '52px', borderRadius: '50%', objectFit: 'contain', backgroundColor: '#ffffff' }} />
           <div>
             <h1 style={{ margin: '0 0 4px 0', fontSize: '24px', fontWeight: '800', color: '#0f172a' }}>Teacher Portal</h1>
             <p style={{ margin: 0, color: '#64748b', fontSize: '15px' }}>Welcome, <strong>{loggedInTeacher?.fullName || 'Teacher'}</strong></p>
@@ -663,7 +663,28 @@ function TeacherPortalView({ loggedInTeacher, onLogout }) {
               📚 All My Subjects
             </button>
           )}
-          
+
+          {/* 🔐 Only visible to you, your whitelisted colleague, or Admin Proxy */}
+          {OUTPASS_BETA_TESTERS.includes(String(loggedInTeacher?.username || '').toLowerCase()) && (
+            <Link
+              href="/outpass"
+              style={{
+                background: "#0f766e",
+                color: "#ffffff",
+                padding: "10px 16px",
+                borderRadius: "8px",
+                fontWeight: "bold",
+                textDecoration: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                fontSize: "14px",
+              }}
+            >
+              🪪 Permit Student Leave
+            </Link>
+          )}
+
           <button onClick={() => setActiveView(activeView === 'marks' ? 'settings' : 'marks')} style={{ padding: '10px 16px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '14px' }}>
             {activeView === 'marks' ? '⚙️ Settings' : '⬅ Back to Marks'}
           </button>
@@ -3667,7 +3688,23 @@ export default function UnifiedSchoolPortal() {
               <h1 style={{ margin: 0, fontSize: '26px', fontWeight: '800', color: '#0f172a' }}>Admin Dashboard</h1>
             </div>
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-
+              <Link
+                href="/outpass"
+                style={{
+                  background: "#0f766e",
+                  color: "#ffffff",
+                  padding: "10px 16px",
+                  borderRadius: "8px",
+                  fontWeight: "bold",
+                  textDecoration: "none",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  fontSize: "14px",
+                }}
+              >
+                🪪 Students&apos; Out-Pass Portal
+              </Link>
               <button onClick={handleLogout} style={styles.buttonDanger}>Logout</button>
             </div>
           </div>
@@ -3760,13 +3797,15 @@ export default function UnifiedSchoolPortal() {
         <div style={{ background: '#ffffff', padding: '40px 32px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0', boxSizing: 'border-box' }}>
           <div style={{ textAlign: 'center', marginBottom: '32px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <img 
-              src="https://www.dhiu.in/resources/img/uni-logo.png" 
+              src="https://ik.imagekit.io/syustaging/SYU_PREPROD/LOGO_XGQrxvsxO.webp?tr=w-3840" 
               alt="DHIU Logo" 
               style={{ 
-                width: '72px', 
-                height: '72px', 
-                borderRadius: '50%', // Makes it perfectly round
-                objectFit: 'cover',
+                width: '76px', 
+                height: '76px', 
+                borderRadius: '50%',
+                objectFit: 'contain',
+                backgroundColor: '#ffffff',
+                padding: '4px',
                 marginBottom: '12px',
                 boxShadow: '0 4px 10px rgba(0,0,0,0.1)'
               }} 
