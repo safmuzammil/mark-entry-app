@@ -254,38 +254,66 @@ export function checkSmartSubjectMatch(dbKey, expectedSub) {
   return false;
 }
 
-export function doesClassMatchAlias(studentClasses = [], envTargetClass = '', envAlias = '', envGrade = '') {
-  const classesUpper = studentClasses.map(c => String(c || '').trim().toUpperCase());
-  const targetUpper = String(envTargetClass || '').trim().toUpperCase();
-  const aliasUpper = String(envAlias || '').trim().toUpperCase();
-  const gradeStr = String(envGrade || '').trim();
+export function doesClassMatchAlias(studentClasses, targetClass, alias, grade) {
+  const norm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const stClassesNorm = (Array.isArray(studentClasses) ? studentClasses : [studentClasses])
+    .filter(Boolean)
+    .map(c => norm(c));
 
-  if (targetUpper && classesUpper.includes(targetUpper)) return true;
-  if (classesUpper.some(cls => aliasUpper.includes(cls))) return true;
+  if (stClassesNorm.length === 0) return false;
 
-  const hasQH1 = classesUpper.includes('QH1');
-  const hasAL1 = classesUpper.includes('AL1');
-  const hasFC1 = classesUpper.includes('FC1');
-  const hasQH2 = classesUpper.includes('QH2');
-  const hasAL2 = classesUpper.includes('AL2');
-  const hasFC2 = classesUpper.includes('FC2');
-  const hasGrade3 = classesUpper.includes('QLA3') || classesUpper.includes('HFC3') || classesUpper.some(c => c.includes('3'));
-  const hasGrade2 = hasQH2 || hasAL2 || hasFC2 || classesUpper.some(c => c.includes('2'));
-  const hasGrade1 = hasQH1 || hasAL1 || hasFC1 || classesUpper.some(c => c.includes('1'));
+  const targetNorm = norm(targetClass);
+  const aliasNorm = norm(alias);
+  const aliasUpper = String(alias || '').toUpperCase();
 
-  if (aliasUpper.includes('QHA1') && (hasQH1 || hasAL1)) return true;
-  if (aliasUpper.includes('FCL1') && (hasFC1 || hasAL1)) return true;
-  if (aliasUpper.includes('QHF1') && (hasQH1 || hasFC1)) return true;
-  if (aliasUpper.includes('ALC1') && (hasAL1 || hasFC1)) return true;
+  // Known specific class codes (including common variants like ALC2 / QLA3)
+  const KNOWN_SPECIFIC_CLASSES = [
+    'QH1', 'AL1', 'ALC1', 'FC1',
+    'QH2', 'AL2', 'ALC2', 'FC2',
+    'QLA3', 'HFC3', 'QH3', 'AL3', 'FC3'
+  ];
 
-  if (aliasUpper.includes('QHA2') && (hasQH2 || hasAL2)) return true;
-  if (aliasUpper.includes('FCL2') && (hasFC2 || hasAL2)) return true;
-  if (aliasUpper.includes('QHF2') && (hasQH2 || hasFC2)) return true;
-  if (aliasUpper.includes('ALC2') && (hasAL2 || hasFC2)) return true;
+  // 1. If targetClass explicitly names a specific class (e.g., "FC2"), ONLY match students in that class!
+  const specificTarget = KNOWN_SPECIFIC_CLASSES.find(
+    cls => targetNorm === cls || targetNorm.includes(cls)
+  );
+  if (specificTarget) {
+    return stClassesNorm.some(sc =>
+      sc === specificTarget ||
+      (specificTarget === 'ALC2' && sc === 'AL2') ||
+      (specificTarget === 'AL2' && sc === 'ALC2') ||
+      (specificTarget === 'ALC1' && sc === 'AL1') ||
+      (specificTarget === 'AL1' && sc === 'ALC1')
+    );
+  }
 
-  if ((aliasUpper.includes('M10') || aliasUpper.includes('U10') || gradeStr === '3') && hasGrade3) return true;
-  if ((aliasUpper.includes('M9') || aliasUpper.includes('U9') || gradeStr === '2') && hasGrade2) return true;
-  if ((aliasUpper.includes('M8') || aliasUpper.includes('U8') || gradeStr === '1') && hasGrade1) return true;
+  // 2. If the alias contains a specific class name (e.g., "FC2 Thamadun" or "QLA 3 Hifz"),
+  // STRICTLY lock to that class and DO NOT fall back to generic Grade 2 or Grade 3!
+  const specificInAlias = KNOWN_SPECIFIC_CLASSES.filter(cls => aliasNorm.includes(cls));
+  if (specificInAlias.length > 0) {
+    return stClassesNorm.some(sc =>
+      specificInAlias.some(cls =>
+        sc === cls ||
+        (cls === 'ALC2' && sc === 'AL2') ||
+        (cls === 'AL2' && sc === 'ALC2') ||
+        (cls === 'ALC1' && sc === 'AL1') ||
+        (cls === 'AL1' && sc === 'ALC1')
+      )
+    );
+  }
+
+  // 3. Otherwise, it's a generic grade-level batch (e.g., "M10", "U10", "M9", "U9", "M8", "U8", or "Grade 2")
+  let stGrade = '1';
+  if (stClassesNorm.some(c => c.includes('10') || c.includes('3'))) stGrade = '3';
+  else if (stClassesNorm.some(c => c.includes('9') || c.includes('2'))) stGrade = '2';
+
+  if (/\b(M10|U10)\b/.test(aliasUpper) || aliasUpper.includes('GRADE 3')) return stGrade === '3';
+  if (/\b(M9|U9)\b/.test(aliasUpper) || aliasUpper.includes('GRADE 2')) return stGrade === '2';
+  if (/\b(M8|U8)\b/.test(aliasUpper) || aliasUpper.includes('GRADE 1')) return stGrade === '1';
+
+  if (grade && (!targetNorm || targetNorm.includes('GRADE') || targetNorm === 'ALL')) {
+    return String(grade).trim() === stGrade;
+  }
 
   return false;
 }

@@ -61,6 +61,60 @@ function TeacherPasswordSettings() {
     </div>
   );
 }
+// 🌟 STRICT ENROLLMENT STUDENT MATCHER FOR TEACHER PORTAL
+function doesStudentBelongToTeacherEnrollment(student, env) {
+  if (!student || !env) return false;
+
+  const sReg = String(student.regNo || '').trim().toUpperCase();
+  const sAd = String(student.adNo || '').trim().toUpperCase();
+  const sId = String(student.id || '').trim().toUpperCase();
+  const isUrdu = sAd.startsWith('U');
+
+  // 1. If specific studentIds were assigned to this subject slot, ONLY show those assigned students!
+  if (Array.isArray(env.studentIds) && env.studentIds.length > 0) {
+    const savedIds = env.studentIds.map(id => String(id).trim().toUpperCase()).filter(Boolean);
+    if (savedIds.length > 0) {
+      return savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId);
+    }
+  }
+
+  // 2. Check strict Class / Alias match (locks FC2 Thamadun strictly to FC2, never all of Grade 2)
+  const classMatch = doesClassMatchAlias(
+    student.classes || [student.class],
+    env.targetClass,
+    env.alias,
+    env.grade
+  );
+  if (!classMatch) return false;
+
+  // 3. Check language stream rules
+  const envLang = String(env.langTag || '').trim().toLowerCase();
+  const aliasLow = String(env.alias || '').trim().toLowerCase();
+  const norm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const aliasNorm = norm(env.alias);
+  const targetNorm = norm(env.targetClass);
+
+  const KNOWN_SPECIFIC_CLASSES = [
+    'QH1', 'AL1', 'ALC1', 'FC1',
+    'QH2', 'AL2', 'ALC2', 'FC2',
+    'QLA3', 'HFC3', 'QH3', 'AL3', 'FC3'
+  ];
+  const isSpecificClassBatch = KNOWN_SPECIFIC_CLASSES.some(
+    cls => aliasNorm.includes(cls) || targetNorm.includes(cls)
+  );
+
+  const isStrictlyUrdu = (envLang.includes('urdu') && !envLang.includes('non')) || /\bu(8|9|10)\b/.test(aliasLow);
+  const isStrictlyNonUrdu = envLang.includes('non-urdu') || envLang.includes('non urdu') || /\bm(8|9|10)\b/.test(aliasLow);
+
+  if (isStrictlyUrdu) return isUrdu;
+  if (isStrictlyNonUrdu) return !isUrdu;
+
+  // If it's a specific class like FC2, AL2, QLA3, HFC3, QH1, both General & Urdu students in that class belong to it
+  if (isSpecificClassBatch) return true;
+
+  if (envLang.includes('gen')) return !isUrdu;
+  return true;
+}
 
 export default function TeacherPortalView({ loggedInTeacher, onLogout }) {
   const myUsername = String(loggedInTeacher?.username || '').toLowerCase();
@@ -223,20 +277,9 @@ const teacherEnrollments = React.useMemo(() => {
               const requiredLevelsArray = Array.isArray(rawLevels) ? rawLevels : [rawLevels];
               const envLang = (env.langTag || '').toLowerCase();
 
-              const matchedStudents = allStudentsCache.filter(student => {
-                const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
-                if (env.studentIds && Array.isArray(env.studentIds) && env.studentIds.length > 0) {
-                  const savedIds = env.studentIds.map(id => String(id).trim());
-                  if (savedIds.includes(student.regNo) || savedIds.includes(student.adNo)) return true;
-                }
-                const classMatch = doesClassMatchAlias(student.classes || [], env.targetClass, env.alias, env.grade);
-                if (classMatch) {
-                  if (envLang.includes('urdu') && !envLang.includes('non')) return isUrdu;
-                  if (envLang.includes('gen') || envLang.includes('non')) return !isUrdu;
-                  return true;
-                }
-                return false;
-              });
+              const matchedStudents = allStudentsCache.filter(student =>
+                doesStudentBelongToTeacherEnrollment(student, env)
+              );
 
               if (matchedStudents.length === 0) continue;
 
@@ -294,36 +337,9 @@ const teacherEnrollments = React.useMemo(() => {
 
     const envLang = (currentEnrollment.langTag || '').toLowerCase();
 
-    const matchedStudents = allStudentsCache.filter(student => {
-      const isUrdu = String(student.adNo || '').toUpperCase().startsWith('U');
-
-      if (currentEnrollment.studentIds && currentEnrollment.studentIds.length > 0) {
-        const savedIds = currentEnrollment.studentIds.map(id => String(id).trim());
-        if (savedIds.includes(student.regNo) || savedIds.includes(student.adNo)) return true;
-      }
-
-      const classMatch = doesClassMatchAlias(
-        student.classes || [],
-        currentEnrollment.targetClass,
-        currentEnrollment.alias,
-        currentEnrollment.grade
-      );
-
-      if (classMatch) {
-        const aliasLow = String(currentEnrollment.alias || '').toLowerCase();
-        const studentClassesLow = (student.classes || []).map(c => String(c).toLowerCase());
-        const isExactClass = studentClassesLow.some(cls => cls && aliasLow.includes(cls));
-        const isStrictlyUrdu = (envLang.includes('urdu') && !envLang.includes('non')) || /\bu(8|9|10)\b/.test(aliasLow);
-        const isStrictlyNonUrdu = envLang.includes('non-urdu') || envLang.includes('non urdu') || /\bm(8|9|10)\b/.test(aliasLow);
-
-        if (isStrictlyUrdu) return isUrdu;
-        if (isStrictlyNonUrdu) return !isUrdu;
-        if (isExactClass) return true; // Shared exact class (like HFC3 English or QH1 Adab) includes both Urdu & Gen!
-        if (envLang.includes('gen')) return !isUrdu;
-        return true;
-      }
-      return false;
-    });
+    const matchedStudents = allStudentsCache.filter(student =>
+      doesStudentBelongToTeacherEnrollment(student, currentEnrollment)
+    );
 
     const targetClassName = currentEnrollment.alias || `Grade ${currentEnrollment.grade || ''} ${currentEnrollment.subject || ''}`;
     const sortedStudents = typeof sortStudentsByDepartment === 'function' ? sortStudentsByDepartment(matchedStudents, targetClassName) : matchedStudents;
