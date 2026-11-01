@@ -98,37 +98,7 @@ const printStyles = `
   }
 `;
 
-// 🌟 SMART SUBJECT DETECTOR: Overrides corrupted env.subject if env.alias clearly names another subject!
-export const inferTrueSubject = (env) => {
-  const rawSub = String(env?.subject || '').trim().toUpperCase();
-  const alias = String(env?.alias || '').trim().toUpperCase();
-
-  // Check U:FIQH / Usul first before regular Fiqh
-  if (alias.includes('U :FIQH') || alias.includes('U:FIQH') || alias.includes('USUL') || rawSub.includes('U :FIQH') || rawSub.includes('U:FIQH')) {
-    return 'U :FIQH';
-  }
-  if (alias.includes('FIQH')) return 'FIQH';
-  if (alias.includes('AQIDAH') || alias.includes('AQEEDAH')) return 'AQIDAH';
-  if (alias.includes('LOGIC') || alias.includes('MANTIQ')) return 'LOGIC';
-  if (alias.includes('THAFSEER') || alias.includes('TAFSEER')) return 'THAFSEER';
-  if (alias.includes('HADITH') || alias.includes('HADEETH')) return 'HADITH';
-  if (alias.includes('BALAGHA')) return 'BALAGHA';
-  if (alias.includes('ADAB')) return 'ADAB';
-  if (alias.includes('SOCIAL SCIENCE') || alias.includes('SOCIAL')) return 'SOCIAL SCIENCE';
-  if (alias.includes('THAMADUN') || alias.includes('TAMADDUN')) return 'THAMADUN';
-  if (alias.includes('SPECIALIZATION')) return 'SPECIALIZATION';
-  if (alias.includes('HIFZ')) return 'HIFZ';
-  if (alias.includes('ENGLISH')) return 'ENGLISH';
-  // Check Urdu subject carefully (avoiding "(Urdu)" language tag false positives)
-  const aliasWithoutLang = alias.replace(/\(URDU\)/g, '').replace(/NON-URDU/g, '');
-  if (aliasWithoutLang.includes('URDU')) return 'URDU';
-
-  if (rawSub === 'MANTIQ') return 'LOGIC';
-  return rawSub;
-};
-
-// 🌟 FIXED PRIORITY SCORING: Allows Urdu & General students to share exact classes (like HFC3 English or QH1 Adab)
-// while still separating U8/M8, U9/M9, U10/M10 when separate Urdu/General batches exist!
+// 🌟 STRICT PRIORITY SCORING FOR SUBJECT TEACHERS
 const getEnrollmentMatchScore = (student, env, targetSubjectName) => {
   const sReg = String(student.regNo || '').trim().toUpperCase();
   const sAd = String(student.adNo || '').trim().toUpperCase();
@@ -140,7 +110,6 @@ const getEnrollmentMatchScore = (student, env, targetSubjectName) => {
   const envAliasUp = String(env.alias || '').toUpperCase();
   const targetUp = String(targetSubjectName).trim().toUpperCase();
 
-  // 1. STRICT SUBJECT ISOLATION (Check alias tokens first so mislabeled slots don't bleed)
   const explicitSubjects = [
     { key: 'U :FIQH', tokens: ['U :FIQH', 'U:FIQH', 'USUL'] },
     { key: 'FIQH', tokens: ['FIQH'] },
@@ -184,7 +153,6 @@ const getEnrollmentMatchScore = (student, env, targetSubjectName) => {
 
   if (!isMatchingSub) return 0;
 
-  // 2. DIRECT STUDENT ID MATCH (Score: 10 - Highest Override)
   if (env.studentIds && Array.isArray(env.studentIds) && env.studentIds.length > 0) {
     const savedIds = env.studentIds.map(id => String(id).trim().toUpperCase());
     if (savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId)) {
@@ -199,22 +167,18 @@ const getEnrollmentMatchScore = (student, env, targetSubjectName) => {
   const isStrictlyUrduOnly = (envLang.includes('urdu') && !envLang.includes('non')) || /\bu(8|9|10)\b/.test(envAliasLower);
   const isStrictlyNonUrduOnly = envLang.includes('non-urdu') || envLang.includes('non urdu') || /\bm(8|9|10)\b/.test(envAliasLower);
 
-  // Block if strictly Urdu-only batch and student is General, or strictly Non-Urdu batch and student is Urdu
   if (isStrictlyUrduOnly && !isUrdu) return 0;
   if (isStrictlyNonUrduOnly && isUrdu) return 0;
 
-  // 3. EXACT CLASS MATCH (e.g., HFC3, QLA3, QH1, AL1)
   const matchesStudentExactClass = studentClassesLower.some(cls =>
     cls && (envAliasLower.includes(cls) || envClassLower.includes(cls))
   );
   if (matchesStudentExactClass) {
-    // If stream explicitly matches, give 6; if it's a shared class (default 'Gen' or ''), give 5 so everyone in HFC3/QH1 gets the teacher!
     if (isUrdu && isStrictlyUrduOnly) return 6;
     if (!isUrdu && !isStrictlyUrduOnly) return 6;
     return 5;
   }
 
-  // 4. GENERIC GRADE MATCH (M8/U8 = Grade 1, M9/U9 = Grade 2, M10/U10 = Grade 3)
   let stGrade = '1';
   if (studentClassesLower.some(c => c.includes('10') || c.includes('3'))) stGrade = '3';
   else if (studentClassesLower.some(c => c.includes('9') || c.includes('2'))) stGrade = '2';
@@ -228,7 +192,6 @@ const getEnrollmentMatchScore = (student, env, targetSubjectName) => {
   if (envAliasLower.includes('u8') && stGrade === '1' && isUrdu) gradeMatch = true;
 
   if (!gradeMatch && (envAliasLower.includes(`grade ${stGrade}`) || envClassLower.includes(`grade ${stGrade}`) || (String(env.grade) === stGrade && !envClassLower))) {
-    // For generic grade-level assignments without a specific class name, respect the Gen vs Urdu tag
     if (envLang.includes('gen') && isUrdu) return 0;
     gradeMatch = true;
   }
@@ -241,21 +204,16 @@ const getEnrollmentMatchScore = (student, env, targetSubjectName) => {
   }
 
   if (gradeMatch) return 3;
-
   return 0;
 };
 
 function StudentWeeklyReminder({ reminder, studentMarks }) {
   if (!reminder || !reminder.active) return null;
-
   let configs = reminder.targetConfigs;
   if (!configs && reminder.targetSubjects) {
     configs = {};
-    reminder.targetSubjects.forEach(s => {
-      configs[s] = [s.toUpperCase() === 'HIFZ' ? '50_1' : (reminder.level || "15")];
-    });
+    reminder.targetSubjects.forEach(s => { configs[s] = [s.toUpperCase() === 'HIFZ' ? '50_1' : (reminder.level || "15")]; });
   }
-
   if (!configs || Object.keys(configs).length === 0) return null;
 
   const formatLevelTag = (lvl) => {
@@ -294,30 +252,17 @@ function StudentWeeklyReminder({ reminder, studentMarks }) {
           </h4>
         </div>
       </div>
-
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '14px' }}>
         {Object.keys(configs).map(sub => {
           const rawLvls = Array.isArray(configs[sub]) ? configs[sub] : [configs[sub]];
           if (rawLvls.length === 0) return null;
-
           return (
             <div key={sub} style={{ background: '#ffffff', border: '1px solid #fcd34d', padding: '8px 14px', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <span style={{ fontWeight: '800', color: '#0f172a', fontSize: '13px' }}>{sub}:</span>
               {rawLvls.map((lvl, i) => {
                 const isDone = hasMarkForSubjectLevel(sub, String(lvl));
                 return (
-                  <span
-                    key={i}
-                    style={{
-                      background: isDone ? '#dcfce7' : '#fef2f2',
-                      color: isDone ? '#166534' : '#dc2626',
-                      border: `1px solid ${isDone ? '#86efac' : '#fecaca'}`,
-                      padding: '3px 8px',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontWeight: '800'
-                    }}
-                  >
+                  <span key={i} style={{ background: isDone ? '#dcfce7' : '#fef2f2', color: isDone ? '#166534' : '#dc2626', border: `1px solid ${isDone ? '#86efac' : '#fecaca'}`, padding: '3px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
                     {isDone ? '✅' : '⏳'} {formatLevelTag(lvl)}
                   </span>
                 );
@@ -338,7 +283,7 @@ export default function StudentDashboard() {
   const [authenticated, setAuthenticated] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
   const [loggedInStudent, setLoggedInStudent] = useState(null);
-  const [activeTab, setActiveTab] = useState('marks');
+  const [activeTab, setActiveTab] = useState('marks'); // 'marks' | 'mentorship' | 'portfolio' | 'faculty'
 
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -348,6 +293,15 @@ export default function StudentDashboard() {
   const [activeReminder, setActiveReminder] = useState(null);
   const [teacherDirectory, setTeacherDirectory] = useState([]);
   const [subjectAggregates, setSubjectAggregates] = useState([]);
+
+  // 🌟 Semester Mentorship Config State for Student
+  const [mentorshipConfig, setMentorshipConfig] = useState({
+    semesterName: 'Current Semester',
+    minConsultations: 3,
+    targetDeadline: '',
+    guidelinesNote: ''
+  });
+
   const [overallStats, setOverallStats] = useState({
     total1400: '-',
     total490: '-',
@@ -368,9 +322,7 @@ export default function StudentDashboard() {
             setAuthenticated(true);
             await loadStudentPortalDataSecurely(studentData);
           }
-        } catch (err) {
-          console.error('Session restore error:', err);
-        }
+        } catch (err) {}
       }
       setAuthChecking(false);
     });
@@ -390,7 +342,6 @@ export default function StudentDashboard() {
     try {
       await signInWithEmailAndPassword(auth, fakeEmail, firebasePassword);
       const docSnap = await getDoc(doc(db, 'students', safeRegNo));
-
       if (docSnap.exists()) {
         const studentData = { id: docSnap.id, ...docSnap.data() };
         setLoggedInStudent(studentData);
@@ -413,8 +364,6 @@ export default function StudentDashboard() {
     setLoggedInStudent(null);
     setRegNo('');
     setPassword('');
-    setSubjectAggregates([]);
-    setOverallStats({ total1400: '-', total490: '-', rank: '-', totalPeers: '-', overallStatus: '-' });
   };
 
   const handlePrintSinglePagePDF = () => {
@@ -430,10 +379,11 @@ export default function StudentDashboard() {
     setIsLoadingMarks(true);
     try {
       const studentRegNo = studentData.regNo;
-      const [myMarksSnap, metaSnap, reminderSnap] = await Promise.all([
+      const [myMarksSnap, metaSnap, reminderSnap, mentorCfgSnap] = await Promise.all([
         getDoc(doc(db, 'marks', studentRegNo)),
         getDoc(doc(db, 'systemCache', 'studentPortalMeta')),
-        getDoc(doc(db, 'systemCache', 'activeReminder'))
+        getDoc(doc(db, 'systemCache', 'activeReminder')),
+        getDoc(doc(db, 'systemCache', 'mentorshipConfig'))
       ]);
 
       const marksData = myMarksSnap.exists() ? myMarksSnap.data() : {};
@@ -443,7 +393,10 @@ export default function StudentDashboard() {
       const reminderData = reminderSnap.exists() ? reminderSnap.data() : null;
       setActiveReminder(reminderData);
 
-      // Always try live teacher directory first if readable, fallback to cached
+      if (mentorCfgSnap.exists()) {
+        setMentorshipConfig(prev => ({ ...prev, ...mentorCfgSnap.data() }));
+      }
+
       let liveTeachers = [];
       try {
         const tSnap = await getDocs(collection(db, 'teachers'));
@@ -455,32 +408,9 @@ export default function StudentDashboard() {
       setTeacherDirectory(liveTeachers);
 
       const expectedSubjects = DEFAULT_SUBJECTS.map(sub => ({ subject: sub }));
-      Object.keys(marksData).forEach(subKey => {
-        const cleanSub = subKey.trim();
-        if (cleanSub && !expectedSubjects.some(s => {
-          const sUp = s.subject.toUpperCase();
-          const cleanUp = cleanSub.toUpperCase();
-          if (sUp === 'U :FIQH' || sUp === 'U:FIQH') return cleanUp.includes('U :FIQH') || cleanUp.includes('U:FIQH');
-          if (sUp === 'FIQH') return cleanUp === 'FIQH' && !cleanUp.includes('U :FIQH');
-          if (sUp === 'LOGIC' || sUp === 'MANTIQ') return cleanUp === 'LOGIC' || cleanUp === 'MANTIQ';
-          return sUp === cleanUp;
-        })) {
-          expectedSubjects.push({ subject: cleanSub });
-        }
-      });
-
       const rankObj = (metaData.classRanks || {})[studentRegNo] || null;
-      const startedLevelsMap = metaData.startedLevels || {};
 
-      processMarksLocally(
-        studentData,
-        marksData,
-        expectedSubjects,
-        rankObj,
-        startedLevelsMap,
-        reminderData,
-        liveTeachers
-      );
+      processMarksLocally(studentData, marksData, expectedSubjects, rankObj, metaData.startedLevels || {}, reminderData, liveTeachers);
     } catch (err) {
       console.error('Error loading student portal data:', err);
     } finally {
@@ -488,15 +418,7 @@ export default function StudentDashboard() {
     }
   };
 
-  const processMarksLocally = (
-    studentData,
-    marksData,
-    expectedSubjects,
-    rankObj,
-    startedLevelsMap,
-    reminderData,
-    cachedTeachers
-  ) => {
+  const processMarksLocally = (studentData, marksData, expectedSubjects, rankObj, startedLevelsMap, reminderData, cachedTeachers) => {
     let total1400 = 0;
     let total490 = 0;
     let totalEnteredMaxPossible = 0;
@@ -510,9 +432,7 @@ export default function StudentDashboard() {
     expectedSubjects.forEach(subObj => {
       const sub = subObj.subject;
       let normKey = sub.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-      if (sub.toUpperCase().includes('U :FIQH') || sub.toUpperCase().includes('U:FIQH')) {
-        normKey = 'U :FIQH';
-      }
+      if (sub.toUpperCase().includes('U :FIQH') || sub.toUpperCase().includes('U:FIQH')) normKey = 'U :FIQH';
       const isHifz = sub.toUpperCase() === 'HIFZ';
 
       const foundSubjectKey = Object.keys(marksData).find(k => {
@@ -550,13 +470,10 @@ export default function StudentDashboard() {
         assignedTeacherEmail = autoClassTeacher.email || '';
       }
 
-      let levelGradingStarted = isHifz
-        ? { '50_1': false, '50_2': false }
-        : { '15': false, '20': false, '25': false, '40': false };
+      let levelGradingStarted = isHifz ? { '50_1': false, '50_2': false } : { '15': false, '20': false, '25': false, '40': false };
 
       Object.entries(startedLevelsMap).forEach(([k, lvls]) => {
         const [clsPart, subPart] = k.split(':::');
-
         let isSubPartMatch = false;
         const sUp = sub.toUpperCase();
         const pUp = subPart.toUpperCase();
@@ -566,9 +483,7 @@ export default function StudentDashboard() {
         else isSubPartMatch = sUp === pUp;
 
         if ((clsPart === myPrimaryClass || (matchedTeacherEnv && clsPart === String(matchedTeacherEnv.targetClass || matchedTeacherEnv.alias || '').toUpperCase())) && isSubPartMatch) {
-          (lvls || []).forEach(l => {
-            levelGradingStarted[String(l)] = true;
-          });
+          (lvls || []).forEach(l => { levelGradingStarted[String(l)] = true; });
         }
       });
 
@@ -582,9 +497,7 @@ export default function StudentDashboard() {
       });
       if (remSubKey) {
         const rLvls = Array.isArray(reminderConfigs[remSubKey]) ? reminderConfigs[remSubKey] : [reminderConfigs[remSubKey]];
-        rLvls.forEach(l => {
-          levelGradingStarted[String(l)] = true;
-        });
+        rLvls.forEach(l => { levelGradingStarted[String(l)] = true; });
       }
 
       let subSumObtained = 0;
@@ -652,12 +565,10 @@ export default function StudentDashboard() {
   };
 
   const renderMarkCell = (mark, gradingStarted) => {
-    if (mark !== '-') {
-      return <span style={{ color: '#2563eb', fontWeight: '800', fontSize: '15px' }}>{mark}</span>;
-    }
+    if (mark !== '-') return <span style={{ color: '#2563eb', fontWeight: '800', fontSize: '15px' }}>{mark}</span>;
     if (gradingStarted) {
       return (
-        <span title="Grading is active for this level — submit your CCE work!" style={{ background: '#fef2f2', color: '#dc2626', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', border: '1px solid #fecaca', cursor: 'help' }}>
+        <span style={{ background: '#fef2f2', color: '#dc2626', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', border: '1px solid #fecaca' }}>
           ⚠️ Pending
         </span>
       );
@@ -685,7 +596,6 @@ export default function StudentDashboard() {
               <h2 style={{ color: '#0f172a', margin: '0 0 6px 0', fontSize: '26px', fontWeight: '800' }}>Student Portal</h2>
               <p style={{ color: '#475569', fontSize: '14px', margin: 0, fontWeight: '600' }}>Sign in to view your CCE marks & achievements</p>
             </div>
-
             <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div>
                 <label style={styles.label}>Registration Number (Reg.No)</label>
@@ -694,24 +604,13 @@ export default function StudentDashboard() {
               <div>
                 <label style={styles.label}>Admission Number (Ad.No)</label>
                 <div style={{ position: 'relative', width: '100%' }}>
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="e.g. U1278"
-                    required
-                    style={{ ...styles.input, paddingRight: '65px' }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#0f766e', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}
-                  >
+                  <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="e.g. U1278" required style={{ ...styles.input, paddingRight: '65px' }} />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#0f766e', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>
                     {showPassword ? "Hide" : "Show"}
                   </button>
                 </div>
               </div>
-              <button type="submit" disabled={isLoading} style={{ ...styles.buttonPrimary, opacity: isLoading ? 0.7 : 1 }}>
+              <button type="submit" disabled={isLoading} style={styles.buttonPrimary}>
                 {isLoading ? 'Authenticating...' : 'Login to Student Portal'}
               </button>
               {errorMsg && <p style={{ color: '#dc2626', fontSize: '14px', textAlign: 'center', margin: 0, fontWeight: '700', background: '#fef2f2', padding: '12px', borderRadius: '8px', border: '1px solid #fecaca' }}>{errorMsg}</p>}
@@ -724,6 +623,16 @@ export default function StudentDashboard() {
 
   const studentSkills = Array.isArray(loggedInStudent?.skills) ? loggedInStudent.skills : [];
   const studentAchievements = Array.isArray(loggedInStudent?.achievements) ? loggedInStudent.achievements : [];
+  const studentMentorLogs = Array.isArray(loggedInStudent?.mentorLogs)
+    ? loggedInStudent.mentorLogs
+    : Array.isArray(loggedInStudent?.consultationLogs)
+      ? loggedInStudent.consultationLogs
+      : [];
+
+  const minReqSittings = Number(mentorshipConfig.minConsultations) || 3;
+  const completedSittings = studentMentorLogs.length;
+  const metMentorTarget = completedSittings >= minReqSittings;
+  const latestSitting = studentMentorLogs[0] || null;
 
   const mentorTeacherObj = teacherDirectory.find(
     t => String(t.username || '').toLowerCase() === String(loggedInStudent?.mentorUsername || '').toLowerCase()
@@ -735,9 +644,7 @@ export default function StudentDashboard() {
       <HighContrastStyles />
       <style dangerouslySetInnerHTML={{ __html: printStyles }} />
       <div className="print-container" style={{ maxWidth: '1140px', margin: '0 auto' }}>
-        <div className="no-print">
-          <InstallAppBanner />
-        </div>
+        <div className="no-print"><InstallAppBanner /></div>
 
         <StudentWeeklyReminder reminder={activeReminder} studentMarks={rawStudentMarks} />
 
@@ -757,14 +664,17 @@ export default function StudentDashboard() {
                 {loggedInStudent?.classes?.map((cls, i) => (
                   <span key={i} style={{ ...styles.badge, background: '#ede9fe', color: '#6d28d9' }}>Class {cls}</span>
                 ))}
-                {loggedInStudent?.district && (
-                  <span style={{ ...styles.badge, background: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0' }}>
-                    📍 {loggedInStudent.district}, {loggedInStudent.state || 'Kerala'}
-                  </span>
-                )}
+                <span style={{
+                  ...styles.badge,
+                  background: metMentorTarget ? '#dcfce7' : '#fef3c7',
+                  color: metMentorTarget ? '#166534' : '#92400e',
+                  border: `1px solid ${metMentorTarget ? '#86efac' : '#fde68a'}`
+                }}>
+                  🧭 Mentor Sittings: {completedSittings} / {minReqSittings} {metMentorTarget ? '✅' : '⏳'}
+                </span>
               </div>
               <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginTop: '8px', fontSize: '13px', color: '#334155', fontWeight: '700' }}>
-                <span>🧭 Mentor: <strong style={{ color: '#0f766e' }}>{mentorTeacherObj?.fullName || loggedInStudent?.mentorUsername || 'Assigned Faculty'}</strong></span>
+                <span>🧭 Mentor: <strong style={{ color: '#0f766e' }}>{mentorTeacherObj?.fullName || loggedInStudent?.mentorName || loggedInStudent?.mentorUsername || 'Assigned Faculty'}</strong></span>
                 <span>🏫 Class Teacher: <strong style={{ color: '#1d4ed8' }}>{classTeacherObj?.fullName || loggedInStudent?.classTeacherUsername || 'Class Faculty'}</strong></span>
               </div>
             </div>
@@ -781,7 +691,8 @@ export default function StudentDashboard() {
         <div className="no-print" style={{ display: 'flex', gap: '10px', marginBottom: '22px', flexWrap: 'wrap', background: '#ffffff', padding: '10px 14px', borderRadius: '14px', border: '1px solid #cbd5e1' }}>
           {[
             { id: 'marks', label: '📊 CCE & Hifz Mark Sheet' },
-            { id: 'portfolio', label: `🏆 My Skills & Achievements (${studentSkills.length + studentAchievements.length})` },
+            { id: 'mentorship', label: `🧭 My Mentorship & Sittings (${completedSittings}/${minReqSittings})` },
+            { id: 'portfolio', label: `🏆 Skills & Achievements (${studentSkills.length + studentAchievements.length})` },
             { id: 'faculty', label: '👨‍🏫 My Mentor & Subject Usthads' }
           ].map(tab => (
             <button
@@ -910,6 +821,132 @@ export default function StudentDashboard() {
               )}
             </div>
           </>
+        )}
+
+        {/* 🌟 MENTORSHIP TAB IN STUDENT PORTAL */}
+        {activeTab === 'mentorship' && (
+          <div style={styles.card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px', borderBottom: '2px solid #f1f5f9', paddingBottom: '14px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '900', color: '#0f172a' }}>
+                  🧭 My Mentorship & Consultancy Progress ({mentorshipConfig.semesterName})
+                </h3>
+                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#475569', fontWeight: '600' }}>
+                  You are required to complete at least <strong>{minReqSittings} consultancy sittings</strong> with your Assigned Mentor this semester.
+                </p>
+              </div>
+              <span style={{
+                background: metMentorTarget ? '#dcfce7' : '#fef3c7',
+                color: metMentorTarget ? '#166534' : '#92400e',
+                padding: '8px 16px',
+                borderRadius: '999px',
+                fontSize: '14px',
+                fontWeight: '900',
+                border: `1.5px solid ${metMentorTarget ? '#22c55e' : '#f59e0b'}`
+              }}>
+                {metMentorTarget
+                  ? `✅ Target Achieved (${completedSittings}/${minReqSittings} Sittings)`
+                  : `⏳ ${Math.max(0, minReqSittings - completedSittings)} More Sitting(s) Needed (${completedSittings}/${minReqSittings})`}
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+              <div style={{ background: '#f0fdfa', border: '2px solid #0d9488', padding: '18px', borderRadius: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: '900', color: '#0f766e', textTransform: 'uppercase' }}>🧭 My Assigned Mentor Usthad</div>
+                  <div style={{ fontSize: '18px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>
+                    {mentorTeacherObj?.fullName || loggedInStudent?.mentorName || loggedInStudent?.mentorUsername || 'Not Assigned Yet'}
+                  </div>
+                  {mentorshipConfig.targetDeadline && (
+                    <div style={{ fontSize: '12px', color: '#047857', fontWeight: '700', marginTop: '4px' }}>
+                      📅 Semester Target Deadline: {mentorshipConfig.targetDeadline}
+                    </div>
+                  )}
+                </div>
+                {mentorTeacherObj?.whatsappNumber && (
+                  <button
+                    type="button"
+                    onClick={() => openDirectWhatsApp(mentorTeacherObj.whatsappNumber, `Assalamu Alaikum Usthad, I am ${loggedInStudent.firstName} (#${loggedInStudent.adNo}). I would like to schedule my next mentorship sitting.`)}
+                    style={{ padding: '10px 14px', background: '#0d9488', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  >
+                    💬 Request Sitting on WA
+                  </button>
+                )}
+              </div>
+
+              <div style={{ background: '#fffbeb', border: '2px solid #f59e0b', padding: '18px', borderRadius: '14px' }}>
+                <div style={{ fontSize: '11px', fontWeight: '900', color: '#b45309', textTransform: 'uppercase' }}>🎯 Current Action Plan & Next Sitting</div>
+                {latestSitting?.actionPlan ? (
+                  <>
+                    <div style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', marginTop: '6px' }}>
+                      "{latestSitting.actionPlan}"
+                    </div>
+                    {latestSitting.nextFollowUpDate && (
+                      <div style={{ fontSize: '12px', color: '#92400e', fontWeight: '800', marginTop: '6px' }}>
+                        ⏰ Next Scheduled Sitting: {latestSitting.nextFollowUpDate}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ fontSize: '13px', color: '#78350f', fontWeight: '600', marginTop: '6px' }}>
+                    Meet with your Mentor Usthad to receive your personalized academic and skill action plan.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
+              📜 My Recorded Mentorship Sittings ({studentMentorLogs.length})
+            </h4>
+            {studentMentorLogs.length === 0 ? (
+              <div style={{ padding: '28px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>
+                No mentorship sittings have been logged yet. Please meet your Mentor Usthad to complete your {minReqSittings} required sittings.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {studentMentorLogs.map((log, i) => (
+                  <div key={log.id || i} style={{ padding: '16px', borderRadius: '12px', border: '1px solid #cbd5e1', background: '#f8fafc' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span style={{ background: '#0f172a', color: '#ffffff', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
+                          📅 {log.date}
+                        </span>
+                        <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
+                          {log.type || 'Mentorship Sitting'}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '12px', color: '#475569', fontWeight: '700' }}>
+                        👨‍🏫 Mentor: <strong>{log.loggedBy || 'Faculty'}</strong>
+                      </span>
+                    </div>
+
+                    {Array.isArray(log.topics) && log.topics.length > 0 && (
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                        {log.topics.map((t, idx) => (
+                          <span key={idx} style={{ background: '#ffffff', border: '1px solid #cbd5e1', color: '#334155', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '700' }}>
+                            ✓ {t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {log.summary && (
+                      <div style={{ fontSize: '14px', color: '#0f172a', fontWeight: '600', marginBottom: '6px' }}>
+                        {log.summary}
+                      </div>
+                    )}
+
+                    {(log.actionPlan || log.nextFollowUpDate) && (
+                      <div style={{ marginTop: '8px', padding: '8px 12px', background: '#f0fdfa', borderRadius: '8px', fontSize: '12px', color: '#0f766e', fontWeight: '800', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                        {log.actionPlan && <span>🎯 Action Plan: {log.actionPlan}</span>}
+                        {log.nextFollowUpDate && <span>⏰ Follow-Up Date: {log.nextFollowUpDate}</span>}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {activeTab === 'portfolio' && (
