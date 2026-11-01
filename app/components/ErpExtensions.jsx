@@ -1002,9 +1002,6 @@ export function StudentPortfolioModal({
   );
 }
 
-// ============================================================================
-// 🔑 8. TEACHER PRIVILEGE & ROLE CONFIGURATOR MODAL
-// ============================================================================
 export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
   const [priv, setPriv] = useState({
     isPrincipal: false,
@@ -1024,6 +1021,8 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
 
   if (!teacher) return null;
 
+  const normalizeCls = (str) => String(str || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -1034,17 +1033,38 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
         canViewReports: Boolean(priv.isPrincipal || priv.isOfficeSecretary || priv.canViewReports)
       };
 
-      let updatedEnrollments = Array.isArray(teacher.enrollments) ? [...teacher.enrollments] : [];
+      let rawEnrollments = Array.isArray(teacher.enrollments) ? [...teacher.enrollments] : [];
+
+      // 🌟 1. Deduplicate any existing double Hifz entries (e.g. "QLA 3 Hifz" vs "QLA3 Hifz")
+      const seenHifzClasses = new Set();
+      let updatedEnrollments = rawEnrollments.filter(e => {
+        const isSubHifz = String(e.subject || '').toUpperCase() === 'HIFZ' || String(e.alias || '').toUpperCase().includes('HIFZ');
+        if (!isSubHifz) return true;
+
+        const normKey = normalizeCls(e.targetClass || e.alias).replace('HIFZ', '');
+        if (normKey && seenHifzClasses.has(normKey)) {
+          return false; // Remove duplicate Hifz slot
+        }
+        if (normKey) seenHifzClasses.add(normKey);
+        return true;
+      });
+
+      // 🌟 2. Space-insensitive check before adding Hifz for designated Class Teacher classes
       ctClasses.forEach(clsName => {
+        const normCls = normalizeCls(clsName);
         const gradeMatch = String(clsName).match(/\d+/);
         const gradeNum = gradeMatch ? gradeMatch[0] : '1';
-        const hasHifzForClass = updatedEnrollments.some(
-          e => String(e.subject || '').toUpperCase() === 'HIFZ' &&
-               (String(e.targetClass || '').toUpperCase() === clsName.toUpperCase() || String(e.alias || '').toUpperCase().includes(clsName.toUpperCase()))
-        );
+
+        const hasHifzForClass = updatedEnrollments.some(e => {
+          const isSubHifz = String(e.subject || '').toUpperCase() === 'HIFZ' || String(e.alias || '').toUpperCase().includes('HIFZ');
+          const normTarget = normalizeCls(e.targetClass);
+          const normAlias = normalizeCls(e.alias);
+          return isSubHifz && (normTarget === normCls || normAlias.includes(normCls));
+        });
+
         if (!hasHifzForClass) {
           updatedEnrollments.push({
-            id: `hifz_${clsName}_${Date.now()}`,
+            id: `hifz_${normCls}`,
             grade: gradeNum,
             targetClass: clsName,
             subject: 'Hifz',
@@ -1057,6 +1077,7 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
 
       const activeRolesList = ['Teacher'];
       if (updatedPriv.isPrincipal) activeRolesList.push('Principal');
+      if (updatedPriv.isNiicsCoordinator) activeRolesList.push('NIICS Coordinator');
       if (updatedPriv.isMentor) activeRolesList.push('Mentor');
       if (ctClasses.length > 0) activeRolesList.push('Class Teacher');
       if (updatedPriv.isAcademicCoordinator) activeRolesList.push('Academic Coordinator');
@@ -1109,7 +1130,7 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
               { key: 'isPrincipal', title: '👑 Principal Authority', desc: 'Universal approval for all leaves, Principal-locked students & Weekend leaves', bg: '#fef9c3', border: '#facc15' },
               { key: 'isNiicsCoordinator', title: '🎓 NIICS Coordinator (Urdu Principal)', desc: 'Acts as Principal for all Urdu students (Ad.No starting with U) across all leaves & portfolios', bg: '#fef3c7', border: '#f59e0b' },
               { key: 'isAcademicCoordinator', title: '📊 Academic Coordinator', desc: 'Unlocks Admin Mark Entry, Inspector & Academic Evaluation tabs inside Teacher Portal', bg: '#eff6ff', border: '#60a5fa' },
-              { key: 'isOutreachCoordinator', title: '🌍 Outreach Coordinator', desc: 'Unlocks Outreach Mentor-Mentee dialogues tab & Outreach Leave approval authority', bg: '#f0fdf4', border: '#4ade80' },
+              { key: 'isOutreachCoordinator', title: '🌍 Outreach Coordinator', desc: 'Unlocks Outreach Mentor-Mentee dialogues tab, Bulk Mentor Assignment & Outreach Leave approval', bg: '#f0fdf4', border: '#4ade80' },
               { key: 'isOfficeSecretary', title: '🏢 Office Secretary', desc: 'Unlocks full Out-Pass Management, Live Campus Dashboard & Request Tracking', bg: '#faf5ff', border: '#c084fc' }
             ].map(role => (
               <label key={role.key} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px', borderRadius: '10px', background: priv[role.key] ? role.bg : '#f8fafc', border: `2px solid ${priv[role.key] ? role.border : '#cbd5e1'}`, cursor: 'pointer' }}>
@@ -1132,7 +1153,7 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
               2. 🏫 Designated Class Teacher Of (Auto-Assigns Class Students & Hifz Mark Entry):
             </div>
             <p style={{ margin: '0 0 10px', fontSize: '12px', color: '#475569', fontWeight: '600' }}>
-              Selecting a class below automatically assigns all students of that class to this teacher AND adds <strong>Hifz</strong> mark entry for that class under this teacher.
+              Selecting a class below automatically assigns all students of that class to this teacher AND adds <strong>Hifz</strong> mark entry for that class under this teacher (without creating duplicates).
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
               {DEFAULT_CLASSES.map(cls => {
@@ -1211,28 +1232,105 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
   );
 }
 
-// ============================================================================
-// 🧭 9. STRICTLY SCOPED MENTOR & CLASS TEACHER DIRECTORY + CLASS PTA WHATSAPP
-// ============================================================================
 export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAdmin = false, isOutreachView = false, onStudentUpdated }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCompletion, setFilterCompletion] = useState('All');
   const [editingStudent, setEditingStudent] = useState(null);
-  
+
   const [classPtaMessage, setClassPtaMessage] = useState('');
   const [ptaGroupLink, setPtaGroupLink] = useState('');
-  
+
   const [outreachRoleFilter, setOutreachRoleFilter] = useState('All');
   const [outreachDeptFilter, setOutreachDeptFilter] = useState('All');
+  const [outreachClassFilter, setOutreachClassFilter] = useState('All');
 
-  // 🌟 NEW: View Mode Switcher for Teachers who are both Mentors and Class Teachers
-  const [teacherViewMode, setTeacherViewMode] = useState('ALL'); // 'ALL' | 'MENTEES' | 'CLASS' | 'NIICS'
+  // 🌟 Bulk & Direct Mentor Assignment State (For Outreach Coordinator & Admin)
+  const [selectedStudentRegs, setSelectedStudentRegs] = useState([]);
+  const [targetMentorUsername, setTargetMentorUsername] = useState('');
+  const [isAssigningMentor, setIsAssigningMentor] = useState(false);
+  const [mentorAssignStatus, setMentorAssignStatus] = useState('');
 
-  const myUsername = String(loggedInTeacher?.username || '').toLowerCase();
-  const myClassTeacherOf = Array.isArray(loggedInTeacher?.outpassPrivileges?.classTeacherOf) 
-    ? loggedInTeacher.outpassPrivileges.classTeacherOf 
-    : [];
-  const isNiicsCoord = Boolean(loggedInTeacher?.outpassPrivileges?.isNiicsCoordinator);
+  const myUsername = String(loggedInTeacher?.username || '').trim().toLowerCase();
+  const myFullNameLower = String(loggedInTeacher?.fullName || '').trim().toLowerCase();
+  const priv = loggedInTeacher?.outpassPrivileges || {};
+  const myClassTeacherOf = Array.isArray(priv.classTeacherOf) ? priv.classTeacherOf : [];
+  const isNiicsCoord = Boolean(priv.isNiicsCoordinator);
+  const canManageMentorAssignments = Boolean(isAdmin || isOutreachView || priv.isOutreachCoordinator || priv.isPrincipal);
+
+  const normalizeCls = (str) => String(str || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  // Check if student is assigned to this teacher as Mentee
+  const isStudentMyMentee = (st) => {
+    const stMentorUser = String(st.mentorUsername || '').trim().toLowerCase();
+    const stMentorName = String(st.mentorName || '').trim().toLowerCase();
+    return (myUsername && stMentorUser === myUsername) || (myFullNameLower && stMentorName === myFullNameLower);
+  };
+
+  // Check if student belongs to this teacher's Class
+  const isStudentInMyClass = (st) => {
+    const stClasses = Array.isArray(st.classes) ? st.classes : [st.class].filter(Boolean);
+    const normStClasses = stClasses.map(c => normalizeCls(c));
+    const matchesClassList = myClassTeacherOf.some(c => normStClasses.includes(normalizeCls(c)));
+    const matchesCTUser = myUsername && String(st.classTeacherUsername || '').trim().toLowerCase() === myUsername;
+    return matchesClassList || matchesCTUser;
+  };
+
+  const isStudentMyNiics = (st) => {
+    const isUrduStudent = String(st.adNo || '').trim().toUpperCase().startsWith('U');
+    return isNiicsCoord && isUrduStudent;
+  };
+
+  const classStudentsList = students.filter(isStudentInMyClass);
+  const menteeStudentsList = students.filter(isStudentMyMentee);
+  const niicsStudentsList = students.filter(isStudentMyNiics);
+
+  // 🌟 Determine Teacher's Active Duties
+  const hasClassDuty = myClassTeacherOf.length > 0 || classStudentsList.length > 0;
+  const hasMentorDuty = Boolean(priv.isMentor) || menteeStudentsList.length > 0;
+
+  // 🌟 Build Duty-Based Tabs:
+  // Only show both tabs if the teacher has BOTH Class Duty and Mentor Duty (or NIICS).
+  // Otherwise, lock directly to their single assigned duty!
+  const availableDutyTabs = [];
+  if (!isAdmin && !isOutreachView) {
+    if (hasClassDuty) {
+      availableDutyTabs.push({
+        id: 'CLASS',
+        label: `🏫 Class ${myClassTeacherOf.join(', ') || ''} Students (${classStudentsList.length})`
+      });
+    }
+    if (hasMentorDuty) {
+      availableDutyTabs.push({
+        id: 'MENTEES',
+        label: `🧭 My Mentees (${menteeStudentsList.length})`
+      });
+    }
+    if (isNiicsCoord) {
+      availableDutyTabs.push({
+        id: 'NIICS',
+        label: `🎓 NIICS Urdu Students (${niicsStudentsList.length})`
+      });
+    }
+    if (availableDutyTabs.length > 1) {
+      const combinedCount = students.filter(st => isStudentInMyClass(st) || isStudentMyMentee(st) || isStudentMyNiics(st)).length;
+      availableDutyTabs.push({
+        id: 'ALL',
+        label: `👥 Combined View (${combinedCount})`
+      });
+    }
+  }
+
+  // Default to their specific duty tab (e.g. 'CLASS' if Class Teacher, 'MENTEES' if Mentor only)
+  const defaultTabMode = hasClassDuty ? 'CLASS' : hasMentorDuty ? 'MENTEES' : isNiicsCoord ? 'NIICS' : 'ALL';
+  const [teacherViewMode, setTeacherViewMode] = useState(defaultTabMode);
+
+  useEffect(() => {
+    if (!isAdmin && !isOutreachView) {
+      if (hasClassDuty && !hasMentorDuty && !isNiicsCoord) setTeacherViewMode('CLASS');
+      else if (hasMentorDuty && !hasClassDuty && !isNiicsCoord) setTeacherViewMode('MENTEES');
+      else if (isNiicsCoord && !hasClassDuty && !hasMentorDuty) setTeacherViewMode('NIICS');
+    }
+  }, [isAdmin, isOutreachView, hasClassDuty, hasMentorDuty, isNiicsCoord]);
 
   useEffect(() => {
     if (!isAdmin && myClassTeacherOf.length > 0) {
@@ -1262,24 +1360,15 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
     }).catch(() => alert("Failed to copy message."));
   };
 
-  // 🌟 Filter students based on Admin/Outreach or the Teacher's selected Sub-Tab View!
+  // 🌟 Filter students based on Admin/Outreach or the Teacher's active duty tab
   const scopedStudents = students.filter(st => {
     if (isAdmin || isOutreachView) return true;
-    
-    const stMentor = String(st.mentorUsername || '').toLowerCase();
-    const stClasses = Array.isArray(st.classes) ? st.classes : [st.class];
-    const isMyMentee = stMentor === myUsername;
-    const isMyClassStudent = myClassTeacherOf.some(c => stClasses.includes(c));
-    const isUrduStudent = String(st.adNo || '').trim().toUpperCase().startsWith('U');
-    const isMyNiicsStudent = isNiicsCoord && isUrduStudent;
 
-    // Based on the selected Sub-Tab:
-    if (teacherViewMode === 'MENTEES') return isMyMentee;
-    if (teacherViewMode === 'CLASS') return isMyClassStudent;
-    if (teacherViewMode === 'NIICS') return isMyNiicsStudent;
-    
-    // 'ALL' Mode (Default)
-    return isMyMentee || isMyClassStudent || isMyNiicsStudent;
+    if (teacherViewMode === 'MENTEES') return isStudentMyMentee(st);
+    if (teacherViewMode === 'CLASS') return isStudentInMyClass(st);
+    if (teacherViewMode === 'NIICS') return isStudentMyNiics(st);
+
+    return isStudentMyMentee(st) || isStudentInMyClass(st) || isStudentMyNiics(st);
   });
 
   const displayStudents = scopedStudents.filter(st => {
@@ -1290,10 +1379,15 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
     const comp = computeStudentProfileCompletion(st);
     if (filterCompletion === 'Complete' && !comp.isComplete) return false;
     if (filterCompletion === 'Incomplete' && comp.isComplete) return false;
-    if (isOutreachView) {
+
+    if (isAdmin || isOutreachView) {
       if (outreachRoleFilter === 'Mentors Assigned' && !st.mentorUsername) return false;
       if (outreachRoleFilter === 'No Mentor' && st.mentorUsername) return false;
       if (outreachDeptFilter !== 'All' && (st.department || 'GENERAL') !== outreachDeptFilter) return false;
+      if (outreachClassFilter !== 'All') {
+        const stClasses = Array.isArray(st.classes) ? st.classes : [st.class];
+        if (!stClasses.includes(outreachClassFilter)) return false;
+      }
     }
     return true;
   });
@@ -1303,44 +1397,93 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
   const incompleteScope = totalScope - completeScope;
   const scopeCompletionPct = totalScope > 0 ? Math.round(scopedStudents.reduce((acc, s) => acc + computeStudentProfileCompletion(s).pct, 0) / totalScope) : 0;
 
-  const getSubTabs = () => {
-    const tabs = [];
-    if (isAdmin || isOutreachView) return tabs; // Admins don't need sub-tabs here
-    
-    // Always add 'ALL' if they have multiple roles
-    const hasMentees = students.some(s => String(s.mentorUsername || '').toLowerCase() === myUsername);
-    
-    if (hasMentees && myClassTeacherOf.length > 0) tabs.push({ id: 'ALL', label: 'All My Students' });
-    if (hasMentees) tabs.push({ id: 'MENTEES', label: '🧭 My Mentees' });
-    if (myClassTeacherOf.length > 0) tabs.push({ id: 'CLASS', label: `🏫 Class ${myClassTeacherOf[0]} Students` });
-    if (isNiicsCoord) tabs.push({ id: 'NIICS', label: '🎓 NIICS (Urdu Students)' });
-    
-    return tabs;
+  // 🌟 Outreach Coordinator & Admin: Bulk or Single Mentor Assignment
+  const handleBulkAssignMentor = async () => {
+    if (selectedStudentRegs.length === 0) return alert('Please select at least one student using the checkboxes.');
+    if (!targetMentorUsername) return alert('Please select a Mentor from the dropdown.');
+
+    const mentorObj = teachers.find(t => t.username === targetMentorUsername);
+    const isUnassign = targetMentorUsername === '__UNASSIGN__';
+
+    setIsAssigningMentor(true);
+    setMentorAssignStatus('');
+
+    try {
+      const newMentorUser = isUnassign ? '' : mentorObj.username;
+      const newMentorName = isUnassign ? '' : mentorObj.fullName;
+
+      await Promise.all(
+        selectedStudentRegs.map(regNo =>
+          setDoc(doc(db, 'students', String(regNo).toLowerCase()), {
+            mentorUsername: newMentorUser,
+            mentorName: newMentorName
+          }, { merge: true })
+        )
+      );
+
+      if (onStudentUpdated) {
+        selectedStudentRegs.forEach(regNo => {
+          const found = students.find(s => s.regNo === regNo);
+          if (found) {
+            onStudentUpdated({ ...found, mentorUsername: newMentorUser, mentorName: newMentorName });
+          }
+        });
+      }
+
+      setMentorAssignStatus(
+        isUnassign
+          ? `✅ Cleared mentor assignment for ${selectedStudentRegs.length} students.`
+          : `✅ Assigned ${selectedStudentRegs.length} students as mentees to ${mentorObj.fullName}!`
+      );
+      setSelectedStudentRegs([]);
+    } catch (err) {
+      alert('Failed to assign mentor: ' + err.message);
+    } finally {
+      setIsAssigningMentor(false);
+      setTimeout(() => setMentorAssignStatus(''), 5000);
+    }
   };
 
-  const subTabs = getSubTabs();
+  const handleSingleStudentMentorChange = async (student, newMentorUsername) => {
+    const mentorObj = teachers.find(t => t.username === newMentorUsername);
+    const updatedUser = mentorObj ? mentorObj.username : '';
+    const updatedName = mentorObj ? mentorObj.fullName : '';
+
+    try {
+      await setDoc(doc(db, 'students', String(student.regNo).toLowerCase()), {
+        mentorUsername: updatedUser,
+        mentorName: updatedName
+      }, { merge: true });
+
+      if (onStudentUpdated) {
+        onStudentUpdated({ ...student, mentorUsername: updatedUser, mentorName: updatedName });
+      }
+    } catch (err) {
+      alert('Error updating mentor: ' + err.message);
+    }
+  };
+
+  const toggleSelectAllDisplayed = () => {
+    const displayedRegs = displayStudents.map(s => s.regNo);
+    const allChecked = displayedRegs.length > 0 && displayedRegs.every(r => selectedStudentRegs.includes(r));
+    if (allChecked) {
+      setSelectedStudentRegs(prev => prev.filter(r => !displayedRegs.includes(r)));
+    } else {
+      setSelectedStudentRegs(prev => Array.from(new Set([...prev, ...displayedRegs])));
+    }
+  };
+
+  const cardContainerStyle = {
+    background: '#ffffff',
+    padding: '26px',
+    borderRadius: '16px',
+    boxShadow: '0 4px 20px rgba(15, 23, 42, 0.04)',
+    border: '1px solid #cbd5e1',
+    marginBottom: '24px'
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      
-      {/* 🌟 SUB-TAB NAVIGATION FOR TEACHERS (Only shows if they have multiple roles) */}
-      {!isAdmin && !isOutreachView && subTabs.length > 1 && (
-        <div style={{ display: 'flex', gap: '8px', background: '#e2e8f0', padding: '6px', borderRadius: '12px', flexWrap: 'wrap', marginBottom: '-10px' }}>
-          {subTabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setTeacherViewMode(tab.id)}
-              style={{
-                flex: 1, padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '800', fontSize: '13px', cursor: 'pointer',
-                background: teacherViewMode === tab.id ? '#0f766e' : 'transparent',
-                color: teacherViewMode === tab.id ? '#ffffff' : '#334155',
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      )}
 
       {editingStudent && (
         <StudentPortfolioModal
@@ -1353,16 +1496,106 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
         />
       )}
 
-      <div style={styles.card}>
+      <div style={cardContainerStyle}>
+
+        {/* 🌟 SUB-TAB SWITCHER: ONLY SHOWN IF TEACHER HAS BOTH CLASS & MENTORING DUTIES */}
+        {!isAdmin && !isOutreachView && availableDutyTabs.length > 1 && (
+          <div style={{ display: 'flex', gap: '10px', background: '#f1f5f9', padding: '8px', borderRadius: '12px', flexWrap: 'wrap', marginBottom: '20px', border: '1px solid #cbd5e1' }}>
+            {availableDutyTabs.map(tab => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setTeacherViewMode(tab.id)}
+                style={{
+                  flex: '1 1 200px',
+                  padding: '12px 16px',
+                  borderRadius: '8px',
+                  border: teacherViewMode === tab.id ? '2px solid #0f766e' : '1px solid transparent',
+                  fontWeight: '800',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  background: teacherViewMode === tab.id ? '#00897b' : '#ffffff',
+                  color: teacherViewMode === tab.id ? '#ffffff' : '#0f172a',
+                  boxShadow: teacherViewMode === tab.id ? '0 4px 10px rgba(0, 137, 123, 0.25)' : 'none'
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
           <span style={{ background: '#00897b', color: '#ffffff', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
-            {isAdmin ? 'ADMIN VIEW' : isOutreachView ? 'OUTREACH & DEPT VIEW' : teacherViewMode === 'MENTEES' ? 'MENTOR VIEW' : teacherViewMode === 'CLASS' ? `CLASS TEACHER VIEW (${myClassTeacherOf[0]})` : teacherViewMode === 'NIICS' ? 'NIICS COORDINATOR VIEW' : 'COMBINED MENTOR & CLASS VIEW'}
+            {isAdmin
+              ? 'ADMIN MENTORSHIP VIEW'
+              : isOutreachView
+                ? '🌍 OUTREACH COORDINATOR & MENTOR ASSIGNMENT DESK'
+                : teacherViewMode === 'MENTEES'
+                  ? '🧭 MY MENTEES VIEW'
+                  : teacherViewMode === 'CLASS'
+                    ? `🏫 CLASS TEACHER VIEW (CLASS ${myClassTeacherOf.join(', ')})`
+                    : teacherViewMode === 'NIICS'
+                      ? '🎓 NIICS COORDINATOR VIEW'
+                      : '👥 COMBINED MENTOR & CLASS VIEW'}
           </span>
           <h3 style={{ margin: 0, fontSize: '19px', color: '#0f172a', fontWeight: '800' }}>
             Student Contact Details, Profile Completion &amp; Mentorship ({totalScope} Students)
           </h3>
         </div>
 
+        {/* 🌟 OUTREACH COORDINATOR & ADMIN: BULK MENTOR ASSIGNMENT PANEL */}
+        {canManageMentorAssignments && (isAdmin || isOutreachView) && (
+          <div style={{ background: '#f0fdfa', border: '2px solid #0d9488', padding: '16px', borderRadius: '12px', marginBottom: '22px' }}>
+            <div style={{ fontWeight: '800', color: '#0f766e', fontSize: '14px', marginBottom: '6px' }}>
+              🧭 Outreach Coordinator Desk: Assign Selected Students to a Mentor
+            </div>
+            <div style={{ fontSize: '12px', color: '#334155', fontWeight: '600', marginBottom: '12px' }}>
+              Filter students below by Class, Department, or Unassigned status, check the boxes next to students, and assign them to any Mentor in one click. You can also change a student's mentor directly inside their table row.
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <select
+                value={targetMentorUsername}
+                onChange={(e) => setTargetMentorUsername(e.target.value)}
+                style={{ ...styles.input, flex: '1 1 260px', borderColor: '#0d9488', fontWeight: '700' }}
+              >
+                <option value="">-- Select Target Mentor Faculty --</option>
+                <option value="__UNASSIGN__">❌ Unassign / Clear Mentor</option>
+                {teachers.map(t => (
+                  <option key={t.username} value={t.username}>
+                    {t.fullName} (@{t.username}) {t.outpassPrivileges?.isMentor ? '• 🧭 Mentor' : ''}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                disabled={isAssigningMentor}
+                onClick={handleBulkAssignMentor}
+                style={{ background: '#0d9488', color: '#ffffff', border: 'none', padding: '12px 18px', borderRadius: '8px', fontSize: '13px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >
+                {isAssigningMentor ? 'Saving...' : `🚀 Assign ${selectedStudentRegs.length} Selected Students to Mentor`}
+              </button>
+
+              <button
+                type="button"
+                onClick={toggleSelectAllDisplayed}
+                style={{ background: '#ffffff', color: '#0f766e', border: '1.5px solid #0d9488', padding: '11px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >
+                ☑️ Select / Deselect Visible ({displayStudents.length})
+              </button>
+            </div>
+
+            {mentorAssignStatus && (
+              <div style={{ marginTop: '12px', padding: '10px 14px', background: '#dcfce7', color: '#166534', borderRadius: '8px', fontWeight: '800', fontSize: '13px' }}>
+                {mentorAssignStatus}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* CLASS TEACHER WHATSAPP PTA BROADCAST BAR */}
         {(!isAdmin && !isOutreachView && myClassTeacherOf.length > 0 && (teacherViewMode === 'CLASS' || teacherViewMode === 'ALL')) && (
           <div style={{ background: '#f0fdf4', border: '2px solid #22c55e', padding: '16px', borderRadius: '12px', marginBottom: '24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '12px' }}>
@@ -1378,7 +1611,7 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                 🔗 Set Class {myClassTeacherOf[0]} WhatsApp Group Link
               </button>
             </div>
-            
+
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <input
                 type="text"
@@ -1394,8 +1627,6 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
           </div>
         )}
 
-        {/* ... (The rest of the KPI cards and Table JSX remains exactly the same!) ... */}
-        
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '22px' }}>
           <div onClick={() => setFilterCompletion('All')} style={{ padding: '20px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center', cursor: 'pointer' }}>
             <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', letterSpacing: '0.5px' }}>TOTAL IN SCOPE</span>
@@ -1417,14 +1648,22 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
 
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '20px', background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
           <input type="text" placeholder="Search student name, Ad.No, or district..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ ...styles.input, flex: '1 1 200px' }} />
-          <select value={filterCompletion} onChange={(e) => setFilterCompletion(e.target.value)} style={{ ...styles.input, flex: '1 1 200px' }}>
+          <select value={filterCompletion} onChange={(e) => setFilterCompletion(e.target.value)} style={{ ...styles.input, flex: '1 1 180px' }}>
             <option value="All">All Completion Statuses</option>
             <option value="Incomplete">⚠️ Incomplete Profiles Only</option>
             <option value="Complete">✅ 100% Complete Only</option>
           </select>
-          {isOutreachView && (
+          {(isAdmin || isOutreachView) && (
             <>
-              <select value={outreachRoleFilter} onChange={(e) => setOutreachRoleFilter(e.target.value)} style={{ ...styles.input, flex: '1 1 180px', borderColor: '#8b5cf6' }}>
+              <select value={outreachClassFilter} onChange={(e) => setOutreachClassFilter(e.target.value)} style={{ ...styles.input, flex: '1 1 150px' }}>
+                <option value="All">All Classes</option>
+                {DEFAULT_CLASSES.map(c => <option key={c} value={c}>Class {c}</option>)}
+              </select>
+              <select value={outreachDeptFilter} onChange={(e) => setOutreachDeptFilter(e.target.value)} style={{ ...styles.input, flex: '1 1 160px' }}>
+                <option value="All">All Departments</option>
+                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+              <select value={outreachRoleFilter} onChange={(e) => setOutreachRoleFilter(e.target.value)} style={{ ...styles.input, flex: '1 1 180px', borderColor: '#0d9488' }}>
                 <option value="All">All Mentorship Status</option>
                 <option value="Mentors Assigned">✅ Mentors Assigned</option>
                 <option value="No Mentor">⚠️ Unassigned (No Mentor)</option>
@@ -1437,6 +1676,15 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '950px' }}>
             <thead>
               <tr style={{ background: '#0f172a', color: '#ffffff' }}>
+                {canManageMentorAssignments && (isAdmin || isOutreachView) && (
+                  <th style={{ padding: '14px 12px', width: '42px' }}>
+                    <input
+                      type="checkbox"
+                      checked={displayStudents.length > 0 && displayStudents.every(s => selectedStudentRegs.includes(s.regNo))}
+                      onChange={toggleSelectAllDisplayed}
+                    />
+                  </th>
+                )}
                 <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Student &amp; Ad.No</th>
                 <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Class &amp; Mentor</th>
                 <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Student &amp; Parent Contact</th>
@@ -1450,10 +1698,24 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                 const comp = computeStudentProfileCompletion(st);
                 const isUrdu = String(st.adNo || '').toUpperCase().startsWith('U');
                 const autoCT = resolveClassTeacherForStudent(st, teachers);
-                const actualMentor = teachers.find(t => t.username === st.mentorUsername);
+                const actualMentor = teachers.find(t => String(t.username || '').toLowerCase() === String(st.mentorUsername || '').toLowerCase());
+                const isChecked = selectedStudentRegs.includes(st.regNo);
 
                 return (
-                  <tr key={st.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                  <tr key={st.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: isChecked ? '#ccfbf1' : idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                    {canManageMentorAssignments && (isAdmin || isOutreachView) && (
+                      <td style={{ padding: '14px 12px' }}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() =>
+                            setSelectedStudentRegs(prev =>
+                              prev.includes(st.regNo) ? prev.filter(r => r !== st.regNo) : [...prev, st.regNo]
+                            )
+                          }
+                        />
+                      </td>
+                    )}
                     <td style={{ padding: '14px 16px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <ProfileAvatar name={st.firstName} code={st.adNo} photoUrl={st.photoUrl} size={42} onClick={() => setEditingStudent(st)} />
@@ -1466,7 +1728,25 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                     </td>
                     <td style={{ padding: '14px 16px', fontSize: '12px', color: '#0f172a', fontWeight: '800' }}>
                       <div style={{ fontSize: '14px', marginBottom: '4px' }}>{(st.classes || []).join(', ')} ({st.department || 'GENERAL'})</div>
-                      <div style={{ color: '#0f766e', marginBottom: '2px' }}>🧭 Mentor: <br/>{actualMentor ? actualMentor.fullName : 'Unassigned'}</div>
+                      {canManageMentorAssignments && (isAdmin || isOutreachView) ? (
+                        <div style={{ marginBottom: '4px' }}>
+                          <span style={{ color: '#0f766e', display: 'block', marginBottom: '2px' }}>🧭 Assign Mentor:</span>
+                          <select
+                            value={st.mentorUsername || ''}
+                            onChange={(e) => handleSingleStudentMentorChange(st, e.target.value)}
+                            style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #0d9488', fontSize: '12px', fontWeight: '700', background: '#ffffff', color: '#0f172a', maxWidth: '190px' }}
+                          >
+                            <option value="">Unassigned</option>
+                            {teachers.map(t => (
+                              <option key={t.username} value={t.username}>{t.fullName}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <div style={{ color: '#0f766e', marginBottom: '2px' }}>
+                          🧭 Mentor: <br />{actualMentor ? actualMentor.fullName : (st.mentorName || 'Unassigned')}
+                        </div>
+                      )}
                       <div style={{ color: '#1d4ed8' }}>🏫 CT: {autoCT ? autoCT.fullName : (st.classTeacherUsername || 'Unassigned')}</div>
                     </td>
                     <td style={{ padding: '14px 16px', fontSize: '12px', color: '#334155' }}>

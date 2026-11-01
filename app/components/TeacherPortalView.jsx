@@ -69,17 +69,38 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout }) {
     return loggedInTeacher?.outpassPrivileges?.classTeacherOf || [];
   }, [loggedInTeacher?.outpassPrivileges?.classTeacherOf]);
 
-  const teacherEnrollments = React.useMemo(() => {
-    const base = Array.isArray(loggedInTeacher?.enrollments) ? [...loggedInTeacher.enrollments] : [];
+const teacherEnrollments = React.useMemo(() => {
+    const rawBase = Array.isArray(loggedInTeacher?.enrollments) ? [...loggedInTeacher.enrollments] : [];
+    const normalizeCls = (str) => String(str || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+    // 1. Deduplicate any existing double Hifz slots (e.g., "QLA 3 Hifz" vs "QLA3 Hifz")
+    const seenHifzClasses = new Set();
+    const base = rawBase.filter(e => {
+      const isSubHifz = String(e.subject || '').toUpperCase() === 'HIFZ' || String(e.alias || '').toUpperCase().includes('HIFZ');
+      if (!isSubHifz) return true;
+
+      const normTarget = normalizeCls(e.targetClass || e.alias).replace('HIFZ', '');
+      if (normTarget && seenHifzClasses.has(normTarget)) {
+        return false; // Skip duplicate Hifz!
+      }
+      if (normTarget) seenHifzClasses.add(normTarget);
+      return true;
+    });
+
+    // 2. Only auto-attach Hifz if the Class Teacher doesn't already have one (ignoring spaces!)
     myClassTeacherOf.forEach(clsName => {
-      const hasHifz = base.some(
-        e => String(e.subject || '').toUpperCase() === 'HIFZ' &&
-             (String(e.targetClass || '').toUpperCase() === clsName.toUpperCase() || String(e.alias || '').toUpperCase().includes(clsName.toUpperCase()))
-      );
+      const normCls = normalizeCls(clsName);
+      const hasHifz = base.some(e => {
+        const isSubHifz = String(e.subject || '').toUpperCase() === 'HIFZ' || String(e.alias || '').toUpperCase().includes('HIFZ');
+        const normTarget = normalizeCls(e.targetClass);
+        const normAlias = normalizeCls(e.alias);
+        return isSubHifz && (normTarget === normCls || normAlias.includes(normCls));
+      });
+
       if (!hasHifz) {
         const gMatch = String(clsName).match(/\d+/);
         base.push({
-          id: `auto_hifz_${clsName}`,
+          id: `auto_hifz_${normCls}`,
           grade: gMatch ? gMatch[0] : '1',
           targetClass: clsName,
           subject: 'Hifz',
