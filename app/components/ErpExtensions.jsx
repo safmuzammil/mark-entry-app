@@ -599,437 +599,6 @@ export async function syncStudentToSelectedTeacherEnrollments(studentRegNo, sele
   if (updates.length > 0) await Promise.all(updates);
 }
 
-// ============================================================================
-// 🏆 7. 360° STUDENT PORTFOLIO, CONTACT EDITOR (WITH DYNAMIC DISTRICT) & LOGS
-// ============================================================================
-export function StudentPortfolioModal({
-  student,
-  canEditSkills = false,
-  canViewConfidential = false,
-  editorName = 'Faculty',
-  onClose,
-  onSaved
-}) {
-  const [activeTab, setActiveTab] = useState('contact');
-
-  const [mobileNumber, setMobileNumber] = useState(student?.mobileNumber || '');
-  const [whatsappNumber, setWhatsappNumber] = useState(student?.whatsappNumber || '');
-  const [email, setEmail] = useState(student?.email || '');
-  const [parentMobile, setParentMobile] = useState(student?.parentMobile || '');
-  const [parentWhatsapp, setParentWhatsapp] = useState(student?.parentWhatsapp || '');
-  const [state, setState] = useState(student?.state || 'Kerala');
-  const [district, setDistrict] = useState(student?.district || 'Malappuram');
-  const [photoUrl, setPhotoUrl] = useState(student?.photoUrl || '');
-
-  const [skillsList, setSkillsList] = useState(Array.isArray(student?.skills) ? student.skills : []);
-  const [newSkillInput, setNewSkillInput] = useState('');
-  const [achievementsList, setAchievementsList] = useState(Array.isArray(student?.achievements) ? student.achievements : []);
-  const [achTitle, setAchTitle] = useState('');
-  const [achCategory, setAchCategory] = useState('Academic');
-  const [achLevel, setAchLevel] = useState('Campus Level');
-  const [achDate, setAchDate] = useState(new Date().toISOString().slice(0, 10));
-  const [achNotes, setAchNotes] = useState('');
-
-  const [economicBackground, setEconomicBackground] = useState(student?.economicBackground || '');
-  const [familyDetails, setFamilyDetails] = useState(student?.familyDetails || '');
-  const [behavioralNotes, setBehavioralNotes] = useState(student?.behavioralNotes || '');
-  const [consultations, setConsultations] = useState(Array.isArray(student?.consultations) ? student.consultations : []);
-  const [consultType, setConsultType] = useState('Academic & Personal');
-  const [consultSummary, setConsultSummary] = useState('');
-  const [consultActionPlan, setConsultActionPlan] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  if (!student) return null;
-
-  const liveCompletion = computeStudentProfileCompletion({
-    ...student,
-    photoUrl,
-    mobileNumber,
-    whatsappNumber,
-    email,
-    parentMobile,
-    parentWhatsapp,
-    state,
-    district,
-    skills: skillsList
-  });
-
-  const handleAddSkill = (skillStr) => {
-    const val = (skillStr || newSkillInput).trim();
-    if (!val) return;
-    if (!skillsList.includes(val)) setSkillsList([...skillsList, val]);
-    setNewSkillInput('');
-  };
-
-  const handleAddAchievement = (e) => {
-    e.preventDefault();
-    if (!achTitle.trim()) return alert("Please enter an achievement title.");
-    const newItem = {
-      id: Date.now().toString(),
-      title: achTitle.trim(),
-      category: achCategory,
-      level: achLevel,
-      date: achDate,
-      notes: achNotes.trim(),
-      addedBy: editorName
-    };
-    setAchievementsList([newItem, ...achievementsList]);
-    setAchTitle('');
-    setAchNotes('');
-  };
-
-  const handleAddConsultation = (e) => {
-    e.preventDefault();
-    if (!consultSummary.trim()) return alert("Please enter consultation notes.");
-    const newLog = {
-      id: Date.now().toString(),
-      date: new Date().toISOString().slice(0, 10),
-      type: consultType,
-      summary: consultSummary.trim(),
-      actionPlan: consultActionPlan.trim(),
-      mentorName: editorName
-    };
-    setConsultations([newLog, ...consultations]);
-    setConsultSummary('');
-    setConsultActionPlan('');
-  };
-
-  const handleSavePortfolio = async () => {
-    setSaving(true);
-    try {
-      const updatePayload = {
-        mobileNumber: mobileNumber.trim(),
-        whatsappNumber: (whatsappNumber || mobileNumber).trim(),
-        email: email.trim(),
-        parentMobile: parentMobile.trim(),
-        parentWhatsapp: (parentWhatsapp || parentMobile).trim(),
-        state,
-        district: district.trim(),
-        photoUrl: photoUrl || null,
-        skills: skillsList,
-        achievements: achievementsList,
-        economicBackground: economicBackground.trim(),
-        familyDetails: familyDetails.trim(),
-        behavioralNotes: behavioralNotes.trim(),
-        consultations
-      };
-      await setDoc(doc(db, 'students', student.regNo), updatePayload, { merge: true });
-      if (onSaved) onSaved({ ...student, ...updatePayload });
-      alert(`✅ Student profile & records saved for ${student.firstName}!`);
-      onClose();
-    } catch (err) {
-      alert("Error saving records: " + err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const boxInput = { width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1.5px solid #94a3b8', fontSize: '14px', color: '#0f172a', background: '#ffffff', boxSizing: 'border-box', fontWeight: '600' };
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '16px' }}>
-      <div style={{ background: '#ffffff', borderRadius: '18px', maxWidth: '780px', width: '100%', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 48px rgba(0,0,0,0.35)' }}>
-        <div style={{ background: 'linear-gradient(135deg, #00897b 0%, #0f766e 100%)', color: '#ffffff', padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <ProfileAvatar name={student.firstName} code={student.adNo} photoUrl={photoUrl} size={56} />
-            <div>
-              <div style={{ fontSize: '11px', fontWeight: '800', color: '#99f6e4', letterSpacing: '1px' }}>
-                360° STUDENT PROFILE • COMPLETION: {liveCompletion.pct}%
-              </div>
-              <h3 style={{ margin: '2px 0 0', fontSize: '20px', fontWeight: '800', color: '#ffffff' }}>{student.firstName} (#{student.adNo})</h3>
-              <div style={{ fontSize: '12px', color: '#ccfbf1', marginTop: '2px', fontWeight: '600' }}>
-                Reg: {student.regNo} • Class: {(student.classes || []).join(', ')} • Dept: {student.department || 'GENERAL'}
-              </div>
-            </div>
-          </div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', borderRadius: '8px', width: '34px', height: '34px', cursor: 'pointer', fontWeight: '800' }}>✕</button>
-        </div>
-
-        <div style={{ display: 'flex', gap: '8px', padding: '12px 24px', background: '#f1f5f9', borderBottom: '1px solid #cbd5e1', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            onClick={() => setActiveTab('contact')}
-            style={{
-              padding: '8px 16px', borderRadius: '8px', border: 'none', fontWeight: '800', fontSize: '13px', cursor: 'pointer',
-              background: activeTab === 'contact' ? '#00897b' : '#ffffff',
-              color: activeTab === 'contact' ? '#ffffff' : '#0f172a'
-            }}
-          >
-            📞 Contact, Parents & Location ({liveCompletion.pct}%)
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('skills')}
-            style={{
-              padding: '8px 16px', borderRadius: '8px', border: 'none', fontWeight: '800', fontSize: '13px', cursor: 'pointer',
-              background: activeTab === 'skills' ? '#00897b' : '#ffffff',
-              color: activeTab === 'skills' ? '#ffffff' : '#0f172a'
-            }}
-          >
-            🏆 Skills & Achievements ({skillsList.length + achievementsList.length})
-          </button>
-          {canViewConfidential && (
-            <button
-              type="button"
-              onClick={() => setActiveTab('mentor_records')}
-              style={{
-                padding: '8px 16px', borderRadius: '8px', border: 'none', fontWeight: '800', fontSize: '13px', cursor: 'pointer',
-                background: activeTab === 'mentor_records' ? '#0f172a' : '#ffffff',
-                color: activeTab === 'mentor_records' ? '#ffffff' : '#0f172a'
-              }}
-            >
-              🔒 Mentor Consultation & Family Log ({consultations.length})
-            </button>
-          )}
-        </div>
-
-        <div style={{ padding: '22px' }}>
-          {activeTab === 'contact' ? (
-            <div>
-              <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '10px', background: liveCompletion.isComplete ? '#ecfdf5' : '#fffbeb', border: `1px solid ${liveCompletion.isComplete ? '#a7f3d0' : '#fcd34d'}` }}>
-                <div style={{ fontWeight: '800', fontSize: '13px', color: liveCompletion.isComplete ? '#047857' : '#b45309' }}>
-                  {liveCompletion.isComplete
-                    ? '✅ Profile is 100% Complete!'
-                    : `⚠️ Profile is ${liveCompletion.pct}% Complete — Missing: ${liveCompletion.missing.join(', ')}`}
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '800', marginBottom: '4px' }}>Student Phone Number</label>
-                  <input type="text" value={mobileNumber} disabled={!canEditSkills} onChange={(e) => setMobileNumber(e.target.value)} placeholder="e.g. 9876543210" style={boxInput} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '800', marginBottom: '4px' }}>Student WhatsApp Number</label>
-                  <input type="text" value={whatsappNumber} disabled={!canEditSkills} onChange={(e) => setWhatsappNumber(e.target.value)} placeholder="e.g. 9876543210" style={boxInput} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '800', marginBottom: '4px' }}>Student Email Address</label>
-                  <input type="email" value={email} disabled={!canEditSkills} onChange={(e) => setEmail(e.target.value)} placeholder="student@gmail.com" style={boxInput} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '800', marginBottom: '4px' }}>Parent Mobile Number</label>
-                  <input type="text" value={parentMobile} disabled={!canEditSkills} onChange={(e) => setParentMobile(e.target.value)} placeholder="e.g. 9876543211" style={boxInput} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '800', marginBottom: '4px' }}>Parent WhatsApp Number</label>
-                  <input type="text" value={parentWhatsapp} disabled={!canEditSkills} onChange={(e) => setParentWhatsapp(e.target.value)} placeholder="e.g. 9876543211" style={boxInput} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '800', marginBottom: '4px' }}>State / Country</label>
-                  <select
-                    value={state}
-                    disabled={!canEditSkills}
-                    onChange={(e) => {
-                      const nextState = e.target.value;
-                      setState(nextState);
-                      if (nextState === 'Kerala' && !KERALA_DISTRICTS.includes(district)) {
-                        setDistrict('Malappuram');
-                      } else if (nextState !== 'Kerala' && KERALA_DISTRICTS.includes(district)) {
-                        setDistrict('');
-                      }
-                    }}
-                    style={boxInput}
-                  >
-                    {INDIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '800', marginBottom: '4px' }}>
-                    {state === 'Kerala' ? 'District (Kerala)' : 'District / Province / City (Type)'}
-                  </label>
-                  {state === 'Kerala' ? (
-                    <select value={district} disabled={!canEditSkills} onChange={(e) => setDistrict(e.target.value)} style={boxInput}>
-                      {KERALA_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                  ) : (
-                    <input
-                      type="text"
-                      value={district}
-                      disabled={!canEditSkills}
-                      onChange={(e) => setDistrict(e.target.value)}
-                      placeholder="Type district, province, or city..."
-                      style={boxInput}
-                    />
-                  )}
-                </div>
-                {canEditSkills && (
-                  <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '800', marginBottom: '4px' }}>Update Student Photo</label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={async (e) => {
-                        const f = e.target.files?.[0];
-                        if (f) setPhotoUrl(await compressImageFileToDataUrl(f, 180, 0.8));
-                      }}
-                      style={boxInput}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : activeTab === 'skills' ? (
-            <>
-              <div style={{ marginBottom: '22px' }}>
-                <h4 style={{ margin: '0 0 10px', fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>🌟 Recognized Skills & Talents</h4>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
-                  {skillsList.length === 0 ? (
-                    <span style={{ fontSize: '13px', color: '#475569', fontWeight: '600' }}>No skills recorded yet.</span>
-                  ) : (
-                    skillsList.map((sk, idx) => (
-                      <span key={idx} style={{ background: '#f0fdfa', color: '#0f766e', border: '1.5px solid #0d9488', padding: '6px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: '800', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                        ✦ {sk}
-                        {canEditSkills && (
-                          <button type="button" onClick={() => setSkillsList(skillsList.filter(s => s !== sk))} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontWeight: '900', padding: 0 }}>✕</button>
-                        )}
-                      </span>
-                    ))
-                  )}
-                </div>
-
-                {canEditSkills && (
-                  <div>
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                      <input
-                        type="text"
-                        placeholder="Add skill (e.g. Urdu Poetry, Debate, Calligraphy)..."
-                        value={newSkillInput}
-                        onChange={(e) => setNewSkillInput(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddSkill(); } }}
-                        style={boxInput}
-                      />
-                      <button type="button" onClick={() => handleAddSkill()} style={{ padding: '10px 18px', background: '#00897b', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '800', whiteSpace: 'nowrap', cursor: 'pointer' }}>+ Add Skill</button>
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                      {["Arabic Oratory", "Urdu Literature", "English Debate", "Hifz Mastery", "Calligraphy", "Research & Writing", "IT & Web Design", "Leadership"].map(preset => (
-                        <button key={preset} type="button" onClick={() => handleAddSkill(preset)} style={{ background: '#f1f5f9', color: '#0f172a', border: '1px solid #94a3b8', borderRadius: '6px', padding: '4px 8px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>
-                          + {preset}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <h4 style={{ margin: '0 0 10px', fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>🏆 Achievements & Awards Log ({achievementsList.length})</h4>
-                {canEditSkills && (
-                  <form onSubmit={handleAddAchievement} style={{ background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1.5px solid #cbd5e1', marginBottom: '14px' }}>
-                    <div style={{ fontSize: '12px', fontWeight: '800', color: '#00897b', marginBottom: '10px' }}>➕ LOG NEW ACHIEVEMENT</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', marginBottom: '10px' }}>
-                      <input type="text" placeholder="Achievement Title (e.g. 1st Prize Sibaq)" value={achTitle} onChange={(e) => setAchTitle(e.target.value)} style={boxInput} />
-                      <select value={achCategory} onChange={(e) => setAchCategory(e.target.value)} style={boxInput}>
-                        {["Academic", "Arts / Sibaq", "Oratory / Debate", "Publication / Research", "Sports", "Leadership / Service"].map(c => <option key={c} value={c}>{c}</option>)}
-                      </select>
-                      <select value={achLevel} onChange={(e) => setAchLevel(e.target.value)} style={boxInput}>
-                        {["Campus Level", "Zone Level", "University / DHIU", "State Level", "National / International"].map(l => <option key={l} value={l}>{l}</option>)}
-                      </select>
-                      <input type="date" value={achDate} onChange={(e) => setAchDate(e.target.value)} style={boxInput} />
-                    </div>
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                      <input type="text" placeholder="Additional notes or details..." value={achNotes} onChange={(e) => setAchNotes(e.target.value)} style={boxInput} />
-                      <button type="submit" style={{ padding: '10px 18px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '800', whiteSpace: 'nowrap', cursor: 'pointer' }}>+ Add to Log</button>
-                    </div>
-                  </form>
-                )}
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '240px', overflowY: 'auto' }}>
-                  {achievementsList.length === 0 ? (
-                    <div style={{ padding: '20px', textAlign: 'center', background: '#f8fafc', borderRadius: '10px', color: '#475569', fontSize: '13px', fontWeight: '600' }}>
-                      No achievements logged for this student yet.
-                    </div>
-                  ) : (
-                    achievementsList.map((ach) => (
-                      <div key={ach.id} style={{ padding: '12px 14px', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
-                        <div>
-                          <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '14px' }}>🏅 {ach.title}</div>
-                          <div style={{ fontSize: '12px', color: '#334155', marginTop: '3px', fontWeight: '600' }}>
-                            <span style={{ background: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: '4px', fontWeight: '800', marginRight: '6px' }}>{ach.category}</span>
-                            <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px', fontWeight: '800', marginRight: '6px' }}>{ach.level}</span>
-                            <span>📅 {ach.date} • Recorded by <strong>{ach.addedBy}</strong></span>
-                          </div>
-                          {ach.notes && <div style={{ fontSize: '12px', color: '#1e293b', marginTop: '4px' }}>{ach.notes}</div>}
-                        </div>
-                        {canEditSkills && (
-                          <button type="button" onClick={() => setAchievementsList(achievementsList.filter(a => a.id !== ach.id))} style={{ background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', padding: '4px 8px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}>Delete</button>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </>
-          ) : (
-            <div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '18px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>🏠 Economic & Financial Background</label>
-                  <textarea rows={2} value={economicBackground} onChange={(e) => setEconomicBackground(e.target.value)} placeholder="e.g. Middle class, scholarship recipient, father's occupation..." style={boxInput} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>👨‍👩‍👧 Family Details & Support</label>
-                  <textarea rows={2} value={familyDetails} onChange={(e) => setFamilyDetails(e.target.value)} placeholder="Siblings, family educational background, guardian notes..." style={boxInput} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>📋 Behavioral & Character Observations</label>
-                  <textarea rows={2} value={behavioralNotes} onChange={(e) => setBehavioralNotes(e.target.value)} placeholder="Punctuality, hostel conduct, special attention needed..." style={boxInput} />
-                </div>
-              </div>
-
-              <form onSubmit={handleAddConsultation} style={{ background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1.5px solid #cbd5e1', marginBottom: '16px' }}>
-                <div style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a', marginBottom: '10px' }}>🗣️ LOG NEW MENTOR-MENTEE CONSULTATION / DIALOGUE</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px', marginBottom: '10px' }}>
-                  <select value={consultType} onChange={(e) => setConsultType(e.target.value)} style={boxInput}>
-                    <option value="Academic & CCE">Academic & CCE Review</option>
-                    <option value="Personal & Wellbeing">Personal & Wellbeing</option>
-                    <option value="Outreach & Career">Outreach & Career</option>
-                    <option value="Family / Financial">Family / Financial</option>
-                    <option value="Behavioral Guidance">Behavioral Guidance</option>
-                  </select>
-                  <input type="text" placeholder="Discussion Summary / Dialogue Notes..." value={consultSummary} onChange={(e) => setConsultSummary(e.target.value)} style={boxInput} />
-                </div>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <input type="text" placeholder="Next Action Plan / Follow-up goal..." value={consultActionPlan} onChange={(e) => setConsultActionPlan(e.target.value)} style={boxInput} />
-                  <button type="submit" style={{ padding: '10px 18px', background: '#0f172a', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '800', whiteSpace: 'nowrap', cursor: 'pointer' }}>+ Log Session</button>
-                </div>
-              </form>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '220px', overflowY: 'auto' }}>
-                {consultations.length === 0 ? (
-                  <div style={{ padding: '16px', textAlign: 'center', color: '#475569', background: '#f8fafc', borderRadius: '8px', fontSize: '13px', fontWeight: '600' }}>
-                    No mentor consultations recorded yet.
-                  </div>
-                ) : (
-                  consultations.map(c => (
-                    <div key={c.id} style={{ padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: '800', color: '#0f766e' }}>
-                        <span>📌 {c.type} • Mentor: {c.mentorName}</span>
-                        <span>📅 {c.date}</span>
-                      </div>
-                      <div style={{ fontSize: '13px', color: '#0f172a', fontWeight: '700', marginTop: '4px' }}>{c.summary}</div>
-                      {c.actionPlan && <div style={{ fontSize: '12px', color: '#475569', marginTop: '3px', fontWeight: '600' }}>🎯 Action Plan: {c.actionPlan}</div>}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px', borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
-            <button type="button" onClick={onClose} style={{ padding: '10px 18px', background: '#e2e8f0', color: '#0f172a', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer' }}>Close</button>
-            {(canEditSkills || canViewConfidential) && (
-              <button type="button" onClick={handleSavePortfolio} disabled={saving} style={{ padding: '10px 20px', background: '#00897b', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer' }}>
-                {saving ? 'Saving...' : '💾 Save All Student Records'}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
   const [priv, setPriv] = useState({
     isPrincipal: false,
@@ -1260,21 +829,679 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
   );
 }
 
+export function StudentPortfolioModal({
+  student,
+  canEditSkills = true,
+  canViewConfidential = true,
+  editorName = 'Faculty',
+  initialSection = 'log', // 'log' | 'skills' | 'profile'
+  semesterTarget = 3,
+  onClose,
+  onSaved
+}) {
+  const [activeModalTab, setActiveModalTab] = useState(initialSection);
+  const [saving, setSaving] = useState(false);
+
+  // 1. Profile Contact Fields
+  const [formData, setFormData] = useState({
+    firstName: student?.firstName || '',
+    whatsappNumber: student?.whatsappNumber || student?.mobileNumber || '',
+    parentWhatsapp: student?.parentWhatsapp || student?.parentMobile || '',
+    email: student?.email || '',
+    state: student?.state || 'Kerala',
+    district: student?.district || '',
+    address: student?.address || '',
+    bloodGroup: student?.bloodGroup || '',
+    madhab: student?.madhab || 'SHAFI',
+    photoUrl: student?.photoUrl || ''
+  });
+
+  // 2. Skills & Achievements State
+  const [skills, setSkills] = useState(Array.isArray(student?.skills) ? student.skills : []);
+  const [newSkill, setNewSkill] = useState('');
+  const [achievements, setAchievements] = useState(Array.isArray(student?.achievements) ? student.achievements : []);
+  const [achTitle, setAchTitle] = useState('');
+  const [achCategory, setAchCategory] = useState('Academic');
+  const [achLevel, setAchLevel] = useState('Campus / Sibaq');
+  const [achDate, setAchDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [achNotes, setAchNotes] = useState('');
+
+  // 3. Structured Mentor-Mentee Consultation Logs State
+  const existingLogs = Array.isArray(student?.mentorLogs)
+    ? student.mentorLogs
+    : Array.isArray(student?.consultationLogs)
+      ? student.consultationLogs
+      : [];
+  const [mentorLogs, setMentorLogs] = useState(existingLogs);
+
+  const [sessionDate, setSessionDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [sessionType, setSessionType] = useState('1-on-1 Personal Sitting');
+  const [wellbeingStatus, setWellbeingStatus] = useState('Thriving / On Track');
+  const [discussedTopics, setDiscussedTopics] = useState(['CCE & Academic Progress']);
+  const [summaryNote, setSummaryNote] = useState('');
+  const [confidentialNote, setConfidentialNote] = useState('');
+  const [actionItem, setActionItem] = useState('');
+  const [nextFollowUpDate, setNextFollowUpDate] = useState('');
+
+  if (!student) return null;
+
+  const DISCUSSION_TOPICS = [
+    'CCE & Academic Progress',
+    'Hifz & Tilawah',
+    'Attendance & Punctuality',
+    'Language Fluency (Ar/En/Ur)',
+    'Sibaq & Co-Curricular',
+    'Hostel & Peer Adjustment',
+    'Personal / Family Wellbeing',
+    'Career & Higher Studies'
+  ];
+
+  const QUICK_SKILL_SUGGESTIONS = [
+    'Public Speaking', 'Arabic Oratory', 'English Oratory', 'Urdu Oratory',
+    'Academic Research', 'Calligraphy', 'Graphic Design', 'Web / Tech Skills',
+    'Leadership', 'Debate', 'Content Writing', 'Qiraat & Tajweed'
+  ];
+
+  const toggleTopic = (topic) => {
+    setDiscussedTopics(prev =>
+      prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic]
+    );
+  };
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const dataUrl = await compressImageFileToDataUrl(file, 320, 0.78);
+      setFormData(prev => ({ ...prev, photoUrl: dataUrl }));
+    } catch (err) {
+      alert('Could not process image: ' + err.message);
+    }
+  };
+
+  const saveUpdatedStudentToFirestore = async (patchObj, successMessage) => {
+    setSaving(true);
+    try {
+      const docId = String(student.regNo || student.id).toLowerCase().trim();
+      await setDoc(doc(db, 'students', docId), patchObj, { merge: true });
+      const updatedStudent = { ...student, ...patchObj };
+      if (onSaved) onSaved(updatedStudent);
+      if (successMessage) alert(successMessage);
+    } catch (err) {
+      alert('Failed to save to database: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Log a new Mentor-Mentee Sitting
+  const handleAddConsultationLog = async (e) => {
+    e.preventDefault();
+    if (!summaryNote.trim() && !actionItem.trim()) {
+      return alert('Please enter a short summary or action plan for this sitting.');
+    }
+
+    const newLogEntry = {
+      id: `log_${Date.now()}`,
+      date: sessionDate,
+      type: sessionType,
+      wellbeingStatus,
+      topics: discussedTopics,
+      summary: summaryNote.trim(),
+      confidential: confidentialNote.trim(),
+      actionPlan: actionItem.trim(),
+      nextFollowUpDate: nextFollowUpDate || '',
+      loggedBy: editorName,
+      createdAt: new Date().toISOString()
+    };
+
+    const updatedLogs = [newLogEntry, ...mentorLogs];
+    setMentorLogs(updatedLogs);
+
+    await saveUpdatedStudentToFirestore(
+      {
+        mentorLogs: updatedLogs,
+        lastMentorMeetingDate: sessionDate,
+        latestWellbeingStatus: wellbeingStatus
+      },
+      '✅ Consultancy sitting logged successfully!'
+    );
+
+    setSummaryNote('');
+    setConfidentialNote('');
+    setActionItem('');
+    setNextFollowUpDate('');
+  };
+
+  const handleDeleteLog = async (logId) => {
+    if (!window.confirm('Delete this consultation record?')) return;
+    const updatedLogs = mentorLogs.filter(l => l.id !== logId);
+    setMentorLogs(updatedLogs);
+    await saveUpdatedStudentToFirestore({
+      mentorLogs: updatedLogs,
+      lastMentorMeetingDate: updatedLogs[0]?.date || ''
+    });
+  };
+
+  // Add Skill
+  const handleAddSkill = async (skillToAdd) => {
+    const clean = String(skillToAdd || newSkill).trim();
+    if (!clean) return;
+    if (skills.some(s => s.toLowerCase() === clean.toLowerCase())) {
+      setNewSkill('');
+      return;
+    }
+    const updatedSkills = [...skills, clean];
+    setSkills(updatedSkills);
+    setNewSkill('');
+    await saveUpdatedStudentToFirestore({ skills: updatedSkills });
+  };
+
+  const handleRemoveSkill = async (skillToRemove) => {
+    const updatedSkills = skills.filter(s => s !== skillToRemove);
+    setSkills(updatedSkills);
+    await saveUpdatedStudentToFirestore({ skills: updatedSkills });
+  };
+
+  // Add Achievement
+  const handleAddAchievement = async (e) => {
+    e.preventDefault();
+    if (!achTitle.trim()) return alert('Please enter the achievement title.');
+    const newAch = {
+      id: `ach_${Date.now()}`,
+      title: achTitle.trim(),
+      category: achCategory,
+      level: achLevel,
+      date: achDate,
+      notes: achNotes.trim(),
+      addedBy: editorName
+    };
+    const updatedAch = [newAch, ...achievements];
+    setAchievements(updatedAch);
+    setAchTitle('');
+    setAchNotes('');
+    await saveUpdatedStudentToFirestore({ achievements: updatedAch }, '🏅 Achievement added to student portfolio!');
+  };
+
+  const handleRemoveAchievement = async (achId) => {
+    const updatedAch = achievements.filter(a => a.id !== achId);
+    setAchievements(updatedAch);
+    await saveUpdatedStudentToFirestore({ achievements: updatedAch });
+  };
+
+  const handleSaveProfileDetails = async (e) => {
+    e.preventDefault();
+    await saveUpdatedStudentToFirestore(
+      {
+        ...formData,
+        mobileNumber: formData.whatsappNumber,
+        parentMobile: formData.parentWhatsapp
+      },
+      '✅ Student contact & profile details updated!'
+    );
+  };
+
+  const sittingsCount = mentorLogs.length;
+  const targetMet = sittingsCount >= Number(semesterTarget || 1);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2200, padding: '14px' }}>
+      <div style={{ background: '#ffffff', borderRadius: '18px', maxWidth: '880px', width: '100%', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.35)', color: '#0f172a' }}>
+
+        {/* TOP HEADER */}
+        <div style={{ background: '#0f172a', color: '#ffffff', padding: '18px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', position: 'sticky', top: 0, zIndex: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <ProfileAvatar name={formData.firstName} code={student.adNo} photoUrl={formData.photoUrl} size={52} />
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '900', color: '#ffffff' }}>{formData.firstName}</h3>
+                <span style={{ background: '#00897b', color: '#fff', padding: '3px 9px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
+                  Ad.No #{student.adNo}
+                </span>
+                <span style={{ background: targetMet ? '#16a34a' : '#ea580c', color: '#fff', padding: '3px 9px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
+                  🗣️ Sittings: {sittingsCount} / {semesterTarget} {targetMet ? '✅' : '⏳'}
+                </span>
+              </div>
+              <div style={{ fontSize: '12px', color: '#cbd5e1', marginTop: '4px', fontWeight: '600' }}>
+                Reg: {student.regNo} • Class {(student.classes || []).join(', ')} ({student.department || 'GENERAL'}) • Mentor: {student.mentorName || student.mentorUsername || 'Unassigned'}
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.15)', color: '#ffffff', border: 'none', borderRadius: '8px', width: '36px', height: '36px', fontWeight: '900', cursor: 'pointer', fontSize: '16px' }}>✕</button>
+        </div>
+
+        {/* MODAL NAVIGATION TABS */}
+        <div style={{ display: 'flex', gap: '8px', background: '#f1f5f9', padding: '10px 20px', borderBottom: '1px solid #cbd5e1', flexWrap: 'wrap' }}>
+          {[
+            { id: 'log', label: `📝 Mentor-Mentee Consultancy Log (${mentorLogs.length})` },
+            { id: 'skills', label: `🏆 Skills (${skills.length}) & Achievements (${achievements.length})` },
+            { id: 'profile', label: '📱 Contact & Personal Profile' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveModalTab(tab.id)}
+              style={{
+                padding: '10px 16px',
+                borderRadius: '8px',
+                border: 'none',
+                fontWeight: '800',
+                fontSize: '13px',
+                cursor: 'pointer',
+                background: activeModalTab === tab.id ? '#0f766e' : '#ffffff',
+                color: activeModalTab === tab.id ? '#ffffff' : '#0f172a'
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ padding: '24px' }}>
+          {/* TAB 1: MENTORSHIP CONSULTANCY LOGGER & HISTORY */}
+          {activeModalTab === 'log' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+              <form onSubmit={handleAddConsultationLog} style={{ background: '#f0fdfa', border: '2px solid #0d9488', borderRadius: '14px', padding: '18px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+                  <h4 style={{ margin: 0, fontSize: '16px', fontWeight: '900', color: '#0f766e' }}>
+                    ➕ Record New Mentor-Mentee Consultancy Sitting
+                  </h4>
+                  <span style={{ fontSize: '12px', fontWeight: '800', color: '#047857', background: '#ccfbf1', padding: '4px 10px', borderRadius: '999px' }}>
+                    Logged by: {editorName}
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px', marginBottom: '14px' }}>
+                  <div>
+                    <label style={styles.label}>Sitting Date:</label>
+                    <input type="date" value={sessionDate} onChange={e => setSessionDate(e.target.value)} required style={styles.input} />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Interaction Type:</label>
+                    <select value={sessionType} onChange={e => setSessionType(e.target.value)} style={styles.input}>
+                      <option value="1-on-1 Personal Sitting">🗣️ 1-on-1 Personal Sitting</option>
+                      <option value="Academic & CCE Review">📊 Academic & CCE Review</option>
+                      <option value="Tarbiyah & Spiritual Guidance">🕌 Tarbiyah & Spiritual Guidance</option>
+                      <option value="Behavioral / Discipline Counseling">⚖️ Behavioral / Discipline Counseling</option>
+                      <option value="Career & Higher Studies">🎓 Career & Higher Studies</option>
+                      <option value="Parent Phone Consultation">👨‍👩‍👦 Parent Phone Consultation</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={styles.label}>Student Status / Wellbeing:</label>
+                    <select value={wellbeingStatus} onChange={e => setWellbeingStatus(e.target.value)} style={styles.input}>
+                      <option value="Thriving / On Track">🟢 Thriving / On Track</option>
+                      <option value="Needs Academic Support">🟡 Needs Academic Support</option>
+                      <option value="Personal / Health Concern">🟠 Personal / Health Concern</option>
+                      <option value="Urgent / Escalate to Outreach">🔴 Urgent / Escalate to Outreach</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={styles.label}>Topics Discussed in Sitting (Click to select):</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {DISCUSSION_TOPICS.map(topic => {
+                      const active = discussedTopics.includes(topic);
+                      return (
+                        <button
+                          key={topic}
+                          type="button"
+                          onClick={() => toggleTopic(topic)}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: '999px',
+                            fontSize: '12px',
+                            fontWeight: '800',
+                            cursor: 'pointer',
+                            border: active ? '2px solid #0f766e' : '1px solid #cbd5e1',
+                            background: active ? '#0f766e' : '#ffffff',
+                            color: active ? '#ffffff' : '#334155'
+                          }}
+                        >
+                          {active ? `✓ ${topic}` : `+ ${topic}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px', marginBottom: '14px' }}>
+                  <div>
+                    <label style={styles.label}>Consultation Summary & Observations:</label>
+                    <textarea
+                      rows={3}
+                      placeholder="Summarize how the student is progressing, challenges discussed, and advice given..."
+                      value={summaryNote}
+                      onChange={e => setSummaryNote(e.target.value)}
+                      style={{ ...styles.input, resize: 'vertical' }}
+                    />
+                  </div>
+                  {canViewConfidential && (
+                    <div>
+                      <label style={{ ...styles.label, color: '#b45309' }}>🔒 Confidential Faculty Note (Hidden from Student):</label>
+                      <textarea
+                        rows={3}
+                        placeholder="Private family/financial/behavioral notes for Mentor & Outreach Coordinator only..."
+                        value={confidentialNote}
+                        onChange={e => setConfidentialNote(e.target.value)}
+                        style={{ ...styles.input, resize: 'vertical', borderColor: '#fcd34d', background: '#fffbeb' }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '14px', marginBottom: '16px' }}>
+                  <div>
+                    <label style={styles.label}>🎯 Next Action Plan / Target Given to Student:</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Complete pending Fiqh Level 2 CCE work before next Friday..."
+                      value={actionItem}
+                      onChange={e => setActionItem(e.target.value)}
+                      style={styles.input}
+                    />
+                  </div>
+                  <div>
+                    <label style={styles.label}>📅 Next Follow-Up Date:</label>
+                    <input
+                      type="date"
+                      value={nextFollowUpDate}
+                      onChange={e => setNextFollowUpDate(e.target.value)}
+                      style={styles.input}
+                    />
+                  </div>
+                </div>
+
+                <button type="submit" disabled={saving} style={{ ...styles.buttonPrimary, width: '100%' }}>
+                  {saving ? 'Saving Consultation...' : '💾 Save Consultation Sitting to Record'}
+                </button>
+              </form>
+
+              {/* CONSULTATION TIMELINE HISTORY */}
+              <div>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
+                  📜 Past Consultancy Sittings History ({mentorLogs.length})
+                </h4>
+                {mentorLogs.length === 0 ? (
+                  <div style={{ padding: '28px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>
+                    No mentor-mentee sittings have been logged for this student yet.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {mentorLogs.map((log, index) => {
+                      const isUrgent = String(log.wellbeingStatus || '').includes('Urgent');
+                      const isSupport = String(log.wellbeingStatus || '').includes('Support') || String(log.wellbeingStatus || '').includes('Concern');
+                      return (
+                        <div key={log.id || index} style={{ padding: '16px', borderRadius: '12px', border: isUrgent ? '2px solid #dc2626' : '1px solid #cbd5e1', background: isUrgent ? '#fef2f2' : '#ffffff' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <span style={{ background: '#0f172a', color: '#fff', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
+                                📅 {log.date || 'N/A'}
+                              </span>
+                              <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
+                                {log.type || 'Sitting'}
+                              </span>
+                              <span style={{
+                                background: isUrgent ? '#fee2e2' : isSupport ? '#fef3c7' : '#dcfce7',
+                                color: isUrgent ? '#991b1b' : isSupport ? '#92400e' : '#166534',
+                                padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800'
+                              }}>
+                                {log.wellbeingStatus || 'Logged'}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#475569', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <span>👨‍🏫 By <strong>{log.loggedBy || 'Mentor'}</strong></span>
+                              <button type="button" onClick={() => handleDeleteLog(log.id)} style={{ background: 'transparent', border: 'none', color: '#dc2626', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>
+                                🗑️ Delete
+                              </button>
+                            </div>
+                          </div>
+
+                          {Array.isArray(log.topics) && log.topics.length > 0 && (
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                              {log.topics.map((t, idx) => (
+                                <span key={idx} style={{ background: '#f1f5f9', color: '#334155', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '700' }}>
+                                  #{t}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {log.summary && (
+                            <div style={{ fontSize: '14px', color: '#0f172a', fontWeight: '600', marginBottom: '6px', lineHeight: 1.5 }}>
+                              {log.summary}
+                            </div>
+                          )}
+
+                          {canViewConfidential && log.confidential && (
+                            <div style={{ fontSize: '13px', color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', padding: '8px 12px', borderRadius: '8px', marginTop: '6px', fontWeight: '700' }}>
+                              🔒 <strong>Confidential Note:</strong> {log.confidential}
+                            </div>
+                          )}
+
+                          {(log.actionPlan || log.nextFollowUpDate) && (
+                            <div style={{ marginTop: '8px', padding: '8px 12px', background: '#f0fdfa', borderRadius: '8px', fontSize: '12px', color: '#0f766e', fontWeight: '800', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                              {log.actionPlan && <span>🎯 Action Plan: {log.actionPlan}</span>}
+                              {log.nextFollowUpDate && <span>⏰ Next Follow-Up: {log.nextFollowUpDate}</span>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: SKILLS & ACHIEVEMENTS */}
+          {activeModalTab === 'skills' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              <div style={{ background: '#f8fafc', padding: '18px', borderRadius: '14px', border: '1px solid #cbd5e1' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
+                  🌟 Student Skills & Talents ({skills.length})
+                </h4>
+
+                {canEditSkills && (
+                  <>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                      <input
+                        type="text"
+                        placeholder="Type a custom skill (e.g. Urdu Poetry, Python, Qiraat)..."
+                        value={newSkill}
+                        onChange={e => setNewSkill(e.target.value)}
+                        style={{ ...styles.input, flex: '1 1 240px' }}
+                      />
+                      <button type="button" onClick={() => handleAddSkill(newSkill)} style={styles.buttonPrimary}>
+                        + Add Skill
+                      </button>
+                    </div>
+
+                    <div style={{ marginBottom: '14px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                        ⚡ Quick 1-Click Skill Tags:
+                      </span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {QUICK_SKILL_SUGGESTIONS.map(sug => (
+                          <button
+                            key={sug}
+                            type="button"
+                            onClick={() => handleAddSkill(sug)}
+                            style={{ padding: '5px 10px', borderRadius: '999px', border: '1px solid #0d9488', background: '#ffffff', color: '#0f766e', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                          >
+                            + {sug}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '10px' }}>
+                  {skills.length === 0 ? (
+                    <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '600' }}>No skills added yet.</span>
+                  ) : (
+                    skills.map((sk, i) => (
+                      <span key={i} style={{ background: '#ccfbf1', color: '#0f766e', border: '1px solid #14b8a6', padding: '6px 12px', borderRadius: '999px', fontSize: '13px', fontWeight: '800', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                        ✦ {sk}
+                        {canEditSkills && (
+                          <button type="button" onClick={() => handleRemoveSkill(sk)} style={{ background: 'transparent', border: 'none', color: '#dc2626', fontWeight: '900', cursor: 'pointer' }}>
+                            ✕
+                          </button>
+                        )}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* ACHIEVEMENTS & SIBAQ LOG */}
+              <div style={{ background: '#f8fafc', padding: '18px', borderRadius: '14px', border: '1px solid #cbd5e1' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
+                  🏅 Add New Achievement / Award / Sibaq Record
+                </h4>
+                {canEditSkills && (
+                  <form onSubmit={handleAddAchievement} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '18px' }}>
+                    <input type="text" placeholder="Award / Achievement Title..." value={achTitle} onChange={e => setAchTitle(e.target.value)} required style={styles.input} />
+                    <select value={achCategory} onChange={e => setAchCategory(e.target.value)} style={styles.input}>
+                      <option value="Academic">📚 Academic Excellence</option>
+                      <option value="Sibaq / Arts Fest">🎨 Sibaq / Arts Fest</option>
+                      <option value="Hifz & Quran">📖 Hifz & Quran</option>
+                      <option value="Oratory & Debate">🎙️ Oratory & Debate</option>
+                      <option value="Writing & Publication">✍️ Writing & Publication</option>
+                      <option value="Sports & Leadership">🏆 Sports & Leadership</option>
+                    </select>
+                    <select value={achLevel} onChange={e => setAchLevel(e.target.value)} style={styles.input}>
+                      <option value="Campus / Class Level">🏫 Campus / Class Level</option>
+                      <option value="DHIU Central / Sibaq">🎓 DHIU Central / Sibaq</option>
+                      <option value="State / National Level">🌍 State / National Level</option>
+                    </select>
+                    <input type="date" value={achDate} onChange={e => setAchDate(e.target.value)} style={styles.input} />
+                    <input type="text" placeholder="Short note / prize rank (e.g. 1st Prize A Grade)..." value={achNotes} onChange={e => setAchNotes(e.target.value)} style={{ ...styles.input, gridColumn: '1 / -1' }} />
+                    <button type="submit" disabled={saving} style={{ ...styles.buttonPrimary, gridColumn: '1 / -1' }}>
+                      🏅 Save Achievement to Student Record
+                    </button>
+                  </form>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {achievements.map((ach, i) => (
+                    <div key={ach.id || i} style={{ background: '#ffffff', padding: '14px', borderRadius: '10px', border: '1px solid #cbd5e1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                      <div>
+                        <div style={{ fontWeight: '800', fontSize: '15px', color: '#0f172a' }}>🏅 {ach.title}</div>
+                        <div style={{ fontSize: '12px', color: '#475569', fontWeight: '700', marginTop: '4px' }}>
+                          {ach.category} • {ach.level} • 📅 {ach.date} {ach.addedBy ? `• Verified by ${ach.addedBy}` : ''}
+                        </div>
+                        {ach.notes && <div style={{ fontSize: '13px', color: '#0f766e', fontWeight: '700', marginTop: '4px' }}>{ach.notes}</div>}
+                      </div>
+                      {canEditSkills && (
+                        <button type="button" onClick={() => handleRemoveAchievement(ach.id)} style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: CONTACT & PERSONAL PROFILE */}
+          {activeModalTab === 'profile' && (
+            <form onSubmit={handleSaveProfileDetails} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
+                <ProfileAvatar name={formData.firstName} code={student.adNo} photoUrl={formData.photoUrl} size={64} />
+                <div>
+                  <label style={styles.label}>Update Student Profile Photo:</label>
+                  <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ fontSize: '13px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
+                <div>
+                  <label style={styles.label}>Student Full Name:</label>
+                  <input type="text" value={formData.firstName} onChange={e => setFormData({ ...formData, firstName: e.target.value })} style={styles.input} />
+                </div>
+                <div>
+                  <label style={styles.label}>Student WhatsApp / Mobile:</label>
+                  <input type="text" value={formData.whatsappNumber} onChange={e => setFormData({ ...formData, whatsappNumber: e.target.value })} placeholder="10-digit number" style={styles.input} />
+                </div>
+                <div>
+                  <label style={styles.label}>Parent WhatsApp / Mobile:</label>
+                  <input type="text" value={formData.parentWhatsapp} onChange={e => setFormData({ ...formData, parentWhatsapp: e.target.value })} placeholder="Parent 10-digit number" style={styles.input} />
+                </div>
+                <div>
+                  <label style={styles.label}>Email Address:</label>
+                  <input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} placeholder="student@email.com" style={styles.input} />
+                </div>
+                <div>
+                  <label style={styles.label}>State:</label>
+                  <select value={formData.state} onChange={e => setFormData({ ...formData, state: e.target.value })} style={styles.input}>
+                    {(INDIAN_STATES || ['Kerala', 'Karnataka', 'Bihar', 'Uttar Pradesh', 'West Bengal', 'Other']).map(st => (
+                      <option key={st} value={st}>{st}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={styles.label}>District:</label>
+                  <input type="text" value={formData.district} onChange={e => setFormData({ ...formData, district: e.target.value })} placeholder="e.g. Malappuram" style={styles.input} />
+                </div>
+                <div>
+                  <label style={styles.label}>Madhab:</label>
+                  <select value={formData.madhab} onChange={e => setFormData({ ...formData, madhab: e.target.value })} style={styles.input}>
+                    <option value="SHAFI">SHAFI</option>
+                    <option value="HANAFI">HANAFI</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={styles.label}>Blood Group:</label>
+                  <input type="text" value={formData.bloodGroup} onChange={e => setFormData({ ...formData, bloodGroup: e.target.value })} placeholder="e.g. O+" style={styles.input} />
+                </div>
+              </div>
+
+              <button type="submit" disabled={saving} style={styles.buttonPrimary}>
+                {saving ? 'Saving Profile...' : '💾 Save Student Contact & Profile'}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAdmin = false, isOutreachView = false, onStudentUpdated }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCompletion, setFilterCompletion] = useState('All');
+  const [filterConsultancyStatus, setFilterConsultancyStatus] = useState('All'); // 'All' | 'TargetMet' | 'BelowTarget' | 'ZeroSittings' | 'Overdue30' | 'Escalated'
   const [editingStudent, setEditingStudent] = useState(null);
+  const [modalInitialSection, setModalInitialSection] = useState('log');
 
   const [classPtaMessage, setClassPtaMessage] = useState('');
   const [ptaGroupLink, setPtaGroupLink] = useState('');
+
+  // 🌟 Outreach Coordinator Top-Level View Switcher
+  const [outreachActiveSubTab, setOutreachActiveSubTab] = useState('directory'); // 'dashboard' | 'usthads' | 'directory' | 'queue'
+  const [inspectingUsthadUsername, setInspectingUsthadUsername] = useState('');
 
   const [outreachRoleFilter, setOutreachRoleFilter] = useState('All');
   const [outreachDeptFilter, setOutreachDeptFilter] = useState('All');
   const [outreachClassFilter, setOutreachClassFilter] = useState('All');
 
-  // 🌟 Bulk & Direct Mentor Assignment State (For Outreach Coordinator & Admin)
+  // 🌟 Semester Minimum Consultancy Target State (Saved in Firestore systemCache/mentorshipConfig)
+  const [semesterTargetConfig, setSemesterTargetConfig] = useState({
+    semesterName: 'Current Semester',
+    minConsultations: 3,
+    targetDeadline: '',
+    guidelinesNote: 'Every Mentor Usthad must conduct at least 3 structured 1-on-1 sittings per mentee this semester.'
+  });
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
+
+  // 🌟 Bulk Mentor & Bulk Skill Assignment State
   const [selectedStudentRegs, setSelectedStudentRegs] = useState([]);
   const [targetMentorUsername, setTargetMentorUsername] = useState('');
+  const [bulkSkillInput, setBulkSkillInput] = useState('');
   const [isAssigningMentor, setIsAssigningMentor] = useState(false);
   const [mentorAssignStatus, setMentorAssignStatus] = useState('');
 
@@ -1287,14 +1514,77 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
 
   const normalizeCls = (str) => String(str || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-  // Check if student is assigned to this teacher as Mentee
+  // Load Semester Minimum Consultancy Config from Firebase
+  useEffect(() => {
+    getDoc(doc(db, 'systemCache', 'mentorshipConfig')).then(snap => {
+      if (snap.exists()) {
+        setSemesterTargetConfig(prev => ({ ...prev, ...snap.data() }));
+      }
+    }).catch(() => {});
+  }, []);
+
+  const handleSaveSemesterTargetConfig = async (e) => {
+    e.preventDefault();
+    setIsSavingConfig(true);
+    try {
+      const cleanMin = Math.max(1, Number(semesterTargetConfig.minConsultations) || 1);
+      const updated = {
+        ...semesterTargetConfig,
+        minConsultations: cleanMin,
+        updatedBy: loggedInTeacher?.fullName || 'Admin / Outreach Coordinator',
+        updatedAt: new Date().toISOString()
+      };
+      await setDoc(doc(db, 'systemCache', 'mentorshipConfig'), updated, { merge: true });
+      setSemesterTargetConfig(updated);
+      alert(`✅ Semester Minimum Consultancy Target set to ${cleanMin} sittings per mentee!`);
+    } catch (err) {
+      alert('Failed to save target: ' + err.message);
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
+
+  // Helper: Get student's consultation metrics
+  const getStudentConsultancyMetrics = (st) => {
+    const logs = Array.isArray(st?.mentorLogs)
+      ? st.mentorLogs
+      : Array.isArray(st?.consultationLogs)
+        ? st.consultationLogs
+        : [];
+    const count = logs.length;
+    const minReq = Number(semesterTargetConfig.minConsultations) || 3;
+    const metTarget = count >= minReq;
+
+    const latestLog = logs[0] || null;
+    const lastDateStr = latestLog?.date || st?.lastMentorMeetingDate || '';
+    let daysSinceLast = null;
+    if (lastDateStr) {
+      const diffMs = Date.now() - new Date(lastDateStr).getTime();
+      daysSinceLast = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+    }
+
+    const isOverdue30 = daysSinceLast === null || daysSinceLast > 30;
+    const isEscalated = String(latestLog?.wellbeingStatus || st?.latestWellbeingStatus || '').includes('Urgent');
+
+    return {
+      logs,
+      count,
+      minReq,
+      metTarget,
+      latestLog,
+      lastDateStr,
+      daysSinceLast,
+      isOverdue30,
+      isEscalated
+    };
+  };
+
   const isStudentMyMentee = (st) => {
     const stMentorUser = String(st.mentorUsername || '').trim().toLowerCase();
     const stMentorName = String(st.mentorName || '').trim().toLowerCase();
     return (myUsername && stMentorUser === myUsername) || (myFullNameLower && stMentorName === myFullNameLower);
   };
 
-  // Check if student belongs to this teacher's Class
   const isStudentInMyClass = (st) => {
     const stClasses = Array.isArray(st.classes) ? st.classes : [st.class].filter(Boolean);
     const normStClasses = stClasses.map(c => normalizeCls(c));
@@ -1312,13 +1602,10 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
   const menteeStudentsList = students.filter(isStudentMyMentee);
   const niicsStudentsList = students.filter(isStudentMyNiics);
 
-  // 🌟 Determine Teacher's Active Duties
   const hasClassDuty = myClassTeacherOf.length > 0 || classStudentsList.length > 0;
   const hasMentorDuty = Boolean(priv.isMentor) || menteeStudentsList.length > 0;
 
-  // 🌟 Build Duty-Based Tabs:
-  // Only show both tabs if the teacher has BOTH Class Duty and Mentor Duty (or NIICS).
-  // Otherwise, lock directly to their single assigned duty!
+  // 🌟 Build Duty-Based Tabs for Regular Teachers (Shows both ONLY if teacher has both duties!)
   const availableDutyTabs = [];
   if (!isAdmin && !isOutreachView) {
     if (hasClassDuty) {
@@ -1348,7 +1635,6 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
     }
   }
 
-  // Default to their specific duty tab (e.g. 'CLASS' if Class Teacher, 'MENTEES' if Mentor only)
   const defaultTabMode = hasClassDuty ? 'CLASS' : hasMentorDuty ? 'MENTEES' : isNiicsCoord ? 'NIICS' : 'ALL';
   const [teacherViewMode, setTeacherViewMode] = useState(defaultTabMode);
 
@@ -1388,9 +1674,14 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
     }).catch(() => alert("Failed to copy message."));
   };
 
-  // 🌟 Filter students based on Admin/Outreach or the Teacher's active duty tab
+  // Scope students
   const scopedStudents = students.filter(st => {
-    if (isAdmin || isOutreachView) return true;
+    if (isAdmin || isOutreachView) {
+      if (inspectingUsthadUsername) {
+        return String(st.mentorUsername || '').toLowerCase() === inspectingUsthadUsername.toLowerCase();
+      }
+      return true;
+    }
 
     if (teacherViewMode === 'MENTEES') return isStudentMyMentee(st);
     if (teacherViewMode === 'CLASS') return isStudentInMyClass(st);
@@ -1408,6 +1699,13 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
     if (filterCompletion === 'Complete' && !comp.isComplete) return false;
     if (filterCompletion === 'Incomplete' && comp.isComplete) return false;
 
+    const cMetrics = getStudentConsultancyMetrics(st);
+    if (filterConsultancyStatus === 'TargetMet' && !cMetrics.metTarget) return false;
+    if (filterConsultancyStatus === 'BelowTarget' && cMetrics.metTarget) return false;
+    if (filterConsultancyStatus === 'ZeroSittings' && cMetrics.count > 0) return false;
+    if (filterConsultancyStatus === 'Overdue30' && !cMetrics.isOverdue30) return false;
+    if (filterConsultancyStatus === 'Escalated' && !cMetrics.isEscalated) return false;
+
     if (isAdmin || isOutreachView) {
       if (outreachRoleFilter === 'Mentors Assigned' && !st.mentorUsername) return false;
       if (outreachRoleFilter === 'No Mentor' && st.mentorUsername) return false;
@@ -1422,10 +1720,48 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
 
   const totalScope = scopedStudents.length;
   const completeScope = scopedStudents.filter(s => computeStudentProfileCompletion(s).isComplete).length;
-  const incompleteScope = totalScope - completeScope;
-  const scopeCompletionPct = totalScope > 0 ? Math.round(scopedStudents.reduce((acc, s) => acc + computeStudentProfileCompletion(s).pct, 0) / totalScope) : 0;
+  const targetMetCount = scopedStudents.filter(s => getStudentConsultancyMetrics(s).metTarget).length;
+  const belowTargetCount = totalScope - targetMetCount;
+  const overdue30Count = scopedStudents.filter(s => getStudentConsultancyMetrics(s).isOverdue30).length;
+  const escalatedCount = scopedStudents.filter(s => getStudentConsultancyMetrics(s).isEscalated).length;
+  const totalSittingsLoggedInScope = scopedStudents.reduce((acc, s) => acc + getStudentConsultancyMetrics(s).count, 0);
 
-  // 🌟 Outreach Coordinator & Admin: Bulk or Single Mentor Assignment
+  // 🌟 Build Usthad-Wise Consultancy Audit Summary (For Outreach Coordinator & Admin)
+  const usthadAuditRows = teachers.map(t => {
+    const tUserLower = String(t.username || '').toLowerCase();
+    const tMentees = students.filter(s => String(s.mentorUsername || '').toLowerCase() === tUserLower);
+    const totalMentees = tMentees.length;
+    let metTargetMentees = 0;
+    let zeroSittingMentees = 0;
+    let totalSessions = 0;
+    let latestSittingDate = '';
+
+    tMentees.forEach(m => {
+      const cm = getStudentConsultancyMetrics(m);
+      totalSessions += cm.count;
+      if (cm.metTarget) metTargetMentees++;
+      if (cm.count === 0) zeroSittingMentees++;
+      if (cm.lastDateStr && (!latestSittingDate || cm.lastDateStr > latestSittingDate)) {
+        latestSittingDate = cm.lastDateStr;
+      }
+    });
+
+    const targetCompletionPct = totalMentees > 0 ? Math.round((metTargetMentees / totalMentees) * 100) : 0;
+
+    return {
+      teacher: t,
+      totalMentees,
+      metTargetMentees,
+      pendingTargetMentees: totalMentees - metTargetMentees,
+      zeroSittingMentees,
+      totalSessions,
+      latestSittingDate,
+      targetCompletionPct,
+      menteesList: tMentees
+    };
+  }).filter(row => row.totalMentees > 0 || row.teacher.outpassPrivileges?.isMentor);
+
+  // Bulk Assign Mentor
   const handleBulkAssignMentor = async () => {
     if (selectedStudentRegs.length === 0) return alert('Please select at least one student using the checkboxes.');
     if (!targetMentorUsername) return alert('Please select a Mentor from the dropdown.');
@@ -1466,6 +1802,34 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
       setSelectedStudentRegs([]);
     } catch (err) {
       alert('Failed to assign mentor: ' + err.message);
+    } finally {
+      setIsAssigningMentor(false);
+      setTimeout(() => setMentorAssignStatus(''), 5000);
+    }
+  };
+
+  // 🌟 Bulk Assign Skill Tag to Selected Students
+  const handleBulkAssignSkill = async () => {
+    const cleanSkill = bulkSkillInput.trim();
+    if (!cleanSkill) return alert('Please type a Skill name to assign (e.g. Arabic Debate).');
+    if (selectedStudentRegs.length === 0) return alert('Please select at least one student using the checkboxes.');
+
+    setIsAssigningMentor(true);
+    try {
+      await Promise.all(
+        selectedStudentRegs.map(regNo => {
+          const st = students.find(s => s.regNo === regNo);
+          const curSkills = Array.isArray(st?.skills) ? st.skills : [];
+          const nextSkills = Array.from(new Set([...curSkills, cleanSkill]));
+          if (onStudentUpdated && st) onStudentUpdated({ ...st, skills: nextSkills });
+          return setDoc(doc(db, 'students', String(regNo).toLowerCase()), { skills: nextSkills }, { merge: true });
+        })
+      );
+      setMentorAssignStatus(`🏆 Added skill "${cleanSkill}" to ${selectedStudentRegs.length} students!`);
+      setBulkSkillInput('');
+      setSelectedStudentRegs([]);
+    } catch (err) {
+      alert('Failed to bulk-add skill: ' + err.message);
     } finally {
       setIsAssigningMentor(false);
       setTimeout(() => setMentorAssignStatus(''), 5000);
@@ -1518,15 +1882,54 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
           student={editingStudent}
           canEditSkills={true}
           canViewConfidential={true}
-          editorName={loggedInTeacher?.fullName || (isAdmin ? 'Admin' : 'Teacher')}
+          editorName={loggedInTeacher?.fullName || (isAdmin ? 'Admin' : 'Outreach Coordinator')}
+          initialSection={modalInitialSection}
+          semesterTarget={semesterTargetConfig.minConsultations}
           onClose={() => setEditingStudent(null)}
-          onSaved={onStudentUpdated}
+          onSaved={(updated) => {
+            setEditingStudent(updated);
+            if (onStudentUpdated) onStudentUpdated(updated);
+          }}
         />
       )}
 
       <div style={cardContainerStyle}>
 
-        {/* 🌟 SUB-TAB SWITCHER: ONLY SHOWN IF TEACHER HAS BOTH CLASS & MENTORING DUTIES */}
+        {/* 🌟 1. OUTREACH COORDINATOR & ADMIN: 4-TAB COMMAND NAVIGATION */}
+        {canManageMentorAssignments && (isAdmin || isOutreachView) && (
+          <div style={{ display: 'flex', gap: '10px', background: '#0f172a', padding: '10px', borderRadius: '14px', flexWrap: 'wrap', marginBottom: '22px' }}>
+            {[
+              { id: 'dashboard', label: '📊 1. Outreach Command & Target Setter' },
+              { id: 'usthads', label: `👨‍🏫 2. Usthad-Wise Consultancy Audit (${usthadAuditRows.length})` },
+              { id: 'directory', label: `👥 3. Student Directory, Skills & Bulk Assign (${students.length})` },
+              { id: 'queue', label: `🚨 4. Pending Target & Escalated Queue (${belowTargetCount})` }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  setOutreachActiveSubTab(tab.id);
+                  if (tab.id !== 'directory') setInspectingUsthadUsername('');
+                }}
+                style={{
+                  flex: '1 1 210px',
+                  padding: '12px 14px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  fontWeight: '800',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  background: outreachActiveSubTab === tab.id ? '#00897b' : 'rgba(255,255,255,0.1)',
+                  color: '#ffffff'
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* 🌟 2. REGULAR TEACHER SUB-TAB SWITCHER (ONLY SHOWN IF TEACHER HAS BOTH CLASS & MENTOR DUTIES) */}
         {!isAdmin && !isOutreachView && availableDutyTabs.length > 1 && (
           <div style={{ display: 'flex', gap: '10px', background: '#f1f5f9', padding: '8px', borderRadius: '12px', flexWrap: 'wrap', marginBottom: '20px', border: '1px solid #cbd5e1' }}>
             {availableDutyTabs.map(tab => (
@@ -1543,8 +1946,7 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                   fontSize: '13px',
                   cursor: 'pointer',
                   background: teacherViewMode === tab.id ? '#00897b' : '#ffffff',
-                  color: teacherViewMode === tab.id ? '#ffffff' : '#0f172a',
-                  boxShadow: teacherViewMode === tab.id ? '0 4px 10px rgba(0, 137, 123, 0.25)' : 'none'
+                  color: teacherViewMode === tab.id ? '#ffffff' : '#0f172a'
                 }}
               >
                 {tab.label}
@@ -1553,268 +1955,524 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
           </div>
         )}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-          <span style={{ background: '#00897b', color: '#ffffff', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
-            {isAdmin
-              ? 'ADMIN MENTORSHIP VIEW'
-              : isOutreachView
-                ? '🌍 OUTREACH COORDINATOR & MENTOR ASSIGNMENT DESK'
-                : teacherViewMode === 'MENTEES'
-                  ? '🧭 MY MENTEES VIEW'
-                  : teacherViewMode === 'CLASS'
-                    ? `🏫 CLASS TEACHER VIEW (CLASS ${myClassTeacherOf.join(', ')})`
-                    : teacherViewMode === 'NIICS'
-                      ? '🎓 NIICS COORDINATOR VIEW'
-                      : '👥 COMBINED MENTOR & CLASS VIEW'}
-          </span>
-          <h3 style={{ margin: 0, fontSize: '19px', color: '#0f172a', fontWeight: '800' }}>
-            Student Contact Details, Profile Completion &amp; Mentorship ({totalScope} Students)
-          </h3>
-        </div>
-
-        {/* 🌟 OUTREACH COORDINATOR & ADMIN: BULK MENTOR ASSIGNMENT PANEL */}
-        {canManageMentorAssignments && (isAdmin || isOutreachView) && (
-          <div style={{ background: '#f0fdfa', border: '2px solid #0d9488', padding: '16px', borderRadius: '12px', marginBottom: '22px' }}>
-            <div style={{ fontWeight: '800', color: '#0f766e', fontSize: '14px', marginBottom: '6px' }}>
-              🧭 Outreach Coordinator Desk: Assign Selected Students to a Mentor
+        {/* SEMESTER TARGET BANNER (VISIBLE TO ALL MENTORS & COORDINATORS) */}
+        <div style={{ background: '#fffbeb', border: '1.5px solid #f59e0b', padding: '14px 18px', borderRadius: '12px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <span style={{ background: '#d97706', color: '#ffffff', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '900', textTransform: 'uppercase' }}>
+              🎯 {semesterTargetConfig.semesterName || 'Semester'} Consultancy Mandate
+            </span>
+            <div style={{ fontSize: '14px', fontWeight: '800', color: '#78350f', marginTop: '4px' }}>
+              Minimum Required Consultations: <strong>{semesterTargetConfig.minConsultations} Sittings per Mentee</strong>
+              {semesterTargetConfig.targetDeadline ? ` • Target Deadline: ${semesterTargetConfig.targetDeadline}` : ''}
             </div>
-            <div style={{ fontSize: '12px', color: '#334155', fontWeight: '600', marginBottom: '12px' }}>
-              Filter students below by Class, Department, or Unassigned status, check the boxes next to students, and assign them to any Mentor in one click. You can also change a student's mentor directly inside their table row.
-            </div>
-
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <select
-                value={targetMentorUsername}
-                onChange={(e) => setTargetMentorUsername(e.target.value)}
-                style={{ ...styles.input, flex: '1 1 260px', borderColor: '#0d9488', fontWeight: '700' }}
-              >
-                <option value="">-- Select Target Mentor Faculty --</option>
-                <option value="__UNASSIGN__">❌ Unassign / Clear Mentor</option>
-                {teachers.map(t => (
-                  <option key={t.username} value={t.username}>
-                    {t.fullName} (@{t.username}) {t.outpassPrivileges?.isMentor ? '• 🧭 Mentor' : ''}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                type="button"
-                disabled={isAssigningMentor}
-                onClick={handleBulkAssignMentor}
-                style={{ background: '#0d9488', color: '#ffffff', border: 'none', padding: '12px 18px', borderRadius: '8px', fontSize: '13px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap' }}
-              >
-                {isAssigningMentor ? 'Saving...' : `🚀 Assign ${selectedStudentRegs.length} Selected Students to Mentor`}
-              </button>
-
-              <button
-                type="button"
-                onClick={toggleSelectAllDisplayed}
-                style={{ background: '#ffffff', color: '#0f766e', border: '1.5px solid #0d9488', padding: '11px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap' }}
-              >
-                ☑️ Select / Deselect Visible ({displayStudents.length})
-              </button>
-            </div>
-
-            {mentorAssignStatus && (
-              <div style={{ marginTop: '12px', padding: '10px 14px', background: '#dcfce7', color: '#166534', borderRadius: '8px', fontWeight: '800', fontSize: '13px' }}>
-                {mentorAssignStatus}
+            {semesterTargetConfig.guidelinesNote && (
+              <div style={{ fontSize: '12px', color: '#92400e', fontWeight: '600', marginTop: '2px' }}>
+                {semesterTargetConfig.guidelinesNote}
               </div>
             )}
           </div>
-        )}
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '11px', fontWeight: '800', color: '#92400e' }}>TARGET ACHIEVED IN SCOPE</div>
+              <div style={{ fontSize: '20px', fontWeight: '900', color: '#047857' }}>
+                {targetMetCount} / {totalScope} Students ({totalScope > 0 ? Math.round((targetMetCount / totalScope) * 100) : 0}%)
+              </div>
+            </div>
+          </div>
+        </div>
 
-        {/* CLASS TEACHER WHATSAPP PTA BROADCAST BAR */}
-        {(!isAdmin && !isOutreachView && myClassTeacherOf.length > 0 && (teacherViewMode === 'CLASS' || teacherViewMode === 'ALL')) && (
-          <div style={{ background: '#f0fdf4', border: '2px solid #22c55e', padding: '16px', borderRadius: '12px', marginBottom: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '12px' }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: '800', color: '#166534', fontSize: '14px', marginBottom: '4px' }}>
-                  👨‍👩‍👦 Class {myClassTeacherOf[0]} PTA / Parents WhatsApp Group Broadcast
+        {/* ============================================================
+            SUB-TAB 1: OUTREACH COMMAND DASHBOARD & SEMESTER TARGET SETTER
+           ============================================================ */}
+        {canManageMentorAssignments && (isAdmin || isOutreachView) && outreachActiveSubTab === 'dashboard' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            {/* SEMESTER TARGET SETTER FORM */}
+            <form onSubmit={handleSaveSemesterTargetConfig} style={{ background: '#f0fdfa', border: '2px solid #0d9488', padding: '20px', borderRadius: '14px' }}>
+              <h4 style={{ margin: '0 0 6px 0', fontSize: '17px', fontWeight: '900', color: '#0f766e' }}>
+                ⚙️ Fix Minimum Mentor-Mentee Consultancy Target for Semester
+              </h4>
+              <p style={{ margin: '0 0 14px 0', fontSize: '13px', color: '#334155', fontWeight: '600' }}>
+                Set the minimum number of 1-on-1 sittings every Mentor Usthad must complete with each assigned mentee this semester.
+              </p>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '14px' }}>
+                <div>
+                  <label style={styles.label}>Semester Title:</label>
+                  <input
+                    type="text"
+                    value={semesterTargetConfig.semesterName}
+                    onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, semesterName: e.target.value })}
+                    placeholder="e.g. Odd Semester 2026-27"
+                    style={styles.input}
+                  />
                 </div>
-                <div style={{ fontSize: '12px', color: '#15803d', fontWeight: '600' }}>
-                  Type an announcement for Class {myClassTeacherOf[0]} parents below and click <strong>Open Class PTA WhatsApp Group</strong> (auto-copies message &amp; opens group directly).
+                <div>
+                  <label style={styles.label}>Minimum Sittings per Mentee:</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={semesterTargetConfig.minConsultations}
+                    onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, minConsultations: Number(e.target.value) })}
+                    style={{ ...styles.input, fontWeight: '900', color: '#0f766e' }}
+                  />
+                </div>
+                <div>
+                  <label style={styles.label}>Semester Target Deadline:</label>
+                  <input
+                    type="date"
+                    value={semesterTargetConfig.targetDeadline || ''}
+                    onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, targetDeadline: e.target.value })}
+                    style={styles.input}
+                  />
                 </div>
               </div>
-              <button type="button" onClick={savePtaGroupLink} style={{ background: '#ffffff', color: '#059669', border: '1px solid #10b981', padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                🔗 Set Class {myClassTeacherOf[0]} WhatsApp Group Link
-              </button>
-            </div>
 
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              <input
-                type="text"
-                placeholder={`Type message for Class ${myClassTeacherOf[0]} PTA / Parents Group...`}
-                value={classPtaMessage}
-                onChange={(e) => setClassPtaMessage(e.target.value)}
-                style={{ ...styles.input, flex: '1 1 200px', borderColor: '#86efac' }}
-              />
-              <button type="button" onClick={openPtaGroupAndSend} style={{ background: '#16a34a', color: '#ffffff', border: 'none', padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                💬 Open Class {myClassTeacherOf[0]} PTA Group &amp; Send
+              <div style={{ marginBottom: '14px' }}>
+                <label style={styles.label}>Coordinator Instructions / Guidelines for Mentors:</label>
+                <input
+                  type="text"
+                  value={semesterTargetConfig.guidelinesNote || ''}
+                  onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, guidelinesNote: e.target.value })}
+                  placeholder="Instructions displayed on every Mentor's dashboard..."
+                  style={styles.input}
+                />
+              </div>
+
+              <button type="submit" disabled={isSavingConfig} style={styles.buttonPrimary}>
+                {isSavingConfig ? 'Saving Target...' : '💾 Save Semester Minimum Consultancy Target'}
               </button>
+            </form>
+
+            {/* COMMAND KPI CARDS */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '16px' }}>
+              <div style={{ padding: '18px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #cbd5e1', textAlign: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b' }}>TOTAL SITTINGS LOGGED</span>
+                <div style={{ fontSize: '30px', fontWeight: '900', color: '#0f172a', marginTop: '6px' }}>{totalSittingsLoggedInScope}</div>
+              </div>
+              <div style={{ padding: '18px', borderRadius: '12px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857' }}>MET SEMESTER TARGET (&ge;{semesterTargetConfig.minConsultations})</span>
+                <div style={{ fontSize: '30px', fontWeight: '900', color: '#059669', marginTop: '6px' }}>{targetMetCount}</div>
+              </div>
+              <div style={{ padding: '18px', borderRadius: '12px', background: '#fffbeb', border: '1px solid #fde68a', textAlign: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#b45309' }}>BELOW TARGET (&lt;{semesterTargetConfig.minConsultations})</span>
+                <div style={{ fontSize: '30px', fontWeight: '900', color: '#d97706', marginTop: '6px' }}>{belowTargetCount}</div>
+              </div>
+              <div style={{ padding: '18px', borderRadius: '12px', background: '#fee2e2', border: '1px solid #fecaca', textAlign: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#991b1b' }}>NO SITTING IN 30+ DAYS</span>
+                <div style={{ fontSize: '30px', fontWeight: '900', color: '#dc2626', marginTop: '6px' }}>{overdue30Count}</div>
+              </div>
+              <div style={{ padding: '18px', borderRadius: '12px', background: '#fef2f2', border: '2px solid #dc2626', textAlign: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: '900', color: '#dc2626' }}>🚨 ESCALATED CASES</span>
+                <div style={{ fontSize: '30px', fontWeight: '900', color: '#dc2626', marginTop: '6px' }}>{escalatedCount}</div>
+              </div>
             </div>
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '22px' }}>
-          <div onClick={() => setFilterCompletion('All')} style={{ padding: '20px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center', cursor: 'pointer' }}>
-            <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', letterSpacing: '0.5px' }}>TOTAL IN SCOPE</span>
-            <div style={{ fontSize: '32px', fontWeight: '900', color: '#0f172a', margin: '8px 0' }}>{totalScope}</div>
-          </div>
-          <div onClick={() => setFilterCompletion('Complete')} style={{ padding: '20px', borderRadius: '12px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center', cursor: 'pointer' }}>
-            <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857', letterSpacing: '0.5px' }}>100% COMPLETE PROFILES</span>
-            <div style={{ fontSize: '32px', fontWeight: '900', color: '#059669', margin: '8px 0' }}>{completeScope}</div>
-          </div>
-          <div onClick={() => setFilterCompletion('Incomplete')} style={{ padding: '20px', borderRadius: '12px', background: '#fee2e2', border: '1px solid #fecaca', textAlign: 'center', cursor: 'pointer' }}>
-            <span style={{ fontSize: '11px', fontWeight: '800', color: '#991b1b', letterSpacing: '0.5px' }}>MISSING / INCOMPLETE DETAILS</span>
-            <div style={{ fontSize: '32px', fontWeight: '900', color: '#dc2626', margin: '8px 0' }}>{incompleteScope}</div>
-          </div>
-          <div style={{ padding: '20px', borderRadius: '12px', background: '#eff6ff', border: '1px solid #bfdbfe', textAlign: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: '800', color: '#1e40af', letterSpacing: '0.5px' }}>PROFILE COMPLETION RATE</span>
-            <div style={{ fontSize: '32px', fontWeight: '900', color: '#2563eb', margin: '8px 0' }}>{scopeCompletionPct}%</div>
-          </div>
-        </div>
+        {/* ============================================================
+            SUB-TAB 2: USTHAD-WISE CONSULTANCY AUDIT & RELATIONSHIP TRACKER
+           ============================================================ */}
+        {canManageMentorAssignments && (isAdmin || isOutreachView) && outreachActiveSubTab === 'usthads' && (
+          <div>
+            <h4 style={{ margin: '0 0 6px 0', fontSize: '18px', fontWeight: '900', color: '#0f172a' }}>
+              👨‍🏫 Individual Usthad Mentorship & Consultancy Progress Audit
+            </h4>
+            <p style={{ margin: '0 0 18px 0', fontSize: '13px', color: '#475569', fontWeight: '600' }}>
+              Track how actively each Mentor Usthad is meeting his assigned mentees against the semester requirement of <strong>{semesterTargetConfig.minConsultations} sittings per mentee</strong>.
+            </p>
 
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '20px', background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
-          <input type="text" placeholder="Search student name, Ad.No, or district..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ ...styles.input, flex: '1 1 200px' }} />
-          <select value={filterCompletion} onChange={(e) => setFilterCompletion(e.target.value)} style={{ ...styles.input, flex: '1 1 180px' }}>
-            <option value="All">All Completion Statuses</option>
-            <option value="Incomplete">⚠️ Incomplete Profiles Only</option>
-            <option value="Complete">✅ 100% Complete Only</option>
-          </select>
-          {(isAdmin || isOutreachView) && (
-            <>
-              <select value={outreachClassFilter} onChange={(e) => setOutreachClassFilter(e.target.value)} style={{ ...styles.input, flex: '1 1 150px' }}>
-                <option value="All">All Classes</option>
-                {DEFAULT_CLASSES.map(c => <option key={c} value={c}>Class {c}</option>)}
-              </select>
-              <select value={outreachDeptFilter} onChange={(e) => setOutreachDeptFilter(e.target.value)} style={{ ...styles.input, flex: '1 1 160px' }}>
-                <option value="All">All Departments</option>
-                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-              <select value={outreachRoleFilter} onChange={(e) => setOutreachRoleFilter(e.target.value)} style={{ ...styles.input, flex: '1 1 180px', borderColor: '#0d9488' }}>
-                <option value="All">All Mentorship Status</option>
-                <option value="Mentors Assigned">✅ Mentors Assigned</option>
-                <option value="No Mentor">⚠️ Unassigned (No Mentor)</option>
-              </select>
-            </>
-          )}
-        </div>
+            <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '880px' }}>
+                <thead>
+                  <tr style={{ background: '#0f172a', color: '#ffffff' }}>
+                    <th style={{ padding: '14px 16px' }}>Mentor Usthad</th>
+                    <th style={{ padding: '14px 16px', textAlign: 'center' }}>Assigned Mentees</th>
+                    <th style={{ padding: '14px 16px', textAlign: 'center' }}>Total Sittings Held</th>
+                    <th style={{ padding: '14px 16px', textAlign: 'center' }}>Met Target (&ge;{semesterTargetConfig.minConsultations})</th>
+                    <th style={{ padding: '14px 16px', textAlign: 'center' }}>Never Met (0)</th>
+                    <th style={{ padding: '14px 16px' }}>Semester Target Progress</th>
+                    <th style={{ padding: '14px 16px', textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {usthadAuditRows.map((row, idx) => (
+                    <tr key={row.teacher.username} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                      <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>
+                        {row.teacher.fullName}
+                        <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
+                          @{row.teacher.username} • Last Sitting: {row.latestSittingDate || 'None yet'}
+                        </div>
+                      </td>
+                      <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '900', fontSize: '15px' }}>{row.totalMentees}</td>
+                      <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '800', color: '#0369a1', fontSize: '15px' }}>{row.totalSessions}</td>
+                      <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                        <span style={{ background: '#dcfce7', color: '#166534', padding: '4px 10px', borderRadius: '6px', fontWeight: '800' }}>
+                          {row.metTargetMentees} / {row.totalMentees}
+                        </span>
+                      </td>
+                      <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                        <span style={{ background: row.zeroSittingMentees > 0 ? '#fee2e2' : '#f1f5f9', color: row.zeroSittingMentees > 0 ? '#dc2626' : '#64748b', padding: '4px 10px', borderRadius: '6px', fontWeight: '800' }}>
+                          {row.zeroSittingMentees}
+                        </span>
+                      </td>
+                      <td style={{ padding: '14px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ width: '110px', height: '8px', background: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
+                            <div style={{ width: `${row.targetCompletionPct}%`, height: '100%', background: row.targetCompletionPct >= 80 ? '#10b981' : row.targetCompletionPct >= 40 ? '#f59e0b' : '#ef4444' }} />
+                          </div>
+                          <span style={{ fontWeight: '800', fontSize: '13px' }}>{row.targetCompletionPct}%</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInspectingUsthadUsername(row.teacher.username);
+                              setOutreachActiveSubTab('directory');
+                            }}
+                            style={{ padding: '8px 12px', background: '#0f766e', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                          >
+                            🔍 Inspect Mentees ({row.totalMentees})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openDirectWhatsApp(
+                                row.teacher.whatsappNumber || row.teacher.mobileNumber,
+                                `Assalamu Alaikum Usthad ${row.teacher.fullName}, gentle reminder from DHIU Outreach Desk: For ${semesterTargetConfig.semesterName}, the minimum consultancy target is ${semesterTargetConfig.minConsultations} sittings per mentee. Currently ${row.metTargetMentees}/${row.totalMentees} of your mentees have completed this target. Please log your upcoming sittings on the portal.`
+                              )
+                            }
+                            style={{ padding: '8px 12px', background: '#dcfce7', color: '#166534', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                          >
+                            💬 WA Nudge
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
-        <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '950px' }}>
-            <thead>
-              <tr style={{ background: '#0f172a', color: '#ffffff' }}>
-                {canManageMentorAssignments && (isAdmin || isOutreachView) && (
-                  <th style={{ padding: '14px 12px', width: '42px' }}>
+        {/* ============================================================
+            SUB-TAB 3 & 4 (OR REGULAR TEACHER VIEW): STUDENT DIRECTORY & ACTION QUEUE
+           ============================================================ */}
+        {((!isAdmin && !isOutreachView) || outreachActiveSubTab === 'directory' || outreachActiveSubTab === 'queue') && (
+          <>
+            {inspectingUsthadUsername && (
+              <div style={{ background: '#e0f2fe', border: '2px solid #0284c7', padding: '12px 16px', borderRadius: '10px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: '800', color: '#0369a1', fontSize: '14px' }}>
+                  🔍 Inspecting Mentees Assigned to: <strong>{teachers.find(t => t.username === inspectingUsthadUsername)?.fullName || inspectingUsthadUsername}</strong> ({scopedStudents.length} Mentees)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setInspectingUsthadUsername('')}
+                  style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', cursor: 'pointer', fontSize: '12px' }}
+                >
+                  ✕ Show All Students
+                </button>
+              </div>
+            )}
+
+            {/* OUTREACH COORDINATOR & ADMIN: BULK MENTOR & BULK SKILL ASSIGNMENT PANEL */}
+            {canManageMentorAssignments && (isAdmin || isOutreachView) && outreachActiveSubTab === 'directory' && (
+              <div style={{ background: '#f0fdfa', border: '2px solid #0d9488', padding: '16px', borderRadius: '12px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ fontWeight: '800', color: '#0f766e', fontSize: '14px' }}>
+                    🧭 Outreach Coordinator Desk: Bulk Assign Mentor OR Bulk Add Skill ({selectedStudentRegs.length} Selected)
+                  </div>
+                  <button
+                    type="button"
+                    onClick={toggleSelectAllDisplayed}
+                    style={{ background: '#ffffff', color: '#0f766e', border: '1.5px solid #0d9488', padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}
+                  >
+                    ☑️ Select / Deselect Visible ({displayStudents.length})
+                  </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <select
+                      value={targetMentorUsername}
+                      onChange={(e) => setTargetMentorUsername(e.target.value)}
+                      style={{ ...styles.input, flex: 1, borderColor: '#0d9488', fontWeight: '700' }}
+                    >
+                      <option value="">-- Select Mentor Usthad --</option>
+                      <option value="__UNASSIGN__">❌ Unassign / Clear Mentor</option>
+                      {teachers.map(t => (
+                        <option key={t.username} value={t.username}>
+                          {t.fullName} (@{t.username})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={isAssigningMentor}
+                      onClick={handleBulkAssignMentor}
+                      style={{ background: '#0d9488', color: '#ffffff', border: 'none', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >
+                      🚀 Assign Mentor
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px' }}>
                     <input
-                      type="checkbox"
-                      checked={displayStudents.length > 0 && displayStudents.every(s => selectedStudentRegs.includes(s.regNo))}
-                      onChange={toggleSelectAllDisplayed}
+                      type="text"
+                      placeholder="Type skill (e.g. Debate, Calligraphy)..."
+                      value={bulkSkillInput}
+                      onChange={e => setBulkSkillInput(e.target.value)}
+                      style={{ ...styles.input, flex: 1, borderColor: '#0284c7' }}
                     />
-                  </th>
-                )}
-                <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Student &amp; Ad.No</th>
-                <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Class &amp; Mentor</th>
-                <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Student &amp; Parent Contact</th>
-                <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>State &amp; District</th>
-                <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Profile Completion Rate</th>
-                <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff', textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayStudents.map((st, idx) => {
-                const comp = computeStudentProfileCompletion(st);
-                const isUrdu = String(st.adNo || '').toUpperCase().startsWith('U');
-                const autoCT = resolveClassTeacherForStudent(st, teachers);
-                const actualMentor = teachers.find(t => String(t.username || '').toLowerCase() === String(st.mentorUsername || '').toLowerCase());
-                const isChecked = selectedStudentRegs.includes(st.regNo);
+                    <button
+                      type="button"
+                      disabled={isAssigningMentor}
+                      onClick={handleBulkAssignSkill}
+                      style={{ background: '#0284c7', color: '#ffffff', border: 'none', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >
+                      🏆 + Bulk Skill
+                    </button>
+                  </div>
+                </div>
 
-                return (
-                  <tr key={st.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: isChecked ? '#ccfbf1' : idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                {mentorAssignStatus && (
+                  <div style={{ padding: '10px 14px', background: '#dcfce7', color: '#166534', borderRadius: '8px', fontWeight: '800', fontSize: '13px' }}>
+                    {mentorAssignStatus}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* CLASS TEACHER WHATSAPP PTA BROADCAST BAR */}
+            {(!isAdmin && !isOutreachView && myClassTeacherOf.length > 0 && (teacherViewMode === 'CLASS' || teacherViewMode === 'ALL')) && (
+              <div style={{ background: '#f0fdf4', border: '2px solid #22c55e', padding: '16px', borderRadius: '12px', marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '12px' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: '800', color: '#166534', fontSize: '14px', marginBottom: '4px' }}>
+                      👨‍👩‍👦 Class {myClassTeacherOf[0]} PTA / Parents WhatsApp Group Broadcast
+                    </div>
+                  </div>
+                  <button type="button" onClick={savePtaGroupLink} style={{ background: '#ffffff', color: '#059669', border: '1px solid #10b981', padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>
+                    🔗 Set Class {myClassTeacherOf[0]} WhatsApp Group Link
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  <input
+                    type="text"
+                    placeholder={`Type message for Class ${myClassTeacherOf[0]} PTA / Parents Group...`}
+                    value={classPtaMessage}
+                    onChange={(e) => setClassPtaMessage(e.target.value)}
+                    style={{ ...styles.input, flex: '1 1 200px', borderColor: '#86efac' }}
+                  />
+                  <button type="button" onClick={openPtaGroupAndSend} style={{ background: '#16a34a', color: '#ffffff', border: 'none', padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: '800', cursor: 'pointer' }}>
+                    💬 Open Class {myClassTeacherOf[0]} PTA Group &amp; Send
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* SEARCH & CONSULTANCY FILTERS */}
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '18px', background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
+              <input type="text" placeholder="Search student name, Ad.No, or district..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ ...styles.input, flex: '1 1 200px' }} />
+
+              <select value={filterConsultancyStatus} onChange={(e) => setFilterConsultancyStatus(e.target.value)} style={{ ...styles.input, flex: '1 1 210px', borderColor: '#0f766e', fontWeight: '800' }}>
+                <option value="All">All Consultancy Statuses</option>
+                <option value="TargetMet">✅ Met Semester Target (&ge;{semesterTargetConfig.minConsultations})</option>
+                <option value="BelowTarget">⏳ Below Semester Target (&lt;{semesterTargetConfig.minConsultations})</option>
+                <option value="ZeroSittings">⚠️ Zero Sittings Logged (0)</option>
+                <option value="Overdue30">🔴 Overdue (&gt;30 Days Since Sitting)</option>
+                <option value="Escalated">🚨 Escalated Urgent Cases</option>
+              </select>
+
+              <select value={filterCompletion} onChange={(e) => setFilterCompletion(e.target.value)} style={{ ...styles.input, flex: '1 1 170px' }}>
+                <option value="All">All Profile Statuses</option>
+                <option value="Incomplete">⚠️ Incomplete Profiles</option>
+                <option value="Complete">✅ 100% Complete</option>
+              </select>
+
+              {(isAdmin || isOutreachView) && (
+                <>
+                  <select value={outreachClassFilter} onChange={(e) => setOutreachClassFilter(e.target.value)} style={{ ...styles.input, flex: '1 1 130px' }}>
+                    <option value="All">All Classes</option>
+                    {DEFAULT_CLASSES.map(c => <option key={c} value={c}>Class {c}</option>)}
+                  </select>
+                  <select value={outreachRoleFilter} onChange={(e) => setOutreachRoleFilter(e.target.value)} style={{ ...styles.input, flex: '1 1 160px' }}>
+                    <option value="All">All Mentor Status</option>
+                    <option value="Mentors Assigned">✅ Mentor Assigned</option>
+                    <option value="No Mentor">⚠️ No Mentor</option>
+                  </select>
+                </>
+              )}
+            </div>
+
+            {/* MAIN STUDENT CONSULTANCY & PORTFOLIO TABLE */}
+            <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '1020px' }}>
+                <thead>
+                  <tr style={{ background: '#0f172a', color: '#ffffff' }}>
                     {canManageMentorAssignments && (isAdmin || isOutreachView) && (
-                      <td style={{ padding: '14px 12px' }}>
+                      <th style={{ padding: '14px 12px', width: '40px' }}>
                         <input
                           type="checkbox"
-                          checked={isChecked}
-                          onChange={() =>
-                            setSelectedStudentRegs(prev =>
-                              prev.includes(st.regNo) ? prev.filter(r => r !== st.regNo) : [...prev, st.regNo]
-                            )
-                          }
+                          checked={displayStudents.length > 0 && displayStudents.every(s => selectedStudentRegs.includes(s.regNo))}
+                          onChange={toggleSelectAllDisplayed}
                         />
-                      </td>
+                      </th>
                     )}
-                    <td style={{ padding: '14px 16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <ProfileAvatar name={st.firstName} code={st.adNo} photoUrl={st.photoUrl} size={42} onClick={() => setEditingStudent(st)} />
-                        <div>
-                          <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '15px' }}>{st.firstName}</div>
-                          <div style={{ fontSize: '12px', color: '#475569', fontWeight: '700' }}>Ad.No: #{st.adNo} • Reg: {st.regNo}</div>
-                          {isUrdu && <span style={{ ...styles.badge, background: '#fef3c7', color: '#b45309', marginTop: '4px' }}>URDU</span>}
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ padding: '14px 16px', fontSize: '12px', color: '#0f172a', fontWeight: '800' }}>
-                      <div style={{ fontSize: '14px', marginBottom: '4px' }}>{(st.classes || []).join(', ')} ({st.department || 'GENERAL'})</div>
-                      {canManageMentorAssignments && (isAdmin || isOutreachView) ? (
-                        <div style={{ marginBottom: '4px' }}>
-                          <span style={{ color: '#0f766e', display: 'block', marginBottom: '2px' }}>🧭 Assign Mentor:</span>
-                          <select
-                            value={st.mentorUsername || ''}
-                            onChange={(e) => handleSingleStudentMentorChange(st, e.target.value)}
-                            style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #0d9488', fontSize: '12px', fontWeight: '700', background: '#ffffff', color: '#0f172a', maxWidth: '190px' }}
-                          >
-                            <option value="">Unassigned</option>
-                            {teachers.map(t => (
-                              <option key={t.username} value={t.username}>{t.fullName}</option>
-                            ))}
-                          </select>
-                        </div>
-                      ) : (
-                        <div style={{ color: '#0f766e', marginBottom: '2px' }}>
-                          🧭 Mentor: <br />{actualMentor ? actualMentor.fullName : (st.mentorName || 'Unassigned')}
-                        </div>
-                      )}
-                      <div style={{ color: '#1d4ed8' }}>🏫 CT: {autoCT ? autoCT.fullName : (st.classTeacherUsername || 'Unassigned')}</div>
-                    </td>
-                    <td style={{ padding: '14px 16px', fontSize: '12px', color: '#334155' }}>
-                      <div style={{ marginBottom: '4px' }}>📱 Student: {st.whatsappNumber || st.mobileNumber || '—'}</div>
-                      <div style={{ marginBottom: '4px' }}>👨‍👩‍👦 Parent WA: {st.parentWhatsapp || st.parentMobile || '—'}</div>
-                      <div>✉️ Email: {st.email || '—'}</div>
-                    </td>
-                    <td style={{ padding: '14px 16px', fontSize: '12px', color: '#1e293b' }}>
-                      <div style={{ fontWeight: '800', fontSize: '13px' }}>📍 {st.district || '—'}</div>
-                      <div style={{ color: '#64748b' }}>{st.state || 'Kerala'}</div>
-                    </td>
-                    <td style={{ padding: '14px 16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                        <div style={{ width: '120px', height: '8px', background: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
-                          <div style={{ width: `${comp.pct}%`, height: '100%', background: comp.isComplete ? '#10b981' : comp.pct >= 60 ? '#f59e0b' : '#ef4444' }} />
-                        </div>
-                        <span style={{ fontSize: '13px', fontWeight: '800', color: comp.isComplete ? '#047857' : '#b45309' }}>{comp.pct}%</span>
-                      </div>
-                      {!comp.isComplete && (
-                        <div style={{ fontSize: '11px', color: '#dc2626', fontWeight: '700' }}>
-                          Missing: {comp.missing.join(', ')}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                        <button onClick={() => setEditingStudent(st)} style={{ padding: '8px 14px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800', fontSize: '13px' }}>
-                          ✏️ Edit Details / Log
-                        </button>
-                        <button onClick={() => openDirectWhatsApp(st.parentWhatsapp || st.parentMobile, `Assalamu Alaikum, official message regarding ${st.firstName} (#${st.adNo}) from DHIU Mentor/Class Teacher:`)} style={{ padding: '8px 14px', background: '#dcfce7', color: '#166534', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800', fontSize: '13px' }}>
-                          💬 Parent WA
-                        </button>
-                      </div>
-                    </td>
+                    <th style={{ padding: '14px 16px', fontWeight: '800' }}>Student &amp; Ad.No</th>
+                    <th style={{ padding: '14px 16px', fontWeight: '800' }}>Class &amp; Mentor</th>
+                    <th style={{ padding: '14px 16px', fontWeight: '800' }}>Consultancy Progress (Target: {semesterTargetConfig.minConsultations})</th>
+                    <th style={{ padding: '14px 16px', fontWeight: '800' }}>Skills &amp; Profile</th>
+                    <th style={{ padding: '14px 16px', fontWeight: '800' }}>Contact Details</th>
+                    <th style={{ padding: '14px 16px', fontWeight: '800', textAlign: 'right' }}>Quick Actions</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody>
+                  {displayStudents.map((st, idx) => {
+                    const comp = computeStudentProfileCompletion(st);
+                    const cMetrics = getStudentConsultancyMetrics(st);
+                    const isUrdu = String(st.adNo || '').toUpperCase().startsWith('U');
+                    const autoCT = resolveClassTeacherForStudent(st, teachers);
+                    const actualMentor = teachers.find(t => String(t.username || '').toLowerCase() === String(st.mentorUsername || '').toLowerCase());
+                    const isChecked = selectedStudentRegs.includes(st.regNo);
+                    const stSkills = Array.isArray(st.skills) ? st.skills : [];
+                    const stAch = Array.isArray(st.achievements) ? st.achievements : [];
+
+                    // In Queue mode, only show students below target or escalated
+                    if (outreachActiveSubTab === 'queue' && cMetrics.metTarget && !cMetrics.isEscalated) {
+                      return null;
+                    }
+
+                    return (
+                      <tr key={st.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: isChecked ? '#ccfbf1' : cMetrics.isEscalated ? '#fef2f2' : idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                        {canManageMentorAssignments && (isAdmin || isOutreachView) && (
+                          <td style={{ padding: '14px 12px' }}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() =>
+                                setSelectedStudentRegs(prev =>
+                                  prev.includes(st.regNo) ? prev.filter(r => r !== st.regNo) : [...prev, st.regNo]
+                                )
+                              }
+                            />
+                          </td>
+                        )}
+                        <td style={{ padding: '14px 16px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <ProfileAvatar name={st.firstName} code={st.adNo} photoUrl={st.photoUrl} size={42} onClick={() => { setModalInitialSection('log'); setEditingStudent(st); }} />
+                            <div>
+                              <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '15px' }}>{st.firstName}</div>
+                              <div style={{ fontSize: '12px', color: '#475569', fontWeight: '700' }}>Ad.No: #{st.adNo} • Reg: {st.regNo}</div>
+                              {isUrdu && <span style={{ ...styles.badge, background: '#fef3c7', color: '#b45309', marginTop: '4px' }}>URDU</span>}
+                            </div>
+                          </div>
+                        </td>
+
+                        <td style={{ padding: '14px 16px', fontSize: '12px', fontWeight: '800' }}>
+                          <div style={{ fontSize: '13px', marginBottom: '4px', color: '#0f172a' }}>{(st.classes || []).join(', ')} ({st.department || 'GENERAL'})</div>
+                          {canManageMentorAssignments && (isAdmin || isOutreachView) ? (
+                            <select
+                              value={st.mentorUsername || ''}
+                              onChange={(e) => handleSingleStudentMentorChange(st, e.target.value)}
+                              style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #0d9488', fontSize: '12px', fontWeight: '700', background: '#ffffff', color: '#0f172a', maxWidth: '185px', marginBottom: '4px' }}
+                            >
+                              <option value="">⚠️ Unassigned</option>
+                              {teachers.map(t => (
+                                <option key={t.username} value={t.username}>{t.fullName}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <div style={{ color: '#0f766e', marginBottom: '2px' }}>
+                              🧭 Mentor: {actualMentor ? actualMentor.fullName : (st.mentorName || 'Unassigned')}
+                            </div>
+                          )}
+                          <div style={{ color: '#1d4ed8' }}>🏫 CT: {autoCT ? autoCT.fullName : (st.classTeacherUsername || 'Unassigned')}</div>
+                        </td>
+
+                        {/* CONSULTANCY PROGRESS COLUMN */}
+                        <td style={{ padding: '14px 16px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                            <span style={{
+                              background: cMetrics.metTarget ? '#dcfce7' : cMetrics.count > 0 ? '#fef3c7' : '#fee2e2',
+                              color: cMetrics.metTarget ? '#166534' : cMetrics.count > 0 ? '#92400e' : '#991b1b',
+                              padding: '4px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '900'
+                            }}>
+                              {cMetrics.metTarget ? '✅' : '⏳'} {cMetrics.count} / {cMetrics.minReq} Sittings
+                            </span>
+                            {cMetrics.isEscalated && (
+                              <span style={{ background: '#dc2626', color: '#fff', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '900' }}>
+                                🚨 URGENT
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#475569', fontWeight: '700' }}>
+                            {cMetrics.lastDateStr
+                              ? `Last met: ${cMetrics.lastDateStr} (${cMetrics.daysSinceLast}d ago)`
+                              : '⚠️ No sitting logged yet'}
+                          </div>
+                          {cMetrics.latestLog?.summary && (
+                            <div style={{ fontSize: '11px', color: '#0f766e', fontWeight: '700', marginTop: '3px', maxWidth: '230px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              💬 "{cMetrics.latestLog.summary}"
+                            </div>
+                          )}
+                        </td>
+
+                        {/* SKILLS & PROFILE COMPLETION COLUMN */}
+                        <td style={{ padding: '14px 16px' }}>
+                          <div style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>
+                            🌟 {stSkills.length} Skills • 🏅 {stAch.length} Awards
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div style={{ width: '90px', height: '7px', background: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
+                              <div style={{ width: `${comp.pct}%`, height: '100%', background: comp.isComplete ? '#10b981' : '#f59e0b' }} />
+                            </div>
+                            <span style={{ fontSize: '11px', fontWeight: '800', color: '#475569' }}>{comp.pct}% Profile</span>
+                          </div>
+                        </td>
+
+                        <td style={{ padding: '14px 16px', fontSize: '12px', color: '#334155', fontWeight: '600' }}>
+                          <div>📱 St: {st.whatsappNumber || st.mobileNumber || '—'}</div>
+                          <div>👨‍👩‍👦 Par: {st.parentWhatsapp || st.parentMobile || '—'}</div>
+                          <div style={{ color: '#64748b' }}>📍 {st.district || '—'}</div>
+                        </td>
+
+                        <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              onClick={() => { setModalInitialSection('log'); setEditingStudent(st); }}
+                              style={{ padding: '8px 12px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}
+                            >
+                              📝 Log Sitting ({cMetrics.count})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setModalInitialSection('skills'); setEditingStudent(st); }}
+                              style={{ padding: '8px 12px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}
+                            >
+                              🏆 + Skill / Award
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openDirectWhatsApp(st.parentWhatsapp || st.parentMobile, `Assalamu Alaikum, official message regarding ${st.firstName} (#${st.adNo}) from DHIU Mentor/Outreach Desk:`)}
+                              style={{ padding: '8px 10px', background: '#dcfce7', color: '#166534', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}
+                            >
+                              💬 WA
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
