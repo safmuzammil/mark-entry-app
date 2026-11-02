@@ -204,6 +204,27 @@ const teacherEnrollments = React.useMemo(() => {
   const [isDirty, setIsDirty] = useState(false);
   const [portfolioStudent, setPortfolioStudent] = useState(null);
   const [adminBroadcast, setAdminBroadcast] = useState(null);
+  const [mentorshipConfig, setMentorshipConfig] = useState({
+  semesterName: 'Current Semester',
+  minConsultations: 3,
+  targetDeadline: ''
+});
+
+useEffect(() => {
+  getDoc(doc(db, 'systemCache', 'mentorshipConfig')).then(snap => {
+    if (snap.exists()) setMentorshipConfig(prev => ({ ...prev, ...snap.data() }));
+  }).catch(() => {});
+}, []);
+
+const myAssignedMentees = allStudentsCache.filter(
+  s => String(s.mentorUsername || '').trim().toLowerCase() === myUsername
+);
+const minSittingsReq = Number(mentorshipConfig.minConsultations) || 3;
+const menteesMetTargetCount = myAssignedMentees.filter(s => {
+  const logs = Array.isArray(s.mentorLogs) ? s.mentorLogs : (s.consultationLogs || []);
+  return logs.length >= minSittingsReq;
+}).length;
+const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCount;
 
   const canEditStudentPortfolio = (st) => {
     if (!st) return false;
@@ -784,6 +805,31 @@ const teacherEnrollments = React.useMemo(() => {
             <div style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', marginTop: '2px' }}>{adminBroadcast.title}</div>
             <div style={{ fontSize: '14px', fontWeight: '600', color: '#1e293b', marginTop: '2px' }}>{adminBroadcast.message}</div>
           </div>
+        </div>
+      )}
+
+      {myAssignedMentees.length > 0 && activeView === 'marks' && (
+        <div style={{ background: '#f0fdfa', border: '1.5px solid #0d9488', padding: '16px 20px', borderRadius: '12px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <span style={{ background: '#0f766e', color: '#ffffff', padding: '3px 9px', borderRadius: '6px', fontSize: '11px', fontWeight: '900', textTransform: 'uppercase' }}>
+              🧭 {mentorshipConfig.semesterName || 'Semester'} Mentorship Target: Min {minSittingsReq} Sittings / Mentee
+            </span>
+            <div style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', marginTop: '6px' }}>
+              You have <strong>{myAssignedMentees.length} Assigned Mentees</strong> •{' '}
+              <span style={{ color: '#047857' }}>{menteesMetTargetCount} Met Target ✅</span> •{' '}
+              <span style={{ color: menteesPendingTargetCount > 0 ? '#dc2626' : '#64748b' }}>
+                {menteesPendingTargetCount} Pending Sittings ⏳
+              </span>
+              {mentorshipConfig.targetDeadline ? ` (Deadline: ${mentorshipConfig.targetDeadline})` : ''}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveView('mentees')}
+            style={{ padding: '10px 16px', background: '#0d9488', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '13px', cursor: 'pointer' }}
+          >
+            📝 Open Mentees &amp; Log Sitting ➔
+          </button>
         </div>
       )}
 
