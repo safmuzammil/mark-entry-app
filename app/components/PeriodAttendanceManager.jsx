@@ -1215,27 +1215,26 @@ export default function PeriodAttendanceManager({
     return { stat: nextStat, cleared: totalClearedForStudent };
   };
 
-  // 🌟 UPGRADED IMPORTER WITH FULL MISMATCH & MISSING STUDENT AUDIT REPORT
+// 🌟 CORRECTED JSON IMPORTER: Fully reads subjectWise breakdown, totalPeriods, presentCount, and minus logs from shuhood_semester_export.json
   const handleImportOldShuhoodFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setLoading(true);
     setImportAuditReport(null);
-    setStatusMsg('⏳ Importing old Shuhood data, auto-clearing rehearsal dates & auditing student matches...');
+    setStatusMsg('⏳ Importing old Shuhood attendance and minus history...');
 
     try {
-      const rehearsalCreditsMap = await fetchRehearsalCreditsByRegAndDate();
       const ext = file.name.split('.').pop().toLowerCase();
       const updatedMap = {};
       let importedCount = 0;
-      let totalAutoCleared = 0;
 
-      const notFoundInNewApp = []; // In Old App, missing in New App
-      const nameDiffWarnings = []; // Same Ad.No, different Name
+      const notFoundInNewApp = [];
+      const nameDiffWarnings = [];
       const matchedNewRegs = new Set();
 
       if (ext === 'json') {
-        const jsonMap = JSON.parse(await file.text());
+        const textContent = await file.text();
+        const jsonMap = JSON.parse(textContent);
         const entries = Object.values(jsonMap);
 
         for (let i = 0; i < entries.length; i += 400) {
@@ -1245,65 +1244,50 @@ export default function PeriodAttendanceManager({
           chunk.forEach(item => {
             const cleanAd = String(item.adNo || '').trim().toUpperCase();
             if (!cleanAd) return;
-
             const st = localStudents.find(s => String(s.adNo || '').trim().toUpperCase() === cleanAd);
 
             if (!st) {
-              // 🚨 Student exists in Old App, but NOT found in New App!
               notFoundInNewApp.push({
                 adNo: item.adNo,
                 oldName: item.studentName || 'Unknown',
                 oldClass: item.className || '-',
                 totalPeriods: Number(item.totalPeriods) || 0,
                 presentCount: Number(item.presentCount) || 0,
-                minusCount: Number(item.minusCount) || 0,
-                subjectCount: Object.keys(item.subjectWise || {}).length
+                minusCount: Number(item.minusCount) || 0
               });
               return;
             }
 
             matchedNewRegs.add(st.regNo);
 
-            // Check if names look completely different (for Admin verification)
-            const oldNameClean = String(item.studentName || '').toLowerCase().replace(/[^a-z]/g, '');
-            const newNameClean = String(st.firstName || '').toLowerCase().replace(/[^a-z]/g, '');
-            if (oldNameClean && newNameClean && !oldNameClean.includes(newNameClean.slice(0, 4)) && !newNameClean.includes(oldNameClean.slice(0, 4))) {
-              nameDiffWarnings.push({
-                adNo: st.adNo,
-                oldName: item.studentName,
-                newName: st.firstName,
-                newClass: (st.classes || []).join(', ')
+            // Calculate overall totals from subjectWise if top-level totals came out as 0
+            let calcTotal = Number(item.totalPeriods) || 0;
+            let calcPresent = Number(item.presentCount) || 0;
+            const subjData = item.subjectWise || {};
+
+            if (calcTotal === 0 && Object.keys(subjData).length > 0) {
+              Object.values(subjData).forEach(subObj => {
+                calcTotal += Number(subObj.total) || 0;
+                calcPresent += Number(subObj.present) || 0;
               });
             }
 
             const docId = String(st.id || st.regNo).toLowerCase().trim();
-            const baseStat = {
-              totalPeriods: Number(item.totalPeriods) || 0,
-              presentCount: Number(item.presentCount) || 0,
+            const periodAttendance = {
+              totalPeriods: calcTotal,
+              presentCount: calcPresent,
               officialCount: Number(item.officialCount) || 0,
               medicalCount: Number(item.medicalCount) || 0,
+              permittedCount: 0,
               minusCount: Number(item.minusCount) || 0,
               minusLogs: Array.isArray(item.minusLogs) ? item.minusLogs : [],
-              subjectWise: item.subjectWise || {},
+              subjectWise: subjData,
               appliedRehearsalDates: {},
               updatedAt: new Date().toISOString()
             };
 
-            const { stat: finalStat, cleared } = applyDateBasedRehearsalCreditsToStat(
-              baseStat,
-              rehearsalCreditsMap[st.regNo]
-            );
-
-            // Deduplicate absentDates after clearing so UI shows clean dates
-            Object.values(finalStat.subjectWise || {}).forEach(sObj => {
-              if (Array.isArray(sObj.absentDates)) {
-                sObj.absentDates = Array.from(new Set(sObj.absentDates));
-              }
-            });
-
-            totalAutoCleared += cleared;
-            batch.set(doc(db, 'students', docId), { periodAttendance: finalStat }, { merge: true });
-            updatedMap[st.regNo] = { ...st, periodAttendance: finalStat };
+            batch.set(doc(db, 'students', docId), { periodAttendance }, { merge: true });
+            updatedMap[st.regNo] = { ...st, periodAttendance };
             importedCount++;
           });
           await batch.commit();
@@ -1318,47 +1302,31 @@ export default function PeriodAttendanceManager({
           const rawAd = row.admissionNumber || row['Admission Number'] || row['Ad.No'] || row.AdNo || row['Adm No'];
           if (!rawAd) return;
           const cleanAd = String(rawAd).trim().toUpperCase();
-          const oldStudentName = row.studentName || row['Student Name'] || row.name || row.Name || 'Unknown';
-          const oldClass = row.className || row.Class || row.class || '-';
-          const totalP = Number(row.totalAttendanceCount ?? row.TotalPeriods ?? row['Total Periods'] ?? 0);
-          const presentP = Number(row.totalPresentCount ?? row.PresentPeriods ?? row['Total Present'] ?? 0);
-          const minusC = Number(row.minusCount ?? row.MinusCount ?? row.Minus ?? 0);
+          const oldName = row.studentName || row['Student Name'] || row.name || 'Unknown';
+          const oldClass = row.className || row.Class || '-';
+          const totalP = Number(row.totalAttendanceCount ?? row.TotalPeriods ?? 0);
+          const presentP = Number(row.totalPresentCount ?? row.PresentPeriods ?? 0);
+          const minusC = Number(row.minusCount ?? row.MinusCount ?? 0);
 
           const st = localStudents.find(s => String(s.adNo || '').trim().toUpperCase() === cleanAd);
           if (!st) {
-            notFoundInNewApp.push({
-              adNo: cleanAd,
-              oldName: oldStudentName,
-              oldClass,
-              totalPeriods: totalP,
-              presentCount: presentP,
-              minusCount: minusC,
-              subjectCount: 0
-            });
+            notFoundInNewApp.push({ adNo: cleanAd, oldName, oldClass, totalPeriods: totalP, presentCount: presentP, minusCount: minusC });
             return;
           }
 
           matchedNewRegs.add(st.regNo);
-
           const docId = String(st.id || st.regNo).toLowerCase().trim();
           const cur = getStudentAttStat(st);
-          const baseStat = {
+          const periodAttendance = {
             ...cur,
             totalPeriods: totalP || cur.totalPeriods || 0,
             presentCount: presentP || cur.presentCount || 0,
             minusCount: minusC || cur.minusCount || 0,
-            appliedRehearsalDates: {},
             updatedAt: new Date().toISOString()
           };
 
-          const { stat: finalStat, cleared } = applyDateBasedRehearsalCreditsToStat(
-            baseStat,
-            rehearsalCreditsMap[st.regNo]
-          );
-          totalAutoCleared += cleared;
-
-          batch.set(doc(db, 'students', docId), { periodAttendance: finalStat }, { merge: true });
-          updatedMap[st.regNo] = { ...st, periodAttendance: finalStat };
+          batch.set(doc(db, 'students', docId), { periodAttendance }, { merge: true });
+          updatedMap[st.regNo] = { ...st, periodAttendance };
           importedCount++;
         });
         await batch.commit();
@@ -1366,27 +1334,11 @@ export default function PeriodAttendanceManager({
 
       const missingFromOldExport = localStudents
         .filter(s => !matchedNewRegs.has(s.regNo))
-        .map(s => ({
-          adNo: s.adNo,
-          name: s.firstName,
-          className: (s.classes || []).join(', ')
-        }));
+        .map(s => ({ adNo: s.adNo, name: s.firstName, className: (s.classes || []).join(', ') }));
 
-      setImportAuditReport({
-        importedCount,
-        totalAutoCleared,
-        notFoundInNewApp,
-        nameDiffWarnings,
-        missingFromOldExport
-      });
-
+      setImportAuditReport({ importedCount, totalAutoCleared: 0, notFoundInNewApp, nameDiffWarnings, missingFromOldExport });
       syncUpdatedStudentsState(updatedMap);
-      setStatusMsg(
-        `🎉 Imported ${importedCount} students (${totalAutoCleared} rehearsal periods auto-cleared)! ` +
-        (notFoundInNewApp.length > 0
-          ? `⚠️ Found ${notFoundInNewApp.length} student(s) in Old App that do not exist in New App — see audit report below!`
-          : `✅ 100% of Old App students matched cleanly!`)
-      );
+      setStatusMsg(`🎉 Successfully imported semester attendance history and minus logs for ${importedCount} students!`);
     } catch (err) {
       setStatusMsg('❌ Import error: ' + err.message);
     } finally {
@@ -1394,7 +1346,6 @@ export default function PeriodAttendanceManager({
       e.target.value = null;
     }
   };
-
   const handleDownloadMismatchCSV = () => {
     if (!importAuditReport) return;
     let csv = 'data:text/csv;charset=utf-8,Category,Ad.No,Old App Name,New App Name,Class,Total Periods,Present Periods,Minus Points\n';
