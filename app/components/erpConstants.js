@@ -11,7 +11,9 @@ export const MADHABS = ["Hanafi", "Shafi", "General"];
 
 export const CCE_LEVELS = { "Level 1": "15", "Level 2": "20", "Level 3": "25", "Level 4": "40" };
 export const HIFZ_LEVELS = { "Part 1 (Max 50)": "50_1", "Part 2 (Max 50)": "50_2" };
-
+export const SPECIALIZATION_LEVELS = {
+  'Direct Mark (Max 30)': '30'
+};
 export const parseCSVLine = (str) => {
   let arr = [];
   let quote = false;

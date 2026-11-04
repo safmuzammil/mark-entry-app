@@ -24,7 +24,6 @@ const styles = {
   sectionTitle: { margin: '0 0 18px 0', fontSize: '18px', color: '#0f172a', fontWeight: '800', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px' }
 };
 
-// 🌟 UPGRADED SINGLE-PAGE A4 PDF PRINT CSS
 const printStyles = `
   @media print {
     @page {
@@ -98,8 +97,9 @@ const printStyles = `
   }
 `;
 
-// 🌟 STRICT PRIORITY SCORING FOR SUBJECT TEACHERS
 const getEnrollmentMatchScore = (student, env, targetSubjectName) => {
+  if (env?.isAttendanceOnly) return 0; // Never match non-mark subjects in CCE Mark Sheet!
+
   const sReg = String(student.regNo || '').trim().toUpperCase();
   const sAd = String(student.adNo || '').trim().toUpperCase();
   const sId = String(student.id || '').trim().toUpperCase();
@@ -283,7 +283,7 @@ export default function StudentDashboard() {
   const [authenticated, setAuthenticated] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
   const [loggedInStudent, setLoggedInStudent] = useState(null);
-  const [activeTab, setActiveTab] = useState('marks'); // 'marks' | 'mentorship' | 'portfolio' | 'faculty'
+  const [activeTab, setActiveTab] = useState('marks'); // 'marks' | 'attendance' | 'mentorship' | 'portfolio' | 'faculty'
 
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -294,12 +294,21 @@ export default function StudentDashboard() {
   const [teacherDirectory, setTeacherDirectory] = useState([]);
   const [subjectAggregates, setSubjectAggregates] = useState([]);
 
-  // 🌟 Semester Mentorship Config State for Student
   const [mentorshipConfig, setMentorshipConfig] = useState({
     semesterName: 'Current Semester',
     minConsultations: 3,
     targetDeadline: '',
     guidelinesNote: ''
+  });
+
+  const [attendanceData, setAttendanceData] = useState({
+    totalPeriods: 0,
+    presentCount: 0,
+    officialCount: 0,
+    medicalCount: 0,
+    minusCount: 0,
+    minusLogs: [],
+    subjectWise: {}
   });
 
   const [overallStats, setOverallStats] = useState({
@@ -397,6 +406,18 @@ export default function StudentDashboard() {
         setMentorshipConfig(prev => ({ ...prev, ...mentorCfgSnap.data() }));
       }
 
+      // 🌟 Reads periodAttendance directly from studentData (Zero Firestore Permission Errors!)
+      const ad = studentData.periodAttendance || {};
+      setAttendanceData({
+        totalPeriods: Number(ad.totalPeriods) || 0,
+        presentCount: Number(ad.presentCount) || 0,
+        officialCount: Number(ad.officialCount) || 0,
+        medicalCount: Number(ad.medicalCount) || 0,
+        minusCount: Number(ad.minusCount) || 0,
+        minusLogs: Array.isArray(ad.minusLogs) ? ad.minusLogs : [],
+        subjectWise: ad.subjectWise || {}
+      });
+
       let liveTeachers = [];
       try {
         const tSnap = await getDocs(collection(db, 'teachers'));
@@ -407,6 +428,7 @@ export default function StudentDashboard() {
       if (liveTeachers.length === 0) liveTeachers = metaData.teacherDirectory || [];
       setTeacherDirectory(liveTeachers);
 
+      // 🌟 Strictly the 14 academic subjects for Mark Sheet (Never includes non-mark attendance subjects!)
       const expectedSubjects = DEFAULT_SUBJECTS.map(sub => ({ subject: sub }));
       const rankObj = (metaData.classRanks || {})[studentRegNo] || null;
 
@@ -434,6 +456,7 @@ export default function StudentDashboard() {
       let normKey = sub.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
       if (sub.toUpperCase().includes('U :FIQH') || sub.toUpperCase().includes('U:FIQH')) normKey = 'U :FIQH';
       const isHifz = sub.toUpperCase() === 'HIFZ';
+      const isSpecialization = sub.toUpperCase() === 'SPECIALIZATION';
 
       const foundSubjectKey = Object.keys(marksData).find(k => {
         const kUp = k.toUpperCase();
@@ -470,7 +493,11 @@ export default function StudentDashboard() {
         assignedTeacherEmail = autoClassTeacher.email || '';
       }
 
-      let levelGradingStarted = isHifz ? { '50_1': false, '50_2': false } : { '15': false, '20': false, '25': false, '40': false };
+      let levelGradingStarted = isHifz
+        ? { '50_1': false, '50_2': false }
+        : isSpecialization
+          ? { '30': false }
+          : { '15': false, '20': false, '25': false, '40': false };
 
       Object.entries(startedLevelsMap).forEach(([k, lvls]) => {
         const [clsPart, subPart] = k.split(':::');
@@ -511,6 +538,11 @@ export default function StudentDashboard() {
         assessments = { '50_1': h1, '50_2': h2 };
         if (h1 !== '-') { subSumObtained += h1; subSumMax += 50; hasData = true; }
         if (h2 !== '-') { subSumObtained += h2; subSumMax += 50; hasData = true; }
+      } else if (isSpecialization) {
+        // 🌟 Direct /30 Specialization Score (or fallback if legacy L1-L4 was entered)
+        let s30 = subMarks['30'] !== undefined && subMarks['30'] !== '' && !isNaN(Number(subMarks['30'])) ? Number(subMarks['30']) : '-';
+        assessments = { '30': s30 };
+        if (s30 !== '-') { subSumObtained += s30; subSumMax += 30; hasData = true; }
       } else {
         let l1 = subMarks['15'] !== undefined && subMarks['15'] !== '' && !isNaN(Number(subMarks['15'])) ? Number(subMarks['15']) : '-';
         let l2 = subMarks['20'] !== undefined && subMarks['20'] !== '' && !isNaN(Number(subMarks['20'])) ? Number(subMarks['20']) : '-';
@@ -523,14 +555,14 @@ export default function StudentDashboard() {
         if (l4 !== '-') { subSumObtained += l4; subSumMax += 40; hasData = true; }
       }
 
-      let total100 = hasData ? subSumObtained : '-';
-      let semScore = isHifz ? '-' : (hasData ? Number((subSumObtained * 0.3).toFixed(1)) : '-');
+      let total100 = hasData ? (isSpecialization ? Number(((subSumObtained / 30) * 100).toFixed(1)) : subSumObtained) : '-';
+      let semScore = isHifz ? '-' : isSpecialization ? (hasData ? subSumObtained : '-') : (hasData ? Number((subSumObtained * 0.3).toFixed(1)) : '-');
       let status = hasData && subSumMax > 0 ? ((subSumObtained / subSumMax) * 100).toFixed(2) + '%' : '-';
 
       if (hasData) {
         total1400 += total100;
-        total490 += isHifz ? total100 : Number((subSumObtained * 0.3).toFixed(1));
-        totalEnteredMaxPossible += subSumMax;
+        total490 += isHifz ? total100 : isSpecialization ? subSumObtained : Number((subSumObtained * 0.3).toFixed(1));
+        totalEnteredMaxPossible += isSpecialization ? 100 : subSumMax;
         hasAnyOverallData = true;
       }
 
@@ -594,7 +626,7 @@ export default function StudentDashboard() {
             <div style={{ textAlign: 'center', marginBottom: '28px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <img src={DHIU_LOGO_URL} alt="DHIU Logo" style={{ width: '72px', height: '72px', borderRadius: '50%', objectFit: 'contain', marginBottom: '10px' }} />
               <h2 style={{ color: '#0f172a', margin: '0 0 6px 0', fontSize: '26px', fontWeight: '800' }}>Student Portal</h2>
-              <p style={{ color: '#475569', fontSize: '14px', margin: 0, fontWeight: '600' }}>Sign in to view your CCE marks & achievements</p>
+              <p style={{ color: '#475569', fontSize: '14px', margin: 0, fontWeight: '600' }}>Sign in to view your CCE marks, attendance & achievements</p>
             </div>
             <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div>
@@ -639,6 +671,31 @@ export default function StudentDashboard() {
   );
   const classTeacherObj = resolveClassTeacherForStudent(loggedInStudent, teacherDirectory);
 
+  const netPresent = Math.max(0, attendanceData.presentCount - attendanceData.minusCount);
+  const attendancePct = attendanceData.totalPeriods > 0 ? ((netPresent / attendanceData.totalPeriods) * 100).toFixed(1) : '0.0';
+  const officialPct = attendanceData.totalPeriods > 0 ? ((attendanceData.officialCount / attendanceData.totalPeriods) * 100).toFixed(1) : '0.0';
+  const medicalPct = attendanceData.totalPeriods > 0 ? ((attendanceData.medicalCount / attendanceData.totalPeriods) * 100).toFixed(1) : '0.0';
+  const isShortage = attendanceData.totalPeriods > 0 && Number(attendancePct) < 85;
+
+  // Build Attendance Subject List: Excludes Hifz + Adds any Non-Mark Attendance-Only subjects!
+  const regularAttendanceSubjects = subjectAggregates.filter(item => !item.isHifz);
+  const extraNonMarkSubjects = Object.keys(attendanceData.subjectWise || {})
+    .filter(k => {
+      const kUp = k.toUpperCase();
+      if (kUp === 'HIFZ') return false;
+      return !regularAttendanceSubjects.some(regSub => {
+        const rUp = regSub.subject.toUpperCase().replace(/\./g, '');
+        return rUp === kUp || kUp.includes(rUp);
+      });
+    })
+    .map(k => ({
+      subject: k,
+      teacherName: attendanceData.subjectWise[k]?.teacherName || 'Assigned Faculty',
+      isAttendanceOnly: true
+    }));
+
+  const allAttendanceSubjectsForStudent = [...regularAttendanceSubjects, ...extraNonMarkSubjects];
+
   return (
     <div className="print-container" style={styles.pageBackground}>
       <HighContrastStyles />
@@ -672,6 +729,16 @@ export default function StudentDashboard() {
                 }}>
                   🧭 Mentor Sittings: {completedSittings} / {minReqSittings} {metMentorTarget ? '✅' : '⏳'}
                 </span>
+                {attendanceData.totalPeriods > 0 && (
+                  <span style={{
+                    ...styles.badge,
+                    background: isShortage ? '#fef2f2' : '#dcfce7',
+                    color: isShortage ? '#dc2626' : '#166534',
+                    border: `1px solid ${isShortage ? '#fecaca' : '#86efac'}`
+                  }}>
+                    📅 Attendance: {attendancePct}% {attendanceData.minusCount > 0 ? `(-${attendanceData.minusCount} Minus)` : ''}
+                  </span>
+                )}
               </div>
               <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginTop: '8px', fontSize: '13px', color: '#334155', fontWeight: '700' }}>
                 <span>🧭 Mentor: <strong style={{ color: '#0f766e' }}>{mentorTeacherObj?.fullName || loggedInStudent?.mentorName || loggedInStudent?.mentorUsername || 'Assigned Faculty'}</strong></span>
@@ -688,9 +755,11 @@ export default function StudentDashboard() {
           </div>
         </div>
 
+        {/* 🌟 5-TAB NAVIGATION BAR */}
         <div className="no-print" style={{ display: 'flex', gap: '10px', marginBottom: '22px', flexWrap: 'wrap', background: '#ffffff', padding: '10px 14px', borderRadius: '14px', border: '1px solid #cbd5e1' }}>
           {[
             { id: 'marks', label: '📊 CCE & Hifz Mark Sheet' },
+            { id: 'attendance', label: `📅 Attendance & Minus (${attendanceData.totalPeriods > 0 ? `${attendancePct}%` : 'View'})` },
             { id: 'mentorship', label: `🧭 My Mentorship & Sittings (${completedSittings}/${minReqSittings})` },
             { id: 'portfolio', label: `🏆 Skills & Achievements (${studentSkills.length + studentAchievements.length})` },
             { id: 'faculty', label: '👨‍🏫 My Mentor & Subject Usthads' }
@@ -715,6 +784,9 @@ export default function StudentDashboard() {
           ))}
         </div>
 
+        {/* ============================================================
+            TAB 1: CCE & HIFZ MARK SHEET (Strictly 14 Academic Subjects)
+           ============================================================ */}
         {activeTab === 'marks' && (
           <>
             <div className="print-kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
@@ -793,6 +865,11 @@ export default function StudentDashboard() {
                                 {renderMarkCell(data.assessments?.['50_2'], data.levelGradingStarted?.['50_2'])}
                               </td>
                             </>
+                          ) : data.isSpecialization ? (
+                            <td colSpan="4" style={{ padding: '14px 16px' }}>
+                              <span style={{ fontSize: '11px', color: '#0f766e', fontWeight: '800', display: 'block', marginBottom: '2px' }}>Direct Specialization Score (/30)</span>
+                              {renderMarkCell(data.assessments?.['30'], data.levelGradingStarted?.['30'])}
+                            </td>
                           ) : (
                             <>
                               <td style={{ padding: '14px 16px' }}>{renderMarkCell(data.assessments?.['15'], data.levelGradingStarted?.['15'])}</td>
@@ -803,7 +880,7 @@ export default function StudentDashboard() {
                           )}
 
                           <td style={{ padding: '14px 16px', fontWeight: '800', color: '#1e40af', borderLeft: '1px solid #e2e8f0' }}>{data.total100}</td>
-                          <td style={{ padding: '14px 16px', fontWeight: '800', color: '#047857' }}>{data.semScore}</td>
+                          <td style={ { padding: '14px 16px', fontWeight: '800', color: '#047857' }}>{data.semScore}</td>
                           <td style={{ padding: '14px 16px' }}>
                             <span style={{
                               ...styles.badge,
@@ -823,7 +900,155 @@ export default function StudentDashboard() {
           </>
         )}
 
-        {/* 🌟 MENTORSHIP TAB IN STUDENT PORTAL */}
+        {/* ============================================================
+            TAB 2: PERIOD ATTENDANCE, SUBJECT BREAKDOWN & MINUS LOGS
+           ============================================================ */}
+        {activeTab === 'attendance' && (
+          <div style={styles.card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px', borderBottom: '2px solid #f1f5f9', paddingBottom: '14px' }}>
+              <div>
+                <h3 style={{ margin: '0 0 6px 0', fontSize: '20px', color: '#0f172a', fontWeight: '900' }}>
+                  📅 My Semester Period Attendance & Minus Log
+                </h3>
+                <p style={{ margin: 0, fontSize: '13px', color: '#64748b', fontWeight: '600' }}>
+                  Minimum required attendance is <strong>85%</strong>. Minus deductions are subtracted from your overall present periods.
+                </p>
+              </div>
+              <span style={{
+                padding: '8px 16px',
+                borderRadius: '999px',
+                fontSize: '15px',
+                fontWeight: '900',
+                background: isShortage ? '#fef2f2' : '#dcfce7',
+                color: isShortage ? '#dc2626' : '#166534',
+                border: `2px solid ${isShortage ? '#fecaca' : '#86efac'}`
+              }}>
+                {attendancePct}% Net Attendance {isShortage ? '⚠️ (Below 85% Shortage)' : '✅'}
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: '14px', marginBottom: '24px' }}>
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #cbd5e1', textAlign: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b' }}>TOTAL PERIODS</span>
+                <div style={{ fontSize: '26px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>{attendanceData.totalPeriods}</div>
+              </div>
+              <div style={{ background: '#ecfdf5', padding: '16px', borderRadius: '12px', border: '1px solid #a7f3d0', textAlign: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857' }}>GROSS PRESENT</span>
+                <div style={{ fontSize: '26px', fontWeight: '900', color: '#059669', marginTop: '4px' }}>{attendanceData.presentCount}</div>
+              </div>
+              <div style={{ background: '#fee2e2', padding: '16px', borderRadius: '12px', border: '1px solid #fecaca', textAlign: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#991b1b' }}>MINUS DEDUCTIONS</span>
+                <div style={{ fontSize: '26px', fontWeight: '900', color: '#dc2626', marginTop: '4px' }}>-{attendanceData.minusCount}</div>
+              </div>
+              <div style={{ background: '#eff6ff', padding: '16px', borderRadius: '12px', border: '1px solid #bfdbfe', textAlign: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#1e40af' }}>NET ATTENDED</span>
+                <div style={{ fontSize: '26px', fontWeight: '900', color: '#2563eb', marginTop: '4px' }}>{netPresent}</div>
+              </div>
+              <div style={{ background: '#fffbeb', padding: '16px', borderRadius: '12px', border: '1px solid #fde68a', textAlign: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#92400e' }}>OFFICIAL / MEDICAL</span>
+                <div style={{ fontSize: '18px', fontWeight: '900', color: '#b45309', marginTop: '8px' }}>
+                  Off: {officialPct}% • Med: {medicalPct}%
+                </div>
+              </div>
+            </div>
+
+            {/* SUBJECT-WISE ATTENDANCE TABLE (Excludes Hifz + Includes Non-Mark Attendance Subjects!) */}
+            <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
+              📖 Subject-Wise Attendance Breakdown
+            </h4>
+            <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px', marginBottom: '26px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '14px', minWidth: '680px' }}>
+                <thead style={{ background: '#0f172a', color: '#ffffff' }}>
+                  <tr>
+                    <th style={{ padding: '12px 16px', textAlign: 'left' }}>Subject & Usthad</th>
+                    <th style={{ padding: '12px 16px' }}>Total Periods</th>
+                    <th style={{ padding: '12px 16px' }}>Present</th>
+                    <th style={{ padding: '12px 16px' }}>Absent</th>
+                    <th style={{ padding: '12px 16px' }}>Subject %</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'left' }}>Recorded Absent Dates</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allAttendanceSubjectsForStudent.map((item, idx) => {
+                    const normSub = item.subject.toUpperCase().replace(/\./g, '');
+                    const matchKey = Object.keys(attendanceData.subjectWise || {}).find(k => {
+                      const kUp = k.toUpperCase().replace(/\./g, '');
+                      if (normSub.includes('U :FIQH') || normSub.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH') || kUp.includes('USUL');
+                      if (normSub === 'FIQH') return kUp === 'FIQH' && !kUp.includes('U :FIQH');
+                      if (normSub === 'LOGIC') return kUp === 'LOGIC' || kUp === 'MANTIQ';
+                      return kUp === normSub || kUp.includes(normSub);
+                    });
+
+                    const sData = matchKey ? attendanceData.subjectWise[matchKey] : { total: 0, present: 0, absentDates: [] };
+                    const total = Number(sData.total) || 0;
+                    const present = Number(sData.present) || 0;
+                    const absent = Math.max(0, total - present);
+                    const pct = total > 0 ? ((present / total) * 100).toFixed(1) : null;
+                    const absDates = Array.isArray(sData.absentDates) ? sData.absentDates : [];
+
+                    return (
+                      <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                        <td style={{ padding: '12px 16px', textAlign: 'left' }}>
+                          <div style={{ fontWeight: '800', color: '#0f172a' }}>
+                            {item.subject}
+                            {item.isAttendanceOnly && (
+                              <span style={{ marginLeft: '6px', background: '#fef3c7', color: '#b45309', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '800' }}>
+                                Period Only
+                              </span>
+                            )}
+                          </div>
+                          {item.teacherName && <div style={{ fontSize: '11px', color: '#0f766e', fontWeight: '700' }}>👨‍🏫 {item.teacherName}</div>}
+                        </td>
+                        <td style={{ padding: '12px 16px', fontWeight: '700' }}>{total > 0 ? total : '-'}</td>
+                        <td style={{ padding: '12px 16px', fontWeight: '800', color: '#047857' }}>{total > 0 ? present : '-'}</td>
+                        <td style={{ padding: '12px 16px', fontWeight: '800', color: absent > 0 ? '#dc2626' : '#64748b' }}>{total > 0 ? absent : '-'}</td>
+                        <td style={{ padding: '12px 16px', fontWeight: '900', color: pct !== null && Number(pct) < 85 ? '#dc2626' : '#1e40af' }}>
+                          {pct !== null ? `${pct}%` : '-'}
+                        </td>
+                        <td style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', color: '#dc2626', fontWeight: '700' }}>
+                          {absDates.length > 0 ? absDates.slice(0, 8).join(', ') : <span style={{ color: '#94a3b8' }}>None</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* MINUS ATTENDANCE LOGS */}
+            <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
+              ⚠️ My Disciplinary Minus Attendance Records ({attendanceData.minusLogs.length})
+            </h4>
+            {attendanceData.minusLogs.length === 0 ? (
+              <div style={{ padding: '24px', background: '#f0fdfa', borderRadius: '12px', border: '1px dashed #0d9488', textAlign: 'center', color: '#0f766e', fontWeight: '800' }}>
+                Alhamdulillah! You have 0 minus attendance deductions this semester.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {attendanceData.minusLogs.map((log, i) => (
+                  <div key={log.id || i} style={{ padding: '16px', borderRadius: '12px', border: '1px solid #fecaca', background: '#fef2f2', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                    <div>
+                      <div style={{ fontWeight: '900', color: '#991b1b', fontSize: '15px' }}>
+                        -{log.count} Period(s) Deducted
+                      </div>
+                      <div style={{ fontSize: '14px', color: '#dc2626', fontWeight: '700', marginTop: '4px' }}>
+                        Reason / Rule Broken: <strong>"{log.reason}"</strong>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#7f1d1d', fontWeight: '700', textAlign: 'right' }}>
+                      <div>📅 Date: {log.date}</div>
+                      <div>👨‍🏫 Issued by Usthad: <strong>{log.issuedBy || 'Faculty'}</strong></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============================================================
+            TAB 3: MENTORSHIP TAB
+           ============================================================ */}
         {activeTab === 'mentorship' && (
           <div style={styles.card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px', borderBottom: '2px solid #f1f5f9', paddingBottom: '14px' }}>
@@ -949,6 +1174,9 @@ export default function StudentDashboard() {
           </div>
         )}
 
+        {/* ============================================================
+            TAB 4: SKILLS & ACHIEVEMENTS PORTFOLIO
+           ============================================================ */}
         {activeTab === 'portfolio' && (
           <div style={styles.card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '18px', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px' }}>
@@ -1012,6 +1240,9 @@ export default function StudentDashboard() {
           </div>
         )}
 
+        {/* ============================================================
+            TAB 5: MENTOR, CLASS TEACHER & 14 SUBJECT USTHADS
+           ============================================================ */}
         {activeTab === 'faculty' && (
           <div style={styles.card}>
             <h3 style={styles.sectionTitle}>👨‍🏫 My Academic Mentor, Class Teacher & Subject Faculty</h3>

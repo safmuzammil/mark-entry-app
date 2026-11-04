@@ -2,12 +2,12 @@
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { db } from '../../lib/firebase';
-import { 
-  createUserWithEmailAndPassword, 
-  getAuth, 
-  signOut, 
-  setPersistence, 
-  inMemoryPersistence 
+import {
+  createUserWithEmailAndPassword,
+  getAuth,
+  signOut,
+  setPersistence,
+  inMemoryPersistence
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, getDocs, collection, deleteDoc } from 'firebase/firestore';
 import { getApp, initializeApp } from 'firebase/app';
@@ -32,6 +32,16 @@ const TEACHER_PARTIAL_FIELDS = [
   { key: 'district', label: 'District / Province' },
   { key: 'classTeacherOf', label: 'Class Teacher Of (e.g. QLA3)' },
   { key: 'password', label: 'Initial Password (For New Accounts)' }
+];
+
+const QUICK_NON_MARK_SUBJECTS = [
+  'Speech Practice',
+  'PKV',
+  'Economics DG D3',
+  'Arabic Debate',
+  'Urdu Debate',
+  'English Oratory',
+  'General Assembly'
 ];
 
 export default function TeacherManager({ onOpenProxyMarks }) {
@@ -61,7 +71,11 @@ export default function TeacherManager({ onOpenProxyMarks }) {
   const [isAcademicCoordRole, setIsAcademicCoordRole] = useState(false);
   const [isOutreachCoordRole, setIsOutreachCoordRole] = useState(false);
   const [isOfficeSecRole, setIsOfficeSecRole] = useState(false);
+  const [isEventLeaderRole, setIsEventLeaderRole] = useState(false);
   const [classTeacherOf, setClassTeacherOf] = useState([]);
+
+  // 🌟 Attendance-Only (Non-Mark) Subject Mode State
+  const [isNonMarkMode, setIsNonMarkMode] = useState(false);
 
   const [registeredTeachers, setRegisteredTeachers] = useState([]);
   const [privilegeModalTeacher, setPrivilegeModalTeacher] = useState(null);
@@ -74,6 +88,8 @@ export default function TeacherManager({ onOpenProxyMarks }) {
   const [envTargetClass, setEnvTargetClass] = useState(DEFAULT_CLASSES[0]);
   const [envSubject, setEnvSubject] = useState(DEFAULT_SUBJECTS[0]);
   const [envLangTag, setEnvLangTag] = useState('');
+
+  const normalizeCls = (str) => String(str || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
   const fetchInitialData = async () => {
     try {
@@ -195,8 +211,7 @@ export default function TeacherManager({ onOpenProxyMarks }) {
       let secondaryApp;
       try { secondaryApp = getApp("SecondaryApp"); } catch (err) { secondaryApp = initializeApp(primaryApp.options, "SecondaryApp"); }
       const secondaryAuth = getAuth(secondaryApp);
-      
-      // 🔥 FORCE IN-MEMORY PERSISTENCE SO ADMIN DOESN'T GET LOGGED OUT
+
       await setPersistence(secondaryAuth, inMemoryPersistence);
 
       for (const row of rows) {
@@ -218,12 +233,16 @@ export default function TeacherManager({ onOpenProxyMarks }) {
           const ct = String(row.classTeacherOf).split(',').map(x => x.trim()).filter(Boolean);
           let updatedEnrollments = Array.isArray(existingTeacher?.enrollments) ? [...existingTeacher.enrollments] : [];
           ct.forEach(clsName => {
+            const normCls = normalizeCls(clsName);
             const gradeMatch = String(clsName).match(/\d+/);
             const gradeNum = gradeMatch ? gradeMatch[0] : '1';
-            const hasHifz = updatedEnrollments.some(e => String(e.subject || '').toUpperCase() === 'HIFZ' && String(e.targetClass || '').toUpperCase() === clsName.toUpperCase());
+            const hasHifz = updatedEnrollments.some(e => {
+              const isSubHifz = String(e.subject || '').toUpperCase() === 'HIFZ' || String(e.alias || '').toUpperCase().includes('HIFZ');
+              return isSubHifz && (normalizeCls(e.targetClass) === normCls || normalizeCls(e.alias).includes(normCls));
+            });
             if (!hasHifz) {
               updatedEnrollments.push({
-                id: `hifz_${clsName}_${Date.now()}`,
+                id: `hifz_${normCls}`,
                 grade: gradeNum,
                 targetClass: clsName,
                 subject: 'Hifz',
@@ -256,16 +275,23 @@ export default function TeacherManager({ onOpenProxyMarks }) {
     e.target.value = null;
   };
 
+  // 🌟 Add Standard or Attendance-Only (Non-Mark) Subject Enrollment
   const handleAddEnrollment = () => {
-    if (!envSubject || !envTargetClass) return alert("Please select Grade, Class, and Subject.");
-    const generatedAlias = `${envTargetClass} ${envSubject}`;
+    const cleanSub = String(envSubject || '').trim();
+    if (!cleanSub || !envTargetClass) return alert("Please select Grade, Class, and Subject.");
+
+    const generatedAlias = envTargetClass === 'CUSTOM'
+      ? cleanSub
+      : `${envTargetClass} ${cleanSub}`;
+
     const newEnv = {
-      id: Date.now().toString(),
+      id: `${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       grade: envGrade,
       targetClass: envTargetClass,
-      subject: envSubject,
+      subject: cleanSub,
       alias: generatedAlias,
       langTag: envLangTag,
+      isAttendanceOnly: Boolean(isNonMarkMode), // 🌟 Marks as Attendance-Only if checkbox is ticked!
       studentIds: []
     };
     setEnrollments([...enrollments, newEnv]);
@@ -295,7 +321,6 @@ export default function TeacherManager({ onOpenProxyMarks }) {
         try { secondaryApp = getApp("SecondaryApp"); } catch (err) { secondaryApp = initializeApp(primaryApp.options, "SecondaryApp"); }
         const secondaryAuth = getAuth(secondaryApp);
 
-        // 🔥 FORCE IN-MEMORY PERSISTENCE SO ADMIN DOESN'T GET LOGGED OUT
         await setPersistence(secondaryAuth, inMemoryPersistence);
 
         try {
@@ -306,17 +331,28 @@ export default function TeacherManager({ onOpenProxyMarks }) {
         await signOut(secondaryAuth);
       }
 
-      let finalEnrollments = [...enrollments];
+      // Deduplicate any double Hifz slots first
+      const seenHifz = new Set();
+      let finalEnrollments = enrollments.filter(e => {
+        const isSubHifz = String(e.subject || '').toUpperCase() === 'HIFZ' || String(e.alias || '').toUpperCase().includes('HIFZ');
+        if (!isSubHifz) return true;
+        const normKey = normalizeCls(e.targetClass || e.alias).replace('HIFZ', '');
+        if (normKey && seenHifz.has(normKey)) return false;
+        if (normKey) seenHifz.add(normKey);
+        return true;
+      });
+
       classTeacherOf.forEach(clsName => {
+        const normCls = normalizeCls(clsName);
         const gradeMatch = String(clsName).match(/\d+/);
         const gradeNum = gradeMatch ? gradeMatch[0] : '1';
-        const alreadyHasHifz = finalEnrollments.some(
-          env => String(env.subject || '').toUpperCase() === 'HIFZ' &&
-                 (String(env.targetClass || '').toUpperCase() === clsName.toUpperCase() || String(env.alias || '').toUpperCase().includes(clsName.toUpperCase()))
-        );
+        const alreadyHasHifz = finalEnrollments.some(env => {
+          const isSubHifz = String(env.subject || '').toUpperCase() === 'HIFZ' || String(env.alias || '').toUpperCase().includes('HIFZ');
+          return isSubHifz && (normalizeCls(env.targetClass) === normCls || normalizeCls(env.alias).includes(normCls));
+        });
         if (!alreadyHasHifz) {
           finalEnrollments.push({
-            id: `hifz_${clsName}_${Date.now()}`,
+            id: `hifz_${normCls}`,
             grade: gradeNum,
             targetClass: clsName,
             subject: 'Hifz',
@@ -327,36 +363,55 @@ export default function TeacherManager({ onOpenProxyMarks }) {
         }
       });
 
-      const activeRolesList = ['Teacher'];
-      if (isMentorRole) activeRolesList.push('Mentor');
-      if (classTeacherOf.length > 0) activeRolesList.push('Class Teacher');
-      if (isPrincipalRole) activeRolesList.push('Principal');
-      if (isNiicsCoordRole) activeRolesList.push('NIICS Coordinator');
-      if (isAcademicCoordRole) activeRolesList.push('Academic Coordinator');
-      if (isOutreachCoordRole) activeRolesList.push('Outreach Coordinator');
-      if (isOfficeSecRole) activeRolesList.push('Office Secretary');
+      // If marked as Event Leader and has no rehearsal slot yet, create one automatically
+      if (isEventLeaderRole && finalEnrollments.length === 0) {
+        finalEnrollments.push({
+          id: `rehearsal_${safeUsername}`,
+          grade: 'ALL',
+          targetClass: 'CUSTOM',
+          subject: 'Arts Fest Rehearsal',
+          alias: 'Arts Fest Rehearsal',
+          isAttendanceOnly: true,
+          isRehearsalSlot: true,
+          studentIds: []
+        });
+      }
 
-      const primaryRoleLabel = isPrincipalRole
-        ? 'Principal'
-        : classTeacherOf.length > 0
-        ? `Class Teacher (${classTeacherOf.join(', ')})`
-        : isNiicsCoordRole
-        ? 'NIICS Coordinator'
-        : isAcademicCoordRole
-        ? 'Academic Coordinator'
-        : isOutreachCoordRole
-        ? 'Outreach Coordinator'
-        : isOfficeSecRole
-        ? 'Office Secretary'
-        : isMentorRole
-        ? 'Mentor & Faculty'
-        : 'Teacher';
+      const activeRolesList = isEventLeaderRole ? ['Event Leader'] : ['Teacher'];
+      if (!isEventLeaderRole) {
+        if (isMentorRole) activeRolesList.push('Mentor');
+        if (classTeacherOf.length > 0) activeRolesList.push('Class Teacher');
+        if (isPrincipalRole) activeRolesList.push('Principal');
+        if (isNiicsCoordRole) activeRolesList.push('NIICS Coordinator');
+        if (isAcademicCoordRole) activeRolesList.push('Academic Coordinator');
+        if (isOutreachCoordRole) activeRolesList.push('Outreach Coordinator');
+        if (isOfficeSecRole) activeRolesList.push('Office Secretary');
+      }
+
+      const primaryRoleLabel = isEventLeaderRole
+        ? 'Event Leader'
+        : isPrincipalRole
+          ? 'Principal'
+          : classTeacherOf.length > 0
+            ? `Class Teacher (${classTeacherOf.join(', ')})`
+            : isNiicsCoordRole
+              ? 'NIICS Coordinator'
+              : isAcademicCoordRole
+                ? 'Academic Coordinator'
+                : isOutreachCoordRole
+                  ? 'Outreach Coordinator'
+                  : isOfficeSecRole
+                    ? 'Office Secretary'
+                    : isMentorRole
+                      ? 'Mentor & Faculty'
+                      : 'Teacher';
 
       const teacherDocData = {
         fullName,
         username: safeUsername,
-        designation,
+        designation: isEventLeaderRole ? 'Event Attendance Leader' : designation,
         roleCategory: primaryRoleLabel,
+        isEventLeader: Boolean(isEventLeaderRole),
         roles: activeRolesList,
         mobileNumber,
         whatsappNumber: whatsappNumber || mobileNumber,
@@ -368,7 +423,7 @@ export default function TeacherManager({ onOpenProxyMarks }) {
         outpassPrivileges: {
           isPrincipal: Boolean(isPrincipalRole),
           isNiicsCoordinator: Boolean(isNiicsCoordRole),
-          isMentor: Boolean(isMentorRole),
+          isMentor: Boolean(isMentorRole && !isEventLeaderRole),
           isAcademicCoordinator: Boolean(isAcademicCoordRole),
           isOutreachCoordinator: Boolean(isOutreachCoordRole),
           isOfficeSecretary: Boolean(isOfficeSecRole),
@@ -387,7 +442,7 @@ export default function TeacherManager({ onOpenProxyMarks }) {
       await setDoc(doc(db, 'teachers', safeUsername), teacherDocData, { merge: true });
 
       setIsLoading(false);
-      setStatusMsg(isEditing ? '✅ Teacher profile, roles & Class Teacher Hifz updated!' : '✅ Teacher registered! Their subjects and Class Teacher Hifz are now active.');
+      setStatusMsg(isEditing ? '✅ Teacher profile, roles & subjects updated!' : '✅ Teacher registered successfully!');
       fetchInitialData();
       resetForm();
     } catch (err) {
@@ -415,13 +470,14 @@ export default function TeacherManager({ onOpenProxyMarks }) {
     setIsAcademicCoordRole(Boolean(priv.isAcademicCoordinator));
     setIsOutreachCoordRole(Boolean(priv.isOutreachCoordinator));
     setIsOfficeSecRole(Boolean(priv.isOfficeSecretary));
+    setIsEventLeaderRole(Boolean(teacher.isEventLeader || teacher.roleCategory === 'Event Leader'));
     setClassTeacherOf(Array.isArray(priv.classTeacherOf) ? priv.classTeacherOf : []);
     setPassword('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleDeleteClick = async (teacherUsername) => {
-    if (window.confirm(`Are you sure you want to delete ${teacherUsername}?`)) {
+    if (window.confirm(`Are you sure you want to delete @${teacherUsername}?\n(Any attendance or marks already saved in student records will remain intact.)`)) {
       try {
         await deleteDoc(doc(db, 'teachers', teacherUsername));
         fetchInitialData();
@@ -436,7 +492,8 @@ export default function TeacherManager({ onOpenProxyMarks }) {
     setDesignation('Faculty'); setMobileNumber(''); setWhatsappNumber(''); setEmail('');
     setState('Kerala'); setDistrict('Malappuram'); setPhotoUrl('');
     setIsMentorRole(true); setIsPrincipalRole(false); setIsNiicsCoordRole(false); setIsAcademicCoordRole(false);
-    setIsOutreachCoordRole(false); setIsOfficeSecRole(false); setClassTeacherOf([]);
+    setIsOutreachCoordRole(false); setIsOfficeSecRole(false); setIsEventLeaderRole(false);
+    setClassTeacherOf([]); setIsNonMarkMode(false);
     setEnrollments([]); setStatusMsg('');
   };
 
@@ -517,7 +574,7 @@ export default function TeacherManager({ onOpenProxyMarks }) {
         </div>
       </div>
 
-      {/* 2. REGISTER / EDIT TEACHER FORM WITH MULTI-ROLE & DYNAMIC DISTRICT */}
+      {/* 2. REGISTER / EDIT TEACHER FORM WITH MULTI-ROLE & ATTENDANCE-ONLY SUBJECTS */}
       <div style={{ ...styles.card, borderLeft: isEditing ? '6px solid #f59e0b' : '1px solid #cbd5e1' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <h3 style={styles.sectionTitle}>{isEditing ? `Editing Teacher: ${username}` : 'Register Teacher, Roles & Subject Assignments'}</h3>
@@ -589,7 +646,8 @@ export default function TeacherManager({ onOpenProxyMarks }) {
                 { label: '🎓 NIICS Coordinator (Urdu Principal)', state: isNiicsCoordRole, setter: setIsNiicsCoordRole },
                 { label: '📊 Academic Coordinator', state: isAcademicCoordRole, setter: setIsAcademicCoordRole },
                 { label: '🌍 Outreach Coordinator', state: isOutreachCoordRole, setter: setIsOutreachCoordRole },
-                { label: '🏢 Office Secretary', state: isOfficeSecRole, setter: setIsOfficeSecRole }
+                { label: '🏢 Office Secretary', state: isOfficeSecRole, setter: setIsOfficeSecRole },
+                { label: '🎭 Event / Arts Fest Rehearsal Leader (Temp Attendance Only)', state: isEventLeaderRole, setter: setIsEventLeaderRole }
               ].map((r, i) => (
                 <label
                   key={i}
@@ -637,9 +695,51 @@ export default function TeacherManager({ onOpenProxyMarks }) {
             <h4 style={{ margin: '0 0 6px 0', fontSize: '16px', color: '#0f172a', fontWeight: '800' }}>
               📚 Assign Grade, Class &amp; Subject Taught
             </h4>
-            <p style={{ margin: '0 0 14px 0', fontSize: '13px', color: '#334155', fontWeight: '600' }}>
-              Assign the Grade, Class, and Subject taught by this teacher. These subjects will automatically appear in the Student Registration form.
+            <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#334155', fontWeight: '600' }}>
+              Assign regular academic subjects (with marks) OR tick the checkbox below to add an <strong>Attendance-Only Period (No Marks — e.g. Speech Practice, PKV, Debate)</strong>.
             </p>
+
+            {/* 🌟 FIXED PLACEMENT: Attendance-Only Toggle Bar cleanly ABOVE the 4 dropdowns! */}
+            <div style={{ marginBottom: '14px', padding: '12px 16px', background: isNonMarkMode ? '#fffbeb' : '#ffffff', borderRadius: '10px', border: isNonMarkMode ? '2px solid #d97706' : '1.5px solid #0d9488', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', fontWeight: '800', color: isNonMarkMode ? '#b45309' : '#0f766e', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(isNonMarkMode)}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setIsNonMarkMode(checked);
+                    if (checked) setEnvSubject('Speech Practice');
+                    else setEnvSubject(DEFAULT_SUBJECTS[0] || 'Thafseer');
+                  }}
+                  style={{ width: '18px', height: '18px', accentColor: '#d97706' }}
+                />
+                📅 Attendance-Only Period (No Marks — e.g., Speech Practice, PKV, Economics — Hidden from Mark Entry &amp; Student Mark Sheet)
+              </label>
+
+              {isNonMarkMode && (
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {QUICK_NON_MARK_SUBJECTS.map(qSub => (
+                    <button
+                      key={qSub}
+                      type="button"
+                      onClick={() => setEnvSubject(qSub)}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '999px',
+                        fontSize: '11px',
+                        fontWeight: '800',
+                        cursor: 'pointer',
+                        border: envSubject === qSub ? '2px solid #b45309' : '1px solid #fcd34d',
+                        background: envSubject === qSub ? '#d97706' : '#ffffff',
+                        color: envSubject === qSub ? '#ffffff' : '#92400e'
+                      }}
+                    >
+                      {qSub}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'flex-end', marginBottom: '16px', background: '#ffffff', padding: '16px', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
               <div style={{ flex: '1 1 110px' }}>
@@ -663,14 +763,27 @@ export default function TeacherManager({ onOpenProxyMarks }) {
                 <select value={envTargetClass} onChange={(e) => setEnvTargetClass(e.target.value)} style={styles.input}>
                   {DEFAULT_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
                   <option value={`Grade ${envGrade}`}>All Grade {envGrade}</option>
+                  {isNonMarkMode && <option value="CUSTOM">Custom Student Group</option>}
                 </select>
               </div>
 
-              <div style={{ flex: '2 1 180px' }}>
-                <label style={styles.label}>3. Subject</label>
-                <select value={envSubject} onChange={(e) => setEnvSubject(e.target.value)} style={styles.input}>
-                  {DEFAULT_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+              <div style={{ flex: '2 1 200px' }}>
+                <label style={styles.label}>
+                  {isNonMarkMode ? '3. Attendance-Only Period Name' : '3. Academic Subject'}
+                </label>
+                {isNonMarkMode ? (
+                  <input
+                    type="text"
+                    value={envSubject}
+                    onChange={(e) => setEnvSubject(e.target.value)}
+                    placeholder="Type period name (e.g. Speech Practice, PKV)..."
+                    style={{ ...styles.input, borderColor: '#d97706', backgroundColor: '#fffbeb', fontWeight: '800' }}
+                  />
+                ) : (
+                  <select value={envSubject} onChange={(e) => setEnvSubject(e.target.value)} style={styles.input}>
+                    {DEFAULT_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                )}
               </div>
 
               <div style={{ flex: '1 1 130px' }}>
@@ -682,21 +795,34 @@ export default function TeacherManager({ onOpenProxyMarks }) {
                 </select>
               </div>
 
-              <button type="button" onClick={handleAddEnrollment} style={{ ...styles.buttonPrimary, padding: '12px 20px', background: '#00897b' }}>
-                + Add Subject
+              <button
+                type="button"
+                onClick={handleAddEnrollment}
+                style={{
+                  ...styles.buttonPrimary,
+                  padding: '12px 20px',
+                  background: isNonMarkMode ? '#d97706' : '#00897b'
+                }}
+              >
+                {isNonMarkMode ? '+ Add Attendance Period' : '+ Add Subject'}
               </button>
             </div>
 
             {enrollments.length > 0 && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '10px' }}>
                 {enrollments.map((env) => (
-                  <div key={env.id} style={{ background: '#ffffff', padding: '12px 16px', borderRadius: '10px', border: '1.5px solid #cbd5e1', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div key={env.id} style={{ background: '#ffffff', padding: '12px 16px', borderRadius: '10px', border: env.isAttendanceOnly ? '2px solid #f59e0b' : '1.5px solid #cbd5e1', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
-                      <div style={{ fontWeight: '800', fontSize: '14px', color: '#0f172a' }}>
-                        📖 {env.alias || `${env.targetClass || `Grade ${env.grade}`} ${env.subject}`}
+                      <div style={{ fontWeight: '800', fontSize: '14px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        <span>📖 {env.alias || `${env.targetClass || `Grade ${env.grade}`} ${env.subject}`}</span>
+                        {env.isAttendanceOnly && (
+                          <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '900' }}>
+                            ATTENDANCE ONLY
+                          </span>
+                        )}
                       </div>
                       <div style={{ fontSize: '12px', color: '#0f766e', fontWeight: '700', marginTop: '2px' }}>
-                        Grade {env.grade} • {env.langTag || 'General'} • {(env.studentIds || []).length} students mapped
+                        Grade {env.grade} • {env.langTag || 'General'} • {(env.studentIds || []).length} manual IDs
                       </div>
                     </div>
                     <button type="button" onClick={() => handleRemoveEnrollment(env.id)} style={{ padding: '6px 10px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', fontWeight: '800', cursor: 'pointer', fontSize: '12px' }}>
@@ -720,7 +846,7 @@ export default function TeacherManager({ onOpenProxyMarks }) {
         )}
       </div>
 
-      {/* 3. BROADCAST COMPOSER WITH RECIPIENT SELECTOR & STAFF WHATSAPP GROUP OPENER */}
+      {/* 3. BROADCAST COMPOSER */}
       <div style={{ ...styles.card, background: '#eff6ff', border: '2px solid #3b82f6' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
           <div>
@@ -910,6 +1036,8 @@ export default function TeacherManager({ onOpenProxyMarks }) {
               {registeredTeachers.map((teacher, index) => {
                 const priv = teacher.outpassPrivileges || {};
                 const isSelected = selectedTeacherUsernames.includes(teacher.username);
+                const isLeader = Boolean(teacher.isEventLeader || teacher.roleCategory === 'Event Leader');
+
                 return (
                   <tr key={index} style={{ borderBottom: '1px solid #e2e8f0', background: isSelected ? '#eff6ff' : '#ffffff' }}>
                     <td style={{ padding: '12px 14px' }}>
@@ -932,9 +1060,10 @@ export default function TeacherManager({ onOpenProxyMarks }) {
                     </td>
                     <td style={{ padding: '12px 14px' }}>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        {isLeader && <span style={{ ...styles.badge, background: '#ede9fe', color: '#6d28d9' }}>🎭 Event Leader</span>}
                         {priv.isPrincipal && <span style={{ ...styles.badge, background: '#fef08a', color: '#854d0e' }}>👑 Principal</span>}
                         {priv.isNiicsCoordinator && <span style={{ ...styles.badge, background: '#fef3c7', color: '#92400e' }}>🎓 NIICS</span>}
-                        {(priv.isMentor !== false) && <span style={{ ...styles.badge, background: '#f0fdfa', color: '#0f766e' }}>🧭 Mentor</span>}
+                        {(!isLeader && priv.isMentor !== false) && <span style={{ ...styles.badge, background: '#f0fdfa', color: '#0f766e' }}>🧭 Mentor</span>}
                         {(priv.classTeacherOf || []).length > 0 && (
                           <span style={{ ...styles.badge, background: '#dcfce7', color: '#166534' }}>🏫 CT: {priv.classTeacherOf.join(', ')}</span>
                         )}
@@ -950,8 +1079,20 @@ export default function TeacherManager({ onOpenProxyMarks }) {
                     <td style={{ padding: '12px 14px' }}>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                         {(teacher.enrollments || []).map((env, i) => (
-                          <span key={i} style={{ display: 'inline-block', background: '#f1f5f9', color: '#0f172a', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', border: '1px solid #cbd5e1' }}>
-                            {env.alias || env.subject} ({(env.studentIds || []).length})
+                          <span
+                            key={i}
+                            style={{
+                              display: 'inline-block',
+                              background: env.isAttendanceOnly ? '#fffbeb' : '#f1f5f9',
+                              color: env.isAttendanceOnly ? '#b45309' : '#0f172a',
+                              padding: '4px 8px',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              fontWeight: '800',
+                              border: env.isAttendanceOnly ? '1px solid #fcd34d' : '1px solid #cbd5e1'
+                            }}
+                          >
+                            {env.alias || env.subject} {env.isAttendanceOnly ? '[Att-Only]' : ''} ({(env.studentIds || []).length})
                           </span>
                         ))}
                       </div>
@@ -967,7 +1108,7 @@ export default function TeacherManager({ onOpenProxyMarks }) {
                         <button onClick={() => sendDirectEmailNotification(WEB_APP_URL, teacher.email, 'DHIU Admin Message', `Assalamu Alaikum ${teacher.fullName},`)} style={{ padding: '7px 10px', background: '#e0f2fe', color: '#0369a1', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>
                           ✉️ Mail
                         </button>
-                        {onOpenProxyMarks && (
+                        {onOpenProxyMarks && !isLeader && (
                           <button onClick={() => onOpenProxyMarks(teacher.username)} style={{ padding: '7px 12px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '12px' }}>
                             📝 Marks
                           </button>

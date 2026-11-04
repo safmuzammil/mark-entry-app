@@ -6,6 +6,7 @@ import { updatePassword } from 'firebase/auth';
 import { doc, setDoc, getDoc, getDocs, collection } from 'firebase/firestore';
 import ReportManager from './ReportManager';
 import NightAttendanceManager from './NightAttendanceManager';
+import PeriodAttendanceManager, { isAttendanceOnlyEnrollment } from './PeriodAttendanceManager';
 import OutPassPortal from '../outpass/page';
 import {
   WEB_APP_URL, DHIU_LOGO_URL, CCE_LEVELS, HIFZ_LEVELS,
@@ -17,6 +18,60 @@ import {
   MentorAndOutreachTab,
   doesClassMatchAlias
 } from './ErpExtensions';
+
+// 🌟 Single direct /30 mark level for Specialization
+const SPECIALIZATION_LEVELS = {
+  'Direct Mark (Max 30)': '30'
+};
+
+// 🌟 STRICT ENROLLMENT STUDENT MATCHER FOR TEACHER PORTAL
+function doesStudentBelongToTeacherEnrollment(student, env) {
+  if (!student || !env) return false;
+
+  const sReg = String(student.regNo || '').trim().toUpperCase();
+  const sAd = String(student.adNo || '').trim().toUpperCase();
+  const sId = String(student.id || '').trim().toUpperCase();
+  const isUrdu = sAd.startsWith('U');
+
+  if (Array.isArray(env.studentIds) && env.studentIds.length > 0) {
+    const savedIds = env.studentIds.map(id => String(id).trim().toUpperCase()).filter(Boolean);
+    if (savedIds.length > 0) {
+      return savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId);
+    }
+  }
+
+  const classMatch = doesClassMatchAlias(
+    student.classes || [student.class],
+    env.targetClass,
+    env.alias,
+    env.grade
+  );
+  if (!classMatch) return false;
+
+  const envLang = String(env.langTag || '').trim().toLowerCase();
+  const aliasLow = String(env.alias || '').trim().toLowerCase();
+  const norm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const aliasNorm = norm(env.alias);
+  const targetNorm = norm(env.targetClass);
+
+  const KNOWN_SPECIFIC_CLASSES = [
+    'QH1', 'AL1', 'ALC1', 'FC1',
+    'QH2', 'AL2', 'ALC2', 'FC2',
+    'QLA3', 'HFC3', 'QH3', 'AL3', 'FC3'
+  ];
+  const isSpecificClassBatch = KNOWN_SPECIFIC_CLASSES.some(
+    cls => aliasNorm.includes(cls) || targetNorm.includes(cls)
+  );
+
+  const isStrictlyUrdu = (envLang.includes('urdu') && !envLang.includes('non')) || /\bu(8|9|10)\b/.test(aliasLow);
+  const isStrictlyNonUrdu = envLang.includes('non-urdu') || envLang.includes('non urdu') || /\bm(8|9|10)\b/.test(aliasLow);
+
+  if (isStrictlyUrdu) return isUrdu;
+  if (isStrictlyNonUrdu) return !isUrdu;
+  if (isSpecificClassBatch) return true;
+  if (envLang.includes('gen')) return !isUrdu;
+  return true;
+}
 
 function TeacherPasswordSettings() {
   const [newPassword, setNewPassword] = useState('');
@@ -32,7 +87,7 @@ function TeacherPasswordSettings() {
     setStatus('');
     try {
       const user = auth.currentUser;
-      if (!user) throw new Error("No active user session found. Please log in again.");
+      if (!user) throw new Error('No active user session found. Please log in again.');
       await updatePassword(user, newPassword);
       setStatus('Password updated successfully!');
       setNewPassword('');
@@ -61,87 +116,56 @@ function TeacherPasswordSettings() {
     </div>
   );
 }
-// 🌟 STRICT ENROLLMENT STUDENT MATCHER FOR TEACHER PORTAL
-function doesStudentBelongToTeacherEnrollment(student, env) {
-  if (!student || !env) return false;
-
-  const sReg = String(student.regNo || '').trim().toUpperCase();
-  const sAd = String(student.adNo || '').trim().toUpperCase();
-  const sId = String(student.id || '').trim().toUpperCase();
-  const isUrdu = sAd.startsWith('U');
-
-  // 1. If specific studentIds were assigned to this subject slot, ONLY show those assigned students!
-  if (Array.isArray(env.studentIds) && env.studentIds.length > 0) {
-    const savedIds = env.studentIds.map(id => String(id).trim().toUpperCase()).filter(Boolean);
-    if (savedIds.length > 0) {
-      return savedIds.includes(sReg) || savedIds.includes(sAd) || savedIds.includes(sId);
-    }
-  }
-
-  // 2. Check strict Class / Alias match (locks FC2 Thamadun strictly to FC2, never all of Grade 2)
-  const classMatch = doesClassMatchAlias(
-    student.classes || [student.class],
-    env.targetClass,
-    env.alias,
-    env.grade
-  );
-  if (!classMatch) return false;
-
-  // 3. Check language stream rules
-  const envLang = String(env.langTag || '').trim().toLowerCase();
-  const aliasLow = String(env.alias || '').trim().toLowerCase();
-  const norm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const aliasNorm = norm(env.alias);
-  const targetNorm = norm(env.targetClass);
-
-  const KNOWN_SPECIFIC_CLASSES = [
-    'QH1', 'AL1', 'ALC1', 'FC1',
-    'QH2', 'AL2', 'ALC2', 'FC2',
-    'QLA3', 'HFC3', 'QH3', 'AL3', 'FC3'
-  ];
-  const isSpecificClassBatch = KNOWN_SPECIFIC_CLASSES.some(
-    cls => aliasNorm.includes(cls) || targetNorm.includes(cls)
-  );
-
-  const isStrictlyUrdu = (envLang.includes('urdu') && !envLang.includes('non')) || /\bu(8|9|10)\b/.test(aliasLow);
-  const isStrictlyNonUrdu = envLang.includes('non-urdu') || envLang.includes('non urdu') || /\bm(8|9|10)\b/.test(aliasLow);
-
-  if (isStrictlyUrdu) return isUrdu;
-  if (isStrictlyNonUrdu) return !isUrdu;
-
-  // If it's a specific class like FC2, AL2, QLA3, HFC3, QH1, both General & Urdu students in that class belong to it
-  if (isSpecificClassBatch) return true;
-
-  if (envLang.includes('gen')) return !isUrdu;
-  return true;
-}
 
 export default function TeacherPortalView({ loggedInTeacher, onLogout }) {
   const myUsername = String(loggedInTeacher?.username || '').toLowerCase();
+
+  const [allStudentsCache, setAllStudentsCache] = useState([]);
+  const [allTeachersCache, setAllTeachersCache] = useState([]);
+
+  useEffect(() => {
+    async function fetchStudentsAndTeachers() {
+      try {
+        const [sSnap, tSnap] = await Promise.all([
+          getDocs(collection(db, 'students')),
+          getDocs(collection(db, 'teachers'))
+        ]);
+        const sData = [];
+        sSnap.forEach((d) => sData.push({ id: d.id, ...d.data() }));
+        sData.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
+        setAllStudentsCache(sData);
+
+        const tData = [];
+        tSnap.forEach((d) => tData.push({ id: d.id, ...d.data() }));
+        setAllTeachersCache(tData);
+      } catch (error) {
+        console.error('Student fetch error:', error);
+      }
+    }
+    fetchStudentsAndTeachers();
+  }, []);
 
   const myClassTeacherOf = React.useMemo(() => {
     return loggedInTeacher?.outpassPrivileges?.classTeacherOf || [];
   }, [loggedInTeacher?.outpassPrivileges?.classTeacherOf]);
 
-const teacherEnrollments = React.useMemo(() => {
-    const rawBase = Array.isArray(loggedInTeacher?.enrollments) ? [...loggedInTeacher.enrollments] : [];
+  // 🌟 MARK ENTRY ENROLLMENTS: Excludes Attendance-Only subjects (like Speech Practice / PKV) and deduplicates Hifz!
+  const teacherEnrollments = React.useMemo(() => {
+    const rawBase = (Array.isArray(loggedInTeacher?.enrollments) ? [...loggedInTeacher.enrollments] : [])
+      .filter(e => !isAttendanceOnlyEnrollment(e));
+
     const normalizeCls = (str) => String(str || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-    // 1. Deduplicate any existing double Hifz slots (e.g., "QLA 3 Hifz" vs "QLA3 Hifz")
     const seenHifzClasses = new Set();
     const base = rawBase.filter(e => {
       const isSubHifz = String(e.subject || '').toUpperCase() === 'HIFZ' || String(e.alias || '').toUpperCase().includes('HIFZ');
       if (!isSubHifz) return true;
-
       const normTarget = normalizeCls(e.targetClass || e.alias).replace('HIFZ', '');
-      if (normTarget && seenHifzClasses.has(normTarget)) {
-        return false; // Skip duplicate Hifz!
-      }
+      if (normTarget && seenHifzClasses.has(normTarget)) return false;
       if (normTarget) seenHifzClasses.add(normTarget);
       return true;
     });
 
-    // 2. Only auto-attach Hifz if the Class Teacher doesn't already have one (ignoring spaces!)
     myClassTeacherOf.forEach(clsName => {
       const normCls = normalizeCls(clsName);
       const hasHifz = base.some(e => {
@@ -150,7 +174,6 @@ const teacherEnrollments = React.useMemo(() => {
         const normAlias = normalizeCls(e.alias);
         return isSubHifz && (normTarget === normCls || normAlias.includes(normCls));
       });
-
       if (!hasHifz) {
         const gMatch = String(clsName).match(/\d+/);
         base.push({
@@ -167,7 +190,7 @@ const teacherEnrollments = React.useMemo(() => {
     return base;
   }, [loggedInTeacher, myClassTeacherOf]);
 
-  const [activeView, setActiveView] = useState('marks'); // 'marks' | 'mentees' | 'attendance' | 'outpass' | 'outreach_dept' | 'academic_coord' | 'settings'
+  const [activeView, setActiveView] = useState('marks'); // 'marks' | 'period_attendance' | 'mentees' | 'attendance' | 'outpass' | 'outreach_dept' | 'academic_coord' | 'settings'
   const [selectedEnrollmentId, setSelectedEnrollmentId] = useState('');
   const [cceLevel, setCceLevel] = useState('');
   const [isEditingUnlocked, setIsEditingUnlocked] = useState(false);
@@ -175,11 +198,21 @@ const teacherEnrollments = React.useMemo(() => {
 
   const currentEnrollment = teacherEnrollments.find(e => e.id === selectedEnrollmentId);
   const isHifz = currentEnrollment?.subject?.toUpperCase() === 'HIFZ';
-  const activeLevels = isHifz ? HIFZ_LEVELS : CCE_LEVELS;
+  const isSpecialization =
+    currentEnrollment?.subject?.toUpperCase() === 'SPECIALIZATION' ||
+    currentEnrollment?.alias?.toUpperCase().includes('SPECIALIZATION');
+
+  const activeLevels = isHifz
+    ? HIFZ_LEVELS
+    : isSpecialization
+      ? SPECIALIZATION_LEVELS
+      : CCE_LEVELS;
 
   const handleSelectSubject = (envId) => {
     setSelectedEnrollmentId(envId);
-    setCceLevel('');
+    const chosenEnv = teacherEnrollments.find(e => e.id === envId);
+    const isSpec = chosenEnv?.subject?.toUpperCase() === 'SPECIALIZATION' || chosenEnv?.alias?.toUpperCase().includes('SPECIALIZATION');
+    setCceLevel(isSpec ? 'Direct Mark (Max 30)' : '');
     setIsEditingUnlocked(false);
     setStatusMsg('');
   };
@@ -190,12 +223,9 @@ const teacherEnrollments = React.useMemo(() => {
   };
 
   const assessmentMaxMark = cceLevel ? activeLevels[cceLevel] : null;
-  const maxAllowed = isHifz ? 50 : (assessmentMaxMark ? Number(assessmentMaxMark) : 100);
+  const maxAllowed = isHifz ? 50 : isSpecialization ? 30 : (assessmentMaxMark ? Number(assessmentMaxMark) : 100);
 
-  const [allStudentsCache, setAllStudentsCache] = useState([]);
-  const [allTeachersCache, setAllTeachersCache] = useState([]);
   const [classStudents, setClassStudents] = useState([]);
-
   const [studentMarks, setStudentMarks] = useState({});
   const [statusMsg, setStatusMsg] = useState('');
   const [weeklyReminder, setWeeklyReminder] = useState(null);
@@ -204,27 +234,28 @@ const teacherEnrollments = React.useMemo(() => {
   const [isDirty, setIsDirty] = useState(false);
   const [portfolioStudent, setPortfolioStudent] = useState(null);
   const [adminBroadcast, setAdminBroadcast] = useState(null);
+
   const [mentorshipConfig, setMentorshipConfig] = useState({
-  semesterName: 'Current Semester',
-  minConsultations: 3,
-  targetDeadline: ''
-});
+    semesterName: 'Current Semester',
+    minConsultations: 3,
+    targetDeadline: ''
+  });
 
-useEffect(() => {
-  getDoc(doc(db, 'systemCache', 'mentorshipConfig')).then(snap => {
-    if (snap.exists()) setMentorshipConfig(prev => ({ ...prev, ...snap.data() }));
-  }).catch(() => {});
-}, []);
+  useEffect(() => {
+    getDoc(doc(db, 'systemCache', 'mentorshipConfig')).then(snap => {
+      if (snap.exists()) setMentorshipConfig(prev => ({ ...prev, ...snap.data() }));
+    }).catch(() => {});
+  }, []);
 
-const myAssignedMentees = allStudentsCache.filter(
-  s => String(s.mentorUsername || '').trim().toLowerCase() === myUsername
-);
-const minSittingsReq = Number(mentorshipConfig.minConsultations) || 3;
-const menteesMetTargetCount = myAssignedMentees.filter(s => {
-  const logs = Array.isArray(s.mentorLogs) ? s.mentorLogs : (s.consultationLogs || []);
-  return logs.length >= minSittingsReq;
-}).length;
-const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCount;
+  const myAssignedMentees = allStudentsCache.filter(
+    s => String(s.mentorUsername || '').trim().toLowerCase() === myUsername
+  );
+  const minSittingsReq = Number(mentorshipConfig.minConsultations) || 3;
+  const menteesMetTargetCount = myAssignedMentees.filter(s => {
+    const logs = Array.isArray(s.mentorLogs) ? s.mentorLogs : (s.consultationLogs || []);
+    return logs.length >= minSittingsReq;
+  }).length;
+  const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCount;
 
   const canEditStudentPortfolio = (st) => {
     if (!st) return false;
@@ -251,28 +282,6 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
   }, [loggedInTeacher]);
 
   useEffect(() => {
-    async function fetchStudentsAndTeachers() {
-      try {
-        const [sSnap, tSnap] = await Promise.all([
-          getDocs(collection(db, 'students')),
-          getDocs(collection(db, 'teachers'))
-        ]);
-        const sData = [];
-        sSnap.forEach((d) => sData.push({ id: d.id, ...d.data() }));
-        sData.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
-        setAllStudentsCache(sData);
-
-        const tData = [];
-        tSnap.forEach((d) => tData.push({ id: d.id, ...d.data() }));
-        setAllTeachersCache(tData);
-      } catch (error) {
-        console.error("Student fetch error:", error);
-      }
-    }
-    fetchStudentsAndTeachers();
-  }, []);
-
-  useEffect(() => {
     async function fetchReminderAndChecklist() {
       try {
         const snap = await getDoc(doc(db, 'systemCache', 'activeReminder'));
@@ -285,7 +294,7 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
             let configs = reminderData.targetConfigs;
             if (!configs && reminderData.targetSubjects) {
               configs = {};
-              reminderData.targetSubjects.forEach(s => configs[s] = [reminderData.level || "15"]);
+              reminderData.targetSubjects.forEach(s => configs[s] = [reminderData.level || '15']);
             }
 
             for (const env of teacherEnrollments) {
@@ -296,7 +305,6 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
 
               const rawLevels = configs[matchingSubKey];
               const requiredLevelsArray = Array.isArray(rawLevels) ? rawLevels : [rawLevels];
-              const envLang = (env.langTag || '').toLowerCase();
 
               const matchedStudents = allStudentsCache.filter(student =>
                 doesStudentBelongToTeacherEnrollment(student, env)
@@ -342,7 +350,7 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
           setWeeklyReminder(null);
         }
       } catch (error) {
-        console.error("Reminder fetch error:", error);
+        console.error('Reminder fetch error:', error);
       }
     }
     fetchReminderAndChecklist();
@@ -355,8 +363,6 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
     }
     const currentEnrollment = teacherEnrollments.find(e => e.id === selectedEnrollmentId);
     if (!currentEnrollment) return;
-
-    const envLang = (currentEnrollment.langTag || '').toLowerCase();
 
     const matchedStudents = allStudentsCache.filter(student =>
       doesStudentBelongToTeacherEnrollment(student, currentEnrollment)
@@ -413,7 +419,7 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
         }
 
         setStudentMarks(newMarks);
-      } catch (err) { console.error("Error loading marks", err); }
+      } catch (err) { console.error('Error loading marks', err); }
     }
     fetchExistingMarks();
   }, [selectedEnrollmentId, classStudents, teacherEnrollments]);
@@ -495,34 +501,40 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
 
     classStudents.forEach(student => {
       const marks = studentMarks[student.regNo] || {};
-      const m1 = parseFloat(marks[isHifz ? '50_1' : '15']) || 0;
-      const m2 = parseFloat(marks[isHifz ? '50_2' : '20']) || 0;
-      const m3 = isHifz ? 0 : (parseFloat(marks['25']) || 0);
-      const m4 = isHifz ? 0 : (parseFloat(marks['40']) || 0);
-      const hasAnyMark = isHifz
-        ? (marks['50_1'] !== undefined && marks['50_1'] !== '') || (marks['50_2'] !== undefined && marks['50_2'] !== '')
-        : (marks['15'] !== undefined && marks['15'] !== '') || (marks['20'] !== undefined && marks['20'] !== '') || (marks['25'] !== undefined && marks['25'] !== '') || (marks['40'] !== undefined && marks['40'] !== '');
-      const total100 = m1 + m2 + m3 + m4;
-      let finalScore = hasAnyMark ? (isHifz ? total100 : ((total100 / 100) * 30).toFixed(1)) : '';
-      csvContent += `${student.adNo},${finalScore}\n`;
+      if (isSpecialization) {
+        const hasSpec = marks['30'] !== undefined && marks['30'] !== '';
+        const specScore = hasSpec ? Number(marks['30']) : '';
+        csvContent += `${student.adNo},${specScore}\n`;
+      } else {
+        const m1 = parseFloat(marks[isHifz ? '50_1' : '15']) || 0;
+        const m2 = parseFloat(marks[isHifz ? '50_2' : '20']) || 0;
+        const m3 = isHifz ? 0 : (parseFloat(marks['25']) || 0);
+        const m4 = isHifz ? 0 : (parseFloat(marks['40']) || 0);
+        const hasAnyMark = isHifz
+          ? (marks['50_1'] !== undefined && marks['50_1'] !== '') || (marks['50_2'] !== undefined && marks['50_2'] !== '')
+          : (marks['15'] !== undefined && marks['15'] !== '') || (marks['20'] !== undefined && marks['20'] !== '') || (marks['25'] !== undefined && marks['25'] !== '') || (marks['40'] !== undefined && marks['40'] !== '');
+        const total100 = m1 + m2 + m3 + m4;
+        let finalScore = hasAnyMark ? (isHifz ? total100 : ((total100 / 100) * 30).toFixed(1)) : '';
+        csvContent += `${student.adNo},${finalScore}\n`;
+      }
     });
 
-    const link = document.createElement("a");
-    link.setAttribute("href", encodeURI(csvContent));
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csvContent));
     const safeTitle = (currentEnrollment?.alias || 'Class').replace(/[^a-zA-Z0-9]/g, '_');
-    link.setAttribute("download", `${safeTitle}_${isHifz ? 'Out_of_100' : 'Out_of_30'}_Portal_Upload.csv`);
+    link.setAttribute('download', `${safeTitle}_${isHifz ? 'Out_of_100' : 'Out_of_30'}_Portal_Upload.csv`);
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
   const handleDownloadMarksTemplate = () => {
     if (!assessmentMaxMark) return alert('Please select a Task Level first.');
     if (classStudents.length === 0) return alert('No students found in this class.');
-    let csvContent = "data:text/csv;charset=utf-8,Ad.No,Student Name,Marks (Max " + maxAllowed + ")\n";
+    let csvContent = 'data:text/csv;charset=utf-8,Ad.No,Student Name,Marks (Max ' + maxAllowed + ')\n';
     classStudents.forEach(student => { csvContent += `${student.adNo},"${student.firstName}",\n`; });
-    const link = document.createElement("a");
-    link.setAttribute("href", encodeURI(csvContent));
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csvContent));
     const safeTitle = (currentEnrollment?.alias || 'Class').replace(/[^a-zA-Z0-9]/g, '_');
-    link.setAttribute("download", `${safeTitle}_${cceLevel.replace(/\s+/g, '')}_Marks.csv`);
+    link.setAttribute('download', `${safeTitle}_${cceLevel.replace(/\s+/g, '')}_Marks.csv`);
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
@@ -582,10 +594,10 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
 
   const handleBulkSubmit = async (e) => {
     e.preventDefault();
-    if (!assessmentMaxMark) return alert("Please select a Task Level first.");
+    if (!assessmentMaxMark) return alert('Please select a Task Level first.');
     let marksPayload = [];
     const currentEnrollment = teacherEnrollments.find(e => e.id === selectedEnrollmentId);
-    if (!currentEnrollment) return alert("Please select a valid enrollment before saving.");
+    if (!currentEnrollment) return alert('Please select a valid enrollment before saving.');
 
     const rawSub = (currentEnrollment.subject || '').trim();
     const rawAlias = (currentEnrollment.alias || '').trim();
@@ -611,7 +623,6 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
     try {
       await Promise.all(firestorePromises);
 
-      // Sync startedLevels & teacherDirectory to systemCache/studentPortalMeta
       try {
         const classTag = String(
           currentEnrollment.targetClass ||
@@ -644,6 +655,7 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
             subject: ev.subject,
             alias: ev.alias,
             langTag: ev.langTag,
+            isAttendanceOnly: Boolean(ev.isAttendanceOnly),
             studentIds: ev.studentIds || []
           }))
         }));
@@ -685,6 +697,33 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
     setTimeout(() => setStatusMsg(''), 5000);
   };
 
+  // 🌟 STRICT LOCK FOR TEMPORARY EVENT / ARTS FEST STUDENT LEADERS (Only Rehearsal Attendance + Logout!)
+  if (loggedInTeacher?.isEventLeader || loggedInTeacher?.roleCategory === 'Event Leader') {
+    return (
+      <div>
+        <HighContrastStyles />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', background: '#ffffff', padding: '18px 24px', borderRadius: '16px', border: '2px solid #7c3aed' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <img src={DHIU_LOGO_URL} alt="DHIU Logo" style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'contain' }} />
+            <div>
+              <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '900', color: '#4c1d95' }}>🎭 Event / Rehearsal Attendance Portal</h2>
+              <div style={{ fontSize: '13px', fontWeight: '700', color: '#6d28d9' }}>Logged in as: {loggedInTeacher.fullName} (@{loggedInTeacher.username})</div>
+            </div>
+          </div>
+          <button onClick={onLogout} style={styles.buttonDanger}>Logout</button>
+        </div>
+
+        <PeriodAttendanceManager
+          userRole="event_leader"
+          loggedInUser={loggedInTeacher}
+          preloadedStudents={allStudentsCache}
+          preloadedTeachers={allTeachersCache}
+          onStudentsUpdated={(nextStudents) => setAllStudentsCache(nextStudents)}
+        />
+      </div>
+    );
+  }
+
   const validMarks = assessmentMaxMark
     ? classStudents.map(s => studentMarks[s.regNo]?.[assessmentMaxMark]).filter(v => v !== undefined && v !== '').map(v => parseFloat(v)).filter(v => !isNaN(v))
     : [];
@@ -707,7 +746,7 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
         />
       )}
 
-      {/* UNIFIED TEACHER PORTAL TOP BAR WITH NATIVE EMBEDDED TABS */}
+      {/* UNIFIED TEACHER PORTAL TOP BAR */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '22px', background: '#ffffff', padding: '18px 24px', borderRadius: '16px', border: '1px solid #cbd5e1', flexWrap: 'wrap', gap: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <img src={DHIU_LOGO_URL} alt="DHIU Logo" style={{ width: '50px', height: '50px', borderRadius: '50%', objectFit: 'contain', backgroundColor: '#ffffff' }} />
@@ -736,6 +775,14 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
             style={{ padding: '10px 14px', background: activeView === 'marks' ? '#00897b' : '#f8fafc', color: activeView === 'marks' ? '#ffffff' : '#0f172a', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}
           >
             📝 Marks &amp; Subjects
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveView('period_attendance')}
+            style={{ padding: '10px 14px', background: activeView === 'period_attendance' ? '#4f46e5' : '#eef2ff', color: activeView === 'period_attendance' ? '#ffffff' : '#3730a3', border: '1.5px solid #6366f1', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}
+          >
+            📅 Period Attendance &amp; Minus
           </button>
 
           <button
@@ -871,6 +918,14 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
 
       {activeView === 'settings' ? (
         <TeacherPasswordSettings />
+      ) : activeView === 'period_attendance' ? (
+        <PeriodAttendanceManager
+          userRole="teacher"
+          loggedInUser={loggedInTeacher}
+          preloadedStudents={allStudentsCache}
+          preloadedTeachers={allTeachersCache}
+          onStudentsUpdated={(nextStudents) => setAllStudentsCache(nextStudents)}
+        />
       ) : activeView === 'attendance' ? (
         <NightAttendanceManager
           loggedInTeacher={loggedInTeacher}
@@ -908,12 +963,12 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
         <ReportManager />
       ) : !selectedEnrollmentId ? (
         <div style={styles.card}>
-          <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', color: '#0f172a', fontWeight: '800' }}>📚 Select a Subject Assignment</h3>
-          <p style={{ margin: '0 0 24px 0', fontSize: '14px', color: '#64748b' }}>Choose one of your assigned subjects below to view marks or unlock a level for grading.</p>
+          <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', color: '#0f172a', fontWeight: '800' }}>📚 Select a Subject Assignment (Mark Entry)</h3>
+          <p style={{ margin: '0 0 24px 0', fontSize: '14px', color: '#64748b' }}>Choose one of your assigned grading subjects below to view marks or unlock a level for grading.</p>
 
           {teacherEnrollments.length === 0 ? (
             <div style={{ padding: '32px', textAlign: 'center', color: '#64748b', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
-              No subjects have been assigned to your profile yet.
+              No mark-entry subjects have been assigned to your profile yet.
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '16px' }}>
@@ -963,7 +1018,11 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
                 <label style={styles.label}>2. Select Level to Grade:</label>
                 <select value={cceLevel} onChange={(e) => handleSelectLevel(e.target.value)} style={{ ...styles.input, cursor: 'pointer', fontWeight: '700' }}>
                   <option value="">-- View Only (Select a Level to Edit) --</option>
-                  {Object.keys(activeLevels).map(level => <option key={level} value={level}>{level} (Max {isHifz ? 50 : activeLevels[level]})</option>)}
+                  {Object.keys(activeLevels).map(level => (
+                    <option key={level} value={level}>
+                      {level} (Max {isHifz ? 50 : isSpecialization ? 30 : activeLevels[level]})
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1051,11 +1110,14 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
                 </div>
                 {classStudents.map((student, index) => {
                   const marks = studentMarks[student.regNo] || {};
+                  const specScore = parseFloat(marks['30']) || 0;
                   const m1 = parseFloat(marks[isHifz ? '50_1' : '15']) || 0;
                   const m2 = parseFloat(marks[isHifz ? '50_2' : '20']) || 0;
                   const m3 = isHifz ? 0 : (parseFloat(marks['25']) || 0);
                   const m4 = isHifz ? 0 : (parseFloat(marks['40']) || 0);
-                  const total100 = m1 + m2 + m3 + m4;
+                  const totalDisplay = isSpecialization
+                    ? (marks['30'] !== undefined && marks['30'] !== '' ? `${specScore}/30` : '-')
+                    : ((m1 + m2 + m3 + m4) > 0 ? `${m1 + m2 + m3 + m4}/100` : '-');
                   const canOpenPortfolio = canEditStudentPortfolio(student);
 
                   return (
@@ -1071,7 +1133,7 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
                           )}
                         </div>
                         <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600', marginTop: '4px' }}>
-                          Ad.No: <strong>{student.adNo}</strong> • Total: <strong style={{ color: '#1e40af' }}>{total100 > 0 ? `${total100}/100` : '-'}</strong>
+                          Ad.No: <strong>{student.adNo}</strong> • Score: <strong style={{ color: '#1e40af' }}>{totalDisplay}</strong>
                         </div>
                       </div>
 
@@ -1101,7 +1163,9 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
                       <th style={{ padding: '14px 16px', width: '50px', color: '#0f172a', fontWeight: '800' }}>Sn</th>
                       <th style={{ padding: '14px 16px', width: '90px', color: '#0f172a', fontWeight: '800' }}>Ad.No</th>
                       <th style={{ padding: '14px 16px', width: '200px', color: '#0f172a', fontWeight: '800' }}>Student Name</th>
-                      {isHifz ? (
+                      {isSpecialization ? (
+                        <th colSpan="4" style={{ padding: '14px 16px', fontWeight: '800', color: '#0f766e' }}>Direct Specialization Score (Max 30)</th>
+                      ) : isHifz ? (
                         <>
                           <th colSpan="2" style={{ padding: '14px 16px', fontWeight: '800' }}>Part 1 (50)</th>
                           <th colSpan="2" style={{ padding: '14px 16px', fontWeight: '800' }}>Part 2 (50)</th>
@@ -1121,12 +1185,22 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
                   <tbody>
                     {classStudents.map((student, index) => {
                       const marks = studentMarks[student.regNo] || {};
+                      const hasSpec = marks['30'] !== undefined && marks['30'] !== '';
+                      const specMark = hasSpec ? parseFloat(marks['30']) : 0;
+
                       const m1 = parseFloat(marks[isHifz ? '50_1' : '15']) || 0;
                       const m2 = parseFloat(marks[isHifz ? '50_2' : '20']) || 0;
                       const m3 = isHifz ? 0 : (parseFloat(marks['25']) || 0);
                       const m4 = isHifz ? 0 : (parseFloat(marks['40']) || 0);
-                      const total100 = m1 + m2 + m3 + m4;
-                      const scaled30 = isHifz ? '-' : (total100 > 0 ? ((total100 / 100) * 30).toFixed(1) : '-');
+
+                      const total100 = isSpecialization
+                        ? (hasSpec ? Number(((specMark / 30) * 100).toFixed(1)) : 0)
+                        : (m1 + m2 + m3 + m4);
+                      const scaled30 = isHifz
+                        ? '-'
+                        : isSpecialization
+                          ? (hasSpec ? specMark : '-')
+                          : (total100 > 0 ? ((total100 / 100) * 30).toFixed(1) : '-');
                       const canOpenPortfolio = canEditStudentPortfolio(student);
 
                       return (
@@ -1141,7 +1215,15 @@ const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCou
                               </button>
                             )}
                           </td>
-                          {isHifz ? (
+                          {isSpecialization ? (
+                            <td colSpan="4" style={{ padding: '14px 16px' }}>
+                              {assessmentMaxMark === '30' && isEditingUnlocked ? (
+                                <input type="number" max="30" min="0" step="any" data-index={index} value={marks['30'] ?? ''} onChange={(e) => handleMarkChange(student.regNo, e.target.value)} onKeyDown={(e) => handleKeyDown(e, index)} placeholder="/ 30" style={{ padding: '8px 12px', width: '90px', borderRadius: '6px', border: '2px solid #0284c7', fontWeight: '800' }} />
+                              ) : (
+                                <span style={{ fontWeight: '800', color: '#0f766e' }}>{marks['30'] !== undefined && marks['30'] !== '' ? `${marks['30']} / 30` : '-'}</span>
+                              )}
+                            </td>
+                          ) : isHifz ? (
                             <>
                               <td colSpan="2" style={{ padding: '14px 16px' }}>
                                 {assessmentMaxMark === '50_1' && isEditingUnlocked ? (

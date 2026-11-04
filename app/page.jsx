@@ -19,6 +19,7 @@ import ReportManager from './components/ReportManager';
 import ReminderManager from './components/ReminderManager';
 import NightAttendanceManager from './components/NightAttendanceManager';
 import OutPassPortal from './outpass/page';
+import PeriodAttendanceManager from './components/PeriodAttendanceManager';
 import { DHIU_LOGO_URL, styles } from './components/erpConstants';
 import { HighContrastStyles, MentorAndOutreachTab } from './components/ErpExtensions';
 
@@ -110,49 +111,44 @@ export default function UnifiedSchoolPortal() {
     try {
       const usernamePrefix = rawInput.split('@')[0];
       const safeUsername = usernamePrefix.replace(/[^a-z0-9_.-]/g, '');
-      
+
       let isStudentLogin = false;
       let finalTargetEmail = '';
 
       if (rawInput.includes('@')) {
         finalTargetEmail = rawInput;
         isStudentLogin = finalTargetEmail.endsWith('@student.school.com');
-        const firebasePassword = isStudentLogin 
-          ? (cleanPassword.length < 6 ? cleanPassword.padStart(6, '0') : cleanPassword) 
+        const firebasePassword = isStudentLogin
+          ? (cleanPassword.length < 6 ? cleanPassword.padStart(6, '0') : cleanPassword)
           : cleanPassword;
-        
+
         await signInWithEmailAndPassword(auth, finalTargetEmail, firebasePassword);
       } else {
-        // 🌟 SMART DUAL-LOGIN: Bypasses Firestore security blocks by trying auth directly!
         const studentPassword = cleanPassword.length < 6 ? cleanPassword.padStart(6, '0') : cleanPassword;
         const studentEmailAttempt = `${safeUsername}@student.school.com`;
         const teacherEmailAttempt = `${safeUsername}@school.com`;
 
         try {
-          // Attempt 1: Try as Student First
           await signInWithEmailAndPassword(auth, studentEmailAttempt, studentPassword);
           isStudentLogin = true;
           finalTargetEmail = studentEmailAttempt;
         } catch (studentErr) {
-          // Attempt 2: If Student fails, try as Teacher/Admin
           try {
             await signInWithEmailAndPassword(auth, teacherEmailAttempt, cleanPassword);
             isStudentLogin = false;
             finalTargetEmail = teacherEmailAttempt;
           } catch (teacherErr) {
-            // Fallback for first-time Admin creation
             if (safeUsername === 'admin' && cleanPassword.length >= 6) {
               await createUserWithEmailAndPassword(auth, 'admin@school.com', cleanPassword);
               isStudentLogin = false;
               finalTargetEmail = 'admin@school.com';
             } else {
-              throw teacherErr; // Triggers the 'Incorrect username/password' error message
+              throw teacherErr;
             }
           }
         }
       }
 
-      // Route the user based on successful login type
       if (isStudentLogin || finalTargetEmail.endsWith('@student.school.com')) {
         router.push('/student');
         return;
@@ -161,7 +157,6 @@ export default function UnifiedSchoolPortal() {
       if (ADMIN_AUTH_EMAILS.includes(finalTargetEmail.toLowerCase())) {
         setUserRole('admin');
       } else {
-        // Since the user is now authenticated, Firestore allows us to fetch their profile safely!
         const docSnap = await getDoc(doc(db, 'teachers', safeUsername));
         if (docSnap.exists()) {
           setLoggedInTeacherData(docSnap.data());
@@ -198,7 +193,10 @@ export default function UnifiedSchoolPortal() {
       { id: 'proxy_marks', title: '6. Proxy Mark Entry', sub: 'Enter or Unlock Marks for Any Teacher', icon: '📝', bg: '#ea580c', action: () => setActiveAdminTab('proxy_marks') },
       { id: 'reminders', title: '7. Weekly Reminders', sub: 'Notice Board & Staff Group Tracker', icon: '🔔', bg: '#9333ea', action: () => setActiveAdminTab('reminders') },
       { id: 'attendance', title: '8. Night Attendance', sub: 'Daily Roll-Call, Out-Pass Sync & Absentees', icon: '🌙', bg: '#1e293b', action: () => setActiveAdminTab('attendance') },
+      { id: 'attendance_minus', title: '9. Period Attendance & Minus', sub: 'Period Roll-Call, Minus, Clearance & Shortage', icon: '📅', bg: '#be123c', action: () => setActiveAdminTab('attendance_minus') }
     ];
+
+    const totalEnrollmentsCount = adminTeachersList.reduce((acc, t) => acc + (Array.isArray(t.enrollments) ? t.enrollments.length : 0), 0);
 
     return (
       <div style={{ minHeight: '100vh', backgroundColor: '#f1f5f9', fontFamily: 'Inter, system-ui, sans-serif', color: '#0f172a' }}>
@@ -210,7 +208,7 @@ export default function UnifiedSchoolPortal() {
             <img src={DHIU_LOGO_URL} alt="DHIU" style={{ width: '44px', height: '44px', borderRadius: '50%', background: '#fff', padding: '2px', objectFit: 'contain' }} />
             <div>
               <div style={{ fontSize: '18px', fontWeight: '800' }}>Darul Huda Degree Institution</div>
-              <div style={{ fontSize: '11px', color: '#e0f2fe', fontWeight: '700' }}>Central Admin ERP • Marks, Out-Pass, Night Attendance &amp; Mentorship</div>
+              <div style={{ fontSize: '11px', color: '#e0f2fe', fontWeight: '700' }}>Central Admin ERP • Marks, Out-Pass, Period &amp; Night Attendance &amp; Mentorship</div>
             </div>
           </div>
 
@@ -241,7 +239,8 @@ export default function UnifiedSchoolPortal() {
                 { id: 'mentorship', label: '5. 🧭 Mentorship' },
                 { id: 'proxy_marks', label: '6. 📝 Proxy Marks' },
                 { id: 'reminders', label: '7. 🔔 Reminders' },
-                { id: 'attendance', label: '8. 🌙 Night Attendance' }
+                { id: 'attendance', label: '8. 🌙 Night Attendance' },
+                { id: 'attendance_minus', label: '9. 📅 Period Attendance & Clearance' }
               ].map(t => (
                 <button
                   key={t.id}
@@ -259,14 +258,69 @@ export default function UnifiedSchoolPortal() {
           </div>
 
           {activeAdminTab === 'dashboard' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '18px', marginBottom: '24px' }}>
-              {metroTiles.map(tile => (
-                <div key={tile.id} onClick={tile.action} style={{ background: tile.bg, color: '#ffffff', padding: '28px 22px', borderRadius: '14px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', minHeight: '165px', cursor: 'pointer', boxShadow: '0 8px 20px rgba(0,0,0,0.08)' }}>
-                  <div style={{ fontSize: '42px', marginBottom: '10px' }}>{tile.icon}</div>
-                  <div style={{ fontSize: '18px', fontWeight: '800' }}>{tile.title}</div>
-                  <div style={{ fontSize: '12px', marginTop: '4px', fontWeight: '600' }}>{tile.sub}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              {/* SHUHOOD-STYLE INSTITUTIONAL SUMMARY CARDS */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                <div style={{ background: '#ffffff', padding: '20px', borderRadius: '14px', border: '1px solid #cbd5e1', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Total Students</span>
+                  <div style={{ fontSize: '28px', fontWeight: '900', color: '#0f172a', marginTop: '6px' }}>{adminStudentsList.length}</div>
+                  <span style={{ fontSize: '11px', color: '#059669', fontWeight: '700' }}>Active Enrolled</span>
                 </div>
-              ))}
+
+                <div style={{ background: '#ffffff', padding: '20px', borderRadius: '14px', border: '1px solid #cbd5e1', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Total Teachers</span>
+                  <div style={{ fontSize: '28px', fontWeight: '900', color: '#0f172a', marginTop: '6px' }}>{adminTeachersList.length}</div>
+                  <span style={{ fontSize: '11px', color: '#2563eb', fontWeight: '700' }}>Faculty Members</span>
+                </div>
+
+                <div style={{ background: '#ffffff', padding: '20px', borderRadius: '14px', border: '1px solid #cbd5e1', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Malayalam Students</span>
+                  <div style={{ fontSize: '28px', fontWeight: '900', color: '#0f766e', marginTop: '6px' }}>
+                    {adminStudentsList.filter(s => !String(s.adNo || '').toUpperCase().startsWith('U')).length}
+                  </div>
+                  <span style={{ fontSize: '11px', color: '#0f766e', fontWeight: '700' }}>General Stream</span>
+                </div>
+
+                <div style={{ background: '#ffffff', padding: '20px', borderRadius: '14px', border: '1px solid #cbd5e1', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Urdu Students</span>
+                  <div style={{ fontSize: '28px', fontWeight: '900', color: '#d97706', marginTop: '6px' }}>
+                    {adminStudentsList.filter(s => String(s.adNo || '').toUpperCase().startsWith('U')).length}
+                  </div>
+                  <span style={{ fontSize: '11px', color: '#d97706', fontWeight: '700' }}>NIICS / Urdu Stream</span>
+                </div>
+
+                <div style={{ background: '#ffffff', padding: '20px', borderRadius: '14px', border: '1px solid #cbd5e1', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Active Courses</span>
+                  <div style={{ fontSize: '28px', fontWeight: '900', color: '#be123c', marginTop: '6px' }}>{totalEnrollmentsCount}</div>
+                  <span style={{ fontSize: '11px', color: '#be123c', fontWeight: '700' }}>Subject Batches</span>
+                </div>
+              </div>
+
+              {/* 9 METRO TILES */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
+                {metroTiles.map((item) => (
+                  <div
+                    key={item.id}
+                    onClick={item.action}
+                    style={{
+                      background: item.bg,
+                      padding: '26px 22px',
+                      borderRadius: '16px',
+                      color: '#ffffff',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      textAlign: 'center',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                    }}
+                  >
+                    <div style={{ fontSize: '40px', marginBottom: '12px' }}>{item.icon}</div>
+                    <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '900' }}>{item.title}</h3>
+                    <p style={{ margin: 0, fontSize: '12px', fontWeight: '600', opacity: 0.92 }}>{item.sub}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -280,6 +334,16 @@ export default function UnifiedSchoolPortal() {
           )}
           {activeAdminTab === 'students' && <StudentManager />}
           {activeAdminTab === 'reports' && <ReportManager />}
+
+          {activeAdminTab === 'attendance_minus' && (
+            <PeriodAttendanceManager
+              userRole="admin"
+              loggedInUser={{ username: 'admin', fullName: 'Central Admin' }}
+              preloadedStudents={adminStudentsList}
+              preloadedTeachers={adminTeachersList}
+            />
+          )}
+
           {activeAdminTab === 'reminders' && <ReminderManager />}
 
           {activeAdminTab === 'outpass' && (
