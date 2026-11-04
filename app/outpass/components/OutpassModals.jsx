@@ -266,16 +266,17 @@ export default function OutpassModals({
                 <div>
                   👨‍🏫 <strong>Permitted Teacher:</strong>{" "}
                   {getOfficialTeacherName(receiptPass.teacherName)}
-                  {receiptPass.teacherPhone && receiptPass.teacherPhone.trim() !== "" && (
+                  {receiptPass.teacherPhone && (
                     <span style={{ color: "#0369a1", fontWeight: 800 }}>
                       {" "}
                       (📞 {receiptPass.teacherPhone})
                     </span>
                   )}
                 </div>
+              </div>
 
-                <div
-                  style={{
+              <div
+                style={{
                   display: "flex",
                   gap: 10,
                   marginTop: 18,
