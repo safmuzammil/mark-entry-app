@@ -121,6 +121,7 @@ export default function PeriodAttendanceManager({
   const [leaderStudentSearch, setLeaderStudentSearch] = useState('');
   const [leaderSelectedRegs, setLeaderSelectedRegs] = useState([]);
   const [bulkAdNoPasteText, setBulkAdNoPasteText] = useState('');
+  const [importAuditReport, setImportAuditReport] = useState(null);
 
   // --- 4. MINUS ATTENDANCE STATE ---
   const [minusSearchQuery, setMinusSearchQuery] = useState('');
@@ -400,14 +401,20 @@ export default function PeriodAttendanceManager({
       const newAttendanceMap = {};
 
       classStudents.forEach(st => {
+        const isMarkedAbsentByRegularTeacher = absentRegNos.includes(st.regNo);
         const isRehearsalPresent = rehPresentList.includes(st.regNo);
         const op = activeOutpassesByReg[st.regNo];
-        if (isRehearsalPresent || (op && op.isOfficial)) {
-          newAttendanceMap[st.regNo] = 'O';
-        } else if (absentRegNos.includes(st.regNo)) {
-          newAttendanceMap[st.regNo] = op ? 'M' : 'A';
-        } else {
+
+        if (!isMarkedAbsentByRegularTeacher) {
+          // 🌟 RULE 1: If the student attended regular class (Teacher marked Present), ALWAYS record 'P'!
+          // Even if the Rehearsal Leader marked them absent at rehearsal, regular class attendance wins!
           newAttendanceMap[st.regNo] = 'P';
+        } else if (isRehearsalPresent || (op && op.isOfficial)) {
+          // 🌟 RULE 2: Student was absent from regular class, BUT was Present in Rehearsal (or Official Out-Pass) -> Auto-Clear as 'O'!
+          newAttendanceMap[st.regNo] = 'O';
+        } else {
+          // Student was absent from both regular class and rehearsal
+          newAttendanceMap[st.regNo] = op ? 'M' : 'A';
         }
       });
 
@@ -1206,12 +1213,13 @@ export default function PeriodAttendanceManager({
     return { stat: nextStat, cleared: totalClearedForStudent };
   };
 
-  // 🌟 Import Old Shuhood JSON / Excel AND Automatically Clear Rehearsal Dates!
+  // 🌟 UPGRADED IMPORTER WITH FULL MISMATCH & MISSING STUDENT AUDIT REPORT
   const handleImportOldShuhoodFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setLoading(true);
-    setStatusMsg('⏳ Importing old Shuhood data & auto-clearing Event Leader rehearsal dates...');
+    setImportAuditReport(null);
+    setStatusMsg('⏳ Importing old Shuhood data, auto-clearing rehearsal dates & auditing student matches...');
 
     try {
       const rehearsalCreditsMap = await fetchRehearsalCreditsByRegAndDate();
@@ -1220,6 +1228,10 @@ export default function PeriodAttendanceManager({
       let importedCount = 0;
       let totalAutoCleared = 0;
 
+      const notFoundInNewApp = []; // In Old App, missing in New App
+      const nameDiffWarnings = []; // Same Ad.No, different Name
+      const matchedNewRegs = new Set();
+
       if (ext === 'json') {
         const jsonMap = JSON.parse(await file.text());
         const entries = Object.values(jsonMap);
@@ -1227,10 +1239,40 @@ export default function PeriodAttendanceManager({
         for (let i = 0; i < entries.length; i += 400) {
           const chunk = entries.slice(i, i + 400);
           const batch = writeBatch(db);
+
           chunk.forEach(item => {
             const cleanAd = String(item.adNo || '').trim().toUpperCase();
+            if (!cleanAd) return;
+
             const st = localStudents.find(s => String(s.adNo || '').trim().toUpperCase() === cleanAd);
-            if (!st) return;
+
+            if (!st) {
+              // 🚨 Student exists in Old App, but NOT found in New App!
+              notFoundInNewApp.push({
+                adNo: item.adNo,
+                oldName: item.studentName || 'Unknown',
+                oldClass: item.className || '-',
+                totalPeriods: Number(item.totalPeriods) || 0,
+                presentCount: Number(item.presentCount) || 0,
+                minusCount: Number(item.minusCount) || 0,
+                subjectCount: Object.keys(item.subjectWise || {}).length
+              });
+              return;
+            }
+
+            matchedNewRegs.add(st.regNo);
+
+            // Check if names look completely different (for Admin verification)
+            const oldNameClean = String(item.studentName || '').toLowerCase().replace(/[^a-z]/g, '');
+            const newNameClean = String(st.firstName || '').toLowerCase().replace(/[^a-z]/g, '');
+            if (oldNameClean && newNameClean && !oldNameClean.includes(newNameClean.slice(0, 4)) && !newNameClean.includes(oldNameClean.slice(0, 4))) {
+              nameDiffWarnings.push({
+                adNo: st.adNo,
+                oldName: item.studentName,
+                newName: st.firstName,
+                newClass: (st.classes || []).join(', ')
+              });
+            }
 
             const docId = String(st.id || st.regNo).toLowerCase().trim();
             const baseStat = {
@@ -1249,8 +1291,15 @@ export default function PeriodAttendanceManager({
               baseStat,
               rehearsalCreditsMap[st.regNo]
             );
-            totalAutoCleared += cleared;
 
+            // Deduplicate absentDates after clearing so UI shows clean dates
+            Object.values(finalStat.subjectWise || {}).forEach(sObj => {
+              if (Array.isArray(sObj.absentDates)) {
+                sObj.absentDates = Array.from(new Set(sObj.absentDates));
+              }
+            });
+
+            totalAutoCleared += cleared;
             batch.set(doc(db, 'students', docId), { periodAttendance: finalStat }, { merge: true });
             updatedMap[st.regNo] = { ...st, periodAttendance: finalStat };
             importedCount++;
@@ -1267,16 +1316,35 @@ export default function PeriodAttendanceManager({
           const rawAd = row.admissionNumber || row['Admission Number'] || row['Ad.No'] || row.AdNo || row['Adm No'];
           if (!rawAd) return;
           const cleanAd = String(rawAd).trim().toUpperCase();
+          const oldStudentName = row.studentName || row['Student Name'] || row.name || row.Name || 'Unknown';
+          const oldClass = row.className || row.Class || row.class || '-';
+          const totalP = Number(row.totalAttendanceCount ?? row.TotalPeriods ?? row['Total Periods'] ?? 0);
+          const presentP = Number(row.totalPresentCount ?? row.PresentPeriods ?? row['Total Present'] ?? 0);
+          const minusC = Number(row.minusCount ?? row.MinusCount ?? row.Minus ?? 0);
+
           const st = localStudents.find(s => String(s.adNo || '').trim().toUpperCase() === cleanAd);
-          if (!st) return;
+          if (!st) {
+            notFoundInNewApp.push({
+              adNo: cleanAd,
+              oldName: oldStudentName,
+              oldClass,
+              totalPeriods: totalP,
+              presentCount: presentP,
+              minusCount: minusC,
+              subjectCount: 0
+            });
+            return;
+          }
+
+          matchedNewRegs.add(st.regNo);
 
           const docId = String(st.id || st.regNo).toLowerCase().trim();
           const cur = getStudentAttStat(st);
           const baseStat = {
             ...cur,
-            totalPeriods: Number(row.totalAttendanceCount ?? row.TotalPeriods ?? row['Total Periods'] ?? cur.totalPeriods ?? 0),
-            presentCount: Number(row.totalPresentCount ?? row.PresentPeriods ?? row['Total Present'] ?? cur.presentCount ?? 0),
-            minusCount: Number(row.minusCount ?? row.MinusCount ?? row.Minus ?? cur.minusCount ?? 0),
+            totalPeriods: totalP || cur.totalPeriods || 0,
+            presentCount: presentP || cur.presentCount || 0,
+            minusCount: minusC || cur.minusCount || 0,
             appliedRehearsalDates: {},
             updatedAt: new Date().toISOString()
           };
@@ -1294,9 +1362,28 @@ export default function PeriodAttendanceManager({
         await batch.commit();
       }
 
+      const missingFromOldExport = localStudents
+        .filter(s => !matchedNewRegs.has(s.regNo))
+        .map(s => ({
+          adNo: s.adNo,
+          name: s.firstName,
+          className: (s.classes || []).join(', ')
+        }));
+
+      setImportAuditReport({
+        importedCount,
+        totalAutoCleared,
+        notFoundInNewApp,
+        nameDiffWarnings,
+        missingFromOldExport
+      });
+
       syncUpdatedStudentsState(updatedMap);
       setStatusMsg(
-        `🎉 Imported semester attendance for ${importedCount} students AND auto-cleared ${totalAutoCleared} absence period(s) from Event Leader rehearsal dates!`
+        `🎉 Imported ${importedCount} students (${totalAutoCleared} rehearsal periods auto-cleared)! ` +
+        (notFoundInNewApp.length > 0
+          ? `⚠️ Found ${notFoundInNewApp.length} student(s) in Old App that do not exist in New App — see audit report below!`
+          : `✅ 100% of Old App students matched cleanly!`)
       );
     } catch (err) {
       setStatusMsg('❌ Import error: ' + err.message);
@@ -1304,6 +1391,26 @@ export default function PeriodAttendanceManager({
       setLoading(false);
       e.target.value = null;
     }
+  };
+
+  const handleDownloadMismatchCSV = () => {
+    if (!importAuditReport) return;
+    let csv = 'data:text/csv;charset=utf-8,Category,Ad.No,Old App Name,New App Name,Class,Total Periods,Present Periods,Minus Points\n';
+    importAuditReport.notFoundInNewApp.forEach(item => {
+      csv += `"Missing in New App",${item.adNo},"${item.oldName}","NOT REGISTERED","${item.oldClass}",${item.totalPeriods},${item.presentCount},${item.minusCount}\n`;
+    });
+    importAuditReport.nameDiffWarnings.forEach(item => {
+      csv += `"Name Spelling Difference",${item.adNo},"${item.oldName}","${item.newName}","${item.newClass}",-,-,-\n`;
+    });
+    importAuditReport.missingFromOldExport.forEach(item => {
+      csv += `"In New App Only (No Old Data)",${item.adNo},"NOT IN OLD APP","${item.name}","${item.className}",0,0,0\n`;
+    });
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csv));
+    link.setAttribute('download', `Shuhood_Import_Mismatch_Report.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   // 🌟 1-Click Button to Re-Apply Leader Rehearsal Credits to Already-Imported Student Records
@@ -2506,10 +2613,10 @@ export default function PeriodAttendanceManager({
         <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1', display: 'flex', flexDirection: 'column', gap: '18px' }}>
           <div>
             <h3 style={{ margin: '0 0 8px 0', fontSize: '19px', color: '#4f46e5', fontWeight: '900' }}>
-              📂 Import Old Shuhood Data (Auto-Clears Event Leader Rehearsal Dates!)
+              📂 Import Old Shuhood Data (With Automatic Rehearsal Clearance &amp; Mismatch Audit!)
             </h3>
             <p style={{ margin: 0, fontSize: '13px', color: '#475569', fontWeight: '600', lineHeight: 1.5 }}>
-              Upload your unmodified <code>shuhood_semester_export.json</code> or an Excel/CSV summary sheet from the old Shuhood portal. The importer automatically checks all dates where Event Leaders marked students Present in the new app and clears their absences on those dates (up to 2+2+3 = 7 periods per day) without touching unrecorded days!
+              Upload <code>shuhood_semester_export.json</code> (generated by running <code>node exportToNewErp.js</code> in your cloned <code>HUZOOR-SERVER</code> folder) or an Excel/CSV sheet. It automatically matches students by <strong>Ad.No</strong>, clears Event Leader rehearsal dates, and shows a full report of any mismatched or missing students below!
             </p>
           </div>
 
@@ -2533,6 +2640,115 @@ export default function PeriodAttendanceManager({
               🔄 Auto-Apply Rehearsal Credits by Date
             </button>
           </div>
+
+          {/* 🌟 MISMATCH & AUDIT REPORT DISPLAY */}
+          {importAuditReport && (
+            <div style={{ marginTop: '10px', border: '2px solid #cbd5e1', borderRadius: '14px', padding: '20px', background: '#f8fafc' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '17px', fontWeight: '900', color: '#0f172a' }}>
+                    📊 Import &amp; Student Matching Audit Report
+                  </h4>
+                  <div style={{ fontSize: '13px', color: '#475569', fontWeight: '700', marginTop: '4px' }}>
+                    ✅ Matched &amp; Imported: <strong style={{ color: '#059669' }}>{importAuditReport.importedCount}</strong> •{' '}
+                    ❌ In Old App Only (Not Found in New App): <strong style={{ color: '#dc2626' }}>{importAuditReport.notFoundInNewApp.length}</strong> •{' '}
+                    ⚠️ Name Spelling Differences: <strong style={{ color: '#d97706' }}>{importAuditReport.nameDiffWarnings.length}</strong> •{' '}
+                    📋 In New App Only (0 Old Records): <strong style={{ color: '#0284c7' }}>{importAuditReport.missingFromOldExport.length}</strong>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDownloadMismatchCSV}
+                  style={{ padding: '10px 16px', background: '#0f172a', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                >
+                  📥 Download Full Mismatch Report (CSV)
+                </button>
+              </div>
+
+              {/* 1. STUDENTS IN OLD APP NOT FOUND IN NEW APP */}
+              {importAuditReport.notFoundInNewApp.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                  <div style={{ fontWeight: '900', color: '#991b1b', fontSize: '14px', marginBottom: '8px' }}>
+                    ❌ Students Found in Old Shuhood App Dealings, But NOT Registered in New App ({importAuditReport.notFoundInNewApp.length}):
+                  </div>
+                  <div style={{ maxHeight: '260px', overflowY: 'auto', border: '1px solid #fecaca', borderRadius: '10px', background: '#ffffff' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                      <thead style={{ background: '#fee2e2', color: '#991b1b', position: 'sticky', top: 0 }}>
+                        <tr>
+                          <th style={{ padding: '10px 12px' }}>Ad.No (Old App)</th>
+                          <th style={{ padding: '10px 12px' }}>Student Name (Old App)</th>
+                          <th style={{ padding: '10px 12px' }}>Old Class</th>
+                          <th style={{ padding: '10px 12px' }}>Old Attendance</th>
+                          <th style={{ padding: '10px 12px' }}>Old Minus</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importAuditReport.notFoundInNewApp.map((st, idx) => (
+                          <tr key={idx} style={{ borderBottom: '1px solid #fee2e2' }}>
+                            <td style={{ padding: '8px 12px', fontWeight: '900', color: '#dc2626' }}>#{st.adNo}</td>
+                            <td style={{ padding: '8px 12px', fontWeight: '800' }}>{st.oldName}</td>
+                            <td style={{ padding: '8px 12px' }}>{st.oldClass}</td>
+                            <td style={{ padding: '8px 12px', fontWeight: '700' }}>{st.presentCount} / {st.totalPeriods} Periods</td>
+                            <td style={{ padding: '8px 12px', color: '#dc2626', fontWeight: '800' }}>-{st.minusCount}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#b91c1c', fontWeight: '700', marginTop: '6px' }}>
+                    💡 Tip: Register these students (or fix their Ad.No in the Students tab) and re-upload the JSON file to import their attendance!
+                  </div>
+                </div>
+              )}
+
+              {/* 2. NAME SPELLING DIFFERENCES */}
+              {importAuditReport.nameDiffWarnings.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                  <div style={{ fontWeight: '900', color: '#92400e', fontSize: '14px', marginBottom: '8px' }}>
+                    ⚠️ Ad.No Matched &amp; Imported, But Name Spelling Differs Between Old &amp; New App ({importAuditReport.nameDiffWarnings.length}):
+                  </div>
+                  <div style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid #fde68a', borderRadius: '10px', background: '#ffffff' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                      <thead style={{ background: '#fef3c7', color: '#92400e', position: 'sticky', top: 0 }}>
+                        <tr>
+                          <th style={{ padding: '8px 12px' }}>Ad.No</th>
+                          <th style={{ padding: '8px 12px' }}>Name in Old Shuhood App</th>
+                          <th style={{ padding: '8px 12px' }}>Name in New ERP App</th>
+                          <th style={{ padding: '8px 12px' }}>New Class</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importAuditReport.nameDiffWarnings.map((w, idx) => (
+                          <tr key={idx} style={{ borderBottom: '1px solid #fef3c7' }}>
+                            <td style={{ padding: '8px 12px', fontWeight: '900' }}>#{w.adNo}</td>
+                            <td style={{ padding: '8px 12px', color: '#b45309', fontWeight: '700' }}>{w.oldName}</td>
+                            <td style={{ padding: '8px 12px', color: '#047857', fontWeight: '800' }}>{w.newName}</td>
+                            <td style={{ padding: '8px 12px' }}>{w.newClass}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* 3. STUDENTS IN NEW APP MISSING FROM OLD APP */}
+              {importAuditReport.missingFromOldExport.length > 0 && (
+                <div>
+                  <div style={{ fontWeight: '900', color: '#0369a1', fontSize: '14px', marginBottom: '8px' }}>
+                    📋 Students in New App Who Had No Records in Old Shuhood File ({importAuditReport.missingFromOldExport.length}):
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '140px', overflowY: 'auto', padding: '10px', background: '#ffffff', border: '1px solid #bae6fd', borderRadius: '10px' }}>
+                    {importAuditReport.missingFromOldExport.map((m, idx) => (
+                      <span key={idx} style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '800' }}>
+                        #{m.adNo} • {m.name} ({m.className})
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
