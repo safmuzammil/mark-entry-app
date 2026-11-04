@@ -1116,7 +1116,7 @@ export default function OutPassPortal({
       for (const st of targetStudents) {
         const newPassData = {
           section: "DEGREE SECTION",
-          teacherPhone: teacherPhoneStr|| "",
+          teacherPhone: teacherPhoneStr,
           adNo: st.adNo,
           studentName: st.name,
           studentClass: st.studentClass,
