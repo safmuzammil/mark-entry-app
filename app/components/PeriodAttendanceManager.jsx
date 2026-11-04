@@ -406,14 +406,13 @@ export default function PeriodAttendanceManager({
         const op = activeOutpassesByReg[st.regNo];
 
         if (!isMarkedAbsentByRegularTeacher) {
-          // 🌟 RULE 1: If the student attended regular class (Teacher marked Present), ALWAYS record 'P'!
-          // Even if the Rehearsal Leader marked them absent at rehearsal, regular class attendance wins!
+          // 🌟 REGULAR CLASS ATTENDANCE WINS: If the regular teacher marked the student Present ('P'),
+          // it records 'P'. A Rehearsal Leader marking them absent cannot override regular class presence!
           newAttendanceMap[st.regNo] = 'P';
         } else if (isRehearsalPresent || (op && op.isOfficial)) {
-          // 🌟 RULE 2: Student was absent from regular class, BUT was Present in Rehearsal (or Official Out-Pass) -> Auto-Clear as 'O'!
+          // Absent from regular class, but Present in Rehearsal (or Official Out-Pass) -> Official Present ('O')
           newAttendanceMap[st.regNo] = 'O';
         } else {
-          // Student was absent from both regular class and rehearsal
           newAttendanceMap[st.regNo] = op ? 'M' : 'A';
         }
       });
@@ -1107,9 +1106,12 @@ export default function PeriodAttendanceManager({
           subObj.present = Math.min(subObj.total || 9999, (subObj.present || 0) + countToClear);
           subObj.official = (subObj.official || 0) + countToClear;
           subObj.absentDates = subObj.absentDates.filter(d => !matchingDates.includes(d));
-        } else {
+        } else if (clearReason === 'medical') {
           curStat.medicalCount = (curStat.medicalCount || 0) + countToClear;
           subObj.medical = (subObj.medical || 0) + countToClear;
+        } else {
+          curStat.permittedCount = (curStat.permittedCount || 0) + countToClear;
+          subObj.permitted = (subObj.permitted || 0) + countToClear;
         }
       });
 
@@ -2555,9 +2557,10 @@ export default function PeriodAttendanceManager({
               </div>
               <div>
                 <label style={styles.label}>Date Mode:</label>
-                <select value={clearDateMode} onChange={e => setClearDateMode(e.target.value)} style={styles.input}>
-                  <option value="single">Mode 1: Single Date</option>
-                  <option value="range">Mode 2: Date Range</option>
+                <select value={clearReason} onChange={e => setClearReason(e.target.value)} style={styles.input}>
+                  <option value="official">📋 Official (Counts Present)</option>
+                  <option value="medical">🏥 Medical (Excused / Medical Tagged)</option>
+                  <option value="permitted">🌟 Permitted / Activity / Event (Excused)</option>
                 </select>
               </div>
             </div>
