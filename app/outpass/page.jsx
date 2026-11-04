@@ -1126,7 +1126,7 @@ export default function OutPassPortal({
           mentorUsername: st.mentorUsername || "",
           parentWhatsapp: [st.parentWhatsapp, st.parentMobile, ""].find(
             Boolean
-          ),
+          ) || "",
           studentEmail: st.email || "",
           leaveCategory: leaveCategory || "General",
           destination: destination.trim(),
