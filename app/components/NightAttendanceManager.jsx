@@ -104,12 +104,48 @@ export default function NightAttendanceManager({
     initData();
   }, []);
 
-  // Helper: Find if a student is currently outside on an active Out-Pass on selectedDate
+  const isoToLocalYMD = (isoStr) => {
+    if (!isoStr) return '';
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return String(isoStr).split('T')[0];
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const formatNightPassTime = (isoStr, isOpen) => {
+    if (isOpen) return 'Open Return';
+    if (!isoStr) return '—';
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return isoStr;
+    return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true });
+  };
+
+  // 🌟 FIXED: Matches student Ad.No AND verifies the Out-Pass is active on `selectedDate`!
   const getActiveOutpassForStudent = (adNo) => {
     const cleanAd = String(adNo || '').trim().toLowerCase();
+    if (!cleanAd) return null;
+
+    const todayStr = getTodayDateString();
+
     return activePasses.find(p => {
       if (String(p.adNo || '').trim().toLowerCase() !== cleanAd) return false;
-      return p.status === 'OUTSIDE' || p.status === 'APPROVED';
+      const st = String(p.status || '').toUpperCase();
+      if (st === 'CANCELLED') return false;
+
+      const fromYMD = isoToLocalYMD(p.permittedFrom || p.createdAt);
+      const toYMD = p.isOpenReturn || !p.permittedTo
+        ? (p.actualReturnTime ? isoToLocalYMD(p.actualReturnTime) : '2099-12-31')
+        : isoToLocalYMD(p.actualReturnTime || p.permittedTo);
+
+      // If taking night attendance for today, any currently OUTSIDE or APPROVED pass covering today counts
+      if (selectedDate === todayStr && (st === 'OUTSIDE' || st === 'APPROVED')) {
+        return !fromYMD || selectedDate >= fromYMD;
+      }
+
+      // For any selectedDate, check if the student was out during that date
+      if (fromYMD && selectedDate >= fromYMD && selectedDate <= toYMD) {
+        return st === 'OUTSIDE' || st === 'APPROVED' || st === 'ARRIVED_AT_GATE' || st === 'RETURNED';
+      }
+      return false;
     });
   };
 
@@ -640,19 +676,26 @@ export default function NightAttendanceManager({
                           </div>
                         </td>
 
-                        {/* AUTOMATIC OUT-PASS DETECTION COLUMN */}
+                        {/* AUTOMATIC OUT-PASS DETECTION COLUMN WITH FULL SCHEDULE DETAILS */}
                         <td style={{ padding: '12px 14px' }}>
                           {activePass ? (
-                            <div style={{ background: '#dbeafe', border: '1px solid #93c5fd', padding: '8px 10px', borderRadius: '8px', fontSize: '12px', color: '#1e3a8a' }}>
-                              <div style={{ fontWeight: '800' }}>
-                                🪪 ON OUT-PASS ({activePass.leaveCategory || 'Leave'}): {activePass.destination}
+                            <div style={{ background: '#dbeafe', border: '1.5px solid #93c5fd', padding: '8px 12px', borderRadius: '8px', fontSize: '12px', color: '#1e3a8a', lineHeight: 1.4 }}>
+                              <div style={{ fontWeight: '900', color: '#1e40af' }}>
+                                🪪 {activePass.leaveCategory || 'Leave'} • 📍 {activePass.destination} ({activePass.status})
                               </div>
-                              <div style={{ fontSize: '11px', marginTop: '2px', fontWeight: '700', color: '#1d4ed8' }}>
-                                📝 Reason: {activePass.purpose} • 👨‍🏫 Permitted By: <strong>{activePass.teacherName}</strong>
+                              <div style={{ fontSize: '11px', marginTop: '3px', fontWeight: '700', color: '#1d4ed8' }}>
+                                📝 Reason: {activePass.purpose || '—'}
+                              </div>
+                              <div style={{ fontSize: '11px', marginTop: '2px', fontWeight: '800', color: '#0369a1' }}>
+                                🚶‍♂️ Out: {formatNightPassTime(activePass.permittedFrom, false)} ➔ ⏳ Return: {formatNightPassTime(activePass.permittedTo, activePass.isOpenReturn)}
+                              </div>
+                              <div style={{ fontSize: '11px', marginTop: '2px', fontWeight: '800', color: '#0f172a' }}>
+                                👨‍🏫 Permitted By: <strong>{activePass.teacherName}</strong>
+                                {activePass.teacherPhone ? ` (📞 ${activePass.teacherPhone})` : ''}
                               </div>
                             </div>
                           ) : (
-                            <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>🟢 No Active Out-Pass</span>
+                            <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>🟢 In Campus (No Active Leave)</span>
                           )}
                         </td>
 

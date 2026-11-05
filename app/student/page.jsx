@@ -952,6 +952,54 @@ export default function StudentDashboard() {
               </div>
             </div>
 
+            {/* 📆 MONTH-BY-MONTH ABSENCE & MINUS SUMMARY */}
+            {(() => {
+              const monthMap = {};
+              Object.entries(attendanceData.subjectWise || {}).forEach(([subName, sObj]) => {
+                (sObj.absentDates || []).forEach(dStr => {
+                  const mKey = String(dStr || '').slice(0, 7); // "YYYY-MM"
+                  if (!mKey) return;
+                  if (!monthMap[mKey]) monthMap[mKey] = { absentPeriods: 0, minusPoints: 0, subjects: new Set() };
+                  monthMap[mKey].absentPeriods += 1;
+                  monthMap[mKey].subjects.add(subName);
+                });
+              });
+              (attendanceData.minusLogs || []).forEach(log => {
+                const mKey = String(log.date || '').slice(0, 7);
+                if (!mKey) return;
+                if (!monthMap[mKey]) monthMap[mKey] = { absentPeriods: 0, minusPoints: 0, subjects: new Set() };
+                monthMap[mKey].minusPoints += Number(log.count) || 0;
+              });
+              const monthsSorted = Object.keys(monthMap).sort().reverse();
+              if (monthsSorted.length === 0) return null;
+
+              return (
+                <div style={{ marginBottom: '24px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
+                    📆 Month-Wise Absence &amp; Minus Summary
+                  </h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px' }}>
+                    {monthsSorted.map(mKey => {
+                      const info = monthMap[mKey];
+                      return (
+                        <div key={mKey} style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid #cbd5e1', background: '#f8fafc' }}>
+                          <div style={{ fontWeight: '900', fontSize: '15px', color: '#0f172a', marginBottom: '6px' }}>
+                            🗓️ Month: {mKey}
+                          </div>
+                          <div style={{ fontSize: '13px', fontWeight: '700', color: '#dc2626' }}>
+                            ❌ Class Absences: <strong>{info.absentPeriods} Period(s)</strong>
+                          </div>
+                          <div style={{ fontSize: '13px', fontWeight: '700', color: '#991b1b', marginTop: '2px' }}>
+                            ⚠️ Minus Deducted: <strong>-{info.minusPoints} Point(s)</strong>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* SUBJECT-WISE ATTENDANCE TABLE (Excludes Hifz + Includes Non-Mark Attendance Subjects!) */}
             <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
               📖 Subject-Wise Attendance Breakdown

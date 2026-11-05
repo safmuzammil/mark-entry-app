@@ -96,7 +96,7 @@ export default function PeriodAttendanceManager({
   // --- 1. SHUHOOD-STYLE CARDS & ROLL CALL STATE (9 Periods) ---
   const [selectedTeacherUsername, setSelectedTeacherUsername] = useState(loggedInUser?.username || '');
   const [attDate, setAttDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [attSession, setAttSession] = useState('1');
+  const [attSession, setAttSession] = useState('');
   const [attEnrollmentId, setAttEnrollmentId] = useState('');
   const [classStudents, setClassStudents] = useState([]);
   const [absentRegNos, setAbsentRegNos] = useState([]);
@@ -126,8 +126,10 @@ export default function PeriodAttendanceManager({
   // --- 4. MINUS ATTENDANCE STATE ---
   const [minusSearchQuery, setMinusSearchQuery] = useState('');
   const [selectedMinusStudent, setSelectedMinusStudent] = useState(null);
+  const [selectedMinusStudentsList, setSelectedMinusStudentsList] = useState([]); // 🌟 Holds multiple students for bulk minus!
   const [minusCount, setMinusCount] = useState(1);
   const [minusReason, setMinusReason] = useState('');
+  const [editingMinusLog, setEditingMinusLog] = useState(null);
 
   // --- 5. NON-MARK SUBJECT CREATOR & MASS ASSIGN STATE ---
   const [nmTeacherUsername, setNmTeacherUsername] = useState('');
@@ -158,32 +160,73 @@ export default function PeriodAttendanceManager({
     return up;
   };
 
-  // Load active outpasses & rehearsal stamps for attDate
+// 🌟 Helper: Convert any ISO timestamp to Local YYYY-MM-DD (Prevents UTC/IST date shift!)
+  const isoToLocalYMD = (isoStr) => {
+    if (!isoStr) return '';
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return String(isoStr).split('T')[0];
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const formatShortDateTime = (isoStr, isOpen) => {
+    if (isOpen) return 'Open Return';
+    if (!isoStr) return '—';
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return isoStr;
+    return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true });
+  };
+
+  // 🌟 FIXED: Reads from 'out_passes', uses IST Local Dates, and stores full leave details for Period Attendance!
   useEffect(() => {
     async function loadOutpassesAndRehearsalStamps() {
       try {
         const [opSnap, rehSnap] = await Promise.all([
-          getDocs(collection(db, 'outpasses')),
+          getDocs(collection(db, 'out_passes')),
           getDoc(doc(db, 'systemCache', `rehearsalStamp_${attDate}`))
         ]);
 
         const opMap = {};
         opSnap.forEach(d => {
           const data = d.data();
-          const status = String(data.status || '').toLowerCase();
-          if (status !== 'approved' && status !== 'out') return;
+          const status = String(data.status || '').toUpperCase();
+          if (status === 'CANCELLED') return;
 
-          const depDate = String(data.departureDate || data.date || '').split('T')[0];
-          const retDate = String(data.returnDate || data.departureDate || data.date || '').split('T')[0];
-          if (depDate && attDate >= depDate && (!retDate || attDate <= retDate)) {
-            const sReg = String(data.studentRegNo || data.regNo || '').trim();
-            if (sReg) {
-              const cat = String(data.category || data.leaveType || 'General').toLowerCase();
-              const isOfficial = cat.includes('official') || cat.includes('outreach');
-              opMap[sReg] = {
-                category: data.category || 'Leave',
+          // If taking attendance for today, show active passes (APPROVED / OUTSIDE / ARRIVED_AT_GATE)
+          // Or if checking a date covered by permittedFrom -> actualReturnTime/permittedTo
+          const depDate = isoToLocalYMD(data.permittedFrom || data.departureDate || data.createdAt);
+          const retDate = data.isOpenReturn || !data.permittedTo
+            ? (data.actualReturnTime ? isoToLocalYMD(data.actualReturnTime) : '2099-12-31')
+            : isoToLocalYMD(data.actualReturnTime || data.permittedTo || data.returnDate);
+
+          const isActiveNow = status === 'APPROVED' || status === 'OUTSIDE' || status === 'ARRIVED_AT_GATE';
+          const isWithinDateWindow = depDate && attDate >= depDate && attDate <= retDate;
+
+          // Match if within date window AND (still active OR was returned on/after attDate)
+          if (isWithinDateWindow && (isActiveNow || status === 'RETURNED')) {
+            const passAdNo = String(data.adNo || '').trim().toUpperCase();
+            const passRegNo = String(data.studentRegNo || data.regNo || '').trim().toUpperCase();
+
+            const matchedSt = localStudents.find(
+              s => String(s.adNo || '').trim().toUpperCase() === passAdNo ||
+                   String(s.regNo || '').trim().toUpperCase() === passRegNo ||
+                   String(s.regNo || '').trim().toUpperCase() === passAdNo
+            );
+
+            const targetKey = matchedSt ? matchedSt.regNo : passAdNo;
+            if (targetKey) {
+              const cat = String(data.leaveCategory || data.category || 'General');
+              const catLower = cat.toLowerCase();
+              const isOfficial = catLower.includes('official') || catLower.includes('outreach');
+              opMap[targetKey] = {
+                category: cat,
                 isOfficial,
-                reason: data.reason || data.destination || ''
+                status,
+                destination: data.destination || 'Out',
+                reason: data.purpose || data.reason || '',
+                teacherName: data.teacherName || 'Faculty',
+                teacherPhone: data.teacherPhone || '',
+                fromFormatted: formatShortDateTime(data.permittedFrom, false),
+                toFormatted: formatShortDateTime(data.permittedTo, data.isOpenReturn)
               };
             }
           }
@@ -195,10 +238,14 @@ export default function PeriodAttendanceManager({
         } else {
           setRehearsalPresentMapForDate({});
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error('Error syncing out_passes:', e);
+      }
     }
-    loadOutpassesAndRehearsalStamps();
-  }, [attDate]);
+    if (localStudents.length > 0) {
+      loadOutpassesAndRehearsalStamps();
+    }
+  }, [attDate, localStudents]);
 
   useEffect(() => {
     const nonLeaderTeachers = localTeachers.filter(t => !t.isEventLeader);
@@ -385,8 +432,11 @@ export default function PeriodAttendanceManager({
   // ==========================================
   // 1. SAVE REGULAR PERIOD ATTENDANCE
   // ==========================================
-  const handleSaveAttendance = async (e) => {
+const handleSaveAttendance = async (e) => {
     e.preventDefault();
+    if (!attSession) {
+      return alert('⚠️ Mandatory Step: Please select the Period (1 to 9) before saving attendance!');
+    }
     if (!attEnrollmentId || classStudents.length === 0) return alert('Please select a subject with enrolled students.');
 
     setLoading(true);
@@ -885,80 +935,211 @@ export default function PeriodAttendanceManager({
     document.body.removeChild(link);
   };
 
-  const matchingMinusStudents = minusSearchQuery.trim().length >= 2
+ // 🌟 Supports searching by single query OR comma-separated last token!
+  const lastMinusToken = minusSearchQuery.split(',').pop().trim().toLowerCase();
+  const matchingMinusStudents = lastMinusToken.length >= 1
     ? localStudents.filter(s => {
-        const q = minusSearchQuery.trim().toLowerCase();
-        return String(s.adNo || '').toLowerCase().includes(q) ||
-               String(s.firstName || '').toLowerCase().includes(q) ||
-               String(s.regNo || '').toLowerCase().includes(q);
-      }).slice(0, 8)
+        const ad = String(s.adNo || '').toLowerCase();
+        const nm = String(s.firstName || '').toLowerCase();
+        const rg = String(s.regNo || '').toLowerCase();
+        return ad.includes(lastMinusToken) || nm.includes(lastMinusToken) || rg.includes(lastMinusToken);
+      }).slice(0, 10)
     : [];
 
+  // 🌟 Helper: Parse comma-separated Ad.Nos or Names and add all matching students to `selectedMinusStudentsList`
+  const handleAddCommaSeparatedMinusStudents = () => {
+    const tokens = minusSearchQuery
+      .split(/[,;\n]+/)
+      .map(t => t.replace(/^#/, '').trim().toLowerCase())
+      .filter(Boolean);
+
+    if (tokens.length === 0) return alert('Type one or more Admission Numbers or Student Names separated by commas.');
+
+    const newlyFound = [];
+    const unmatchedTokens = [];
+
+    tokens.forEach(tok => {
+      // 1. Exact Ad.No or RegNo match first
+      let match = localStudents.find(
+        s => String(s.adNo || '').trim().toLowerCase() === tok ||
+             String(s.regNo || '').trim().toLowerCase() === tok
+      );
+      // 2. Otherwise exact or partial student name match
+      if (!match) {
+        match = localStudents.find(s => String(s.firstName || '').trim().toLowerCase() === tok) ||
+                localStudents.find(s => String(s.firstName || '').trim().toLowerCase().includes(tok));
+      }
+      if (match) {
+        if (!newlyFound.some(x => x.regNo === match.regNo)) newlyFound.push(match);
+      } else {
+        unmatchedTokens.push(tok);
+      }
+    });
+
+    if (newlyFound.length === 0) {
+      return alert(`No matching students found for: ${unmatchedTokens.join(', ')}`);
+    }
+
+    setSelectedMinusStudentsList(prev => {
+      const map = new Map(prev.map(s => [s.regNo, s]));
+      newlyFound.forEach(s => map.set(s.regNo, s));
+      return Array.from(map.values());
+    });
+    setSelectedMinusStudent(newlyFound[0]);
+    setEditingMinusLog(null);
+    setMinusSearchQuery('');
+
+    if (unmatchedTokens.length > 0) {
+      alert(`✅ Added ${newlyFound.length} student(s)! (Could not match: ${unmatchedTokens.join(', ')})`);
+    }
+  };
+
+  const canUserModifyMinusLog = (logItem) => {
+    if (userRole === 'admin') return true;
+    const myUser = String(loggedInUser?.username || '').trim().toLowerCase();
+    const myFullName = String(loggedInUser?.fullName || '').trim().toLowerCase();
+    const issuerUser = String(logItem.issuedByUsername || '').trim().toLowerCase();
+    const issuerName = String(logItem.issuedBy || '').trim().toLowerCase();
+
+    if (myUser && issuerUser === myUser) return true;
+    if (myFullName && issuerName && (issuerName === myFullName || issuerName.includes(myFullName) || myFullName.includes(issuerName))) {
+      return true;
+    }
+    return false;
+  };
+
+  // 🌟 Issue NEW Minus (To 1 or Multiple Students!) OR Update an EXISTING Minus Mark
   const handleSaveMinus = async (e) => {
     e.preventDefault();
-    if (!selectedMinusStudent) return alert('Please search and select a student first.');
-    if (!minusReason.trim()) return alert('Please enter a reason for the minus deduction.');
+    if (!minusReason.trim()) return alert('Please enter a reason.');
+
+    // Build target list from selectedMinusStudentsList (or fallback to selectedMinusStudent)
+    const targetStudents = editingMinusLog
+      ? (selectedMinusStudent ? [selectedMinusStudent] : [])
+      : (selectedMinusStudentsList.length > 0
+          ? selectedMinusStudentsList
+          : selectedMinusStudent
+          ? [selectedMinusStudent]
+          : []);
+
+    if (targetStudents.length === 0) {
+      return alert('Please select or add at least one student first.');
+    }
 
     setLoading(true);
-    setStatusMsg('');
     try {
-      const st = localStudents.find(s => s.regNo === selectedMinusStudent.regNo) || selectedMinusStudent;
-      const docId = String(st.id || st.regNo).toLowerCase().trim();
-      const curStat = JSON.parse(JSON.stringify(getStudentAttStat(st)));
+      if (editingMinusLog) {
+        const st = localStudents.find(s => s.regNo === selectedMinusStudent.regNo) || selectedMinusStudent;
+        const docId = String(st.id || st.regNo).toLowerCase().trim();
+        const curStat = JSON.parse(JSON.stringify(getStudentAttStat(st)));
 
-      const newLog = {
-        id: `minus_${Date.now()}`,
-        date: new Date().toISOString().split('T')[0],
-        count: Number(minusCount),
-        reason: minusReason.trim(),
-        issuedBy: loggedInUser?.fullName || 'Admin',
-        issuedByUsername: String(loggedInUser?.username || 'admin').toLowerCase()
-      };
+        if (!canUserModifyMinusLog(editingMinusLog)) {
+          setLoading(false);
+          return alert('⛔ Permission Denied: You can only edit minus entries that YOU issued.');
+        }
 
-      curStat.minusLogs = [newLog, ...(curStat.minusLogs || [])];
-      curStat.minusCount = (curStat.minusCount || 0) + Number(minusCount);
+        const updatedLogs = (curStat.minusLogs || []).map(l => {
+          if (l.id === editingMinusLog.id) {
+            return {
+              ...l,
+              count: Number(minusCount),
+              reason: minusReason.trim(),
+              editedAt: new Date().toISOString().split('T')[0]
+            };
+          }
+          return l;
+        });
 
-      await setDoc(doc(db, 'students', docId), { periodAttendance: curStat }, { merge: true });
-      const updatedSt = { ...st, periodAttendance: curStat };
-      setSelectedMinusStudent(updatedSt);
-      syncUpdatedStudentsState({ [st.regNo]: updatedSt });
+        curStat.minusLogs = updatedLogs;
+        curStat.minusCount = updatedLogs.reduce((sum, item) => sum + (Number(item.count) || 0), 0);
 
-      setStatusMsg(`✅ Deducted ${minusCount} period(s) from ${st.firstName} (#${st.adNo}).`);
-      setMinusReason('');
-      setMinusCount(1);
+        await setDoc(doc(db, 'students', docId), { periodAttendance: curStat }, { merge: true });
+        const updatedSt = { ...st, periodAttendance: curStat };
+        setSelectedMinusStudent(updatedSt);
+        setSelectedMinusStudentsList(prev => prev.map(x => x.regNo === updatedSt.regNo ? updatedSt : x));
+        syncUpdatedStudentsState({ [st.regNo]: updatedSt });
+
+        setStatusMsg(`✅ Updated minus entry for ${st.firstName} to -${minusCount} period(s) ("${minusReason.trim()}").`);
+        setEditingMinusLog(null);
+        setMinusReason('');
+        setMinusCount(1);
+      } else {
+        // ➕ BULK OR SINGLE MINUS DEDUCTION
+        const batch = writeBatch(db);
+        const updatedMap = {};
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        targetStudents.forEach((targetSt, idx) => {
+          const st = localStudents.find(s => s.regNo === targetSt.regNo) || targetSt;
+          const docId = String(st.id || st.regNo).toLowerCase().trim();
+          const curStat = JSON.parse(JSON.stringify(getStudentAttStat(st)));
+
+          const newLog = {
+            id: `minus_${Date.now()}_${idx}`,
+            date: todayStr,
+            count: Number(minusCount),
+            reason: minusReason.trim(),
+            issuedBy: loggedInUser?.fullName || 'Admin',
+            issuedByUsername: String(loggedInUser?.username || 'admin').toLowerCase()
+          };
+
+          const updatedLogs = [newLog, ...(curStat.minusLogs || [])];
+          curStat.minusLogs = updatedLogs;
+          curStat.minusCount = updatedLogs.reduce((sum, item) => sum + (Number(item.count) || 0), 0);
+
+          batch.set(doc(db, 'students', docId), { periodAttendance: curStat }, { merge: true });
+          updatedMap[st.regNo] = { ...st, periodAttendance: curStat };
+        });
+
+        await batch.commit();
+        syncUpdatedStudentsState(updatedMap);
+
+        const lastTarget = updatedMap[targetStudents[0].regNo];
+        if (lastTarget) setSelectedMinusStudent(lastTarget);
+        setSelectedMinusStudentsList(targetStudents.map(s => updatedMap[s.regNo] || s));
+
+        setStatusMsg(
+          `✅ Deducted -${minusCount} period(s) from ${targetStudents.length} student(s): ${targetStudents.map(s => `${s.firstName} (#${s.adNo})`).join(', ')}!`
+        );
+        setMinusReason('');
+        setMinusCount(1);
+      }
     } catch (error) {
       setStatusMsg('❌ Error: ' + error.message);
     } finally {
       setLoading(false);
-      setTimeout(() => setStatusMsg(''), 5000);
+      setTimeout(() => setStatusMsg(''), 6000);
     }
   };
 
   const handleDeleteMinus = async (studentObj, logItem) => {
-    const myUser = String(loggedInUser?.username || '').trim().toLowerCase();
-    const issuerUser = String(logItem.issuedByUsername || '').trim().toLowerCase();
-
-    if (userRole !== 'admin' && myUser !== issuerUser) {
+    if (!canUserModifyMinusLog(logItem)) {
       return alert('⛔ Permission Denied: You can only delete minus entries that YOU issued.');
     }
 
-    if (!window.confirm(`Delete this minus record (-${logItem.count}) and restore attendance to ${studentObj.firstName}?`)) return;
+    if (!window.confirm(`Delete minus record (-${logItem.count}) and restore attendance to ${studentObj.firstName}?`)) return;
     setLoading(true);
     try {
       const docId = String(studentObj.id || studentObj.regNo).toLowerCase().trim();
       const curStat = JSON.parse(JSON.stringify(getStudentAttStat(studentObj)));
 
-      curStat.minusLogs = (curStat.minusLogs || []).filter(l => l.id !== logItem.id);
-      curStat.minusCount = Math.max(0, (curStat.minusCount || 0) - Number(logItem.count));
+      const updatedLogs = (curStat.minusLogs || []).filter(l => l.id !== logItem.id);
+      curStat.minusLogs = updatedLogs;
+      curStat.minusCount = updatedLogs.reduce((sum, item) => sum + (Number(item.count) || 0), 0);
 
       await setDoc(doc(db, 'students', docId), { periodAttendance: curStat }, { merge: true });
       const updatedSt = { ...studentObj, periodAttendance: curStat };
       setSelectedMinusStudent(updatedSt);
       syncUpdatedStudentsState({ [studentObj.regNo]: updatedSt });
 
+      if (editingMinusLog?.id === logItem.id) {
+        setEditingMinusLog(null);
+        setMinusReason('');
+        setMinusCount(1);
+      }
       setStatusMsg(`✅ Minus entry deleted and ${logItem.count} period(s) restored!`);
     } catch (error) {
-      setStatusMsg('❌ Error deleting minus: ' + error.message);
+      setStatusMsg('❌ Error: ' + error.message);
     } finally {
       setLoading(false);
       setTimeout(() => setStatusMsg(''), 5000);
@@ -1614,6 +1795,8 @@ export default function PeriodAttendanceManager({
                       type="button"
                       onClick={() => {
                         setAttEnrollmentId(env.id);
+                        setAttSession(''); // 🌟 Reset period so teacher MUST select it manually!
+                        setExistingSessionDoc(null);
                         setActiveTab('mark_sheet');
                       }}
                       style={{
@@ -1651,7 +1834,7 @@ export default function PeriodAttendanceManager({
             >
               ⬅ Back to Subject Cards
             </button>
-            {existingSessionDoc && (
+            {existingSessionDoc && attSession && (
               <span style={{ background: '#fef3c7', color: '#92400e', padding: '5px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: '800', border: '1px solid #f59e0b' }}>
                 ✏️ Editing Saved Session ({attDate} • Period {attSession})
               </span>
@@ -1672,14 +1855,33 @@ export default function PeriodAttendanceManager({
               <input type="date" value={attDate} onChange={e => setAttDate(e.target.value)} style={styles.input} />
             </div>
             <div>
-              <label style={styles.label}>Period / Session (1 to 9):</label>
-              <select value={attSession} onChange={e => setAttSession(e.target.value)} style={styles.input}>
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(s => <option key={s} value={s}>Period {s}</option>)}
+              <label style={{ ...styles.label, color: !attSession ? '#dc2626' : '#0f172a' }}>
+                Period / Session (1 to 9) *Mandatory:
+              </label>
+              <select
+                value={attSession}
+                onChange={e => setAttSession(e.target.value)}
+                required
+                style={{
+                  ...styles.input,
+                  border: !attSession ? '2px solid #dc2626' : '2px solid #059669',
+                  background: !attSession ? '#fef2f2' : '#ffffff',
+                  fontWeight: '900'
+                }}
+              >
+                <option value="">-- ⚠️ Select Period (1 to 9) --</option>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(s => (
+                  <option key={s} value={String(s)}>Period {s}</option>
+                ))}
               </select>
             </div>
           </div>
 
-          {classStudents.length > 0 && (
+          {!attSession ? (
+            <div style={{ padding: '36px 24px', background: '#fffbeb', border: '2px dashed #f59e0b', borderRadius: '14px', textAlign: 'center', color: '#92400e', fontWeight: '900', fontSize: '15px' }}>
+              👆 Please select a Period (Period 1 to Period 9) from the dropdown above to load the roll-call sheet.
+            </div>
+          ) : classStudents.length > 0 && (
             <form onSubmit={handleSaveAttendance}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '12px 16px', borderRadius: '10px', marginBottom: '14px', fontWeight: '800', flexWrap: 'wrap', gap: '10px', border: '1px solid #cbd5e1' }}>
                 <span style={{ color: '#0f172a' }}>👥 Total: {classStudents.length}</span>
@@ -1691,7 +1893,7 @@ export default function PeriodAttendanceManager({
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '10px', maxHeight: '440px', overflowY: 'auto', marginBottom: '20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(265px, 1fr))', gap: '10px', maxHeight: '460px', overflowY: 'auto', marginBottom: '20px' }}>
                 {classStudents.map(st => {
                   const rehPresentHere = (rehearsalPresentMapForDate[String(attSession)] || []).includes(st.regNo);
                   const op = activeOutpassesByReg[st.regNo];
@@ -1708,12 +1910,13 @@ export default function PeriodAttendanceManager({
                         cursor: isAutoOfficial ? 'default' : 'pointer',
                         display: 'flex',
                         justifyContent: 'space-between',
-                        alignItems: 'center',
+                        alignItems: 'flex-start',
+                        gap: '8px',
                         background: isAutoOfficial ? '#eff6ff' : isAbsent ? '#fef2f2' : '#ecfdf5',
                         border: `2px solid ${isAutoOfficial ? '#3b82f6' : isAbsent ? '#ef4444' : '#10b981'}`
                       }}
                     >
-                      <div>
+                      <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: '800', color: isAutoOfficial ? '#1e40af' : isAbsent ? '#991b1b' : '#065f46', fontSize: '14px' }}>
                           #{st.rollNo || '-'} • {st.firstName}
                         </div>
@@ -1726,12 +1929,15 @@ export default function PeriodAttendanceManager({
                           </span>
                         )}
                         {op && (
-                          <span style={{ display: 'inline-block', marginTop: '4px', background: op.isOfficial ? '#dbeafe' : '#fef3c7', color: op.isOfficial ? '#1e40af' : '#92400e', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '900' }}>
-                            🪪 {op.category} Out-Pass
-                          </span>
+                          <div style={{ marginTop: '6px', background: op.isOfficial ? '#dbeafe' : '#fef3c7', color: op.isOfficial ? '#1e3a8a' : '#92400e', padding: '5px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', lineHeight: 1.35, border: `1px solid ${op.isOfficial ? '#93c5fd' : '#fcd34d'}` }}>
+                            <div>🪪 <strong>{op.category} Leave:</strong> {op.destination} {op.reason ? `(${op.reason})` : ''}</div>
+                            <div style={{ fontSize: '10px', marginTop: '2px', opacity: 0.9 }}>
+                              👨‍🏫 By: {op.teacherName} • ⏳ Return: {op.toFormatted}
+                            </div>
+                          </div>
                         )}
                       </div>
-                      <span style={{ padding: '4px 10px', borderRadius: '6px', fontWeight: '900', fontSize: '12px', background: isAutoOfficial ? '#2563eb' : isAbsent ? '#dc2626' : '#059669', color: '#ffffff' }}>
+                      <span style={{ padding: '4px 10px', borderRadius: '6px', fontWeight: '900', fontSize: '12px', background: isAutoOfficial ? '#2563eb' : isAbsent ? '#dc2626' : '#059669', color: '#ffffff', whiteSpace: 'nowrap' }}>
                         {isAutoOfficial ? 'OFFICIAL' : isAbsent ? 'ABSENT' : 'PRESENT'}
                       </span>
                     </div>
@@ -2176,63 +2382,168 @@ export default function PeriodAttendanceManager({
         </div>
       )}
 
-      {/* ============================================================
-          VIEW 3: MANAGE MINUS ATTENDANCE
-         ============================================================ */}
+     {/* VIEW 3: MANAGE, EDIT & DELETE MINUS ATTENDANCE (Supports Multi-Student Comma Input!) */}
+  {/* VIEW 3: MANAGE, EDIT & DELETE MINUS ATTENDANCE (Supports Multi-Student Comma Input!) */}
       {activeTab === 'minus_attendance' && !isEventLeaderUser && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
-          <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
-            <h3 style={{ margin: '0 0 14px 0', fontSize: '18px', color: '#dc2626', fontWeight: '900' }}>
-              ⚠️ Issue Disciplinary Minus Attendance
-            </h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '24px' }}>
+          <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: editingMinusLog ? '2px solid #f59e0b' : '1px solid #cbd5e1' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h3 style={{ margin: 0, fontSize: '18px', color: editingMinusLog ? '#b45309' : '#dc2626', fontWeight: '900' }}>
+                {editingMinusLog ? `✏️ Edit Minus Entry (${editingMinusLog.date})` : '⚠️ Issue Disciplinary Minus Attendance'}
+              </h3>
+              {editingMinusLog && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingMinusLog(null);
+                    setMinusCount(1);
+                    setMinusReason('');
+                  }}
+                  style={{ padding: '5px 10px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '6px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                >
+                  ✕ Cancel Edit
+                </button>
+              )}
+            </div>
 
             <form onSubmit={handleSaveMinus} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div>
-                <label style={styles.label}>Search Student by Name or Ad.No:</label>
-                <input
-                  type="text"
-                  value={minusSearchQuery}
-                  onChange={e => {
-                    setMinusSearchQuery(e.target.value);
-                    const exact = localStudents.find(s => String(s.adNo || '').toLowerCase() === e.target.value.trim().toLowerCase());
-                    if (exact) setSelectedMinusStudent(exact);
-                  }}
-                  placeholder="Type student name or Ad.No..."
-                  style={styles.input}
-                />
+                <label style={styles.label}>
+                  Search or Paste Comma-Separated Ad.Nos / Student Names:
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="text"
+                    value={minusSearchQuery}
+                    onChange={e => {
+                      setMinusSearchQuery(e.target.value);
+                      setEditingMinusLog(null);
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && minusSearchQuery.trim()) {
+                        e.preventDefault();
+                        handleAddCommaSeparatedMinusStudents();
+                      }
+                    }}
+                    placeholder="e.g. U1434, 3527, Salmanul Faris, U1107..."
+                    style={{ ...styles.input, flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddCommaSeparatedMinusStudents}
+                    style={{ padding: '0 14px', background: '#0f172a', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  >
+                    ➕ Add Matched
+                  </button>
+                </div>
+                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600', marginTop: '4px' }}>
+                  💡 Tip: Type multiple Ad.Nos or names separated by commas and click <strong>➕ Add Matched</strong> (or press Enter), or click any student pill below to add them.
+                </div>
+
                 {matchingMinusStudents.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
-                    {matchingMinusStudents.map(st => (
-                      <button
-                        key={st.regNo}
-                        type="button"
-                        onClick={() => {
-                          setSelectedMinusStudent(st);
-                          setMinusSearchQuery(`${st.firstName} (#${st.adNo})`);
-                        }}
-                        style={{
-                          padding: '6px 10px',
-                          borderRadius: '8px',
-                          border: selectedMinusStudent?.regNo === st.regNo ? '2px solid #0f766e' : '1px solid #cbd5e1',
-                          background: selectedMinusStudent?.regNo === st.regNo ? '#ccfbf1' : '#f8fafc',
-                          color: '#0f172a',
-                          fontSize: '12px',
-                          fontWeight: '800',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {st.firstName} (#{st.adNo})
-                      </button>
-                    ))}
+                    {matchingMinusStudents.map(st => {
+                      const isAdded = selectedMinusStudentsList.some(x => x.regNo === st.regNo);
+                      return (
+                        <button
+                          key={st.regNo}
+                          type="button"
+                          onClick={() => {
+                            setSelectedMinusStudent(st);
+                            setEditingMinusLog(null);
+                            setSelectedMinusStudentsList(prev =>
+                              prev.some(x => x.regNo === st.regNo) ? prev : [...prev, st]
+                            );
+                            const parts = minusSearchQuery.split(',');
+                            if (parts.length > 1) {
+                              parts.pop();
+                              setMinusSearchQuery(parts.join(', ') + ', ');
+                            } else {
+                              setMinusSearchQuery('');
+                            }
+                          }}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: '8px',
+                            border: isAdded ? '2px solid #0f766e' : '1px solid #cbd5e1',
+                            background: isAdded ? '#ccfbf1' : '#f8fafc',
+                            fontWeight: '800',
+                            cursor: 'pointer',
+                            fontSize: '12px'
+                          }}
+                        >
+                          {isAdded ? '✓ ' : '+ '}{st.firstName} (#{st.adNo})
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
-              {selectedMinusStudent && (
-                <div style={{ padding: '12px 14px', background: '#f0fdfa', border: '1.5px solid #0d9488', borderRadius: '10px', color: '#0f766e', fontWeight: '800', fontSize: '14px' }}>
-                  🎯 Selected: <strong>{selectedMinusStudent.firstName}</strong> (#{selectedMinusStudent.adNo} • Class {(selectedMinusStudent.classes || []).join(', ')})
-                  <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '2px' }}>
-                    Total Minus Deducted: -{selectedMinusStudentStats.minusCount || 0} Periods
+              {selectedMinusStudentsList.length > 0 && (
+                <div style={{ padding: '12px 14px', background: '#f0fdfa', border: '1.5px solid #0d9488', borderRadius: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ color: '#0f766e', fontWeight: '900', fontSize: '13px' }}>
+                      🎯 Selected Students for Minus ({selectedMinusStudentsList.length}):
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedMinusStudentsList([]);
+                        setSelectedMinusStudent(null);
+                      }}
+                      style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {selectedMinusStudentsList.map(st => {
+                      const stStat = getStudentAttStat(localStudents.find(x => x.regNo === st.regNo) || st);
+                      const isInspecting = selectedMinusStudent?.regNo === st.regNo;
+                      return (
+                        <span
+                          key={st.regNo}
+                          onClick={() => {
+                            setSelectedMinusStudent(localStudents.find(x => x.regNo === st.regNo) || st);
+                            setEditingMinusLog(null);
+                          }}
+                          style={{
+                            background: isInspecting ? '#0f766e' : '#ffffff',
+                            color: isInspecting ? '#ffffff' : '#0f172a',
+                            border: '1.5px solid #0f766e',
+                            padding: '5px 10px',
+                            borderRadius: '999px',
+                            fontSize: '12px',
+                            fontWeight: '800',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            cursor: 'pointer'
+                          }}
+                          title="Click to view this student's minus history on the right"
+                        >
+                          <span>{st.firstName} (#{st.adNo}) • -{stStat.minusCount || 0}</span>
+                          <button
+                            type="button"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              const next = selectedMinusStudentsList.filter(x => x.regNo !== st.regNo);
+                              setSelectedMinusStudentsList(next);
+                              if (selectedMinusStudent?.regNo === st.regNo) {
+                                setSelectedMinusStudent(next[0] || null);
+                              }
+                            }}
+                            style={{ background: 'transparent', border: 'none', color: isInspecting ? '#fecaca' : '#dc2626', fontWeight: '900', cursor: 'pointer', padding: 0 }}
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#0f766e', marginTop: '6px', fontWeight: '700' }}>
+                    👆 Click any student chip above to inspect or edit their individual minus history on the right.
                   </div>
                 </div>
               )}
@@ -2247,23 +2558,28 @@ export default function PeriodAttendanceManager({
                 <input type="text" value={minusReason} onChange={e => setMinusReason(e.target.value)} placeholder="e.g. Late to Fajr, Mobile Violation..." required style={styles.input} />
               </div>
 
-              <button type="submit" disabled={loading || !selectedMinusStudent} style={{ ...styles.buttonPrimary, background: '#dc2626' }}>
-                {loading ? 'Processing...' : '⚠️ Deduct Minus Attendance'}
+              <button
+                type="submit"
+                disabled={loading || (selectedMinusStudentsList.length === 0 && !selectedMinusStudent)}
+                style={{ ...styles.buttonPrimary, background: editingMinusLog ? '#d97706' : '#dc2626' }}
+              >
+                {loading
+                  ? 'Processing...'
+                  : editingMinusLog
+                  ? `💾 Save Updated Minus Entry for ${selectedMinusStudent?.firstName}`
+                  : `⚠️ Deduct -${minusCount} Minus from ${selectedMinusStudentsList.length || 1} Student(s)`}
               </button>
             </form>
           </div>
 
           <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
-            <h3 style={{ margin: '0 0 6px 0', fontSize: '18px', color: '#0f172a', fontWeight: '900' }}>
-              📜 Student's Minus History
-            </h3>
+            <h3 style={{ margin: '0 0 6px 0', fontSize: '18px', color: '#0f172a', fontWeight: '900' }}>📜 Student's Minus History</h3>
             <p style={{ margin: '0 0 14px 0', fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
-              🔒 Only the teacher who issued a minus (or Admin) can delete that minus record.
+              🔒 Only the teacher who issued a minus (or Admin) can edit or delete it.
             </p>
-
             {!selectedMinusStudent ? (
               <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', color: '#64748b', fontWeight: '700', textAlign: 'center' }}>
-                Select a student on the left to view their minus logs.
+                Select a student on the left to view, edit, or delete minus logs.
               </div>
             ) : (selectedMinusStudentStats.minusLogs || []).length === 0 ? (
               <div style={{ padding: '20px', background: '#ecfdf5', borderRadius: '12px', color: '#047857', fontWeight: '800', textAlign: 'center' }}>
@@ -2272,28 +2588,40 @@ export default function PeriodAttendanceManager({
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '420px', overflowY: 'auto' }}>
                 {(selectedMinusStudentStats.minusLogs || []).map(log => {
-                  const myUser = String(loggedInUser?.username || '').trim().toLowerCase();
-                  const issuerUser = String(log.issuedByUsername || '').trim().toLowerCase();
-                  const isMyMinusOrAdmin = userRole === 'admin' || (myUser !== '' && myUser === issuerUser);
+                  const canModify = canUserModifyMinusLog(log);
 
                   return (
-                    <div key={log.id} style={{ padding: '14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                    <div key={log.id} style={{ padding: '14px', background: editingMinusLog?.id === log.id ? '#fffbeb' : '#fef2f2', border: editingMinusLog?.id === log.id ? '2px solid #f59e0b' : '1px solid #fecaca', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
                       <div>
-                        <div style={{ fontSize: '15px', fontWeight: '900', color: '#991b1b' }}>-{log.count} Period(s) Deducted</div>
-                        <div style={{ fontSize: '13px', color: '#dc2626', fontWeight: '700', marginTop: '3px' }}>Reason: "{log.reason}"</div>
+                        <div style={{ fontSize: '15px', fontWeight: '900', color: '#991b1b' }}>-{log.count} Period(s)</div>
+                        <div style={{ fontSize: '13px', color: '#dc2626', fontWeight: '700', marginTop: '3px' }}>"{log.reason}"</div>
                         <div style={{ fontSize: '11px', color: '#7f1d1d', marginTop: '4px', fontWeight: '700' }}>
-                          📅 {log.date} • By Usthad: <strong>{log.issuedBy}</strong>
+                          📅 {log.date} • By: <strong>{log.issuedBy}</strong>
                         </div>
                       </div>
-                      {isMyMinusOrAdmin ? (
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteMinus(selectedMinusStudent, log)}
-                          disabled={loading}
-                          style={{ padding: '8px 12px', background: '#dc2626', color: '#ffffff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                        >
-                          🗑️ Delete
-                        </button>
+                      {canModify ? (
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingMinusLog(log);
+                              setMinusCount(log.count);
+                              setMinusReason(log.reason);
+                            }}
+                            disabled={loading}
+                            style={{ padding: '8px 12px', background: '#f59e0b', color: '#ffffff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          >
+                            ✏️ Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteMinus(selectedMinusStudent, log)}
+                            disabled={loading}
+                            style={{ padding: '8px 12px', background: '#dc2626', color: '#ffffff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          >
+                            🗑️ Delete
+                          </button>
+                        </div>
                       ) : (
                         <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '700' }}>🔒 Locked</span>
                       )}
@@ -2490,9 +2818,11 @@ export default function PeriodAttendanceManager({
         </div>
       )}
 
-      {activeTab === 'clearance' && userRole === 'admin' && (
+     {activeTab === 'clearance' && userRole === 'admin' && (
         <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
-          <h3 style={{ margin: '0 0 14px 0', fontSize: '19px', color: '#0284c7', fontWeight: '900' }}>⚖️ Medical & Official Absence Clearance</h3>
+          <h3 style={{ margin: '0 0 14px 0', fontSize: '19px', color: '#0284c7', fontWeight: '900' }}>
+            ⚖️ Medical, Official &amp; Permitted Absence Clearance
+          </h3>
           <form onSubmit={handleSaveClearance} style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '760px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
               <div>
@@ -2503,15 +2833,15 @@ export default function PeriodAttendanceManager({
                 <label style={styles.label}>Clearance Type:</label>
                 <select value={clearReason} onChange={e => setClearReason(e.target.value)} style={styles.input}>
                   <option value="official">📋 Official (Counts Present)</option>
-                  <option value="medical">🏥 Medical (Tagged Medical)</option>
+                  <option value="medical">🏥 Medical (Excused / Medical Tagged)</option>
+                  <option value="permitted">🌟 Permitted / Activity / Event (Excused)</option>
                 </select>
               </div>
               <div>
                 <label style={styles.label}>Date Mode:</label>
-                <select value={clearReason} onChange={e => setClearReason(e.target.value)} style={styles.input}>
-                  <option value="official">📋 Official (Counts Present)</option>
-                  <option value="medical">🏥 Medical (Excused / Medical Tagged)</option>
-                  <option value="permitted">🌟 Permitted / Activity / Event (Excused)</option>
+                <select value={clearDateMode} onChange={e => setClearDateMode(e.target.value)} style={styles.input}>
+                  <option value="single">Mode 1: Single Date</option>
+                  <option value="range">Mode 2: Date Range</option>
                 </select>
               </div>
             </div>
@@ -2558,7 +2888,9 @@ export default function PeriodAttendanceManager({
                 ))}
               </div>
             </div>
-            <button type="submit" disabled={loading} style={{ ...styles.buttonPrimary, background: '#0284c7' }}>✅ Apply Clearance</button>
+            <button type="submit" disabled={loading} style={{ ...styles.buttonPrimary, background: '#0284c7' }}>
+              ✅ Apply Clearance
+            </button>
           </form>
         </div>
       )}
