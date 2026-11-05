@@ -1,27 +1,24 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { auth, db } from '../../lib/firebase';
-import { 
-  createUserWithEmailAndPassword, 
-  getAuth, 
-  signOut, 
-  setPersistence, 
-  inMemoryPersistence 
+import { db } from '../../lib/firebase';
+import {
+  createUserWithEmailAndPassword,
+  getAuth,
+  signOut,
+  setPersistence,
+  inMemoryPersistence
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, getDocs, collection, deleteDoc, arrayUnion } from 'firebase/firestore';
 import { getApp, initializeApp } from 'firebase/app';
+import { DEFAULT_CLASSES, DEPARTMENTS, MADHABS, styles } from './erpConstants';
 import {
-  DEFAULT_CLASSES, DEPARTMENTS, MADHABS, styles
-} from './erpConstants';
-import {
-  INDIAN_STATES, KERALA_DISTRICTS,
+  INDIAN_STATES, KERALA_DISTRICTS, CollapsibleCard,
   compressImageFileToDataUrl, openDirectWhatsApp,
   ProfileAvatar, SubjectTeacherSelector, syncStudentToSelectedTeacherEnrollments,
   StudentPortfolioModal, computeStudentProfileCompletion, resolveClassTeacherForStudent
 } from './ErpExtensions';
 
-// Photo option removed from CSV builder (handled via PC folder multi-photo upload)
 const STUDENT_PARTIAL_FIELDS = [
   { key: 'parentWhatsapp', label: "Parent's WhatsApp Number" },
   { key: 'parentMobile', label: "Parent's Mobile Number" },
@@ -231,8 +228,6 @@ export default function StudentManager() {
           let secondaryApp;
           try { secondaryApp = getApp("SecondaryApp"); } catch (err) { secondaryApp = initializeApp(primaryApp.options, "SecondaryApp"); }
           const secondaryAuth = getAuth(secondaryApp);
-          
-          // 🔥 FORCE IN-MEMORY PERSISTENCE SO ADMIN DOESN'T GET LOGGED OUT
           await setPersistence(secondaryAuth, inMemoryPersistence);
           await createUserWithEmailAndPassword(secondaryAuth, fakeEmail, firebasePassword);
           await signOut(secondaryAuth);
@@ -324,8 +319,6 @@ export default function StudentManager() {
         let secondaryApp;
         try { secondaryApp = getApp("SecondaryApp"); } catch (err) { secondaryApp = initializeApp(primaryApp.options, "SecondaryApp"); }
         const secondaryAuth = getAuth(secondaryApp);
-
-        // 🔥 FORCE IN-MEMORY PERSISTENCE SO ADMIN DOESN'T GET LOGGED OUT
         await setPersistence(secondaryAuth, inMemoryPersistence);
 
         let updatedCount = 0;
@@ -512,8 +505,6 @@ export default function StudentManager() {
       let secondaryApp;
       try { secondaryApp = getApp("SecondaryApp"); } catch (err) { secondaryApp = initializeApp(primaryApp.options, "SecondaryApp"); }
       const secondaryAuth = getAuth(secondaryApp);
-
-      // 🔥 FORCE IN-MEMORY PERSISTENCE SO ADMIN DOESN'T GET LOGGED OUT
       await setPersistence(secondaryAuth, inMemoryPersistence);
 
       for (const [oldReg, newRegRaw] of updates) {
@@ -561,10 +552,16 @@ export default function StudentManager() {
         />
       )}
 
-      {/* 1. CUSTOM PARTIAL CSV & PC FOLDER MULTI-PHOTO UPLOADER (BY AD.NO) */}
-      <div style={styles.card}>
-        <h3 style={styles.sectionTitle}>🗄️ Students CSV Uploader &amp; Bulk PC Folder Photo Uploader (By Ad.No)</h3>
-        <p style={{ fontSize: '13px', color: '#334155', marginBottom: '12px', lineHeight: '1.5', fontWeight: '600' }}>
+      {/* 🌟 SLIDING DRAWER 1: CUSTOM PARTIAL CSV & PC FOLDER MULTI-PHOTO UPLOADER */}
+      <CollapsibleCard
+        title="Students CSV Uploader & Bulk PC Folder Photo Uploader (By Ad.No)"
+        subtitle="Click to open custom CSV template downloader, bulk CSV uploader, or bulk student photo linker"
+        badgeText="CSV & Photos"
+        icon="🗄️"
+        accentColor="#0284c7"
+        defaultOpen={false}
+      >
+        <p style={{ fontSize: '13px', color: '#334155', marginTop: 0, marginBottom: '12px', lineHeight: '1.5', fontWeight: '600' }}>
           Select the specific student columns you want to update via CSV, OR select all student photos from a folder on your PC named with their Admission Number (e.g. <code>3529.jpg</code>, <code>U1278.png</code>):
         </p>
 
@@ -610,14 +607,25 @@ export default function StudentManager() {
           </label>
           {bulkPhotoProgress && <span style={{ fontWeight: '800', color: '#0284c7', fontSize: '13px' }}>⏳ {bulkPhotoProgress}</span>}
         </div>
-      </div>
+      </CollapsibleCard>
 
-      {/* 2. STUDENT REGISTRATION & SINGLE-CHOICE SUBJECT-TEACHER MAPPING FORM */}
-      <div style={{ ...styles.card, borderLeft: isEditing ? '6px solid #f59e0b' : '1px solid #cbd5e1' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-          <h3 style={styles.sectionTitle}>{isEditing ? `Editing Student: ${firstName} (${regNo})` : 'Register Student & Assign Subject Teachers'}</h3>
-          {isEditing && <button type="button" onClick={resetForm} style={{ padding: '8px 16px', background: '#e2e8f0', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '800' }}>Cancel</button>}
-        </div>
+      {/* 🌟 SLIDING DRAWER 2: STUDENT REGISTRATION & 14-SUBJECT TEACHER MAPPER (Auto-Opens When Editing!) */}
+      <CollapsibleCard
+        key={isEditing ? `edit_${regNo}` : 'new_student'}
+        title={isEditing ? `✏️ Editing Student: ${firstName} (${regNo})` : 'Register New Student & Assign Subject Teachers'}
+        subtitle="Click to open student registration form and 14-subject teacher mapper"
+        badgeText={isEditing ? 'Editing Mode' : '+ Add Student'}
+        icon={isEditing ? '✏️' : '👨‍🎓'}
+        accentColor={isEditing ? '#f59e0b' : '#0f766e'}
+        defaultOpen={isEditing}
+      >
+        {isEditing && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+            <button type="button" onClick={resetForm} style={{ padding: '8px 16px', background: '#e2e8f0', color: '#0f172a', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>
+              ✕ Cancel Editing
+            </button>
+          </div>
+        )}
 
         <form onSubmit={handleAddOrUpdateStudent} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div style={{ background: '#f8fafc', padding: '18px', borderRadius: '12px', border: '1.5px solid #cbd5e1' }}>
@@ -658,8 +666,7 @@ export default function StudentManager() {
             </div>
             <div><label style={styles.label}>Department</label><select value={department} onChange={(e) => setDepartment(e.target.value)} style={styles.input}>{DEPARTMENTS.map(dept => <option key={dept} value={dept}>{dept}</option>)}</select></div>
             <div><label style={styles.label}>Madhab</label><select value={madhab} onChange={(e) => setMadhab(e.target.value)} style={styles.input}>{MADHABS.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
-            
-            {/* ALL INDIAN STATES + NEPAL */}
+
             <div>
               <label style={styles.label}>State / Country</label>
               <select
@@ -679,7 +686,6 @@ export default function StudentManager() {
               </select>
             </div>
 
-            {/* DYNAMIC DISTRICT: DROPDOWN FOR KERALA, TYPEABLE TEXT INPUT FOR NON-KERALA & NEPAL */}
             <div>
               <label style={styles.label}>
                 {state === 'Kerala' ? 'District (Kerala)' : 'District / Province / City (Type)'}
@@ -726,41 +732,46 @@ export default function StudentManager() {
             {isLoading ? 'Processing...' : isEditing ? 'Update Student Profile & Subject Teachers' : 'Register Student & Map to Selected Teachers'}
           </button>
         </form>
-        {statusMsg && <div style={{ marginTop: '20px', padding: '16px', background: statusMsg.includes('Error') ? '#fee2e2' : '#ecfdf5', borderRadius: '8px', color: statusMsg.includes('Error') ? '#991b1b' : '#065f46', fontWeight: '800' }}>{statusMsg}</div>}
-      </div>
+      </CollapsibleCard>
+
+      {statusMsg && (
+        <div style={{ marginBottom: '18px', padding: '14px 18px', background: statusMsg.includes('Error') ? '#fee2e2' : '#ecfdf5', borderRadius: '12px', color: statusMsg.includes('Error') ? '#991b1b' : '#065f46', fontWeight: '800', border: `1px solid ${statusMsg.includes('Error') ? '#fecaca' : '#a7f3d0'}` }}>
+          {statusMsg}
+        </div>
+      )}
 
       {/* 3. STUDENTS DIRECTORY WITH PROFILE COMPLETION KPI BANNER & BULK GROUP ASSIGNMENT */}
       <div style={styles.card}>
         <h3 style={styles.sectionTitle}>⚡ Student Profile Completion Rate &amp; Directory ({filteredStudents.length} of {registeredStudents.length})</h3>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '22px' }}>
-          <div onClick={() => setFilterCompletion('All')} style={{ padding: '18px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center', cursor: 'pointer' }}>
+          <div onClick={() => setFilterCompletion('All')} style={{ padding: '18px', borderRadius: '14px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center', cursor: 'pointer' }}>
             <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', letterSpacing: '0.5px' }}>TOTAL ENROLLED</span>
             <div style={{ fontSize: '26px', fontWeight: '900', color: '#0f172a', marginTop: '6px' }}>{totalStudentsCount}</div>
           </div>
-          <div onClick={() => setFilterCompletion('Complete')} style={{ padding: '18px', borderRadius: '12px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center', cursor: 'pointer' }}>
+          <div onClick={() => setFilterCompletion('Complete')} style={{ padding: '18px', borderRadius: '14px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center', cursor: 'pointer' }}>
             <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857', letterSpacing: '0.5px' }}>COMPLETE PROFILES (100%)</span>
             <div style={{ fontSize: '26px', fontWeight: '900', color: '#047857', marginTop: '6px' }}>{completeStudentsCount}</div>
           </div>
-          <div onClick={() => setFilterCompletion('Incomplete')} style={{ padding: '18px', borderRadius: '12px', background: '#fee2e2', border: '1px solid #fecaca', textAlign: 'center', cursor: 'pointer' }}>
+          <div onClick={() => setFilterCompletion('Incomplete')} style={{ padding: '18px', borderRadius: '14px', background: '#fee2e2', border: '1px solid #fecaca', textAlign: 'center', cursor: 'pointer' }}>
             <span style={{ fontSize: '11px', fontWeight: '800', color: '#991b1b', letterSpacing: '0.5px' }}>MISSING / INCOMPLETE</span>
             <div style={{ fontSize: '26px', fontWeight: '900', color: '#dc2626', marginTop: '6px' }}>{incompleteStudentsCount}</div>
           </div>
-          <div style={{ padding: '18px', borderRadius: '12px', background: '#eff6ff', border: '1px solid #bfdbfe', textAlign: 'center' }}>
+          <div style={{ padding: '18px', borderRadius: '14px', background: '#eff6ff', border: '1px solid #bfdbfe', textAlign: 'center' }}>
             <span style={{ fontSize: '11px', fontWeight: '800', color: '#1e40af', letterSpacing: '0.5px' }}>PROFILE COMPLETION RATE</span>
             <div style={{ fontSize: '26px', fontWeight: '900', color: '#2563eb', marginTop: '6px' }}>{overallCompletionPct}%</div>
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', marginBottom: '18px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', marginBottom: '18px', background: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
           <button
             onClick={() => { setIsRegNoEditMode(!isRegNoEditMode); setRegNoDrafts({}); }}
-            style={{ padding: '8px 14px', background: isRegNoEditMode ? '#fef3c7' : '#f8fafc', color: isRegNoEditMode ? '#d97706' : '#0f172a', border: `1.5px solid ${isRegNoEditMode ? '#fcd34d' : '#94a3b8'}`, borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}
+            style={{ padding: '8px 14px', background: isRegNoEditMode ? '#fef3c7' : '#ffffff', color: isRegNoEditMode ? '#d97706' : '#0f172a', border: `1.5px solid ${isRegNoEditMode ? '#fcd34d' : '#94a3b8'}`, borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}
           >
             {isRegNoEditMode ? 'Cancel Edit Mode' : '✏️ Mass Edit RegNo'}
           </button>
 
-          <input type="text" placeholder="Search Name, Ad.No..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ ...styles.filterSelect, minWidth: '160px' }} />
+          <input type="text" placeholder="🔍 Search Name, Ad.No..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ ...styles.filterSelect, minWidth: '175px' }} />
 
           <select value={filterCompletion} onChange={(e) => setFilterCompletion(e.target.value)} style={styles.filterSelect}>
             <option value="All">All Profile Status</option>
@@ -787,7 +798,7 @@ export default function StudentManager() {
             {teachersList.map(t => <option key={t.username} value={t.username}>Mentor: {t.fullName}</option>)}
           </select>
           <select value={filterState} onChange={(e) => setFilterState(e.target.value)} style={styles.filterSelect}>
-            <option value="All">All States / Countries</option>
+            <option value="All">All States</option>
             {INDIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <select value={filterMadhab} onChange={(e) => setFilterMadhab(e.target.value)} style={styles.filterSelect}>
@@ -795,12 +806,12 @@ export default function StudentManager() {
             {MADHABS.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
           <select value={filterLanguage} onChange={(e) => setFilterLanguage(e.target.value)} style={styles.filterSelect}>
-            <option value="All">All Languages</option><option value="Urdu">Urdu Only</option><option value="Non-Urdu">Non-Urdu</option>
+            <option value="All">All Streams</option><option value="Urdu">Urdu Only</option><option value="Non-Urdu">Non-Urdu</option>
           </select>
         </div>
 
         {selectedRows.length > 0 && !isRegNoEditMode && (
-          <div style={{ padding: '16px', background: '#eff6ff', border: '2px solid #3b82f6', borderRadius: '12px', marginBottom: '22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+          <div className="erp-slide-panel" style={{ padding: '16px', background: '#eff6ff', border: '2px solid #3b82f6', borderRadius: '12px', marginBottom: '22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
             <div>
               <strong style={{ color: '#1e3a8a', fontSize: '15px', display: 'block' }}>
                 ☑️ {selectedRows.length} Students Selected
@@ -858,21 +869,21 @@ export default function StudentManager() {
           </div>
         )}
 
-        <div style={{ width: '100%', overflowX: 'auto' }}>
+        <div style={{ width: '100%', overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '14px' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '960px' }}>
             <thead>
-              <tr style={{ background: '#00a8b5', color: '#ffffff' }}>
+              <tr style={{ background: '#0f172a', color: '#ffffff' }}>
                 {!isRegNoEditMode && (
-                  <th style={{ padding: '12px 14px', width: '40px', color: '#ffffff' }}><input type="checkbox" checked={filteredStudents.length > 0 && selectedRows.length === filteredStudents.length} onChange={() => toggleSelectAll(filteredStudents)} style={{ width: '16px', height: '16px', cursor: 'pointer' }} /></th>
+                  <th style={{ padding: '14px', width: '40px', color: '#ffffff' }}><input type="checkbox" checked={filteredStudents.length > 0 && selectedRows.length === filteredStudents.length} onChange={() => toggleSelectAll(filteredStudents)} style={{ width: '16px', height: '16px', cursor: 'pointer' }} /></th>
                 )}
-                <th style={{ padding: '12px 14px', fontWeight: '800', color: '#ffffff' }}>Sn</th>
-                <th style={{ padding: '12px 14px', fontWeight: '800', color: '#ffffff' }}>Reg.No</th>
-                {isRegNoEditMode && <th style={{ padding: '12px 14px', color: '#fef08a', fontWeight: '800' }}>Type New Reg.No</th>}
-                <th style={{ padding: '12px 14px', fontWeight: '800', color: '#ffffff' }}>Student & Ad.No</th>
-                <th style={{ padding: '12px 14px', fontWeight: '800', color: '#ffffff' }}>Mentor, Class Teacher & Location</th>
-                <th style={{ padding: '12px 14px', fontWeight: '800', color: '#ffffff' }}>Classes & Dept</th>
-                <th style={{ padding: '12px 14px', fontWeight: '800', color: '#ffffff' }}>Profile Completion</th>
-                {!isRegNoEditMode && <th style={{ padding: '12px 14px', fontWeight: '800', color: '#ffffff', textAlign: 'right' }}>Actions</th>}
+                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Sn</th>
+                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Reg.No</th>
+                {isRegNoEditMode && <th style={{ padding: '14px', color: '#fef08a', fontWeight: '800' }}>Type New Reg.No</th>}
+                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Student &amp; Ad.No</th>
+                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Mentor, Class Teacher &amp; Location</th>
+                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Classes &amp; Dept</th>
+                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Profile Completion</th>
+                {!isRegNoEditMode && <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff', textAlign: 'right' }}>Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -883,7 +894,7 @@ export default function StudentManager() {
                 const autoCT = resolveClassTeacherForStudent(student, teachersList);
 
                 return (
-                  <tr key={index} style={{ borderBottom: '1px solid #e2e8f0', background: selectedRows.includes(student.regNo) || regNoDrafts[student.regNo] ? '#f0f9ff' : '#ffffff' }}>
+                  <tr key={index} style={{ borderBottom: '1px solid #e2e8f0', background: selectedRows.includes(student.regNo) || regNoDrafts[student.regNo] ? '#f0f9ff' : index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
                     {!isRegNoEditMode && (
                       <td style={{ padding: '12px 14px' }}><input type="checkbox" checked={selectedRows.includes(student.regNo)} onChange={() => toggleRowSelect(student.regNo)} style={{ width: '16px', height: '16px', cursor: 'pointer' }} /></td>
                     )}
@@ -937,8 +948,8 @@ export default function StudentManager() {
                     {!isRegNoEditMode && (
                       <td style={{ padding: '12px 14px', textAlign: 'right' }}>
                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                          <button onClick={() => setPortfolioModalStudent(student)} style={{ padding: '6px 10px', background: '#f0fdfa', color: '#0f766e', border: '1px solid #0d9488', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>🏆 Details / Portfolio</button>
-                          <button onClick={() => openDirectWhatsApp(student.parentWhatsapp || student.parentMobile, `Assalamu Alaikum, official update regarding ${student.firstName} (#${student.adNo}) from DHIU Portal:`)} style={{ padding: '6px 10px', background: '#dcfce7', color: '#166534', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>💬 Parent WA</button>
+                          <button onClick={() => setPortfolioModalStudent(student)} style={{ padding: '6px 10px', background: '#f0fdfa', color: '#0f766e', border: '1px solid #0d9488', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>🏆 Portfolio</button>
+                          <button onClick={() => openDirectWhatsApp(student.parentWhatsapp || student.parentMobile, `Assalamu Alaikum, official update regarding ${student.firstName} (#${student.adNo}) from DHIU Portal:`)} style={{ padding: '6px 10px', background: '#dcfce7', color: '#166534', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>💬 WA</button>
                           <button onClick={() => handleEditClick(student)} style={{ padding: '6px 10px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>Edit</button>
                           <button onClick={() => handleDeleteClick(student.regNo)} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>Delete</button>
                         </div>

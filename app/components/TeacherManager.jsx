@@ -12,11 +12,10 @@ import {
 import { doc, setDoc, getDoc, getDocs, collection, deleteDoc } from 'firebase/firestore';
 import { getApp, initializeApp } from 'firebase/app';
 import {
-  WEB_APP_URL, DEFAULT_SUBJECTS, DEFAULT_CLASSES,
-  GRADES, styles
+  WEB_APP_URL, DEFAULT_SUBJECTS, DEFAULT_CLASSES, GRADES, styles
 } from './erpConstants';
 import {
-  INDIAN_STATES, KERALA_DISTRICTS,
+  INDIAN_STATES, KERALA_DISTRICTS, CollapsibleCard,
   compressImageFileToDataUrl, openDirectWhatsApp, openWhatsAppGroupAndCopy,
   sendDirectEmailNotification, ProfileAvatar, TeacherPrivilegeModal
 } from './ErpExtensions';
@@ -74,7 +73,6 @@ export default function TeacherManager({ onOpenProxyMarks }) {
   const [isEventLeaderRole, setIsEventLeaderRole] = useState(false);
   const [classTeacherOf, setClassTeacherOf] = useState([]);
 
-  // 🌟 Attendance-Only (Non-Mark) Subject Mode State
   const [isNonMarkMode, setIsNonMarkMode] = useState(false);
 
   const [registeredTeachers, setRegisteredTeachers] = useState([]);
@@ -211,7 +209,6 @@ export default function TeacherManager({ onOpenProxyMarks }) {
       let secondaryApp;
       try { secondaryApp = getApp("SecondaryApp"); } catch (err) { secondaryApp = initializeApp(primaryApp.options, "SecondaryApp"); }
       const secondaryAuth = getAuth(secondaryApp);
-
       await setPersistence(secondaryAuth, inMemoryPersistence);
 
       for (const row of rows) {
@@ -275,7 +272,6 @@ export default function TeacherManager({ onOpenProxyMarks }) {
     e.target.value = null;
   };
 
-  // 🌟 Add Standard or Attendance-Only (Non-Mark) Subject Enrollment
   const handleAddEnrollment = () => {
     const cleanSub = String(envSubject || '').trim();
     if (!cleanSub || !envTargetClass) return alert("Please select Grade, Class, and Subject.");
@@ -291,7 +287,7 @@ export default function TeacherManager({ onOpenProxyMarks }) {
       subject: cleanSub,
       alias: generatedAlias,
       langTag: envLangTag,
-      isAttendanceOnly: Boolean(isNonMarkMode), // 🌟 Marks as Attendance-Only if checkbox is ticked!
+      isAttendanceOnly: Boolean(isNonMarkMode),
       studentIds: []
     };
     setEnrollments([...enrollments, newEnv]);
@@ -320,7 +316,6 @@ export default function TeacherManager({ onOpenProxyMarks }) {
         let secondaryApp;
         try { secondaryApp = getApp("SecondaryApp"); } catch (err) { secondaryApp = initializeApp(primaryApp.options, "SecondaryApp"); }
         const secondaryAuth = getAuth(secondaryApp);
-
         await setPersistence(secondaryAuth, inMemoryPersistence);
 
         try {
@@ -331,7 +326,6 @@ export default function TeacherManager({ onOpenProxyMarks }) {
         await signOut(secondaryAuth);
       }
 
-      // Deduplicate any double Hifz slots first
       const seenHifz = new Set();
       let finalEnrollments = enrollments.filter(e => {
         const isSubHifz = String(e.subject || '').toUpperCase() === 'HIFZ' || String(e.alias || '').toUpperCase().includes('HIFZ');
@@ -363,7 +357,6 @@ export default function TeacherManager({ onOpenProxyMarks }) {
         }
       });
 
-      // If marked as Event Leader and has no rehearsal slot yet, create one automatically
       if (isEventLeaderRole && finalEnrollments.length === 0) {
         finalEnrollments.push({
           id: `rehearsal_${safeUsername}`,
@@ -523,9 +516,15 @@ export default function TeacherManager({ onOpenProxyMarks }) {
         />
       )}
 
-      {/* 1. CUSTOM PARTIAL CSV & PC FOLDER PHOTO UPLOADER FOR TEACHERS */}
-      <div style={styles.card}>
-        <h3 style={styles.sectionTitle}>📂 Teachers CSV Uploader &amp; Bulk PC Folder Photo Uploader</h3>
+      {/* 🌟 SLIDING DRAWER 1: CUSTOM PARTIAL CSV & PC FOLDER PHOTO UPLOADER FOR TEACHERS */}
+      <CollapsibleCard
+        title="Teachers CSV Uploader & Bulk PC Folder Photo Uploader"
+        subtitle="Click to open teacher CSV template generator, bulk CSV uploader, or faculty photo linker"
+        badgeText="CSV & Photos"
+        icon="📂"
+        accentColor="#0284c7"
+        defaultOpen={false}
+      >
         <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#334155', fontWeight: '600' }}>
           Select specific teacher fields to generate a custom partial CSV template, OR select teacher photos from a PC folder named by their username (e.g. <code>yusuf.jpg</code>):
         </p>
@@ -572,14 +571,25 @@ export default function TeacherManager({ onOpenProxyMarks }) {
           </label>
           {bulkTeacherPhotoProgress && <span style={{ fontWeight: '800', color: '#0284c7', fontSize: '13px' }}>⏳ {bulkTeacherPhotoProgress}</span>}
         </div>
-      </div>
+      </CollapsibleCard>
 
-      {/* 2. REGISTER / EDIT TEACHER FORM WITH MULTI-ROLE & ATTENDANCE-ONLY SUBJECTS */}
-      <div style={{ ...styles.card, borderLeft: isEditing ? '6px solid #f59e0b' : '1px solid #cbd5e1' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h3 style={styles.sectionTitle}>{isEditing ? `Editing Teacher: ${username}` : 'Register Teacher, Roles & Subject Assignments'}</h3>
-          {isEditing && <button type="button" onClick={resetForm} style={{ padding: '8px 16px', background: '#e2e8f0', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '800' }}>Cancel</button>}
-        </div>
+      {/* 🌟 SLIDING DRAWER 2: REGISTER / EDIT TEACHER FORM (Auto-Opens When Editing!) */}
+      <CollapsibleCard
+        key={isEditing ? `edit_${username}` : 'new_teacher'}
+        title={isEditing ? `✏️ Editing Teacher: ${fullName} (@${username})` : 'Register Teacher, Roles & Subject Assignments'}
+        subtitle="Click to open faculty registration form, multi-role selector, and subject mapper"
+        badgeText={isEditing ? 'Editing Mode' : '+ Add Faculty'}
+        icon={isEditing ? '✏️' : '👨‍🏫'}
+        accentColor={isEditing ? '#f59e0b' : '#0f766e'}
+        defaultOpen={isEditing}
+      >
+        {isEditing && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+            <button type="button" onClick={resetForm} style={{ padding: '8px 16px', background: '#e2e8f0', color: '#0f172a', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>
+              ✕ Cancel Editing
+            </button>
+          </div>
+        )}
 
         <form onSubmit={handleAddOrUpdateTeacher} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
@@ -699,7 +709,6 @@ export default function TeacherManager({ onOpenProxyMarks }) {
               Assign regular academic subjects (with marks) OR tick the checkbox below to add an <strong>Attendance-Only Period (No Marks — e.g. Speech Practice, PKV, Debate)</strong>.
             </p>
 
-            {/* 🌟 FIXED PLACEMENT: Attendance-Only Toggle Bar cleanly ABOVE the 4 dropdowns! */}
             <div style={{ marginBottom: '14px', padding: '12px 16px', background: isNonMarkMode ? '#fffbeb' : '#ffffff', borderRadius: '10px', border: isNonMarkMode ? '2px solid #d97706' : '1.5px solid #0d9488', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', fontWeight: '800', color: isNonMarkMode ? '#b45309' : '#0f766e', cursor: 'pointer' }}>
                 <input
@@ -838,31 +847,24 @@ export default function TeacherManager({ onOpenProxyMarks }) {
             {isLoading ? 'Processing...' : isEditing ? 'Update Teacher Profile & Roles' : 'Register Teacher'}
           </button>
         </form>
+      </CollapsibleCard>
 
-        {statusMsg && (
-          <div style={{ marginTop: '20px', padding: '16px', background: statusMsg.includes('Error') ? '#fee2e2' : '#ecfdf5', borderRadius: '8px', color: statusMsg.includes('Error') ? '#991b1b' : '#065f46', fontWeight: '800' }}>
-            {statusMsg}
-          </div>
-        )}
-      </div>
-
-      {/* 3. BROADCAST COMPOSER */}
-      <div style={{ ...styles.card, background: '#eff6ff', border: '2px solid #3b82f6' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
-          <div>
-            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#1e3a8a' }}>
-              📢 Broadcast Message to Teachers (Portal Banner + Email + Individual/Group WhatsApp)
-            </h3>
-            <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#1e40af', fontWeight: '600' }}>
-              Select specific teachers below, or send directly to the Official Staff WhatsApp Group.
-            </p>
-          </div>
-          <span style={{ background: '#1d4ed8', color: '#ffffff', padding: '6px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: '800' }}>
-            {selectedTeacherUsernames.length === 0 ? `All Teachers (${registeredTeachers.length})` : `${selectedTeacherUsernames.length} Teacher(s) Selected`}
-          </span>
+      {statusMsg && (
+        <div style={{ marginBottom: '18px', padding: '14px 18px', background: statusMsg.includes('Error') ? '#fee2e2' : '#ecfdf5', borderRadius: '12px', color: statusMsg.includes('Error') ? '#991b1b' : '#065f46', fontWeight: '800', border: `1px solid ${statusMsg.includes('Error') ? '#fecaca' : '#a7f3d0'}` }}>
+          {statusMsg}
         </div>
+      )}
 
-        <div style={{ background: '#ffffff', padding: '12px', borderRadius: '10px', border: '1px solid #bfdbfe', marginBottom: '12px' }}>
+      {/* 🌟 SLIDING DRAWER 3: BROADCAST COMPOSER */}
+      <CollapsibleCard
+        title="Broadcast Message to Teachers (Portal Banner + Email + WhatsApp)"
+        subtitle="Click to open announcement composer for Teacher Portals, Email, and Staff WhatsApp Group"
+        badgeText={selectedTeacherUsernames.length === 0 ? `All (${registeredTeachers.length})` : `${selectedTeacherUsernames.length} Selected`}
+        icon="📢"
+        accentColor="#2563eb"
+        defaultOpen={false}
+      >
+        <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', marginBottom: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '12px', fontWeight: '800', color: '#1e3a8a' }}>
               👥 Click Teachers to Select Recipients:
@@ -871,7 +873,7 @@ export default function TeacherManager({ onOpenProxyMarks }) {
               <button type="button" onClick={() => setSelectedTeacherUsernames(registeredTeachers.map(t => t.username))} style={{ padding: '4px 10px', background: '#dbeafe', color: '#1e40af', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}>
                 Select All
               </button>
-              <button type="button" onClick={() => setSelectedTeacherUsernames([])} style={{ padding: '4px 10px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}>
+              <button type="button" onClick={() => setSelectedTeacherUsernames([])} style={{ padding: '4px 10px', background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}>
                 Clear Selection (Send to All)
               </button>
             </div>
@@ -886,7 +888,7 @@ export default function TeacherManager({ onOpenProxyMarks }) {
                   onClick={() => toggleSelectTeacherForBroadcast(t.username)}
                   style={{
                     padding: '5px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '700', cursor: 'pointer',
-                    background: active ? '#1d4ed8' : '#f8fafc',
+                    background: active ? '#1d4ed8' : '#ffffff',
                     color: active ? '#ffffff' : '#0f172a',
                     border: active ? '1.5px solid #1d4ed8' : '1px solid #cbd5e1'
                   }}
@@ -898,7 +900,7 @@ export default function TeacherManager({ onOpenProxyMarks }) {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px', marginBottom: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px', marginBottom: '12px' }}>
           <input
             type="text"
             placeholder="Title (e.g. Urgent Faculty Meeting / Mark Entry Notice)"
@@ -1000,23 +1002,23 @@ export default function TeacherManager({ onOpenProxyMarks }) {
             ✕ Clear Banner
           </button>
         </div>
-      </div>
+      </CollapsibleCard>
 
       {/* 4. TEACHERS DIRECTORY */}
       <div style={styles.card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-          <h3 style={{ ...styles.sectionTitle, margin: 0, borderBottom: 'none' }}>🛡️ Users, Faculty &amp; Privileges Directory</h3>
+          <h3 style={{ ...styles.sectionTitle, margin: 0, borderBottom: 'none' }}>🛡️ Users, Faculty &amp; Privileges Directory ({registeredTeachers.length})</h3>
           {selectedTeacherUsernames.length > 0 && (
             <button type="button" onClick={() => setSelectedTeacherUsernames([])} style={{ padding: '6px 12px', background: '#f1f5f9', color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>
               Clear Selection ({selectedTeacherUsernames.length})
             </button>
           )}
         </div>
-        <div style={{ overflowX: 'auto' }}>
+        <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '14px' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '880px' }}>
             <thead>
-              <tr style={{ background: '#00a8b5', color: '#ffffff' }}>
-                <th style={{ padding: '12px 14px', width: '42px', color: '#ffffff' }}>
+              <tr style={{ background: '#0f172a', color: '#ffffff' }}>
+                <th style={{ padding: '14px', width: '42px', color: '#ffffff' }}>
                   <input
                     type="checkbox"
                     checked={registeredTeachers.length > 0 && selectedTeacherUsernames.length === registeredTeachers.length}
@@ -1024,12 +1026,12 @@ export default function TeacherManager({ onOpenProxyMarks }) {
                     style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                   />
                 </th>
-                <th style={{ padding: '12px 14px', fontWeight: '800', color: '#ffffff' }}>Sn</th>
-                <th style={{ padding: '12px 14px', fontWeight: '800', color: '#ffffff' }}>Teacher &amp; Username</th>
-                <th style={{ padding: '12px 14px', fontWeight: '800', color: '#ffffff' }}>Roles &amp; Class Teacher</th>
-                <th style={{ padding: '12px 14px', fontWeight: '800', color: '#ffffff' }}>Contact &amp; Location</th>
-                <th style={{ padding: '12px 14px', fontWeight: '800', color: '#ffffff' }}>Subjects Taught</th>
-                <th style={{ padding: '12px 14px', fontWeight: '800', color: '#ffffff', textAlign: 'right' }}>Actions</th>
+                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Sn</th>
+                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Teacher &amp; Username</th>
+                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Roles &amp; Class Teacher</th>
+                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Contact &amp; Location</th>
+                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Subjects Taught</th>
+                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff', textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1039,7 +1041,7 @@ export default function TeacherManager({ onOpenProxyMarks }) {
                 const isLeader = Boolean(teacher.isEventLeader || teacher.roleCategory === 'Event Leader');
 
                 return (
-                  <tr key={index} style={{ borderBottom: '1px solid #e2e8f0', background: isSelected ? '#eff6ff' : '#ffffff' }}>
+                  <tr key={index} style={{ borderBottom: '1px solid #e2e8f0', background: isSelected ? '#eff6ff' : index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
                     <td style={{ padding: '12px 14px' }}>
                       <input
                         type="checkbox"
@@ -1099,7 +1101,7 @@ export default function TeacherManager({ onOpenProxyMarks }) {
                     </td>
                     <td style={{ padding: '12px 14px', textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                        <button onClick={() => setPrivilegeModalTeacher(teacher)} style={{ padding: '7px 12px', background: '#00a8b5', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>
+                        <button onClick={() => setPrivilegeModalTeacher(teacher)} style={{ padding: '7px 12px', background: '#00897b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>
                           🔑 Roles &amp; Leaves
                         </button>
                         <button onClick={() => openDirectWhatsApp(teacher.whatsappNumber || teacher.mobileNumber, `Assalamu Alaikum ${teacher.fullName}, message from DHIU Admin:`)} style={{ padding: '7px 10px', background: '#dcfce7', color: '#166534', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>

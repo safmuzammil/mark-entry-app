@@ -47,13 +47,20 @@ export default function NightAttendanceManager({
   // statusMap: { [adNo]: 'PRESENT' | 'ABSENT' | 'OUTPASS' | 'SICK_ROOM' }
   const [statusMap, setStatusMap] = useState({});
   const [remarksMap, setRemarksMap] = useState({});
+  const [expandedRemarkAdNo, setExpandedRemarkAdNo] = useState(null);
+  const [showForwardDrawer, setShowForwardDrawer] = useState(false);
+
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
-  // 🌟 NEW: Night Attendance Report Scope ('daily' | 'monthly' | 'total')
+
+  // Night Attendance Report Scope ('daily' | 'monthly' | 'total')
   const [nightRepScope, setNightRepScope] = useState('daily');
   const [nightRepMonth, setNightRepMonth] = useState(() => getTodayDateString().slice(0, 7)); // 'YYYY-MM'
   const [nightRepClass, setNightRepClass] = useState('ALL');
+
+  useEffect(() => { setStudents(preloadedStudents); }, [preloadedStudents]);
+  useEffect(() => { setTeachers(preloadedTeachers); }, [preloadedTeachers]);
 
   const recorderName = isAdmin
     ? 'Admin'
@@ -72,7 +79,7 @@ export default function NightAttendanceManager({
     async function initData() {
       try {
         const promises = [
-          getDocs(query(collection(db, 'out_passes'), orderBy('createdAt', 'desc'), limit(250))),
+          getDocs(query(collection(db, 'out_passes'), orderBy('createdAt', 'desc'), limit(300))),
           getDoc(doc(db, 'systemCache', 'whatsappGroups'))
         ];
         if (students.length === 0) promises.push(getDocs(collection(db, 'students')));
@@ -123,7 +130,7 @@ export default function NightAttendanceManager({
     return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
-  // 🌟 FIXED: Matches student Ad.No AND verifies the Out-Pass is active on `selectedDate`!
+  // Matches student Ad.No AND verifies the Out-Pass is active on `selectedDate`
   const getActiveOutpassForStudent = (adNo) => {
     const cleanAd = String(adNo || '').trim().toLowerCase();
     if (!cleanAd) return null;
@@ -140,12 +147,10 @@ export default function NightAttendanceManager({
         ? (p.actualReturnTime ? isoToLocalYMD(p.actualReturnTime) : '2099-12-31')
         : isoToLocalYMD(p.actualReturnTime || p.permittedTo);
 
-      // If taking night attendance for today, any currently OUTSIDE or APPROVED pass covering today counts
       if (selectedDate === todayStr && (st === 'OUTSIDE' || st === 'APPROVED')) {
         return !fromYMD || selectedDate >= fromYMD;
       }
 
-      // For any selectedDate, check if the student was out during that date
       if (fromYMD && selectedDate >= fromYMD && selectedDate <= toYMD) {
         return st === 'OUTSIDE' || st === 'APPROVED' || st === 'ARRIVED_AT_GATE' || st === 'RETURNED';
       }
@@ -186,7 +191,6 @@ export default function NightAttendanceManager({
       const activePass = getActiveOutpassForStudent(ad);
 
       if (savedClassRecord) {
-        // Restore saved record for this class
         if ((savedClassRecord.absentAdNos || []).includes(ad)) {
           newStatus[ad] = 'ABSENT';
         } else if ((savedClassRecord.outpassAdNos || []).includes(ad) || activePass) {
@@ -202,7 +206,6 @@ export default function NightAttendanceManager({
           newRemarks[ad] = `${activePass.leaveCategory || 'Leave'}: ${activePass.destination} (${activePass.purpose}) — By ${activePass.teacherName}`;
         }
       } else {
-        // Fresh sheet: Automatically mark students with active Out-Pass as 'OUTPASS' with full reason & teacher!
         if (activePass) {
           newStatus[ad] = 'OUTPASS';
           newRemarks[ad] = `${activePass.leaveCategory || 'Leave'}: ${activePass.destination} (${activePass.purpose}) — By ${activePass.teacherName}`;
@@ -216,11 +219,11 @@ export default function NightAttendanceManager({
     setRemarksMap(newRemarks);
   }, [selectedClass, dailyDocData, students, activePasses]);
 
-  // Load Recent 30 Days for Chronic / Regular Absentee Analysis
+  // Load Recent 60 Days for Chronic / Regular Absentee Analysis & Monthly Reports
   const loadRecent30DaysForAnalytics = async () => {
     setLoading(true);
     try {
-      const qRecent = query(collection(db, 'night_attendance'), limit(40));
+      const qRecent = query(collection(db, 'night_attendance'), limit(60));
       const snap = await getDocs(qRecent);
       const list = [];
       snap.forEach(d => list.push({ date: d.id, ...d.data() }));
@@ -234,10 +237,19 @@ export default function NightAttendanceManager({
   };
 
   useEffect(() => {
-  if ((viewMode === 'regular_absentees' || (viewMode === 'admin_summary' && nightRepScope !== 'daily')) && monthlyDocsList.length === 0) {
-    loadRecent30DaysForAnalytics();
-  }
-}, [viewMode, nightRepScope]);
+    if ((viewMode === 'regular_absentees' || (viewMode === 'admin_summary' && nightRepScope !== 'daily')) && monthlyDocsList.length === 0) {
+      loadRecent30DaysForAnalytics();
+    }
+  }, [viewMode, nightRepScope]);
+
+  // Tap card to toggle PRESENT <-> ABSENT (just like Period Attendance!)
+  const handleCardQuickTap = (adNo) => {
+    setStatusMap(prev => {
+      const cur = prev[adNo] || 'PRESENT';
+      if (cur === 'OUTPASS') return prev;
+      return { ...prev, [adNo]: cur === 'PRESENT' ? 'ABSENT' : 'PRESENT' };
+    });
+  };
 
   const handleSaveClassAttendance = async () => {
     setSaving(true);
@@ -253,7 +265,7 @@ export default function NightAttendanceManager({
         if (stStatus === 'ABSENT') absentAdNos.push(ad);
         if (stStatus === 'OUTPASS') outpassAdNos.push(ad);
         if (stStatus === 'SICK_ROOM') sickAdNos.push(ad);
-        if (remarksMap[ad]) cleanRemarks[ad] = remarksMap[ad].trim();
+        if (remarksMap[ad]) cleanRemarks[ad] = String(remarksMap[ad]).trim();
       });
 
       const classPayload = {
@@ -267,7 +279,7 @@ export default function NightAttendanceManager({
         outpassAdNos,
         sickAdNos,
         remarks: cleanRemarks,
-        takenBy: recorderName,
+        takenBy: recorderName || 'Teacher',
         updatedAt: new Date().toISOString()
       };
 
@@ -429,9 +441,9 @@ export default function NightAttendanceManager({
   const sickInCurrentClass = classStudents.filter(s => statusMap[s.adNo] === 'SICK_ROOM').length;
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
       {/* TOP BAR & VIEW MODE SWITCHER */}
-      <div style={{ ...styles.card, background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', color: '#ffffff', padding: '20px 24px' }}>
+      <div style={{ ...styles.card, marginBottom: 0, background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', color: '#ffffff', padding: '20px 24px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
           <div>
             <span style={{ background: '#00897b', color: '#ffffff', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', letterSpacing: '0.8px' }}>
@@ -441,7 +453,7 @@ export default function NightAttendanceManager({
               Night Roll-Call, Out-Pass Auto-Sync &amp; Absentee Verification
             </h2>
             <p style={{ margin: 0, fontSize: '13px', color: '#cbd5e1', fontWeight: '500' }}>
-              Students currently outside on an approved Out-Pass are automatically marked with their destination and permitting teacher.
+              Tap any student card to toggle Present / Absent, or tap a status button (Present, Absent, On Leave, Sick).
             </p>
           </div>
 
@@ -450,7 +462,7 @@ export default function NightAttendanceManager({
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              style={{ padding: '9px 14px', borderRadius: '8px', fontWeight: '800', fontSize: '13px', cursor: 'pointer' }}
+              style={{ padding: '9px 14px', borderRadius: '8px', fontWeight: '800', fontSize: '13px', cursor: 'pointer', background: '#ffffff', color: '#0f172a' }}
             />
             <button
               type="button"
@@ -494,10 +506,10 @@ export default function NightAttendanceManager({
       </div>
 
       {/* =========================================================
-          MODE 1: TAKE CLASS NIGHT ATTENDANCE (FOR ALL TEACHERS)
+          MODE 1: TAKE CLASS NIGHT ATTENDANCE (MOBILE-FIRST CARDS)
          ========================================================= */}
       {viewMode === 'take_attendance' && (
-        <div style={styles.card}>
+        <div style={{ ...styles.card, marginBottom: 0 }}>
           {/* CLASS SELECTOR PILLS */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '18px', paddingBottom: '14px', borderBottom: '2px solid #f1f5f9' }}>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -530,8 +542,8 @@ export default function NightAttendanceManager({
             )}
           </div>
 
-          {/* LIVE COUNTERS & WHATSAPP VERIFICATION FORWARDING BAR */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '18px' }}>
+          {/* LIVE COUNTERS */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: '12px', marginBottom: '16px' }}>
             <div style={{ padding: '14px', borderRadius: '10px', background: '#f8fafc', border: '1px solid #cbd5e1', textAlign: 'center' }}>
               <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748b' }}>CLASS {selectedClass} TOTAL</div>
               <div style={{ fontSize: '22px', fontWeight: '900', color: '#0f172a' }}>{classStudents.length}</div>
@@ -545,215 +557,265 @@ export default function NightAttendanceManager({
               <div style={{ fontSize: '22px', fontWeight: '900', color: '#dc2626' }}>{absentInCurrentClass}</div>
             </div>
             <div style={{ padding: '14px', borderRadius: '10px', background: '#eff6ff', border: '1px solid #bfdbfe', textAlign: 'center' }}>
-              <div style={{ fontSize: '11px', fontWeight: '800', color: '#1d4ed8' }}>🪪 ON PERMITTED OUT-PASS</div>
-              <div style={{ fontSize: '22px', fontWeight: '900', color: '#1d4ed8' }}>{outpassInCurrentClass}</div>
+              <div style={{ fontSize: '11px', fontWeight: '800', color: '#1d4ed8' }}>🪪 OUT-PASS / 🤒 SICK</div>
+              <div style={{ fontSize: '22px', fontWeight: '900', color: '#1d4ed8' }}>{outpassInCurrentClass} / {sickInCurrentClass}</div>
             </div>
           </div>
 
-          {/* 1-CLICK WHATSAPP FORWARDING TO CLASS TEACHER / OUTREACH / NIICS */}
-          <div style={{ background: '#f0fdf4', border: '1.5px solid #86efac', padding: '14px 16px', borderRadius: '12px', marginBottom: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-            <div>
-              <div style={{ fontWeight: '800', fontSize: '14px', color: '#14532d' }}>
-                📲 Forward Absentee List for Permission Verification
+          {/* SLIDING WHATSAPP VERIFICATION DRAWER */}
+          <div style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: '12px', marginBottom: '18px', overflow: 'hidden' }}>
+            <div
+              onClick={() => setShowForwardDrawer(prev => !prev)}
+              style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', flexWrap: 'wrap', gap: '8px' }}
+            >
+              <div>
+                <div style={{ fontWeight: '800', fontSize: '14px', color: '#14532d' }}>
+                  📲 Forward Absentee List for Permission Verification ({absentInCurrentClass} Absent)
+                </div>
+                <div style={{ fontSize: '12px', color: '#166534', fontWeight: '600' }}>
+                  Class Teacher of {selectedClass}: <strong>{classTeacherObj?.fullName || 'Not Assigned'}</strong>
+                </div>
               </div>
-              <div style={{ fontSize: '12px', color: '#166534', fontWeight: '600' }}>
-                Class Teacher of {selectedClass}: <strong>{classTeacherObj?.fullName || 'Not Assigned'}</strong>
-              </div>
+              <span style={{ background: '#16a34a', color: '#ffffff', padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '800' }}>
+                {showForwardDrawer ? '▲ Hide Share Buttons' : '▼ Share / Copy List'}
+              </span>
             </div>
+
+            {showForwardDrawer && (
+              <div style={{ padding: '12px 16px', background: '#ffffff', borderTop: '1px solid #bbf7d0', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const text = buildClassAbsenteeReportText();
+                    navigator.clipboard.writeText(text);
+                    alert(`✅ Copied Class ${selectedClass} Night Attendance Report to clipboard!`);
+                  }}
+                  style={{ padding: '8px 14px', background: '#f59e0b', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                >
+                  📋 Copy Absent List
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const text = buildClassAbsenteeReportText();
+                    openDirectWhatsApp(classTeacherObj?.whatsappNumber || classTeacherObj?.mobileNumber, text);
+                  }}
+                  style={{ padding: '8px 14px', background: '#16a34a', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                >
+                  💬 Send to Class Teacher ({classTeacherObj?.fullName || selectedClass})
+                </button>
+
+                {outreachCoordObj && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const text = buildClassAbsenteeReportText();
+                      openDirectWhatsApp(outreachCoordObj.whatsappNumber || outreachCoordObj.mobileNumber, text);
+                    }}
+                    style={{ padding: '8px 14px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                  >
+                    🌍 Verify with Outreach ({outreachCoordObj.fullName})
+                  </button>
+                )}
+
+                {niicsCoordObj && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const text = buildClassAbsenteeReportText();
+                      openDirectWhatsApp(niicsCoordObj.whatsappNumber || niicsCoordObj.mobileNumber, text);
+                    }}
+                    style={{ padding: '8px 14px', background: '#7c3aed', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                  >
+                    🎓 Send to NIICS Coordinator
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              type="text"
+              placeholder="🔍 Quick search student in this class..."
+              value={searchFilter}
+              onChange={(e) => setSearchFilter(e.target.value)}
+              style={{ ...styles.input, maxWidth: '320px', padding: '10px 14px' }}
+            />
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button
                 type="button"
                 onClick={() => {
-                  const text = buildClassAbsenteeReportText();
-                  navigator.clipboard.writeText(text);
-                  alert(`✅ Copied Class ${selectedClass} Night Attendance Report to clipboard!`);
+                  const next = {};
+                  classStudents.forEach(s => {
+                    const ad = String(s.adNo || '').trim();
+                    next[ad] = getActiveOutpassForStudent(ad) ? 'OUTPASS' : 'PRESENT';
+                  });
+                  setStatusMap(next);
                 }}
-                style={{ padding: '8px 14px', background: '#f59e0b', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                style={{ padding: '10px 14px', background: '#dcfce7', color: '#166534', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
               >
-                📋 Copy Absent List
+                ✅ All Present
               </button>
-
               <button
                 type="button"
-                onClick={() => {
-                  const text = buildClassAbsenteeReportText();
-                  openDirectWhatsApp(classTeacherObj?.whatsappNumber || classTeacherObj?.mobileNumber, text);
-                }}
-                style={{ padding: '8px 14px', background: '#16a34a', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                onClick={handleSaveClassAttendance}
+                disabled={saving}
+                style={{ padding: '10px 22px', background: '#00897b', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '14px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,137,123,0.25)' }}
               >
-                💬 Send to Class Teacher ({classTeacherObj?.fullName || selectedClass})
+                {saving ? 'Saving Roll-Call...' : `💾 Save Class ${selectedClass} Night Attendance`}
               </button>
-
-              {outreachCoordObj && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const text = buildClassAbsenteeReportText();
-                    openDirectWhatsApp(outreachCoordObj.whatsappNumber || outreachCoordObj.mobileNumber, text);
-                  }}
-                  style={{ padding: '8px 14px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
-                >
-                  🌍 Verify with Outreach ({outreachCoordObj.fullName})
-                </button>
-              )}
-
-              {niicsCoordObj && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const text = buildClassAbsenteeReportText();
-                    openDirectWhatsApp(niicsCoordObj.whatsappNumber || niicsCoordObj.mobileNumber, text);
-                  }}
-                  style={{ padding: '8px 14px', background: '#7c3aed', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
-                >
-                  🎓 Send to NIICS Coordinator
-                </button>
-              )}
             </div>
           </div>
 
-          <div style={{ marginBottom: '14px', display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
-            <input
-              type="text"
-              placeholder="Quick search student in this class..."
-              value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
-              style={{ ...styles.input, maxWidth: '340px', padding: '9px 14px' }}
-            />
-            <button
-              type="button"
-              onClick={handleSaveClassAttendance}
-              disabled={saving}
-              style={{ padding: '10px 24px', background: '#00897b', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '14px', cursor: 'pointer' }}
-            >
-              {saving ? 'Saving Roll-Call...' : `💾 Save Class ${selectedClass} Night Attendance`}
-            </button>
-          </div>
+          {/* 🌟 MOBILE-FRIENDLY TAPPABLE STUDENT CARDS (Works cleanly on all phones & desktops!) */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(285px, 1fr))', gap: '12px' }}>
+            {classStudents
+              .filter(s => !searchFilter.trim() || (s.firstName || '').toLowerCase().includes(searchFilter.toLowerCase()) || String(s.adNo || '').toLowerCase().includes(searchFilter.toLowerCase()))
+              .map((st, idx) => {
+                const ad = String(st.adNo || '').trim();
+                const curStatus = statusMap[ad] || 'PRESENT';
+                const activePass = getActiveOutpassForStudent(ad);
+                const hasRemark = Boolean(remarksMap[ad]);
+                const isRemarkOpen = expandedRemarkAdNo === ad;
 
-          {/* STUDENT ROLL-CALL TABLE WITH AUTOMATIC OUT-PASS REASON & TEACHER DISPLAY */}
-          <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', textAlign: 'left', minWidth: '820px' }}>
-              <thead>
-                <tr style={{ background: '#0f172a', color: '#ffffff' }}>
-                  <th style={{ padding: '12px 14px', color: '#ffffff', width: '60px' }}>Roll</th>
-                  <th style={{ padding: '12px 14px', color: '#ffffff' }}>Student &amp; Ad.No</th>
-                  <th style={{ padding: '12px 14px', color: '#ffffff' }}>Out-Pass / Leave Auto-Detection</th>
-                  <th style={{ padding: '12px 14px', color: '#ffffff' }}>Mark Status</th>
-                  <th style={{ padding: '12px 14px', color: '#ffffff' }}>Remarks / Verification Note</th>
-                </tr>
-              </thead>
-              <tbody>
-                {classStudents
-                  .filter(s => !searchFilter.trim() || (s.firstName || '').toLowerCase().includes(searchFilter.toLowerCase()) || String(s.adNo || '').toLowerCase().includes(searchFilter.toLowerCase()))
-                  .map((st, idx) => {
-                    const ad = String(st.adNo || '').trim();
-                    const curStatus = statusMap[ad] || 'PRESENT';
-                    const activePass = getActiveOutpassForStudent(ad);
+                const cardThemes = {
+                  PRESENT: { bg: '#ecfdf5', border: '#10b981', badgeBg: '#059669', titleColor: '#065f46', label: 'PRESENT' },
+                  ABSENT: { bg: '#fef2f2', border: '#ef4444', badgeBg: '#dc2626', titleColor: '#991b1b', label: 'ABSENT' },
+                  OUTPASS: { bg: '#eff6ff', border: '#3b82f6', badgeBg: '#2563eb', titleColor: '#1e40af', label: 'ON LEAVE' },
+                  SICK_ROOM: { bg: '#fffbeb', border: '#f59e0b', badgeBg: '#d97706', titleColor: '#92400e', label: 'SICK / ROOM' }
+                };
+                const theme = cardThemes[curStatus] || cardThemes.PRESENT;
 
-                    return (
-                      <tr
-                        key={st.regNo}
+                return (
+                  <div
+                    key={st.regNo}
+                    onClick={() => handleCardQuickTap(ad)}
+                    style={{
+                      padding: '14px',
+                      borderRadius: '14px',
+                      background: theme.bg,
+                      border: `2px solid ${theme.border}`,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <ProfileAvatar name={st.firstName} code={st.adNo} photoUrl={st.photoUrl} size={40} />
+                        <div>
+                          <div style={{ fontWeight: '900', color: theme.titleColor, fontSize: '14px', lineHeight: 1.25 }}>
+                            #{st.rollNo || idx + 1} • {st.firstName}
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#475569', fontWeight: '800', marginTop: '2px' }}>
+                            Ad.No: #{st.adNo} • {st.department || 'GEN'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <span style={{ background: theme.badgeBg, color: '#ffffff', padding: '4px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: '900', whiteSpace: 'nowrap' }}>
+                        {theme.label}
+                      </span>
+                    </div>
+
+                    {/* AUTOMATIC OUT-PASS DETECTION BOX WITH FULL SCHEDULE DETAILS */}
+                    {activePass && (
+                      <div style={{ background: '#dbeafe', border: '1.5px solid #93c5fd', padding: '8px 10px', borderRadius: '8px', fontSize: '11px', color: '#1e3a8a', lineHeight: 1.4 }}>
+                        <div style={{ fontWeight: '900', color: '#1e40af' }}>
+                          🪪 {activePass.leaveCategory || 'Leave'} • 📍 {activePass.destination} ({activePass.status})
+                        </div>
+                        <div style={{ fontSize: '11px', marginTop: '2px', fontWeight: '700', color: '#1d4ed8' }}>
+                          📝 Reason: {activePass.purpose || '—'}
+                        </div>
+                        <div style={{ fontSize: '10px', marginTop: '2px', fontWeight: '800', color: '#0369a1' }}>
+                          🚶‍♂️ Out: {formatNightPassTime(activePass.permittedFrom, false)} ➔ ⏳ Return: {formatNightPassTime(activePass.permittedTo, activePass.isOpenReturn)}
+                        </div>
+                        <div style={{ fontSize: '10px', marginTop: '2px', fontWeight: '800', color: '#0f172a' }}>
+                          👨‍🏫 Permitted By: <strong>{activePass.teacherName}</strong>
+                          {activePass.teacherPhone ? ` (📞 ${activePass.teacherPhone})` : ''}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 1-CLICK STATUS PILLS + NOTE TOGGLE */}
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', paddingTop: '6px', borderTop: '1px solid rgba(15,23,42,0.08)' }}
+                    >
+                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                        {[
+                          { id: 'PRESENT', label: '🟢 Pres', bg: '#059669' },
+                          { id: 'ABSENT', label: '🔴 Abs', bg: '#dc2626' },
+                          { id: 'OUTPASS', label: '🪪 Leave', bg: '#2563eb' },
+                          { id: 'SICK_ROOM', label: '🤒 Sick', bg: '#d97706' }
+                        ].map(btn => {
+                          const active = curStatus === btn.id;
+                          return (
+                            <button
+                              key={btn.id}
+                              type="button"
+                              onClick={() => setStatusMap(prev => ({ ...prev, [ad]: btn.id }))}
+                              style={{
+                                padding: '6px 9px',
+                                borderRadius: '8px',
+                                fontSize: '11px',
+                                fontWeight: '900',
+                                cursor: 'pointer',
+                                background: active ? btn.bg : '#ffffff',
+                                color: active ? '#ffffff' : '#0f172a',
+                                border: active ? `1.5px solid ${btn.bg}` : '1px solid #cbd5e1'
+                              }}
+                            >
+                              {btn.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setExpandedRemarkAdNo(isRemarkOpen ? null : ad)}
                         style={{
-                          borderBottom: '1px solid #e2e8f0',
-                          background:
-                            curStatus === 'ABSENT'
-                              ? '#fef2f2'
-                              : curStatus === 'OUTPASS'
-                              ? '#eff6ff'
-                              : curStatus === 'SICK_ROOM'
-                              ? '#fffbeb'
-                              : idx % 2 === 0
-                              ? '#ffffff'
-                              : '#f8fafc'
+                          padding: '5px 8px',
+                          borderRadius: '6px',
+                          background: hasRemark ? '#fef3c7' : '#ffffff',
+                          color: hasRemark ? '#92400e' : '#475569',
+                          border: '1px solid #cbd5e1',
+                          fontSize: '11px',
+                          fontWeight: '800',
+                          cursor: 'pointer'
                         }}
                       >
-                        <td style={{ padding: '12px 14px', fontWeight: '800', color: '#475569' }}>#{st.rollNo || idx + 1}</td>
-                        <td style={{ padding: '12px 14px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <ProfileAvatar name={st.firstName} code={st.adNo} photoUrl={st.photoUrl} size={38} />
-                            <div>
-                              <div style={{ fontWeight: '800', color: '#0f172a' }}>{st.firstName}</div>
-                              <div style={{ fontSize: '12px', color: '#475569', fontWeight: '700' }}>
-                                Ad.No: #{st.adNo} • {st.department}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
+                        📝 {hasRemark ? 'Note✓' : '+Note'}
+                      </button>
+                    </div>
 
-                        {/* AUTOMATIC OUT-PASS DETECTION COLUMN WITH FULL SCHEDULE DETAILS */}
-                        <td style={{ padding: '12px 14px' }}>
-                          {activePass ? (
-                            <div style={{ background: '#dbeafe', border: '1.5px solid #93c5fd', padding: '8px 12px', borderRadius: '8px', fontSize: '12px', color: '#1e3a8a', lineHeight: 1.4 }}>
-                              <div style={{ fontWeight: '900', color: '#1e40af' }}>
-                                🪪 {activePass.leaveCategory || 'Leave'} • 📍 {activePass.destination} ({activePass.status})
-                              </div>
-                              <div style={{ fontSize: '11px', marginTop: '3px', fontWeight: '700', color: '#1d4ed8' }}>
-                                📝 Reason: {activePass.purpose || '—'}
-                              </div>
-                              <div style={{ fontSize: '11px', marginTop: '2px', fontWeight: '800', color: '#0369a1' }}>
-                                🚶‍♂️ Out: {formatNightPassTime(activePass.permittedFrom, false)} ➔ ⏳ Return: {formatNightPassTime(activePass.permittedTo, activePass.isOpenReturn)}
-                              </div>
-                              <div style={{ fontSize: '11px', marginTop: '2px', fontWeight: '800', color: '#0f172a' }}>
-                                👨‍🏫 Permitted By: <strong>{activePass.teacherName}</strong>
-                                {activePass.teacherPhone ? ` (📞 ${activePass.teacherPhone})` : ''}
-                              </div>
-                            </div>
-                          ) : (
-                            <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>🟢 In Campus (No Active Leave)</span>
-                          )}
-                        </td>
-
-                        {/* 1-CLICK STATUS BUTTONS */}
-                        <td style={{ padding: '12px 14px' }}>
-                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                            {[
-                              { id: 'PRESENT', label: '🟢 Present', bg: '#10b981' },
-                              { id: 'ABSENT', label: '🔴 Absent', bg: '#dc2626' },
-                              { id: 'OUTPASS', label: '🪪 On Leave', bg: '#2563eb' },
-                              { id: 'SICK_ROOM', label: '🤒 Sick/Room', bg: '#d97706' }
-                            ].map(btn => {
-                              const active = curStatus === btn.id;
-                              return (
-                                <button
-                                  key={btn.id}
-                                  type="button"
-                                  onClick={() => setStatusMap(prev => ({ ...prev, [ad]: btn.id }))}
-                                  style={{
-                                    padding: '6px 10px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer',
-                                    background: active ? btn.bg : '#ffffff',
-                                    color: active ? '#ffffff' : '#334155',
-                                    border: active ? `1.5px solid ${btn.bg}` : '1px solid #cbd5e1'
-                                  }}
-                                >
-                                  {btn.label}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </td>
-
-                        <td style={{ padding: '12px 14px' }}>
-                          <input
-                            type="text"
-                            placeholder="Optional note (e.g. With Outreach Usthad)..."
-                            value={remarksMap[ad] || ''}
-                            onChange={(e) => setRemarksMap(prev => ({ ...prev, [ad]: e.target.value }))}
-                            style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', fontSize: '12px' }}
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
+                    {(isRemarkOpen || (hasRemark && !activePass)) && (
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="text"
+                          placeholder="Optional note (e.g. With Outreach Usthad)..."
+                          value={remarksMap[ad] || ''}
+                          onChange={(e) => setRemarksMap(prev => ({ ...prev, [ad]: e.target.value }))}
+                          style={{ ...styles.input, padding: '8px 10px', fontSize: '12px', background: '#ffffff', color: '#0f172a' }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
           </div>
 
-          <div style={{ marginTop: '18px', display: 'flex', justifyContent: 'flex-end' }}>
+          <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
             <button
               type="button"
               onClick={handleSaveClassAttendance}
               disabled={saving}
-              style={{ ...styles.buttonSuccess, maxWidth: '360px', marginTop: 0 }}
+              style={{ ...styles.buttonPrimary, width: '100%', padding: '16px', fontSize: '16px' }}
             >
               {saving ? 'Saving Roll-Call...' : `💾 Save Class ${selectedClass} Night Attendance`}
             </button>
@@ -770,7 +832,32 @@ export default function NightAttendanceManager({
             <h3 style={{ margin: 0, fontSize: '19px', fontWeight: '800', color: '#0f172a' }}>
               📊 Institution-Wide Night Attendance Summary ({selectedDate})
             </h3>
-            {/* 🌟 NIGHT ATTENDANCE SCOPE SWITCHER: Specific Date | Monthly Report | Total Semester */}
+            <button
+              type="button"
+              onClick={() => {
+                const lines = [
+                  `*🌙 DHIU DEGREE SECTION — INSTITUTION NIGHT ATTENDANCE SUMMARY*`,
+                  `*Date:* ${selectedDate}`,
+                  `*Total Strength:* ${instSummary.totalStrength} | *Present:* ${instSummary.totalPresent} | *Unexcused Absent:* ${instSummary.totalUnexcusedAbsent} | *On Out-Pass:* ${instSummary.totalOnOutpass}`,
+                  `-----------------------------------------`
+                ];
+                instSummary.classSummaries.forEach(c => {
+                  if (!c.isTaken) {
+                    lines.push(`• *${c.className}:* ⏳ Attendance Not Recorded Yet (CT: ${c.classTeacherName})`);
+                  } else {
+                    const absNames = c.absentStudents.map(s => `${s.firstName} (#${s.adNo})`).join(', ');
+                    lines.push(`• *${c.className}:* Present ${c.presentCount}/${c.strength} | Absent: ${c.absentCount} | Out-Pass: ${c.outpassCount} (By ${c.takenBy})${absNames ? `\n   🔴 _Absent:_ ${absNames}` : ''}`);
+                  }
+                });
+                openWhatsAppGroupAndCopy(staffGroupLink, lines.join('\n'), 'Staff WhatsApp Group');
+              }}
+              style={{ padding: '10px 18px', background: '#16a34a', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '13px', cursor: 'pointer' }}
+            >
+              💬 Share Full Institution Summary to Staff WhatsApp Group
+            </button>
+          </div>
+
+          {/* NIGHT ATTENDANCE SCOPE SWITCHER: Specific Date | Monthly Report | Total Semester */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', background: '#f8fafc', padding: '14px 18px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '20px' }}>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {[
@@ -811,7 +898,7 @@ export default function NightAttendanceManager({
             )}
           </div>
 
-          {/* 🌟 MONTHLY OR TOTAL STUDENT-WISE NIGHT ATTENDANCE MATRIX */}
+          {/* MONTHLY OR TOTAL STUDENT-WISE NIGHT ATTENDANCE MATRIX */}
           {nightRepScope !== 'daily' && (() => {
             const scopedDocs = nightRepScope === 'monthly'
               ? monthlyDocsList.filter(d => String(d.date || '').startsWith(nightRepMonth))
@@ -824,15 +911,15 @@ export default function NightAttendanceManager({
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', minWidth: '800px' }}>
                   <thead>
                     <tr style={{ background: '#0f172a', color: '#ffffff' }}>
-                      <th style={{ padding: '12px 14px' }}>#</th>
-                      <th style={{ padding: '12px 14px' }}>Student &amp; Ad.No</th>
-                      <th style={{ padding: '12px 14px' }}>Class</th>
-                      <th style={{ padding: '12px 14px', textAlign: 'center' }}>Nights Recorded</th>
-                      <th style={{ padding: '12px 14px', textAlign: 'center' }}>Present</th>
-                      <th style={{ padding: '12px 14px', textAlign: 'center' }}>Unexcused Absent</th>
-                      <th style={{ padding: '12px 14px', textAlign: 'center' }}>On Out-Pass</th>
-                      <th style={{ padding: '12px 14px', textAlign: 'center' }}>Sick/Room</th>
-                      <th style={{ padding: '12px 14px', textAlign: 'center' }}>Night Attendance %</th>
+                      <th style={{ padding: '12px 14px', color: '#ffffff' }}>#</th>
+                      <th style={{ padding: '12px 14px', color: '#ffffff' }}>Student &amp; Ad.No</th>
+                      <th style={{ padding: '12px 14px', color: '#ffffff' }}>Class</th>
+                      <th style={{ padding: '12px 14px', color: '#ffffff', textAlign: 'center' }}>Nights Recorded</th>
+                      <th style={{ padding: '12px 14px', color: '#ffffff', textAlign: 'center' }}>Present</th>
+                      <th style={{ padding: '12px 14px', color: '#ffffff', textAlign: 'center' }}>Unexcused Absent</th>
+                      <th style={{ padding: '12px 14px', color: '#ffffff', textAlign: 'center' }}>On Out-Pass</th>
+                      <th style={{ padding: '12px 14px', color: '#ffffff', textAlign: 'center' }}>Sick/Room</th>
+                      <th style={{ padding: '12px 14px', color: '#ffffff', textAlign: 'center' }}>Night Attendance %</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -880,30 +967,6 @@ export default function NightAttendanceManager({
               </div>
             );
           })()}
-            <button
-              type="button"
-              onClick={() => {
-                const lines = [
-                  `*🌙 DHIU DEGREE SECTION — INSTITUTION NIGHT ATTENDANCE SUMMARY*`,
-                  `*Date:* ${selectedDate}`,
-                  `*Total Strength:* ${instSummary.totalStrength} | *Present:* ${instSummary.totalPresent} | *Unexcused Absent:* ${instSummary.totalUnexcusedAbsent} | *On Out-Pass:* ${instSummary.totalOnOutpass}`,
-                  `-----------------------------------------`
-                ];
-                instSummary.classSummaries.forEach(c => {
-                  if (!c.isTaken) {
-                    lines.push(`• *${c.className}:* ⏳ Attendance Not Recorded Yet (CT: ${c.classTeacherName})`);
-                  } else {
-                    const absNames = c.absentStudents.map(s => `${s.firstName} (#${s.adNo})`).join(', ');
-                    lines.push(`• *${c.className}:* Present ${c.presentCount}/${c.strength} | Absent: ${c.absentCount} | Out-Pass: ${c.outpassCount} (By ${c.takenBy})${absNames ? `\n   🔴 _Absent:_ ${absNames}` : ''}`);
-                  }
-                });
-                openWhatsAppGroupAndCopy(staffGroupLink, lines.join('\n'), 'Staff WhatsApp Group');
-              }}
-              style={{ padding: '10px 18px', background: '#16a34a', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '13px', cursor: 'pointer' }}
-            >
-              💬 Share Full Institution Summary to Staff WhatsApp Group
-            </button>
-          </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '16px', marginBottom: '24px' }}>
             <div style={{ padding: '18px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #cbd5e1', textAlign: 'center' }}>
@@ -1010,7 +1073,7 @@ export default function NightAttendanceManager({
          ========================================================= */}
       {viewMode === 'regular_absentees' && canViewAdminAnalytics && (
         <div style={styles.card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '19px', fontWeight: '800', color: '#0f172a' }}>
                 🚨 Regular / Habitual Night Absentees Report (Across {monthlyDocsList.length} Recorded Nights)

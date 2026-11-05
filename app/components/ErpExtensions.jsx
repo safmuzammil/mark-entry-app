@@ -2,72 +2,28 @@
 import React, { useState, useEffect } from 'react';
 import { doc, setDoc, getDoc, getDocs, collection } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { 
-  WEB_APP_URL, DHIU_LOGO_URL, DEFAULT_SUBJECTS, DEFAULT_CLASSES, DEPARTMENTS, styles 
+import {
+  WEB_APP_URL, DHIU_LOGO_URL, DEFAULT_SUBJECTS, DEFAULT_CLASSES, DEPARTMENTS, styles
 } from './erpConstants';
 
-// Complete list of all 28 Indian States, 8 Union Territories, and Nepal
 export const INDIAN_STATES = [
-  "Kerala",
-  "Karnataka",
-  "Tamil Nadu",
-  "Lakshadweep",
-  "Maharashtra",
-  "Uttar Pradesh",
-  "Bihar",
-  "West Bengal",
-  "Assam",
-  "Andhra Pradesh",
-  "Telangana",
-  "Delhi",
-  "Gujarat",
-  "Rajasthan",
-  "Madhya Pradesh",
-  "Punjab",
-  "Haryana",
-  "Jammu & Kashmir",
-  "Jharkhand",
-  "Odisha",
-  "Chhattisgarh",
-  "Uttarakhand",
-  "Himachal Pradesh",
-  "Goa",
-  "Tripura",
-  "Manipur",
-  "Meghalaya",
-  "Nagaland",
-  "Arunachal Pradesh",
-  "Mizoram",
-  "Sikkim",
-  "Puducherry",
-  "Andaman & Nicobar",
-  "Ladakh",
-  "Chandigarh",
-  "Dadra & Nagar Haveli and Daman & Diu",
-  "Nepal",
-  "Other"
+  "Kerala", "Karnataka", "Tamil Nadu", "Lakshadweep", "Maharashtra", "Uttar Pradesh",
+  "Bihar", "West Bengal", "Assam", "Andhra Pradesh", "Telangana", "Delhi", "Gujarat",
+  "Rajasthan", "Madhya Pradesh", "Punjab", "Haryana", "Jammu & Kashmir", "Jharkhand",
+  "Odisha", "Chhattisgarh", "Uttarakhand", "Himachal Pradesh", "Goa", "Tripura",
+  "Manipur", "Meghalaya", "Nagaland", "Arunachal Pradesh", "Mizoram", "Sikkim",
+  "Puducherry", "Andaman & Nicobar", "Ladakh", "Chandigarh",
+  "Dadra & Nagar Haveli and Daman & Diu", "Nepal", "Other"
 ];
 
 export const KERALA_DISTRICTS = [
-  "Malappuram",
-  "Kozhikode",
-  "Palakkad",
-  "Thrissur",
-  "Wayanad",
-  "Kannur",
-  "Kasaragod",
-  "Ernakulam",
-  "Alappuzha",
-  "Kottayam",
-  "Idukki",
-  "Kollam",
-  "Pathanamthitta",
-  "Thiruvananthapuram",
-  "Other"
+  "Malappuram", "Kozhikode", "Palakkad", "Thrissur", "Wayanad", "Kannur",
+  "Kasaragod", "Ernakulam", "Alappuzha", "Kottayam", "Idukki", "Kollam",
+  "Pathanamthitta", "Thiruvananthapuram", "Other"
 ];
 
 // ============================================================================
-// 🎨 1. HIGH-CONTRAST CSS FIX
+// 🎨 1. HIGH-CONTRAST CSS & SMOOTH SLIDING ANIMATIONS (Fixes Mobile Text Visibility!)
 // ============================================================================
 export function HighContrastStyles() {
   return (
@@ -101,7 +57,125 @@ export function HighContrastStyles() {
         color: #1e293b;
         font-weight: 600;
       }
+      @keyframes erpSlideDown {
+        from { opacity: 0; transform: translateY(-6px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .erp-slide-panel {
+        animation: erpSlideDown 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+      .erp-card-hover {
+        transition: transform 0.18s ease, box-shadow 0.18s ease;
+      }
+      .erp-card-hover:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.14) !important;
+      }
+      .erp-pill-readable {
+        color: #0f172a !important;
+        background-color: #ffffff !important;
+      }
     `}</style>
+  );
+}
+
+// ============================================================================
+// 🪗 1B. REUSABLE SMOOTH SLIDING ACCORDION DRAWER (For Clean, Neat Tabs)
+// ============================================================================
+export function CollapsibleCard({
+  title,
+  subtitle,
+  badgeText,
+  defaultOpen = false,
+  accentColor = '#0f766e',
+  icon = '✨',
+  children
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <div
+      style={{
+        background: '#ffffff',
+        borderRadius: '16px',
+        border: isOpen ? `2px solid ${accentColor}` : '1px solid #cbd5e1',
+        boxShadow: isOpen ? '0 8px 24px rgba(15, 23, 42, 0.06)' : '0 2px 8px rgba(15, 23, 42, 0.02)',
+        marginBottom: '16px',
+        overflow: 'hidden',
+        transition: 'all 0.22s ease'
+      }}
+    >
+      <div
+        onClick={() => setIsOpen(prev => !prev)}
+        style={{
+          padding: '16px 20px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '12px',
+          cursor: 'pointer',
+          background: isOpen ? '#f8fafc' : '#ffffff',
+          borderBottom: isOpen ? '1px solid #e2e8f0' : 'none',
+          userSelect: 'none'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+          <span
+            style={{
+              width: '38px',
+              height: '38px',
+              borderRadius: '10px',
+              background: isOpen ? accentColor : '#f1f5f9',
+              color: isOpen ? '#ffffff' : '#0f172a',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '18px',
+              flexShrink: 0,
+              transition: 'all 0.2s ease'
+            }}
+          >
+            {icon}
+          </span>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>{title}</h3>
+              {badgeText && (
+                <span style={{ background: '#f0fdfa', color: accentColor, border: `1px solid ${accentColor}`, padding: '2px 9px', borderRadius: '999px', fontSize: '11px', fontWeight: '800' }}>
+                  {badgeText}
+                </span>
+              )}
+            </div>
+            {subtitle && (
+              <p style={{ margin: '3px 0 0 0', fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
+                {subtitle}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <span
+          style={{
+            padding: '7px 14px',
+            borderRadius: '999px',
+            background: isOpen ? accentColor : '#f1f5f9',
+            color: isOpen ? '#ffffff' : '#0f172a',
+            fontWeight: '900',
+            fontSize: '12px',
+            whiteSpace: 'nowrap',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          {isOpen ? '▲ Hide' : '▼ Open'}
+        </span>
+      </div>
+
+      {isOpen && (
+        <div className="erp-slide-panel" style={{ padding: '20px' }}>
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -159,7 +233,6 @@ export function openDirectWhatsApp(phoneNumber, messageText) {
   window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(messageText)}`, '_blank');
 }
 
-// Copies message to clipboard AND opens the saved Staff Group or Class PTA Group link!
 export function openWhatsAppGroupAndCopy(groupInviteUrl, messageText, groupLabel = 'WhatsApp Group') {
   if (navigator.clipboard && messageText) {
     navigator.clipboard.writeText(messageText).catch(() => {});
@@ -266,14 +339,12 @@ export function doesClassMatchAlias(studentClasses, targetClass, alias, grade) {
   const aliasNorm = norm(alias);
   const aliasUpper = String(alias || '').toUpperCase();
 
-  // Known specific class codes (including common variants like ALC2 / QLA3)
   const KNOWN_SPECIFIC_CLASSES = [
     'QH1', 'AL1', 'ALC1', 'FC1',
     'QH2', 'AL2', 'ALC2', 'FC2',
     'QLA3', 'HFC3', 'QH3', 'AL3', 'FC3'
   ];
 
-  // 1. If targetClass explicitly names a specific class (e.g., "FC2"), ONLY match students in that class!
   const specificTarget = KNOWN_SPECIFIC_CLASSES.find(
     cls => targetNorm === cls || targetNorm.includes(cls)
   );
@@ -287,8 +358,6 @@ export function doesClassMatchAlias(studentClasses, targetClass, alias, grade) {
     );
   }
 
-  // 2. If the alias contains a specific class name (e.g., "FC2 Thamadun" or "QLA 3 Hifz"),
-  // STRICTLY lock to that class and DO NOT fall back to generic Grade 2 or Grade 3!
   const specificInAlias = KNOWN_SPECIFIC_CLASSES.filter(cls => aliasNorm.includes(cls));
   if (specificInAlias.length > 0) {
     return stClassesNorm.some(sc =>
@@ -302,7 +371,6 @@ export function doesClassMatchAlias(studentClasses, targetClass, alias, grade) {
     );
   }
 
-  // 3. Otherwise, it's a generic grade-level batch (e.g., "M10", "U10", "M9", "U9", "M8", "U8", or "Grade 2")
   let stGrade = '1';
   if (stClassesNorm.some(c => c.includes('10') || c.includes('3'))) stGrade = '3';
   else if (stClassesNorm.some(c => c.includes('9') || c.includes('2'))) stGrade = '2';
@@ -363,7 +431,7 @@ export function ProfileAvatar({ name, code, photoUrl, size = 40, onClick }) {
 }
 
 // ============================================================================
-// 📚 6. SINGLE-TEACHER PER SUBJECT SELECTOR (RADIO BEHAVIOR, 100% ENGLISH)
+// 📚 6. SINGLE-TEACHER PER SUBJECT SELECTOR
 // ============================================================================
 export function SubjectTeacherSelector({
   selectedClasses = [],
@@ -467,14 +535,14 @@ export function SubjectTeacherSelector({
   };
 
   return (
-    <div style={{ background: '#f0fdfa', padding: '20px', borderRadius: '12px', border: '2px solid #0d9488', marginTop: '12px' }}>
+    <div style={{ background: '#f0fdfa', padding: '20px', borderRadius: '14px', border: '2px solid #0d9488', marginTop: '12px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
         <div>
-          <h4 style={{ margin: 0, fontSize: '16px', color: '#0f172a', fontWeight: '800' }}>
+          <h4 style={{ margin: 0, fontSize: '16px', color: '#0f172a', fontWeight: '900' }}>
             📚 Assign Subject Teachers (Batch: Grade {targetGrade} • {selectedClasses.join(', ') || 'Select a Class above'})
           </h4>
           <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#334155', fontWeight: '600' }}>
-            Select <strong>one teacher per subject</strong> below. The student will automatically be added to that teacher&apos;s class list.
+            Select <strong>one teacher per subject</strong> below.
             {designatedClassTeacher && (
               <span style={{ marginLeft: '8px', color: '#0f766e', fontWeight: '800' }}>
                 • 🏫 Class Teacher &amp; Hifz: {designatedClassTeacher.fullName} (Auto-Assigned)
@@ -632,7 +700,6 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
 
       let rawEnrollments = Array.isArray(teacher.enrollments) ? [...teacher.enrollments] : [];
 
-      // 🌟 1. Deduplicate any existing double Hifz entries (e.g. "QLA 3 Hifz" vs "QLA3 Hifz")
       const seenHifzClasses = new Set();
       let updatedEnrollments = rawEnrollments.filter(e => {
         const isSubHifz = String(e.subject || '').toUpperCase() === 'HIFZ' || String(e.alias || '').toUpperCase().includes('HIFZ');
@@ -640,13 +707,12 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
 
         const normKey = normalizeCls(e.targetClass || e.alias).replace('HIFZ', '');
         if (normKey && seenHifzClasses.has(normKey)) {
-          return false; // Remove duplicate Hifz slot
+          return false;
         }
         if (normKey) seenHifzClasses.add(normKey);
         return true;
       });
 
-      // 🌟 2. Space-insensitive check before adding Hifz for designated Class Teacher classes
       ctClasses.forEach(clsName => {
         const normCls = normalizeCls(clsName);
         const gradeMatch = String(clsName).match(/\d+/);
@@ -706,12 +772,12 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '16px' }}>
-      <div style={{ background: '#ffffff', borderRadius: '16px', maxWidth: '680px', width: '100%', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 48px rgba(0,0,0,0.35)', color: '#0f172a' }}>
+      <div style={{ background: '#ffffff', borderRadius: '18px', maxWidth: '680px', width: '100%', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 48px rgba(0,0,0,0.35)', color: '#0f172a' }}>
         <div style={{ background: '#0f172a', color: '#ffffff', padding: '18px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: '11px', color: '#38bdf8', fontWeight: '800', textTransform: 'uppercase' }}>ROLE-BASED ACCESS & LEAVE AUTHORITY MATRIX</div>
+            <div style={{ fontSize: '11px', color: '#38bdf8', fontWeight: '800', textTransform: 'uppercase' }}>ROLE-BASED ACCESS &amp; LEAVE AUTHORITY MATRIX</div>
             <h3 style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: '800', color: '#ffffff' }}>
-              🔑 Configure Roles & Privileges: {teacher.fullName} (@{teacher.username})
+              🔑 Configure Roles &amp; Privileges: {teacher.fullName} (@{teacher.username})
             </h3>
           </div>
           <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', fontWeight: '800' }}>✕</button>
@@ -747,12 +813,9 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
 
           <div style={{ marginBottom: '20px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1.5px solid #cbd5e1' }}>
             <div style={{ fontSize: '13px', fontWeight: '900', color: '#0f172a', marginBottom: '4px' }}>
-              2. 🏫 Designated Class Teacher Of (Auto-Assigns Class Students & Hifz Mark Entry):
+              2. 🏫 Designated Class Teacher Of (Auto-Assigns Class Students &amp; Hifz Mark Entry):
             </div>
-            <p style={{ margin: '0 0 10px', fontSize: '12px', color: '#475569', fontWeight: '600' }}>
-              Selecting a class below automatically assigns all students of that class to this teacher AND adds <strong>Hifz</strong> mark entry for that class under this teacher (without creating duplicates).
-            </p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '8px' }}>
               {DEFAULT_CLASSES.map(cls => {
                 const active = (priv.classTeacherOf || []).includes(cls);
                 return (
@@ -834,7 +897,7 @@ export function StudentPortfolioModal({
   canEditSkills = true,
   canViewConfidential = true,
   editorName = 'Faculty',
-  initialSection = 'log', // 'log' | 'skills' | 'profile'
+  initialSection = 'log',
   semesterTarget = 3,
   onClose,
   onSaved
@@ -842,7 +905,6 @@ export function StudentPortfolioModal({
   const [activeModalTab, setActiveModalTab] = useState(initialSection);
   const [saving, setSaving] = useState(false);
 
-  // 1. Profile Contact Fields
   const [formData, setFormData] = useState({
     firstName: student?.firstName || '',
     whatsappNumber: student?.whatsappNumber || student?.mobileNumber || '',
@@ -856,7 +918,6 @@ export function StudentPortfolioModal({
     photoUrl: student?.photoUrl || ''
   });
 
-  // 2. Skills & Achievements State
   const [skills, setSkills] = useState(Array.isArray(student?.skills) ? student.skills : []);
   const [newSkill, setNewSkill] = useState('');
   const [achievements, setAchievements] = useState(Array.isArray(student?.achievements) ? student.achievements : []);
@@ -866,7 +927,6 @@ export function StudentPortfolioModal({
   const [achDate, setAchDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [achNotes, setAchNotes] = useState('');
 
-  // 3. Structured Mentor-Mentee Consultation Logs State
   const existingLogs = Array.isArray(student?.mentorLogs)
     ? student.mentorLogs
     : Array.isArray(student?.consultationLogs)
@@ -886,14 +946,9 @@ export function StudentPortfolioModal({
   if (!student) return null;
 
   const DISCUSSION_TOPICS = [
-    'CCE & Academic Progress',
-    'Hifz & Tilawah',
-    'Attendance & Punctuality',
-    'Language Fluency (Ar/En/Ur)',
-    'Sibaq & Co-Curricular',
-    'Hostel & Peer Adjustment',
-    'Personal / Family Wellbeing',
-    'Career & Higher Studies'
+    'CCE & Academic Progress', 'Hifz & Tilawah', 'Attendance & Punctuality',
+    'Language Fluency (Ar/En/Ur)', 'Sibaq & Co-Curricular',
+    'Hostel & Peer Adjustment', 'Personal / Family Wellbeing', 'Career & Higher Studies'
   ];
 
   const QUICK_SKILL_SUGGESTIONS = [
@@ -934,7 +989,6 @@ export function StudentPortfolioModal({
     }
   };
 
-  // Log a new Mentor-Mentee Sitting
   const handleAddConsultationLog = async (e) => {
     e.preventDefault();
     if (!summaryNote.trim() && !actionItem.trim()) {
@@ -983,7 +1037,6 @@ export function StudentPortfolioModal({
     });
   };
 
-  // Add Skill
   const handleAddSkill = async (skillToAdd) => {
     const clean = String(skillToAdd || newSkill).trim();
     if (!clean) return;
@@ -1003,7 +1056,6 @@ export function StudentPortfolioModal({
     await saveUpdatedStudentToFirestore({ skills: updatedSkills });
   };
 
-  // Add Achievement
   const handleAddAchievement = async (e) => {
     e.preventDefault();
     if (!achTitle.trim()) return alert('Please enter the achievement title.');
@@ -1048,7 +1100,6 @@ export function StudentPortfolioModal({
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2200, padding: '14px' }}>
       <div style={{ background: '#ffffff', borderRadius: '18px', maxWidth: '880px', width: '100%', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.35)', color: '#0f172a' }}>
 
-        {/* TOP HEADER */}
         <div style={{ background: '#0f172a', color: '#ffffff', padding: '18px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', position: 'sticky', top: 0, zIndex: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
             <ProfileAvatar name={formData.firstName} code={student.adNo} photoUrl={formData.photoUrl} size={52} />
@@ -1070,7 +1121,6 @@ export function StudentPortfolioModal({
           <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.15)', color: '#ffffff', border: 'none', borderRadius: '8px', width: '36px', height: '36px', fontWeight: '900', cursor: 'pointer', fontSize: '16px' }}>✕</button>
         </div>
 
-        {/* MODAL NAVIGATION TABS */}
         <div style={{ display: 'flex', gap: '8px', background: '#f1f5f9', padding: '10px 20px', borderBottom: '1px solid #cbd5e1', flexWrap: 'wrap' }}>
           {[
             { id: 'log', label: `📝 Mentor-Mentee Consultancy Log (${mentorLogs.length})` },
@@ -1098,7 +1148,6 @@ export function StudentPortfolioModal({
         </div>
 
         <div style={{ padding: '24px' }}>
-          {/* TAB 1: MENTORSHIP CONSULTANCY LOGGER & HISTORY */}
           {activeModalTab === 'log' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
               <form onSubmit={handleAddConsultationLog} style={{ background: '#f0fdfa', border: '2px solid #0d9488', borderRadius: '14px', padding: '18px' }}>
@@ -1120,10 +1169,10 @@ export function StudentPortfolioModal({
                     <label style={styles.label}>Interaction Type:</label>
                     <select value={sessionType} onChange={e => setSessionType(e.target.value)} style={styles.input}>
                       <option value="1-on-1 Personal Sitting">🗣️ 1-on-1 Personal Sitting</option>
-                      <option value="Academic & CCE Review">📊 Academic & CCE Review</option>
-                      <option value="Tarbiyah & Spiritual Guidance">🕌 Tarbiyah & Spiritual Guidance</option>
+                      <option value="Academic & CCE Review">📊 Academic &amp; CCE Review</option>
+                      <option value="Tarbiyah & Spiritual Guidance">🕌 Tarbiyah &amp; Spiritual Guidance</option>
                       <option value="Behavioral / Discipline Counseling">⚖️ Behavioral / Discipline Counseling</option>
-                      <option value="Career & Higher Studies">🎓 Career & Higher Studies</option>
+                      <option value="Career & Higher Studies">🎓 Career &amp; Higher Studies</option>
                       <option value="Parent Phone Consultation">👨‍👩‍👦 Parent Phone Consultation</option>
                     </select>
                   </div>
@@ -1156,7 +1205,7 @@ export function StudentPortfolioModal({
                             cursor: 'pointer',
                             border: active ? '2px solid #0f766e' : '1px solid #cbd5e1',
                             background: active ? '#0f766e' : '#ffffff',
-                            color: active ? '#ffffff' : '#334155'
+                            color: active ? '#ffffff' : '#0f172a'
                           }}
                         >
                           {active ? `✓ ${topic}` : `+ ${topic}`}
@@ -1168,7 +1217,7 @@ export function StudentPortfolioModal({
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px', marginBottom: '14px' }}>
                   <div>
-                    <label style={styles.label}>Consultation Summary & Observations:</label>
+                    <label style={styles.label}>Consultation Summary &amp; Observations:</label>
                     <textarea
                       rows={3}
                       placeholder="Summarize how the student is progressing, challenges discussed, and advice given..."
@@ -1218,7 +1267,6 @@ export function StudentPortfolioModal({
                 </button>
               </form>
 
-              {/* CONSULTATION TIMELINE HISTORY */}
               <div>
                 <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
                   📜 Past Consultancy Sittings History ({mentorLogs.length})
@@ -1295,12 +1343,11 @@ export function StudentPortfolioModal({
             </div>
           )}
 
-          {/* TAB 2: SKILLS & ACHIEVEMENTS */}
           {activeModalTab === 'skills' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
               <div style={{ background: '#f8fafc', padding: '18px', borderRadius: '14px', border: '1px solid #cbd5e1' }}>
                 <h4 style={{ margin: '0 0 10px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
-                  🌟 Student Skills & Talents ({skills.length})
+                  🌟 Student Skills &amp; Talents ({skills.length})
                 </h4>
 
                 {canEditSkills && (
@@ -1356,7 +1403,6 @@ export function StudentPortfolioModal({
                 </div>
               </div>
 
-              {/* ACHIEVEMENTS & SIBAQ LOG */}
               <div style={{ background: '#f8fafc', padding: '18px', borderRadius: '14px', border: '1px solid #cbd5e1' }}>
                 <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
                   🏅 Add New Achievement / Award / Sibaq Record
@@ -1367,10 +1413,10 @@ export function StudentPortfolioModal({
                     <select value={achCategory} onChange={e => setAchCategory(e.target.value)} style={styles.input}>
                       <option value="Academic">📚 Academic Excellence</option>
                       <option value="Sibaq / Arts Fest">🎨 Sibaq / Arts Fest</option>
-                      <option value="Hifz & Quran">📖 Hifz & Quran</option>
-                      <option value="Oratory & Debate">🎙️ Oratory & Debate</option>
-                      <option value="Writing & Publication">✍️ Writing & Publication</option>
-                      <option value="Sports & Leadership">🏆 Sports & Leadership</option>
+                      <option value="Hifz & Quran">📖 Hifz &amp; Quran</option>
+                      <option value="Oratory & Debate">🎙️ Oratory &amp; Debate</option>
+                      <option value="Writing & Publication">✍️ Writing &amp; Publication</option>
+                      <option value="Sports & Leadership">🏆 Sports &amp; Leadership</option>
                     </select>
                     <select value={achLevel} onChange={e => setAchLevel(e.target.value)} style={styles.input}>
                       <option value="Campus / Class Level">🏫 Campus / Class Level</option>
@@ -1407,7 +1453,6 @@ export function StudentPortfolioModal({
             </div>
           )}
 
-          {/* TAB 3: CONTACT & PERSONAL PROFILE */}
           {activeModalTab === 'profile' && (
             <form onSubmit={handleSaveProfileDetails} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
@@ -1438,7 +1483,7 @@ export function StudentPortfolioModal({
                 <div>
                   <label style={styles.label}>State:</label>
                   <select value={formData.state} onChange={e => setFormData({ ...formData, state: e.target.value })} style={styles.input}>
-                    {(INDIAN_STATES || ['Kerala', 'Karnataka', 'Bihar', 'Uttar Pradesh', 'West Bengal', 'Other']).map(st => (
+                    {INDIAN_STATES.map(st => (
                       <option key={st} value={st}>{st}</option>
                     ))}
                   </select>
@@ -1474,22 +1519,20 @@ export function StudentPortfolioModal({
 export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAdmin = false, isOutreachView = false, onStudentUpdated }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCompletion, setFilterCompletion] = useState('All');
-  const [filterConsultancyStatus, setFilterConsultancyStatus] = useState('All'); // 'All' | 'TargetMet' | 'BelowTarget' | 'ZeroSittings' | 'Overdue30' | 'Escalated'
+  const [filterConsultancyStatus, setFilterConsultancyStatus] = useState('All');
   const [editingStudent, setEditingStudent] = useState(null);
   const [modalInitialSection, setModalInitialSection] = useState('log');
 
   const [classPtaMessage, setClassPtaMessage] = useState('');
   const [ptaGroupLink, setPtaGroupLink] = useState('');
 
-  // 🌟 Outreach Coordinator Top-Level View Switcher
-  const [outreachActiveSubTab, setOutreachActiveSubTab] = useState('directory'); // 'dashboard' | 'usthads' | 'directory' | 'queue'
+  const [outreachActiveSubTab, setOutreachActiveSubTab] = useState('directory');
   const [inspectingUsthadUsername, setInspectingUsthadUsername] = useState('');
 
   const [outreachRoleFilter, setOutreachRoleFilter] = useState('All');
   const [outreachDeptFilter, setOutreachDeptFilter] = useState('All');
   const [outreachClassFilter, setOutreachClassFilter] = useState('All');
 
-  // 🌟 Semester Minimum Consultancy Target State (Saved in Firestore systemCache/mentorshipConfig)
   const [semesterTargetConfig, setSemesterTargetConfig] = useState({
     semesterName: 'Current Semester',
     minConsultations: 3,
@@ -1498,7 +1541,6 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
   });
   const [isSavingConfig, setIsSavingConfig] = useState(false);
 
-  // 🌟 Bulk Mentor & Bulk Skill Assignment State
   const [selectedStudentRegs, setSelectedStudentRegs] = useState([]);
   const [targetMentorUsername, setTargetMentorUsername] = useState('');
   const [bulkSkillInput, setBulkSkillInput] = useState('');
@@ -1514,7 +1556,6 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
 
   const normalizeCls = (str) => String(str || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-  // Load Semester Minimum Consultancy Config from Firebase
   useEffect(() => {
     getDoc(doc(db, 'systemCache', 'mentorshipConfig')).then(snap => {
       if (snap.exists()) {
@@ -1544,7 +1585,6 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
     }
   };
 
-  // Helper: Get student's consultation metrics
   const getStudentConsultancyMetrics = (st) => {
     const logs = Array.isArray(st?.mentorLogs)
       ? st.mentorLogs
@@ -1567,15 +1607,7 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
     const isEscalated = String(latestLog?.wellbeingStatus || st?.latestWellbeingStatus || '').includes('Urgent');
 
     return {
-      logs,
-      count,
-      minReq,
-      metTarget,
-      latestLog,
-      lastDateStr,
-      daysSinceLast,
-      isOverdue30,
-      isEscalated
+      logs, count, minReq, metTarget, latestLog, lastDateStr, daysSinceLast, isOverdue30, isEscalated
     };
   };
 
@@ -1605,33 +1637,20 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
   const hasClassDuty = myClassTeacherOf.length > 0 || classStudentsList.length > 0;
   const hasMentorDuty = Boolean(priv.isMentor) || menteeStudentsList.length > 0;
 
-  // 🌟 Build Duty-Based Tabs for Regular Teachers (Shows both ONLY if teacher has both duties!)
   const availableDutyTabs = [];
   if (!isAdmin && !isOutreachView) {
     if (hasClassDuty) {
-      availableDutyTabs.push({
-        id: 'CLASS',
-        label: `🏫 Class ${myClassTeacherOf.join(', ') || ''} Students (${classStudentsList.length})`
-      });
+      availableDutyTabs.push({ id: 'CLASS', label: `🏫 Class ${myClassTeacherOf.join(', ') || ''} Students (${classStudentsList.length})` });
     }
     if (hasMentorDuty) {
-      availableDutyTabs.push({
-        id: 'MENTEES',
-        label: `🧭 My Mentees (${menteeStudentsList.length})`
-      });
+      availableDutyTabs.push({ id: 'MENTEES', label: `🧭 My Mentees (${menteeStudentsList.length})` });
     }
     if (isNiicsCoord) {
-      availableDutyTabs.push({
-        id: 'NIICS',
-        label: `🎓 NIICS Urdu Students (${niicsStudentsList.length})`
-      });
+      availableDutyTabs.push({ id: 'NIICS', label: `🎓 NIICS Urdu Students (${niicsStudentsList.length})` });
     }
     if (availableDutyTabs.length > 1) {
       const combinedCount = students.filter(st => isStudentInMyClass(st) || isStudentMyMentee(st) || isStudentMyNiics(st)).length;
-      availableDutyTabs.push({
-        id: 'ALL',
-        label: `👥 Combined View (${combinedCount})`
-      });
+      availableDutyTabs.push({ id: 'ALL', label: `👥 Combined View (${combinedCount})` });
     }
   }
 
@@ -1674,7 +1693,6 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
     }).catch(() => alert("Failed to copy message."));
   };
 
-  // Scope students
   const scopedStudents = students.filter(st => {
     if (isAdmin || isOutreachView) {
       if (inspectingUsthadUsername) {
@@ -1719,22 +1737,17 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
   });
 
   const totalScope = scopedStudents.length;
-  const completeScope = scopedStudents.filter(s => computeStudentProfileCompletion(s).isComplete).length;
   const targetMetCount = scopedStudents.filter(s => getStudentConsultancyMetrics(s).metTarget).length;
   const belowTargetCount = totalScope - targetMetCount;
   const overdue30Count = scopedStudents.filter(s => getStudentConsultancyMetrics(s).isOverdue30).length;
   const escalatedCount = scopedStudents.filter(s => getStudentConsultancyMetrics(s).isEscalated).length;
   const totalSittingsLoggedInScope = scopedStudents.reduce((acc, s) => acc + getStudentConsultancyMetrics(s).count, 0);
 
-  // 🌟 Build Usthad-Wise Consultancy Audit Summary (For Outreach Coordinator & Admin)
   const usthadAuditRows = teachers.map(t => {
     const tUserLower = String(t.username || '').toLowerCase();
     const tMentees = students.filter(s => String(s.mentorUsername || '').toLowerCase() === tUserLower);
     const totalMentees = tMentees.length;
-    let metTargetMentees = 0;
-    let zeroSittingMentees = 0;
-    let totalSessions = 0;
-    let latestSittingDate = '';
+    let metTargetMentees = 0, zeroSittingMentees = 0, totalSessions = 0, latestSittingDate = '';
 
     tMentees.forEach(m => {
       const cm = getStudentConsultancyMetrics(m);
@@ -1749,19 +1762,12 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
     const targetCompletionPct = totalMentees > 0 ? Math.round((metTargetMentees / totalMentees) * 100) : 0;
 
     return {
-      teacher: t,
-      totalMentees,
-      metTargetMentees,
+      teacher: t, totalMentees, metTargetMentees,
       pendingTargetMentees: totalMentees - metTargetMentees,
-      zeroSittingMentees,
-      totalSessions,
-      latestSittingDate,
-      targetCompletionPct,
-      menteesList: tMentees
+      zeroSittingMentees, totalSessions, latestSittingDate, targetCompletionPct, menteesList: tMentees
     };
   }).filter(row => row.totalMentees > 0 || row.teacher.outpassPrivileges?.isMentor);
 
-  // Bulk Assign Mentor
   const handleBulkAssignMentor = async () => {
     if (selectedStudentRegs.length === 0) return alert('Please select at least one student using the checkboxes.');
     if (!targetMentorUsername) return alert('Please select a Mentor from the dropdown.');
@@ -1808,7 +1814,6 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
     }
   };
 
-  // 🌟 Bulk Assign Skill Tag to Selected Students
   const handleBulkAssignSkill = async () => {
     const cleanSkill = bulkSkillInput.trim();
     if (!cleanSkill) return alert('Please type a Skill name to assign (e.g. Arabic Debate).');
@@ -1865,17 +1870,8 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
     }
   };
 
-  const cardContainerStyle = {
-    background: '#ffffff',
-    padding: '26px',
-    borderRadius: '16px',
-    boxShadow: '0 4px 20px rgba(15, 23, 42, 0.04)',
-    border: '1px solid #cbd5e1',
-    marginBottom: '24px'
-  };
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
       {editingStudent && (
         <StudentPortfolioModal
@@ -1893,16 +1889,15 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
         />
       )}
 
-      <div style={cardContainerStyle}>
+      <div style={{ background: '#ffffff', padding: '24px', borderRadius: '18px', boxShadow: '0 4px 20px rgba(15, 23, 42, 0.04)', border: '1px solid #cbd5e1' }}>
 
-        {/* 🌟 1. OUTREACH COORDINATOR & ADMIN: 4-TAB COMMAND NAVIGATION */}
         {canManageMentorAssignments && (isAdmin || isOutreachView) && (
-          <div style={{ display: 'flex', gap: '10px', background: '#0f172a', padding: '10px', borderRadius: '14px', flexWrap: 'wrap', marginBottom: '22px' }}>
+          <div style={{ display: 'flex', gap: '8px', background: '#0f172a', padding: '8px', borderRadius: '14px', flexWrap: 'wrap', marginBottom: '20px' }}>
             {[
-              { id: 'dashboard', label: '📊 1. Outreach Command & Target Setter' },
-              { id: 'usthads', label: `👨‍🏫 2. Usthad-Wise Consultancy Audit (${usthadAuditRows.length})` },
-              { id: 'directory', label: `👥 3. Student Directory, Skills & Bulk Assign (${students.length})` },
-              { id: 'queue', label: `🚨 4. Pending Target & Escalated Queue (${belowTargetCount})` }
+              { id: 'dashboard', label: '📊 1. Outreach Overview & Target' },
+              { id: 'usthads', label: `👨‍🏫 2. Usthad Consultancy Audit (${usthadAuditRows.length})` },
+              { id: 'directory', label: `👥 3. Student Directory & Bulk Assign (${students.length})` },
+              { id: 'queue', label: `🚨 4. Pending & Escalated Queue (${belowTargetCount})` }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -1912,14 +1907,14 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                   if (tab.id !== 'directory') setInspectingUsthadUsername('');
                 }}
                 style={{
-                  flex: '1 1 210px',
-                  padding: '12px 14px',
+                  flex: '1 1 200px',
+                  padding: '11px 14px',
                   borderRadius: '10px',
                   border: 'none',
                   fontWeight: '800',
                   fontSize: '13px',
                   cursor: 'pointer',
-                  background: outreachActiveSubTab === tab.id ? '#00897b' : 'rgba(255,255,255,0.1)',
+                  background: outreachActiveSubTab === tab.id ? '#00897b' : 'rgba(255,255,255,0.08)',
                   color: '#ffffff'
                 }}
               >
@@ -1929,17 +1924,16 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
           </div>
         )}
 
-        {/* 🌟 2. REGULAR TEACHER SUB-TAB SWITCHER (ONLY SHOWN IF TEACHER HAS BOTH CLASS & MENTOR DUTIES) */}
         {!isAdmin && !isOutreachView && availableDutyTabs.length > 1 && (
-          <div style={{ display: 'flex', gap: '10px', background: '#f1f5f9', padding: '8px', borderRadius: '12px', flexWrap: 'wrap', marginBottom: '20px', border: '1px solid #cbd5e1' }}>
+          <div style={{ display: 'flex', gap: '8px', background: '#f1f5f9', padding: '8px', borderRadius: '12px', flexWrap: 'wrap', marginBottom: '20px', border: '1px solid #cbd5e1' }}>
             {availableDutyTabs.map(tab => (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => setTeacherViewMode(tab.id)}
                 style={{
-                  flex: '1 1 200px',
-                  padding: '12px 16px',
+                  flex: '1 1 190px',
+                  padding: '11px 14px',
                   borderRadius: '8px',
                   border: teacherViewMode === tab.id ? '2px solid #0f766e' : '1px solid transparent',
                   fontWeight: '800',
@@ -1955,8 +1949,8 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
           </div>
         )}
 
-        {/* SEMESTER TARGET BANNER (VISIBLE TO ALL MENTORS & COORDINATORS) */}
-        <div style={{ background: '#fffbeb', border: '1.5px solid #f59e0b', padding: '14px 18px', borderRadius: '12px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        {/* COMPACT SEMESTER TARGET SUMMARY BANNER */}
+        <div style={{ background: '#fffbeb', border: '1.5px solid #f59e0b', padding: '14px 18px', borderRadius: '14px', marginBottom: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <span style={{ background: '#d97706', color: '#ffffff', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '900', textTransform: 'uppercase' }}>
               🎯 {semesterTargetConfig.semesterName || 'Semester'} Consultancy Mandate
@@ -1965,123 +1959,103 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
               Minimum Required Consultations: <strong>{semesterTargetConfig.minConsultations} Sittings per Mentee</strong>
               {semesterTargetConfig.targetDeadline ? ` • Target Deadline: ${semesterTargetConfig.targetDeadline}` : ''}
             </div>
-            {semesterTargetConfig.guidelinesNote && (
-              <div style={{ fontSize: '12px', color: '#92400e', fontWeight: '600', marginTop: '2px' }}>
-                {semesterTargetConfig.guidelinesNote}
-              </div>
-            )}
           </div>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: '11px', fontWeight: '800', color: '#92400e' }}>TARGET ACHIEVED IN SCOPE</div>
-              <div style={{ fontSize: '20px', fontWeight: '900', color: '#047857' }}>
-                {targetMetCount} / {totalScope} Students ({totalScope > 0 ? Math.round((targetMetCount / totalScope) * 100) : 0}%)
-              </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: '10px', fontWeight: '900', color: '#92400e' }}>TARGET ACHIEVED IN SCOPE</div>
+            <div style={{ fontSize: '19px', fontWeight: '900', color: '#047857' }}>
+              {targetMetCount} / {totalScope} Students ({totalScope > 0 ? Math.round((targetMetCount / totalScope) * 100) : 0}%)
             </div>
           </div>
         </div>
 
-        {/* ============================================================
-            SUB-TAB 1: OUTREACH COMMAND DASHBOARD & SEMESTER TARGET SETTER
-           ============================================================ */}
+        {/* SUB-TAB 1: OUTREACH COMMAND DASHBOARD WITH SMOOTH SLIDING TARGET DRAWER */}
         {canManageMentorAssignments && (isAdmin || isOutreachView) && outreachActiveSubTab === 'dashboard' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            {/* SEMESTER TARGET SETTER FORM */}
-            <form onSubmit={handleSaveSemesterTargetConfig} style={{ background: '#f0fdfa', border: '2px solid #0d9488', padding: '20px', borderRadius: '14px' }}>
-              <h4 style={{ margin: '0 0 6px 0', fontSize: '17px', fontWeight: '900', color: '#0f766e' }}>
-                ⚙️ Fix Minimum Mentor-Mentee Consultancy Target for Semester
-              </h4>
-              <p style={{ margin: '0 0 14px 0', fontSize: '13px', color: '#334155', fontWeight: '600' }}>
-                Set the minimum number of 1-on-1 sittings every Mentor Usthad must complete with each assigned mentee this semester.
-              </p>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '14px' }}>
-                <div>
-                  <label style={styles.label}>Semester Title:</label>
-                  <input
-                    type="text"
-                    value={semesterTargetConfig.semesterName}
-                    onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, semesterName: e.target.value })}
-                    placeholder="e.g. Odd Semester 2026-27"
-                    style={styles.input}
-                  />
-                </div>
-                <div>
-                  <label style={styles.label}>Minimum Sittings per Mentee:</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="20"
-                    value={semesterTargetConfig.minConsultations}
-                    onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, minConsultations: Number(e.target.value) })}
-                    style={{ ...styles.input, fontWeight: '900', color: '#0f766e' }}
-                  />
-                </div>
-                <div>
-                  <label style={styles.label}>Semester Target Deadline:</label>
-                  <input
-                    type="date"
-                    value={semesterTargetConfig.targetDeadline || ''}
-                    onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, targetDeadline: e.target.value })}
-                    style={styles.input}
-                  />
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '14px' }}>
-                <label style={styles.label}>Coordinator Instructions / Guidelines for Mentors:</label>
-                <input
-                  type="text"
-                  value={semesterTargetConfig.guidelinesNote || ''}
-                  onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, guidelinesNote: e.target.value })}
-                  placeholder="Instructions displayed on every Mentor's dashboard..."
-                  style={styles.input}
-                />
-              </div>
-
-              <button type="submit" disabled={isSavingConfig} style={styles.buttonPrimary}>
-                {isSavingConfig ? 'Saving Target...' : '💾 Save Semester Minimum Consultancy Target'}
-              </button>
-            </form>
-
-            {/* COMMAND KPI CARDS */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '16px' }}>
-              <div style={{ padding: '18px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #cbd5e1', textAlign: 'center' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: '14px' }}>
+              <div style={{ padding: '18px', borderRadius: '14px', background: '#f8fafc', border: '1px solid #cbd5e1', textAlign: 'center' }}>
                 <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b' }}>TOTAL SITTINGS LOGGED</span>
-                <div style={{ fontSize: '30px', fontWeight: '900', color: '#0f172a', marginTop: '6px' }}>{totalSittingsLoggedInScope}</div>
+                <div style={{ fontSize: '28px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>{totalSittingsLoggedInScope}</div>
               </div>
-              <div style={{ padding: '18px', borderRadius: '12px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center' }}>
-                <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857' }}>MET SEMESTER TARGET (&ge;{semesterTargetConfig.minConsultations})</span>
-                <div style={{ fontSize: '30px', fontWeight: '900', color: '#059669', marginTop: '6px' }}>{targetMetCount}</div>
+              <div style={{ padding: '18px', borderRadius: '14px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857' }}>MET TARGET (&ge;{semesterTargetConfig.minConsultations})</span>
+                <div style={{ fontSize: '28px', fontWeight: '900', color: '#059669', marginTop: '4px' }}>{targetMetCount}</div>
               </div>
-              <div style={{ padding: '18px', borderRadius: '12px', background: '#fffbeb', border: '1px solid #fde68a', textAlign: 'center' }}>
+              <div style={{ padding: '18px', borderRadius: '14px', background: '#fffbeb', border: '1px solid #fde68a', textAlign: 'center' }}>
                 <span style={{ fontSize: '11px', fontWeight: '800', color: '#b45309' }}>BELOW TARGET (&lt;{semesterTargetConfig.minConsultations})</span>
-                <div style={{ fontSize: '30px', fontWeight: '900', color: '#d97706', marginTop: '6px' }}>{belowTargetCount}</div>
+                <div style={{ fontSize: '28px', fontWeight: '900', color: '#d97706', marginTop: '4px' }}>{belowTargetCount}</div>
               </div>
-              <div style={{ padding: '18px', borderRadius: '12px', background: '#fee2e2', border: '1px solid #fecaca', textAlign: 'center' }}>
+              <div style={{ padding: '18px', borderRadius: '14px', background: '#fee2e2', border: '1px solid #fecaca', textAlign: 'center' }}>
                 <span style={{ fontSize: '11px', fontWeight: '800', color: '#991b1b' }}>NO SITTING IN 30+ DAYS</span>
-                <div style={{ fontSize: '30px', fontWeight: '900', color: '#dc2626', marginTop: '6px' }}>{overdue30Count}</div>
+                <div style={{ fontSize: '28px', fontWeight: '900', color: '#dc2626', marginTop: '4px' }}>{overdue30Count}</div>
               </div>
-              <div style={{ padding: '18px', borderRadius: '12px', background: '#fef2f2', border: '2px solid #dc2626', textAlign: 'center' }}>
+              <div style={{ padding: '18px', borderRadius: '14px', background: '#fef2f2', border: '2px solid #dc2626', textAlign: 'center' }}>
                 <span style={{ fontSize: '11px', fontWeight: '900', color: '#dc2626' }}>🚨 ESCALATED CASES</span>
-                <div style={{ fontSize: '30px', fontWeight: '900', color: '#dc2626', marginTop: '6px' }}>{escalatedCount}</div>
+                <div style={{ fontSize: '28px', fontWeight: '900', color: '#dc2626', marginTop: '4px' }}>{escalatedCount}</div>
               </div>
             </div>
+
+            <CollapsibleCard
+              title="Fix Minimum Mentor-Mentee Consultancy Target for Semester"
+              subtitle="Click to configure minimum required sittings, semester title, and deadline"
+              badgeText={`Min: ${semesterTargetConfig.minConsultations} Sittings`}
+              icon="⚙️"
+              defaultOpen={false}
+            >
+              <form onSubmit={handleSaveSemesterTargetConfig}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '14px' }}>
+                  <div>
+                    <label style={styles.label}>Semester Title:</label>
+                    <input
+                      type="text"
+                      value={semesterTargetConfig.semesterName}
+                      onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, semesterName: e.target.value })}
+                      style={styles.input}
+                    />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Minimum Sittings per Mentee:</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="20"
+                      value={semesterTargetConfig.minConsultations}
+                      onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, minConsultations: Number(e.target.value) })}
+                      style={{ ...styles.input, fontWeight: '900', color: '#0f766e' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Semester Target Deadline:</label>
+                    <input
+                      type="date"
+                      value={semesterTargetConfig.targetDeadline || ''}
+                      onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, targetDeadline: e.target.value })}
+                      style={styles.input}
+                    />
+                  </div>
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={styles.label}>Coordinator Instructions / Guidelines for Mentors:</label>
+                  <input
+                    type="text"
+                    value={semesterTargetConfig.guidelinesNote || ''}
+                    onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, guidelinesNote: e.target.value })}
+                    style={styles.input}
+                  />
+                </div>
+                <button type="submit" disabled={isSavingConfig} style={styles.buttonPrimary}>
+                  {isSavingConfig ? 'Saving Target...' : '💾 Save Semester Consultancy Target'}
+                </button>
+              </form>
+            </CollapsibleCard>
           </div>
         )}
 
-        {/* ============================================================
-            SUB-TAB 2: USTHAD-WISE CONSULTANCY AUDIT & RELATIONSHIP TRACKER
-           ============================================================ */}
+        {/* SUB-TAB 2: USTHAD-WISE CONSULTANCY AUDIT */}
         {canManageMentorAssignments && (isAdmin || isOutreachView) && outreachActiveSubTab === 'usthads' && (
           <div>
-            <h4 style={{ margin: '0 0 6px 0', fontSize: '18px', fontWeight: '900', color: '#0f172a' }}>
-              👨‍🏫 Individual Usthad Mentorship & Consultancy Progress Audit
+            <h4 style={{ margin: '0 0 14px 0', fontSize: '18px', fontWeight: '900', color: '#0f172a' }}>
+              👨‍🏫 Individual Usthad Mentorship &amp; Consultancy Progress Audit
             </h4>
-            <p style={{ margin: '0 0 18px 0', fontSize: '13px', color: '#475569', fontWeight: '600' }}>
-              Track how actively each Mentor Usthad is meeting his assigned mentees against the semester requirement of <strong>{semesterTargetConfig.minConsultations} sittings per mentee</strong>.
-            </p>
-
             <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '880px' }}>
                 <thead>
@@ -2091,7 +2065,7 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                     <th style={{ padding: '14px 16px', textAlign: 'center' }}>Total Sittings Held</th>
                     <th style={{ padding: '14px 16px', textAlign: 'center' }}>Met Target (&ge;{semesterTargetConfig.minConsultations})</th>
                     <th style={{ padding: '14px 16px', textAlign: 'center' }}>Never Met (0)</th>
-                    <th style={{ padding: '14px 16px' }}>Semester Target Progress</th>
+                    <th style={{ padding: '14px 16px' }}>Progress</th>
                     <th style={{ padding: '14px 16px', textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
@@ -2118,7 +2092,7 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                       </td>
                       <td style={{ padding: '14px 16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ width: '110px', height: '8px', background: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
+                          <div style={{ width: '100px', height: '8px', background: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
                             <div style={{ width: `${row.targetCompletionPct}%`, height: '100%', background: row.targetCompletionPct >= 80 ? '#10b981' : row.targetCompletionPct >= 40 ? '#f59e0b' : '#ef4444' }} />
                           </div>
                           <span style={{ fontWeight: '800', fontSize: '13px' }}>{row.targetCompletionPct}%</span>
@@ -2134,14 +2108,14 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                             }}
                             style={{ padding: '8px 12px', background: '#0f766e', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
                           >
-                            🔍 Inspect Mentees ({row.totalMentees})
+                            🔍 Inspect ({row.totalMentees})
                           </button>
                           <button
                             type="button"
                             onClick={() =>
                               openDirectWhatsApp(
                                 row.teacher.whatsappNumber || row.teacher.mobileNumber,
-                                `Assalamu Alaikum Usthad ${row.teacher.fullName}, gentle reminder from DHIU Outreach Desk: For ${semesterTargetConfig.semesterName}, the minimum consultancy target is ${semesterTargetConfig.minConsultations} sittings per mentee. Currently ${row.metTargetMentees}/${row.totalMentees} of your mentees have completed this target. Please log your upcoming sittings on the portal.`
+                                `Assalamu Alaikum Usthad ${row.teacher.fullName}, gentle reminder from DHIU Outreach Desk: Currently ${row.metTargetMentees}/${row.totalMentees} of your mentees have completed the ${semesterTargetConfig.minConsultations} required sittings.`
                               )
                             }
                             style={{ padding: '8px 12px', background: '#dcfce7', color: '#166534', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
@@ -2158,9 +2132,7 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
           </div>
         )}
 
-        {/* ============================================================
-            SUB-TAB 3 & 4 (OR REGULAR TEACHER VIEW): STUDENT DIRECTORY & ACTION QUEUE
-           ============================================================ */}
+        {/* SUB-TAB 3 & 4 (OR REGULAR TEACHER VIEW): STUDENT DIRECTORY */}
         {((!isAdmin && !isOutreachView) || outreachActiveSubTab === 'directory' || outreachActiveSubTab === 'queue') && (
           <>
             {inspectingUsthadUsername && (
@@ -2178,17 +2150,20 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
               </div>
             )}
 
-            {/* OUTREACH COORDINATOR & ADMIN: BULK MENTOR & BULK SKILL ASSIGNMENT PANEL */}
+            {/* SLIDING DRAWER: BULK MENTOR & BULK SKILL ASSIGNMENT */}
             {canManageMentorAssignments && (isAdmin || isOutreachView) && outreachActiveSubTab === 'directory' && (
-              <div style={{ background: '#f0fdfa', border: '2px solid #0d9488', padding: '16px', borderRadius: '12px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                  <div style={{ fontWeight: '800', color: '#0f766e', fontSize: '14px' }}>
-                    🧭 Outreach Coordinator Desk: Bulk Assign Mentor OR Bulk Add Skill ({selectedStudentRegs.length} Selected)
-                  </div>
+              <CollapsibleCard
+                title="Bulk Assign Mentor OR Bulk Add Skill to Checked Students"
+                subtitle="Check students in the table below, then open this drawer to assign their Mentor Usthad or add a Skill tag"
+                badgeText={`${selectedStudentRegs.length} Selected`}
+                icon="🧭"
+                defaultOpen={selectedStudentRegs.length > 0}
+              >
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
                   <button
                     type="button"
                     onClick={toggleSelectAllDisplayed}
-                    style={{ background: '#ffffff', color: '#0f766e', border: '1.5px solid #0d9488', padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}
+                    style={{ background: '#f0fdfa', color: '#0f766e', border: '1.5px solid #0d9488', padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}
                   >
                     ☑️ Select / Deselect Visible ({displayStudents.length})
                   </button>
@@ -2239,22 +2214,23 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                 </div>
 
                 {mentorAssignStatus && (
-                  <div style={{ padding: '10px 14px', background: '#dcfce7', color: '#166534', borderRadius: '8px', fontWeight: '800', fontSize: '13px' }}>
+                  <div style={{ marginTop: '12px', padding: '10px 14px', background: '#dcfce7', color: '#166534', borderRadius: '8px', fontWeight: '800', fontSize: '13px' }}>
                     {mentorAssignStatus}
                   </div>
                 )}
-              </div>
+              </CollapsibleCard>
             )}
 
-            {/* CLASS TEACHER WHATSAPP PTA BROADCAST BAR */}
+            {/* SLIDING DRAWER: CLASS TEACHER PTA BROADCAST BAR */}
             {(!isAdmin && !isOutreachView && myClassTeacherOf.length > 0 && (teacherViewMode === 'CLASS' || teacherViewMode === 'ALL')) && (
-              <div style={{ background: '#f0fdf4', border: '2px solid #22c55e', padding: '16px', borderRadius: '12px', marginBottom: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '12px' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: '800', color: '#166534', fontSize: '14px', marginBottom: '4px' }}>
-                      👨‍👩‍👦 Class {myClassTeacherOf[0]} PTA / Parents WhatsApp Group Broadcast
-                    </div>
-                  </div>
+              <CollapsibleCard
+                title={`Class ${myClassTeacherOf[0]} PTA / Parents WhatsApp Group Broadcast`}
+                subtitle="Send notices to your class parents WhatsApp group"
+                icon="👨‍👩‍👦"
+                accentColor="#16a34a"
+                defaultOpen={false}
+              >
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
                   <button type="button" onClick={savePtaGroupLink} style={{ background: '#ffffff', color: '#059669', border: '1px solid #10b981', padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>
                     🔗 Set Class {myClassTeacherOf[0]} WhatsApp Group Link
                   </button>
@@ -2271,12 +2247,12 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                     💬 Open Class {myClassTeacherOf[0]} PTA Group &amp; Send
                   </button>
                 </div>
-              </div>
+              </CollapsibleCard>
             )}
 
             {/* SEARCH & CONSULTANCY FILTERS */}
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '18px', background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
-              <input type="text" placeholder="Search student name, Ad.No, or district..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ ...styles.input, flex: '1 1 200px' }} />
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '18px', background: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
+              <input type="text" placeholder="🔍 Search student name, Ad.No, or district..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ ...styles.input, flex: '1 1 200px' }} />
 
               <select value={filterConsultancyStatus} onChange={(e) => setFilterConsultancyStatus(e.target.value)} style={{ ...styles.input, flex: '1 1 210px', borderColor: '#0f766e', fontWeight: '800' }}>
                 <option value="All">All Consultancy Statuses</option>
@@ -2309,7 +2285,7 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
             </div>
 
             {/* MAIN STUDENT CONSULTANCY & PORTFOLIO TABLE */}
-            <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
+            <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '14px' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '1020px' }}>
                 <thead>
                   <tr style={{ background: '#0f172a', color: '#ffffff' }}>
@@ -2322,12 +2298,12 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                         />
                       </th>
                     )}
-                    <th style={{ padding: '14px 16px', fontWeight: '800' }}>Student &amp; Ad.No</th>
-                    <th style={{ padding: '14px 16px', fontWeight: '800' }}>Class &amp; Mentor</th>
-                    <th style={{ padding: '14px 16px', fontWeight: '800' }}>Consultancy Progress (Target: {semesterTargetConfig.minConsultations})</th>
-                    <th style={{ padding: '14px 16px', fontWeight: '800' }}>Skills &amp; Profile</th>
-                    <th style={{ padding: '14px 16px', fontWeight: '800' }}>Contact Details</th>
-                    <th style={{ padding: '14px 16px', fontWeight: '800', textAlign: 'right' }}>Quick Actions</th>
+                    <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Student &amp; Ad.No</th>
+                    <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Class &amp; Mentor</th>
+                    <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Consultancy Progress (Target: {semesterTargetConfig.minConsultations})</th>
+                    <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Skills &amp; Profile</th>
+                    <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Contact Details</th>
+                    <th style={{ padding: '14px 16px', fontWeight: '800', textAlign: 'right', color: '#ffffff' }}>Quick Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2341,7 +2317,6 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                     const stSkills = Array.isArray(st.skills) ? st.skills : [];
                     const stAch = Array.isArray(st.achievements) ? st.achievements : [];
 
-                    // In Queue mode, only show students below target or escalated
                     if (outreachActiveSubTab === 'queue' && cMetrics.metTarget && !cMetrics.isEscalated) {
                       return null;
                     }
@@ -2393,7 +2368,6 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                           <div style={{ color: '#1d4ed8' }}>🏫 CT: {autoCT ? autoCT.fullName : (st.classTeacherUsername || 'Unassigned')}</div>
                         </td>
 
-                        {/* CONSULTANCY PROGRESS COLUMN */}
                         <td style={{ padding: '14px 16px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                             <span style={{
@@ -2414,14 +2388,8 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                               ? `Last met: ${cMetrics.lastDateStr} (${cMetrics.daysSinceLast}d ago)`
                               : '⚠️ No sitting logged yet'}
                           </div>
-                          {cMetrics.latestLog?.summary && (
-                            <div style={{ fontSize: '11px', color: '#0f766e', fontWeight: '700', marginTop: '3px', maxWidth: '230px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              💬 "{cMetrics.latestLog.summary}"
-                            </div>
-                          )}
                         </td>
 
-                        {/* SKILLS & PROFILE COMPLETION COLUMN */}
                         <td style={{ padding: '14px 16px' }}>
                           <div style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>
                             🌟 {stSkills.length} Skills • 🏅 {stAch.length} Awards
@@ -2454,7 +2422,7 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                               onClick={() => { setModalInitialSection('skills'); setEditingStudent(st); }}
                               style={{ padding: '8px 12px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}
                             >
-                              🏆 + Skill / Award
+                              🏆 + Skill
                             </button>
                             <button
                               type="button"
