@@ -50,6 +50,10 @@ export default function NightAttendanceManager({
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
+  // 🌟 NEW: Night Attendance Report Scope ('daily' | 'monthly' | 'total')
+  const [nightRepScope, setNightRepScope] = useState('daily');
+  const [nightRepMonth, setNightRepMonth] = useState(() => getTodayDateString().slice(0, 7)); // 'YYYY-MM'
+  const [nightRepClass, setNightRepClass] = useState('ALL');
 
   const recorderName = isAdmin
     ? 'Admin'
@@ -230,10 +234,10 @@ export default function NightAttendanceManager({
   };
 
   useEffect(() => {
-    if (viewMode === 'regular_absentees' && monthlyDocsList.length === 0) {
-      loadRecent30DaysForAnalytics();
-    }
-  }, [viewMode]);
+  if ((viewMode === 'regular_absentees' || (viewMode === 'admin_summary' && nightRepScope !== 'daily')) && monthlyDocsList.length === 0) {
+    loadRecent30DaysForAnalytics();
+  }
+}, [viewMode, nightRepScope]);
 
   const handleSaveClassAttendance = async () => {
     setSaving(true);
@@ -766,6 +770,116 @@ export default function NightAttendanceManager({
             <h3 style={{ margin: 0, fontSize: '19px', fontWeight: '800', color: '#0f172a' }}>
               📊 Institution-Wide Night Attendance Summary ({selectedDate})
             </h3>
+            {/* 🌟 NIGHT ATTENDANCE SCOPE SWITCHER: Specific Date | Monthly Report | Total Semester */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', background: '#f8fafc', padding: '14px 18px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {[
+                { id: 'daily', label: `📅 Specific Date (${selectedDate})` },
+                { id: 'monthly', label: '🗓️ Monthly Night Report' },
+                { id: 'total', label: '📈 Total Semester Night Summary' }
+              ].map(t => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setNightRepScope(t.id)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    fontWeight: '800',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    background: nightRepScope === t.id ? '#0f766e' : '#ffffff',
+                    color: nightRepScope === t.id ? '#ffffff' : '#0f172a'
+                  }}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {nightRepScope !== 'daily' && (
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <select value={nightRepClass} onChange={e => setNightRepClass(e.target.value)} style={{ ...styles.input, width: '160px', padding: '8px 12px' }}>
+                  <option value="ALL">All Classes</option>
+                  {DEFAULT_CLASSES.map(c => <option key={c} value={c}>Class {c}</option>)}
+                </select>
+                {nightRepScope === 'monthly' && (
+                  <input type="month" value={nightRepMonth} onChange={e => setNightRepMonth(e.target.value)} style={{ ...styles.input, width: '170px', padding: '8px 12px' }} />
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 🌟 MONTHLY OR TOTAL STUDENT-WISE NIGHT ATTENDANCE MATRIX */}
+          {nightRepScope !== 'daily' && (() => {
+            const scopedDocs = nightRepScope === 'monthly'
+              ? monthlyDocsList.filter(d => String(d.date || '').startsWith(nightRepMonth))
+              : monthlyDocsList;
+
+            const targetStudents = students.filter(s => nightRepClass === 'ALL' || (s.classes || []).includes(nightRepClass));
+
+            return (
+              <div style={{ marginBottom: '26px', border: '1px solid #cbd5e1', borderRadius: '12px', overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', minWidth: '800px' }}>
+                  <thead>
+                    <tr style={{ background: '#0f172a', color: '#ffffff' }}>
+                      <th style={{ padding: '12px 14px' }}>#</th>
+                      <th style={{ padding: '12px 14px' }}>Student &amp; Ad.No</th>
+                      <th style={{ padding: '12px 14px' }}>Class</th>
+                      <th style={{ padding: '12px 14px', textAlign: 'center' }}>Nights Recorded</th>
+                      <th style={{ padding: '12px 14px', textAlign: 'center' }}>Present</th>
+                      <th style={{ padding: '12px 14px', textAlign: 'center' }}>Unexcused Absent</th>
+                      <th style={{ padding: '12px 14px', textAlign: 'center' }}>On Out-Pass</th>
+                      <th style={{ padding: '12px 14px', textAlign: 'center' }}>Sick/Room</th>
+                      <th style={{ padding: '12px 14px', textAlign: 'center' }}>Night Attendance %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {targetStudents.map((st, idx) => {
+                      const ad = String(st.adNo || '').trim();
+                      const stCls = (st.classes || [])[0] || '';
+                      let nightsHeld = 0;
+                      let nightsPres = 0;
+                      let nightsAbs = 0;
+                      let nightsOut = 0;
+                      let nightsSick = 0;
+
+                      scopedDocs.forEach(dayDoc => {
+                        const cRec = (dayDoc.classes || {})[stCls];
+                        if (!cRec) return;
+                        nightsHeld++;
+                        if ((cRec.absentAdNos || []).includes(ad)) nightsAbs++;
+                        else if ((cRec.outpassAdNos || []).includes(ad)) nightsOut++;
+                        else if ((cRec.sickAdNos || []).includes(ad)) nightsSick++;
+                        else nightsPres++;
+                      });
+
+                      const pct = nightsHeld > 0 ? (((nightsPres + nightsSick) / nightsHeld) * 100).toFixed(1) : '100.0';
+
+                      return (
+                        <tr key={st.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                          <td style={{ padding: '10px 14px', fontWeight: '700', color: '#64748b' }}>{idx + 1}</td>
+                          <td style={{ padding: '10px 14px', fontWeight: '800', color: '#0f172a' }}>{st.firstName} (#{st.adNo})</td>
+                          <td style={{ padding: '10px 14px', fontWeight: '800', color: '#0f766e' }}>{stCls}</td>
+                          <td style={{ padding: '10px 14px', textAlign: 'center', fontWeight: '700' }}>{nightsHeld}</td>
+                          <td style={{ padding: '10px 14px', textAlign: 'center', fontWeight: '800', color: '#047857' }}>{nightsPres}</td>
+                          <td style={{ padding: '10px 14px', textAlign: 'center', fontWeight: '900', color: nightsAbs > 0 ? '#dc2626' : '#64748b' }}>{nightsAbs}</td>
+                          <td style={{ padding: '10px 14px', textAlign: 'center', fontWeight: '800', color: '#2563eb' }}>{nightsOut}</td>
+                          <td style={{ padding: '10px 14px', textAlign: 'center', fontWeight: '800', color: '#d97706' }}>{nightsSick}</td>
+                          <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                            <span style={{ background: Number(pct) < 85 ? '#fef2f2' : '#dcfce7', color: Number(pct) < 85 ? '#dc2626' : '#166534', padding: '4px 10px', borderRadius: '999px', fontWeight: '900', fontSize: '12px' }}>
+                              {nightsHeld > 0 ? `${pct}%` : '-'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
             <button
               type="button"
               onClick={() => {

@@ -301,6 +301,9 @@ export default function StudentDashboard() {
     guidelinesNote: ''
   });
 
+  const [studentAttScope, setStudentAttScope] = useState('total'); // 'total' | 'monthly' | 'daily'
+  const [studentAttMonth, setStudentAttMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [studentAttDate, setStudentAttDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [attendanceData, setAttendanceData] = useState({
     totalPeriods: 0,
     presentCount: 0,
@@ -908,7 +911,7 @@ export default function StudentDashboard() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px', borderBottom: '2px solid #f1f5f9', paddingBottom: '14px' }}>
               <div>
                 <h3 style={{ margin: '0 0 6px 0', fontSize: '20px', color: '#0f172a', fontWeight: '900' }}>
-                  📅 My Semester Period Attendance & Minus Log
+                  📅 My Semester Period Attendance &amp; Minus Log
                 </h3>
                 <p style={{ margin: 0, fontSize: '13px', color: '#64748b', fontWeight: '600' }}>
                   Minimum required attendance is <strong>85%</strong>. Minus deductions are subtracted from your overall present periods.
@@ -927,7 +930,8 @@ export default function StudentDashboard() {
               </span>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: '14px', marginBottom: '24px' }}>
+            {/* 🌟 5 KPI COUNTER CARDS */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: '14px', marginBottom: '22px' }}>
               <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #cbd5e1', textAlign: 'center' }}>
                 <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b' }}>TOTAL PERIODS</span>
                 <div style={{ fontSize: '26px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>{attendanceData.totalPeriods}</div>
@@ -946,18 +950,138 @@ export default function StudentDashboard() {
               </div>
               <div style={{ background: '#fffbeb', padding: '16px', borderRadius: '12px', border: '1px solid #fde68a', textAlign: 'center' }}>
                 <span style={{ fontSize: '11px', fontWeight: '800', color: '#92400e' }}>OFFICIAL / MEDICAL</span>
-                <div style={{ fontSize: '18px', fontWeight: '900', color: '#b45309', marginTop: '8px' }}>
+                <div style={{ fontSize: '16px', fontWeight: '900', color: '#b45309', marginTop: '8px' }}>
                   Off: {officialPct}% • Med: {medicalPct}%
                 </div>
               </div>
             </div>
 
-            {/* 📆 MONTH-BY-MONTH ABSENCE & MINUS SUMMARY */}
+            {/* 🌟 GROSS % (WITHOUT MINUS) VS NET % (MINUS AFFECTED) COMPARISON BAR */}
+            {(() => {
+              const grossPctVal = attendanceData.totalPeriods > 0
+                ? ((attendanceData.presentCount / attendanceData.totalPeriods) * 100).toFixed(2)
+                : '0.00';
+              const netPctVal = attendanceData.totalPeriods > 0
+                ? ((netPresent / attendanceData.totalPeriods) * 100).toFixed(2)
+                : '0.00';
+              const minusImpactPct = (Number(grossPctVal) - Number(netPctVal)).toFixed(2);
+
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px', marginBottom: '22px', background: '#f8fafc', padding: '16px', borderRadius: '14px', border: '1px solid #cbd5e1' }}>
+                  <div style={{ background: '#ffffff', padding: '14px 16px', borderRadius: '10px', border: '1.5px solid #10b981' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '900', color: '#047857', textTransform: 'uppercase' }}>
+                      ✅ Attendance % (Without Minus)
+                    </div>
+                    <div style={{ fontSize: '24px', fontWeight: '900', color: '#059669', marginTop: '4px' }}>
+                      {grossPctVal}%
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
+                      Based on {attendanceData.presentCount} / {attendanceData.totalPeriods} periods
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#ffffff', padding: '14px 16px', borderRadius: '10px', border: '1.5px solid #f43f5e' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '900', color: '#be123c', textTransform: 'uppercase' }}>
+                      ⚠️ Minus Impact on Overall %
+                    </div>
+                    <div style={{ fontSize: '24px', fontWeight: '900', color: '#e11d48', marginTop: '4px' }}>
+                      -{minusImpactPct}% ({attendanceData.minusCount} Minus)
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
+                      across {attendanceData.minusLogs.length} disciplinary log(s)
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#ffffff', padding: '14px 16px', borderRadius: '10px', border: `2px solid ${isShortage ? '#dc2626' : '#2563eb'}` }}>
+                    <div style={{ fontSize: '11px', fontWeight: '900', color: isShortage ? '#dc2626' : '#1d4ed8', textTransform: 'uppercase' }}>
+                      🎯 Final Net Attendance % (Minus Affected)
+                    </div>
+                    <div style={{ fontSize: '24px', fontWeight: '900', color: isShortage ? '#dc2626' : '#1d4ed8', marginTop: '4px' }}>
+                      {netPctVal}%
+                    </div>
+                    <div style={{ fontSize: '12px', color: isShortage ? '#dc2626' : '#047857', fontWeight: '800' }}>
+                      {isShortage ? '⚠️ Below 85% Required Threshold' : '✅ Meets 85% Requirement'}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* 🌟 STUDENT DAY / MONTH / TOTAL ATTENDANCE INSPECTOR */}
+            <div style={{ marginBottom: '24px', padding: '16px', background: '#f0fdfa', borderRadius: '14px', border: '1.5px solid #0d9488' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {[
+                    { id: 'total', label: '📈 Total Semester View' },
+                    { id: 'monthly', label: '🗓️ Check by Month' },
+                    { id: 'daily', label: '📅 Check Specific Date' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setStudentAttScope(tab.id)}
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        fontWeight: '800',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        background: studentAttScope === tab.id ? '#0f766e' : '#ffffff',
+                        color: studentAttScope === tab.id ? '#ffffff' : '#0f172a'
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {studentAttScope === 'monthly' && (
+                  <input type="month" value={studentAttMonth} onChange={e => setStudentAttMonth(e.target.value)} style={{ ...styles.input, width: '180px', padding: '8px 12px' }} />
+                )}
+                {studentAttScope === 'daily' && (
+                  <input type="date" value={studentAttDate} onChange={e => setStudentAttDate(e.target.value)} style={{ ...styles.input, width: '180px', padding: '8px 12px' }} />
+                )}
+              </div>
+
+              {studentAttScope === 'daily' && (() => {
+                const absOnDay = [];
+                Object.entries(attendanceData.subjectWise || {}).forEach(([subKey, sObj]) => {
+                  const count = (sObj.absentDates || []).filter(d => d === studentAttDate).length;
+                  if (count > 0) absOnDay.push({ subKey, count });
+                });
+                const minusOnDay = (attendanceData.minusLogs || []).filter(l => l.date === studentAttDate);
+
+                return (
+                  <div style={{ marginTop: '14px', background: '#ffffff', padding: '14px 16px', borderRadius: '10px', border: '1px solid #99f6e4' }}>
+                    <div style={{ fontWeight: '900', fontSize: '14px', color: '#0f172a', marginBottom: '8px' }}>
+                      📅 Attendance Summary for {studentAttDate}:
+                    </div>
+                    {absOnDay.length === 0 ? (
+                      <div style={{ color: '#047857', fontWeight: '800', fontSize: '13px' }}>
+                        ✅ Zero recorded subject absences on {studentAttDate}!
+                      </div>
+                    ) : (
+                      <div style={{ color: '#dc2626', fontWeight: '800', fontSize: '13px' }}>
+                        ❌ Recorded Absent in: {absOnDay.map(x => `${x.subKey} (${x.count} period)`).join(', ')}
+                      </div>
+                    )}
+                    {minusOnDay.length > 0 && (
+                      <div style={{ color: '#991b1b', fontWeight: '800', fontSize: '13px', marginTop: '6px' }}>
+                        ⚠️ Minus Deducted on {studentAttDate}: {minusOnDay.map(m => `-${m.count} (${m.reason} • By ${m.issuedBy})`).join(', ')}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* 📆 MONTH-BY-MONTH ABSENCE & MINUS SUMMARY CARDS */}
             {(() => {
               const monthMap = {};
               Object.entries(attendanceData.subjectWise || {}).forEach(([subName, sObj]) => {
                 (sObj.absentDates || []).forEach(dStr => {
-                  const mKey = String(dStr || '').slice(0, 7); // "YYYY-MM"
+                  const mKey = String(dStr || '').slice(0, 7);
                   if (!mKey) return;
                   if (!monthMap[mKey]) monthMap[mKey] = { absentPeriods: 0, minusPoints: 0, subjects: new Set() };
                   monthMap[mKey].absentPeriods += 1;
@@ -1000,7 +1124,7 @@ export default function StudentDashboard() {
               );
             })()}
 
-            {/* SUBJECT-WISE ATTENDANCE TABLE (Excludes Hifz + Includes Non-Mark Attendance Subjects!) */}
+            {/* SUBJECT-WISE ATTENDANCE TABLE */}
             <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
               📖 Subject-Wise Attendance Breakdown
             </h4>
@@ -1008,7 +1132,7 @@ export default function StudentDashboard() {
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '14px', minWidth: '680px' }}>
                 <thead style={{ background: '#0f172a', color: '#ffffff' }}>
                   <tr>
-                    <th style={{ padding: '12px 16px', textAlign: 'left' }}>Subject & Usthad</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'left' }}>Subject &amp; Usthad</th>
                     <th style={{ padding: '12px 16px' }}>Total Periods</th>
                     <th style={{ padding: '12px 16px' }}>Present</th>
                     <th style={{ padding: '12px 16px' }}>Absent</th>

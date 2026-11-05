@@ -152,6 +152,29 @@ export default function PeriodAttendanceManager({
   const [clearSelectedSubjects, setClearSelectedSubjects] = useState([]);
   const [shortageClassFilter, setShortageClassFilter] = useState('ALL');
   const [clearancePrintStudent, setClearancePrintStudent] = useState(null);
+  // --- 7. NEW: REPORTS HUB, MASTER MINUS TABLE & 3-STEP CLEARANCE STATES ---
+  const [repScope, setRepScope] = useState('total'); // 'total' | 'monthly' | 'daily'
+  const [repClass, setRepClass] = useState('QLA3'); // 'ALL' or specific class
+  const [repMonth, setRepMonth] = useState(() => new Date().toISOString().slice(0, 7)); // 'YYYY-MM'
+  const [repDate, setRepDate] = useState(() => new Date().toISOString().split('T')[0]); // 'YYYY-MM-DD'
+  const [repTeacher, setRepTeacher] = useState(userRole === 'admin' ? 'ALL' : (loggedInUser?.username || 'ALL'));
+  const [repSubject, setRepSubject] = useState('ALL');
+  const [repMinusMode, setRepMinusMode] = useState('both'); // 'both' | 'with_minus' | 'without_minus'
+  const [repSearch, setRepSearch] = useState('');
+  const [dailySessionsCache, setDailySessionsCache] = useState([]);
+  const [loadingReport, setLoadingReport] = useState(false);
+
+  // Minus Sub-Tabs ('add' | 'manage' | 'excel')
+  const [minusSubTab, setMinusSubTab] = useState('add');
+  const [minusTableSearch, setMinusTableSearch] = useState('');
+  const [minusTeacherFilter, setMinusTeacherFilter] = useState('ALL');
+
+  // 3-Step Clearance States
+  const [fetchedClearStudent, setFetchedClearStudent] = useState(null);
+  const [fetchedAbsentSubjects, setFetchedAbsentSubjects] = useState([]);
+  const [showAllClearSubjects, setShowAllClearSubjects] = useState(false);
+  const [deleteAllPassword, setDeleteAllPassword] = useState('');
+  const [deleteAllConfirmText, setDeleteAllConfirmText] = useState('');
 
   const normalizeSubKey = (sub) => {
     const up = String(sub || '').trim().toUpperCase().replace(/\./g, '');
@@ -1584,6 +1607,215 @@ const handleSaveAttendance = async (e) => {
     }
   };
 
+  // 🌟 Load Daily Recorded Sessions when `repScope === 'daily'`
+  useEffect(() => {
+    async function fetchDailySessionsForReport() {
+      if (activeTab !== 'reports_hub' || repScope !== 'daily' || !repDate) return;
+      setLoadingReport(true);
+      try {
+        const idxSnap = await getDoc(doc(db, 'systemCache', `daySessionsIndex_${repDate}`));
+        const list = idxSnap.exists() ? (idxSnap.data().sessions || []) : [];
+        const fullSessions = [];
+        for (const item of list) {
+          const sSnap = await getDoc(doc(db, 'systemCache', item.sessionDocId));
+          if (sSnap.exists()) {
+            fullSessions.push({ id: item.sessionDocId, ...sSnap.data() });
+          }
+        }
+        fullSessions.sort((a, b) => Number(a.session) - Number(b.session));
+        setDailySessionsCache(fullSessions);
+      } catch (e) {
+        console.error('Error loading daily sessions:', e);
+      } finally {
+        setLoadingReport(false);
+      }
+    }
+    fetchDailySessionsForReport();
+  }, [activeTab, repScope, repDate]);
+
+  // 🌟 Flatten ALL Minus Records across all students for "Manage Records" tab
+  const allFlattenedMinusRecords = React.useMemo(() => {
+    const rows = [];
+    localStudents.forEach(st => {
+      const stat = getStudentAttStat(st);
+      (stat.minusLogs || []).forEach(log => {
+        if (userRole !== 'admin' && !canUserModifyMinusLog(log)) return; // Teachers see their own issued minus records
+        if (minusTeacherFilter !== 'ALL' && String(log.issuedBy || '').toUpperCase() !== minusTeacherFilter.toUpperCase()) return;
+        if (minusTableSearch.trim()) {
+          const q = minusTableSearch.trim().toLowerCase();
+          const matchName = String(st.firstName || '').toLowerCase().includes(q);
+          const matchAd = String(st.adNo || '').toLowerCase().includes(q);
+          const matchReason = String(log.reason || '').toLowerCase().includes(q);
+          if (!matchName && !matchAd && !matchReason) return;
+        }
+        rows.push({
+          studentObj: st,
+          rollNo: st.rollNo || 0,
+          studentName: st.firstName,
+          adNo: st.adNo,
+          className: (st.classes || []).join(', '),
+          log
+        });
+      });
+    });
+    return rows.sort((a, b) => String(b.log.date || '').localeCompare(String(a.log.date || '')));
+  }, [localStudents, userRole, minusTeacherFilter, minusTableSearch, loggedInUser]);
+
+  const handleExportMinusRecordsExcel = () => {
+    const data = allFlattenedMinusRecords.map(r => ({
+      'Roll No': r.rollNo,
+      'Student Name': r.studentName,
+      'Admission No': r.adNo,
+      'Class': r.className,
+      'Minus': -Math.abs(Number(r.log.count) || 0),
+      'Reason': r.log.reason || '—',
+      'Date': r.log.date || '—',
+      'Issued By': r.log.issuedBy || 'Admin'
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Minus_Attendance');
+    XLSX.writeFile(wb, `Minus_Attendance_Records_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const handleBulkMinusExcelUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      const batch = writeBatch(db);
+      const updatedMap = {};
+      let addedCount = 0;
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      rows.forEach((row, idx) => {
+        const rawAd = row['Adm. No.'] || row['Admission No'] || row.adNo || row.AdNo || row.admissionNumber;
+        const rawMinus = Math.abs(Number(row.Minus ?? row.minus ?? row.Count ?? row.count ?? 0));
+        if (!rawAd || !rawMinus) return;
+
+        const cleanAd = String(rawAd).trim().toUpperCase();
+        const st = localStudents.find(s => String(s.adNo || '').trim().toUpperCase() === cleanAd);
+        if (!st) return;
+
+        const baseSt = updatedMap[st.regNo] || st;
+        const curStat = JSON.parse(JSON.stringify(getStudentAttStat(baseSt)));
+        const newLog = {
+          id: `excel_minus_${Date.now()}_${idx}`,
+          date: row.Date || row.date || todayStr,
+          count: rawMinus,
+          reason: String(row.Reason || row.reason || 'Disciplinary Deduction').trim(),
+          issuedBy: row.By || row['Issued By'] || loggedInUser?.fullName || 'ADMIN USER',
+          issuedByUsername: String(loggedInUser?.username || 'admin').toLowerCase()
+        };
+        curStat.minusLogs = [newLog, ...(curStat.minusLogs || [])];
+        curStat.minusCount = curStat.minusLogs.reduce((sum, l) => sum + (Number(l.count) || 0), 0);
+
+        const docId = String(st.id || st.regNo).toLowerCase().trim();
+        batch.set(doc(db, 'students', docId), { periodAttendance: curStat }, { merge: true });
+        updatedMap[st.regNo] = { ...st, periodAttendance: curStat };
+        addedCount++;
+      });
+
+      if (addedCount > 0) {
+        await batch.commit();
+        syncUpdatedStudentsState(updatedMap);
+      }
+      setStatusMsg(`✅ Uploaded ${addedCount} minus record(s) from Excel!`);
+      setMinusSubTab('manage');
+    } catch (err) {
+      alert('Excel upload error: ' + err.message);
+    } finally {
+      setLoading(false);
+      e.target.value = null;
+    }
+  };
+
+  // 🌟 3-Step Clearance: Step 1 Fetch Student & Absent Subjects for Selected Date / Date Range
+  const handleFetchStudentForClearance = () => {
+    if (!clearAdNo.trim()) return alert('Please enter a Student Admission Number (e.g. 3551).');
+    const st = localStudents.find(
+      s => String(s.adNo || '').trim().toLowerCase() === clearAdNo.trim().toLowerCase() ||
+           String(s.regNo || '').trim().toLowerCase() === clearAdNo.trim().toLowerCase()
+    );
+    if (!st) {
+      setFetchedClearStudent(null);
+      setFetchedAbsentSubjects([]);
+      return alert(`No student found with Admission Number "${clearAdNo}".`);
+    }
+
+    setFetchedClearStudent(st);
+    setClearSelectedSubjects([]);
+
+    const stat = getStudentAttStat(st);
+    const subWise = stat.subjectWise || {};
+    const matchedSubs = [];
+
+    Object.entries(subWise).forEach(([subKey, sObj]) => {
+      const absDates = Array.isArray(sObj.absentDates) ? sObj.absentDates : [];
+      const hasAbsenceInScope = absDates.some(d =>
+        clearDateMode === 'single'
+          ? d === clearDate
+          : ((!clearStartDate || d >= clearStartDate) && (!clearEndDate || d <= clearEndDate))
+      );
+      if (hasAbsenceInScope) {
+        matchedSubs.push(subKey);
+      }
+    });
+
+    setFetchedAbsentSubjects(matchedSubs);
+    setShowAllClearSubjects(matchedSubs.length === 0);
+  };
+
+  // 🌟 High-Risk Admin Action: Complete Attendance Delete (Password + "DELETE ALL")
+  const handleCompleteAttendanceDeleteAll = async () => {
+    if (deleteAllConfirmText.trim() !== 'DELETE ALL') {
+      return alert('Please type exact confirmation: DELETE ALL');
+    }
+    if (!deleteAllPassword.trim()) {
+      return alert('Please enter your admin account password.');
+    }
+    if (!window.confirm('🚨 CRITICAL WARNING: This will permanently reset period attendance records for all students. Proceed?')) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const updatedMap = {};
+      for (let i = 0; i < localStudents.length; i += 400) {
+        const chunk = localStudents.slice(i, i + 400);
+        const batch = writeBatch(db);
+        chunk.forEach(st => {
+          const docId = String(st.id || st.regNo).toLowerCase().trim();
+          const emptyStat = {
+            totalPeriods: 0,
+            presentCount: 0,
+            officialCount: 0,
+            medicalCount: 0,
+            permittedCount: 0,
+            minusCount: 0,
+            minusLogs: [],
+            subjectWise: {},
+            updatedAt: new Date().toISOString()
+          };
+          batch.set(doc(db, 'students', docId), { periodAttendance: emptyStat }, { merge: true });
+          updatedMap[st.regNo] = { ...st, periodAttendance: emptyStat };
+        });
+        await batch.commit();
+      }
+      syncUpdatedStudentsState(updatedMap);
+      setDeleteAllPassword('');
+      setDeleteAllConfirmText('');
+      setStatusMsg('✅ All student period attendance records have been reset.');
+    } catch (err) {
+      alert('Error deleting attendance: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const shortageList = localStudents
     .filter(st => shortageClassFilter === 'ALL' || (st.classes || []).includes(shortageClassFilter))
     .map(st => {
@@ -1655,6 +1887,24 @@ const handleSaveAttendance = async (e) => {
               style={{ padding: '10px 18px', borderRadius: '10px', fontWeight: '800', fontSize: '13px', border: 'none', cursor: 'pointer', background: activeTab === 'cards' || activeTab === 'mark_sheet' ? '#4f46e5' : '#f1f5f9', color: activeTab === 'cards' || activeTab === 'mark_sheet' ? '#ffffff' : '#0f172a' }}
             >
               📚 Subject Attendance Cards ({attendanceEnrollments.length})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('reports_hub')}
+              style={{
+                padding: '10px 18px',
+                borderRadius: '10px',
+                fontWeight: '800',
+                fontSize: '13px',
+                border: 'none',
+                cursor: 'pointer',
+                background: activeTab === 'reports_hub' ? '#0f766e' : '#f0fdfa',
+                color: activeTab === 'reports_hub' ? '#ffffff' : '#0f766e',
+                boxShadow: activeTab === 'reports_hub' ? '0 4px 10px rgba(15, 118, 110, 0.25)' : 'none'
+              }}
+            >
+              📊 Monthly / Daily / Total Reports
             </button>
 
             <button
@@ -2382,254 +2632,922 @@ const handleSaveAttendance = async (e) => {
         </div>
       )}
 
-     {/* VIEW 3: MANAGE, EDIT & DELETE MINUS ATTENDANCE (Supports Multi-Student Comma Input!) */}
-  {/* VIEW 3: MANAGE, EDIT & DELETE MINUS ATTENDANCE (Supports Multi-Student Comma Input!) */}
-      {activeTab === 'minus_attendance' && !isEventLeaderUser && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '24px' }}>
-          <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: editingMinusLog ? '2px solid #f59e0b' : '1px solid #cbd5e1' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <h3 style={{ margin: 0, fontSize: '18px', color: editingMinusLog ? '#b45309' : '#dc2626', fontWeight: '900' }}>
-                {editingMinusLog ? `✏️ Edit Minus Entry (${editingMinusLog.date})` : '⚠️ Issue Disciplinary Minus Attendance'}
-              </h3>
-              {editingMinusLog && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingMinusLog(null);
-                    setMinusCount(1);
-                    setMinusReason('');
-                  }}
-                  style={{ padding: '5px 10px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '6px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
-                >
-                  ✕ Cancel Edit
-                </button>
-              )}
+{/* ============================================================
+          NEW VIEW: SHUHOOD-STYLE MONTHLY, DAILY & TOTAL REPORTS HUB
+         ============================================================ */}
+      {activeTab === 'reports_hub' && !isEventLeaderUser && (() => {
+        // 1. Filter students by selected class and search query
+        const filteredReportStudents = localStudents.filter(st => {
+          const stClasses = Array.isArray(st.classes) ? st.classes : [st.class];
+          if (repClass !== 'ALL' && !stClasses.includes(repClass)) return false;
+          if (repSearch.trim()) {
+            const q = repSearch.trim().toLowerCase();
+            if (!String(st.firstName || '').toLowerCase().includes(q) && !String(st.adNo || '').toLowerCase().includes(q)) return false;
+          }
+          return true;
+        });
+
+        // 2. Collect all distinct Subject Columns for the selected class / teacher
+        const subjectColsSet = new Set();
+        if (userRole !== 'admin') {
+          attendanceEnrollments.forEach(env => {
+            subjectColsSet.add(normalizeSubKey(isAttendanceOnlyEnrollment(env) ? (env.alias || env.subject) : env.subject));
+          });
+        } else if (repTeacher !== 'ALL') {
+          const tObj = localTeachers.find(t => t.username === repTeacher);
+          (tObj?.enrollments || []).filter(e => !isHifzEnrollment(e)).forEach(env => {
+            subjectColsSet.add(normalizeSubKey(isAttendanceOnlyEnrollment(env) ? (env.alias || env.subject) : env.subject));
+          });
+        } else {
+          filteredReportStudents.forEach(st => {
+            const sw = getStudentAttStat(st).subjectWise || {};
+            Object.keys(sw).forEach(k => {
+              if (k.toUpperCase() !== 'HIFZ') subjectColsSet.add(k);
+            });
+          });
+        }
+
+        let subjectColumns = Array.from(subjectColsSet);
+        if (repSubject !== 'ALL') {
+          subjectColumns = subjectColumns.filter(s => s === repSubject);
+        }
+
+        const handleExportReportMatrixExcel = () => {
+          const rows = filteredReportStudents.map((st, idx) => {
+            const stat = getStudentAttStat(st);
+            const sw = stat.subjectWise || {};
+            let totP = Number(stat.totalPeriods) || 0;
+            let presP = Number(stat.presentCount) || 0;
+            let minusC = Number(stat.minusCount) || 0;
+
+            if (repScope === 'monthly') {
+              // Calculate month-specific absences & minus Logs
+              let monthAbs = 0;
+              Object.values(sw).forEach(sObj => {
+                monthAbs += (sObj.absentDates || []).filter(d => String(d).startsWith(repMonth)).length;
+              });
+              const monthMinus = (stat.minusLogs || [])
+                .filter(l => String(l.date || '').startsWith(repMonth))
+                .reduce((s, l) => s + (Number(l.count) || 0), 0);
+              minusC = monthMinus;
+              presP = Math.max(0, totP - monthAbs);
+            }
+
+            const grossPct = totP > 0 ? Number(((presP / totP) * 100).toFixed(2)) : 100;
+            const netPres = Math.max(0, presP - minusC);
+            const netPct = totP > 0 ? Number(((netPres / totP) * 100).toFixed(2)) : 100;
+
+            const rowObj = {
+              '#': idx + 1,
+              'STUDENT NAME': st.firstName,
+              'ADMISSION NO': st.adNo,
+              'CLASS': (st.classes || []).join(', '),
+              'GROSS % (NO MINUS)': `${grossPct}%`,
+              'MINUS': -minusC,
+              'OVERALL % (WITH MINUS)': `${netPct}%`
+            };
+
+            subjectColumns.forEach(subKey => {
+              const sObj = sw[subKey];
+              if (!sObj || !sObj.total) {
+                rowObj[subKey] = '-';
+              } else if (repScope === 'monthly') {
+                const mAbs = (sObj.absentDates || []).filter(d => String(d).startsWith(repMonth)).length;
+                const mPres = Math.max(0, sObj.total - mAbs);
+                rowObj[subKey] = `${((mPres / sObj.total) * 100).toFixed(2)}% (${mPres}/${sObj.total})`;
+              } else {
+                rowObj[subKey] = `${((sObj.present / sObj.total) * 100).toFixed(2)}% (${sObj.present}/${sObj.total})`;
+              }
+            });
+            return rowObj;
+          });
+
+          const ws = XLSX.utils.json_to_sheet(rows);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Attendance_Report');
+          XLSX.writeFile(wb, `Attendance_${repScope.toUpperCase()}_${repClass}_${repScope === 'monthly' ? repMonth : repDate}.xlsx`);
+        };
+
+        return (
+          <div style={{ background: '#ffffff', padding: '26px', borderRadius: '18px', border: '1px solid #cbd5e1', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* HEADER + EXPORT EXCEL */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', borderBottom: '2px solid #f1f5f9', paddingBottom: '16px' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '22px', fontWeight: '900', color: '#0f172a' }}>
+                  {repScope === 'monthly' ? 'Monthly Report' : repScope === 'daily' ? 'Daily Session Report & Quick Edit' : 'Total Semester Attendance Report'}
+                </h2>
+                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b', fontWeight: '600' }}>
+                  View and export class-wise, subject-wise, teacher-wise, and minus-adjusted attendance statistics.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleExportReportMatrixExcel}
+                style={{ padding: '11px 20px', background: '#059669', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                ⬇️ Export Excel
+              </button>
             </div>
 
-            <form onSubmit={handleSaveMinus} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div>
-                <label style={styles.label}>
-                  Search or Paste Comma-Separated Ad.Nos / Student Names:
-                </label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input
-                    type="text"
-                    value={minusSearchQuery}
-                    onChange={e => {
-                      setMinusSearchQuery(e.target.value);
-                      setEditingMinusLog(null);
-                    }}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && minusSearchQuery.trim()) {
-                        e.preventDefault();
-                        handleAddCommaSeparatedMinusStudents();
-                      }
-                    }}
-                    placeholder="e.g. U1434, 3527, Salmanul Faris, U1107..."
-                    style={{ ...styles.input, flex: 1 }}
-                  />
+            {/* SCOPE SWITCHER PILLS */}
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', background: '#f8fafc', padding: '14px 18px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {[
+                  { id: 'total', label: '📈 Total Semester Summary' },
+                  { id: 'monthly', label: '🗓️ Monthly Report (By Month)' },
+                  { id: 'daily', label: '📅 Specific Date (9 Periods & Edit)' }
+                ].map(tab => (
                   <button
+                    key={tab.id}
                     type="button"
-                    onClick={handleAddCommaSeparatedMinusStudents}
-                    style={{ padding: '0 14px', background: '#0f172a', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    onClick={() => setRepScope(tab.id)}
+                    style={{
+                      padding: '9px 16px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      fontWeight: '800',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      background: repScope === tab.id ? '#4f46e5' : '#ffffff',
+                      color: repScope === tab.id ? '#ffffff' : '#334155',
+                      boxShadow: repScope === tab.id ? '0 2px 8px rgba(79,70,229,0.25)' : 'none'
+                    }}
                   >
-                    ➕ Add Matched
+                    {tab.label}
                   </button>
+                ))}
+              </div>
+
+              {/* MINUS EFFECT FILTER */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '12px', fontWeight: '800', color: '#475569' }}>Minus Display:</span>
+                <select
+                  value={repMinusMode}
+                  onChange={e => setRepMinusMode(e.target.value)}
+                  style={{ ...styles.input, width: 'auto', padding: '8px 12px', fontSize: '12px', fontWeight: '800' }}
+                >
+                  <option value="both">Show Both (Gross % &amp; Minus Affected %)</option>
+                  <option value="with_minus">Minus Affected Only (Net %)</option>
+                  <option value="without_minus">Without Minus Only (Gross %)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* FILTER BAR (Matches Shuhood Monthly Report Card) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: '14px', alignItems: 'end', background: '#ffffff', padding: '18px', borderRadius: '14px', border: '1px solid #cbd5e1' }}>
+              <div>
+                <label style={styles.label}>Select Class:</label>
+                <select value={repClass} onChange={e => setRepClass(e.target.value)} style={styles.input}>
+                  <option value="ALL">All Classes</option>
+                  {DEFAULT_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              {repScope === 'monthly' && (
+                <div>
+                  <label style={styles.label}>Select Month:</label>
+                  <input type="month" value={repMonth} onChange={e => setRepMonth(e.target.value)} style={styles.input} />
                 </div>
-                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600', marginTop: '4px' }}>
-                  💡 Tip: Type multiple Ad.Nos or names separated by commas and click <strong>➕ Add Matched</strong> (or press Enter), or click any student pill below to add them.
+              )}
+
+              {repScope === 'daily' && (
+                <div>
+                  <label style={styles.label}>Select Specific Date:</label>
+                  <input type="date" value={repDate} onChange={e => setRepDate(e.target.value)} style={styles.input} />
+                </div>
+              )}
+
+              {userRole === 'admin' && (
+                <div>
+                  <label style={styles.label}>Filter by Teacher:</label>
+                  <select value={repTeacher} onChange={e => { setRepTeacher(e.target.value); setRepSubject('ALL'); }} style={styles.input}>
+                    <option value="ALL">All Teachers</option>
+                    {localTeachers.filter(t => !t.isEventLeader).map(t => (
+                      <option key={t.username} value={t.username}>{t.fullName}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label style={styles.label}>Filter by Subject:</label>
+                <select value={repSubject} onChange={e => setRepSubject(e.target.value)} style={styles.input}>
+                  <option value="ALL">All Subjects ({subjectColsSet.size})</option>
+                  {Array.from(subjectColsSet).map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label style={styles.label}>Search Student:</label>
+                <input type="text" value={repSearch} onChange={e => setRepSearch(e.target.value)} placeholder="Name or Ad.No..." style={styles.input} />
+              </div>
+            </div>
+
+            {/* DAILY SCOPE: SHOW RECORDED SESSIONS FOR THAT DATE + 1-CLICK EDIT */}
+            {repScope === 'daily' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ fontWeight: '900', fontSize: '15px', color: '#0f172a' }}>
+                  📅 Recorded Period Sessions on {repDate} ({dailySessionsCache.length} Sessions Found)
+                </div>
+                {loadingReport ? (
+                  <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>Loading sessions for {repDate}...</div>
+                ) : dailySessionsCache.length === 0 ? (
+                  <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>
+                    No period sessions recorded in the new portal for {repDate} yet.
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
+                    {dailySessionsCache
+                      .filter(s => userRole === 'admin' || s.teacherUsername === loggedInUser?.username)
+                      .map(sess => {
+                        const mapVals = Object.values(sess.attendanceMap || {});
+                        const presC = mapVals.filter(v => v === 'P' || v === 'O').length;
+                        const absC = mapVals.length - presC;
+                        return (
+                          <div key={sess.id} style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid #cbd5e1', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                            <div>
+                              <span style={{ background: '#4f46e5', color: '#ffffff', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '900' }}>
+                                Period {sess.session}
+                              </span>
+                              <div style={{ fontWeight: '900', fontSize: '15px', color: '#0f172a', marginTop: '4px' }}>
+                                {sess.classAlias || sess.subject}
+                              </div>
+                              <div style={{ fontSize: '12px', color: '#475569', fontWeight: '700' }}>
+                                👨‍🏫 {sess.teacherName} • ✅ {presC} Pres / ❌ {absC} Abs
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (userRole === 'admin' && sess.teacherUsername) {
+                                  setSelectedTeacherUsername(sess.teacherUsername);
+                                }
+                                const tObj = localTeachers.find(t => t.username === sess.teacherUsername) || activeTeacherObj;
+                                const matchEnv = (tObj?.enrollments || []).find(
+                                  e => (e.alias || e.subject) === sess.classAlias || normalizeSubKey(e.subject) === sess.subject
+                                );
+                                if (matchEnv) setAttEnrollmentId(matchEnv.id);
+                                setAttDate(repDate);
+                                setAttSession(String(sess.session));
+                                setActiveTab('mark_sheet');
+                              }}
+                              style={{ padding: '8px 12px', background: '#f59e0b', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                            >
+                              ✏️ Edit Session
+                            </button>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* SHUHOOD-STYLE MATRIX TABLE (FOR MONTHLY & TOTAL SCOPE) */}
+            <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '14px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', minWidth: '900px' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '900', textTransform: 'uppercase' }}>
+                    <th style={{ padding: '14px 12px' }}>#</th>
+                    <th style={{ padding: '14px 12px' }}>STUDENT NAME</th>
+                    <th style={{ padding: '14px 12px' }}>ADMISSION NO</th>
+                    {(repMinusMode === 'both' || repMinusMode === 'without_minus') && (
+                      <th style={{ padding: '14px 12px', textAlign: 'center' }}>GROSS % (NO MINUS)</th>
+                    )}
+                    {(repMinusMode === 'both' || repMinusMode === 'with_minus') && (
+                      <>
+                        <th style={{ padding: '14px 12px', textAlign: 'center' }}>MINUS</th>
+                        <th style={{ padding: '14px 12px', textAlign: 'center' }}>OVERALL % (NET)</th>
+                      </>
+                    )}
+                    {subjectColumns.map(subKey => (
+                      <th key={subKey} style={{ padding: '14px 12px', textAlign: 'center' }}>
+                        {subKey} {repClass !== 'ALL' && !subKey.includes(repClass) ? repClass : ''}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredReportStudents.map((st, idx) => {
+                    const stat = getStudentAttStat(st);
+                    const sw = stat.subjectWise || {};
+                    let totP = Number(stat.totalPeriods) || 0;
+                    let presP = Number(stat.presentCount) || 0;
+                    let minusC = Number(stat.minusCount) || 0;
+
+                    if (repScope === 'monthly') {
+                      let monthAbs = 0;
+                      Object.values(sw).forEach(sObj => {
+                        monthAbs += (sObj.absentDates || []).filter(d => String(d).startsWith(repMonth)).length;
+                      });
+                      minusC = (stat.minusLogs || [])
+                        .filter(l => String(l.date || '').startsWith(repMonth))
+                        .reduce((s, l) => s + (Number(l.count) || 0), 0);
+                      presP = Math.max(0, totP - monthAbs);
+                    }
+
+                    const grossPct = totP > 0 ? ((presP / totP) * 100).toFixed(2) : '100.00';
+                    const netPres = Math.max(0, presP - minusC);
+                    const netPct = totP > 0 ? ((netPres / totP) * 100).toFixed(2) : '100.00';
+
+                    return (
+                      <tr key={st.regNo} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#ffffff' : '#fcfdff' }}>
+                        <td style={{ padding: '14px 12px', color: '#64748b', fontWeight: '700' }}>{idx + 1}</td>
+                        <td style={{ padding: '14px 12px', fontWeight: '800', color: '#0f172a' }}>{st.firstName}</td>
+                        <td style={{ padding: '14px 12px', fontWeight: '700', color: '#475569' }}>{st.adNo}</td>
+
+                        {(repMinusMode === 'both' || repMinusMode === 'without_minus') && (
+                          <td style={{ padding: '14px 12px', textAlign: 'center' }}>
+                            <span style={{ background: '#ecfdf5', color: '#047857', padding: '4px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '12px' }}>
+                              {totP > 0 ? `${grossPct}%` : '-'}
+                            </span>
+                          </td>
+                        )}
+
+                        {(repMinusMode === 'both' || repMinusMode === 'with_minus') && (
+                          <>
+                            <td style={{ padding: '14px 12px', textAlign: 'center', fontWeight: '800', color: minusC > 0 ? '#dc2626' : '#94a3b8' }}>
+                              {minusC > 0 ? `-${minusC}` : '0'}
+                            </td>
+                            <td style={{ padding: '14px 12px', textAlign: 'center' }}>
+                              <span style={{
+                                background: Number(netPct) < 85 ? '#fef2f2' : '#eef2ff',
+                                color: Number(netPct) < 85 ? '#dc2626' : '#4f46e5',
+                                padding: '4px 10px',
+                                borderRadius: '999px',
+                                fontWeight: '900',
+                                fontSize: '12px'
+                              }}>
+                                {totP > 0 ? `${netPct}%` : '-'}
+                              </span>
+                            </td>
+                          </>
+                        )}
+
+                        {subjectColumns.map(subKey => {
+                          const sObj = sw[subKey];
+                          if (!sObj || !sObj.total) {
+                            return <td key={subKey} style={{ padding: '14px 12px', textAlign: 'center', color: '#94a3b8' }}>-</td>;
+                          }
+                          let sPres = sObj.present || 0;
+                          if (repScope === 'monthly') {
+                            const mAbs = (sObj.absentDates || []).filter(d => String(d).startsWith(repMonth)).length;
+                            sPres = Math.max(0, sObj.total - mAbs);
+                          }
+                          const sPct = ((sPres / sObj.total) * 100).toFixed(2);
+                          return (
+                            <td key={subKey} style={{ padding: '14px 12px', textAlign: 'center', fontWeight: '700', color: Number(sPct) < 85 ? '#dc2626' : '#334155' }}>
+                              {sPct}%
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ============================================================
+          VIEW 3: SHUHOOD-STYLE MINUS ATTENDANCE (Add / Excel / Manage All Records)
+         ============================================================ */}
+      {activeTab === 'minus_attendance' && !isEventLeaderUser && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* DARK GRADIENT BANNER (Matches Screenshot 3) */}
+          <div style={{ background: 'linear-gradient(135deg, #1e1b4b 0%, #881337 60%, #0f172a 100%)', color: '#ffffff', padding: '26px 30px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '18px' }}>
+            <div style={{ width: '52px', height: '52px', borderRadius: '14px', background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '26px', fontWeight: '900' }}>
+              −
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '800', letterSpacing: '1px', color: '#fda4af', textTransform: 'uppercase' }}>
+                {userRole === 'admin' ? 'ADMIN' : 'TEACHER'} • ATTENDANCE MANAGEMENT
+              </div>
+              <h2 style={{ margin: '4px 0', fontSize: '26px', fontWeight: '900', color: '#ffffff' }}>Minus Attendance</h2>
+              <p style={{ margin: 0, fontSize: '13px', color: '#e2e8f0' }}>
+                Record attendance deductions — deducted from each student's total attendance
+              </p>
+            </div>
+          </div>
+
+          {/* 3 SUB-TABS: Add Records | Excel Upload | Manage Records */}
+          <div style={{ display: 'inline-flex', background: '#e2e8f0', padding: '5px', borderRadius: '12px', gap: '6px', alignSelf: 'flex-start' }}>
+            {[
+              { id: 'add', label: 'Add Records' },
+              ...(userRole === 'admin' ? [{ id: 'excel', label: 'Excel Upload' }] : []),
+              { id: 'manage', label: `Manage Records (${allFlattenedMinusRecords.length})` }
+            ].map(t => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setMinusSubTab(t.id)}
+                style={{
+                  padding: '9px 18px',
+                  borderRadius: '9px',
+                  border: minusSubTab === t.id ? '1.5px solid #0f172a' : 'none',
+                  background: minusSubTab === t.id ? '#ffffff' : 'transparent',
+                  color: '#0f172a',
+                  fontWeight: '800',
+                  fontSize: '13px',
+                  cursor: 'pointer'
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* SUB-TAB 1: ADD RECORDS (Single or Comma-Separated Multi-Student) */}
+          {minusSubTab === 'add' && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '24px' }}>
+              <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: editingMinusLog ? '2px solid #f59e0b' : '1px solid #cbd5e1' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                  <h3 style={{ margin: 0, fontSize: '18px', color: editingMinusLog ? '#b45309' : '#dc2626', fontWeight: '900' }}>
+                    {editingMinusLog ? `✏️ Edit Minus Entry (${editingMinusLog.date})` : '⚠️ Issue Disciplinary Minus Attendance'}
+                  </h3>
+                  {editingMinusLog && (
+                    <button
+                      type="button"
+                      onClick={() => { setEditingMinusLog(null); setMinusCount(1); setMinusReason(''); }}
+                      style={{ padding: '5px 10px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '6px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                    >
+                      ✕ Cancel Edit
+                    </button>
+                  )}
                 </div>
 
-                {matchingMinusStudents.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
-                    {matchingMinusStudents.map(st => {
-                      const isAdded = selectedMinusStudentsList.some(x => x.regNo === st.regNo);
+                <form onSubmit={handleSaveMinus} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label style={styles.label}>Search or Paste Comma-Separated Ad.Nos / Student Names:</label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input
+                        type="text"
+                        value={minusSearchQuery}
+                        onChange={e => { setMinusSearchQuery(e.target.value); setEditingMinusLog(null); }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && minusSearchQuery.trim()) {
+                            e.preventDefault();
+                            handleAddCommaSeparatedMinusStudents();
+                          }
+                        }}
+                        placeholder="e.g. U1434, 3527, Salmanul Faris..."
+                        style={{ ...styles.input, flex: 1 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddCommaSeparatedMinusStudents}
+                        style={{ padding: '0 14px', background: '#0f172a', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                      >
+                        ➕ Add Matched
+                      </button>
+                    </div>
+
+                    {matchingMinusStudents.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                        {matchingMinusStudents.map(st => {
+                          const isAdded = selectedMinusStudentsList.some(x => x.regNo === st.regNo);
+                          return (
+                            <button
+                              key={st.regNo}
+                              type="button"
+                              onClick={() => {
+                                setSelectedMinusStudent(st);
+                                setEditingMinusLog(null);
+                                setSelectedMinusStudentsList(prev => prev.some(x => x.regNo === st.regNo) ? prev : [...prev, st]);
+                                const parts = minusSearchQuery.split(',');
+                                if (parts.length > 1) { parts.pop(); setMinusSearchQuery(parts.join(', ') + ', '); }
+                                else { setMinusSearchQuery(''); }
+                              }}
+                              style={{ padding: '6px 10px', borderRadius: '8px', border: isAdded ? '2px solid #0f766e' : '1px solid #cbd5e1', background: isAdded ? '#ccfbf1' : '#f8fafc', fontWeight: '800', cursor: 'pointer', fontSize: '12px' }}
+                            >
+                              {isAdded ? '✓ ' : '+ '}{st.firstName} (#{st.adNo})
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedMinusStudentsList.length > 0 && (
+                    <div style={{ padding: '12px 14px', background: '#f0fdfa', border: '1.5px solid #0d9488', borderRadius: '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={{ color: '#0f766e', fontWeight: '900', fontSize: '13px' }}>
+                          🎯 Selected Students ({selectedMinusStudentsList.length}):
+                        </span>
+                        <button type="button" onClick={() => { setSelectedMinusStudentsList([]); setSelectedMinusStudent(null); }} style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}>Clear All</button>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {selectedMinusStudentsList.map(st => {
+                          const stStat = getStudentAttStat(localStudents.find(x => x.regNo === st.regNo) || st);
+                          const isInspecting = selectedMinusStudent?.regNo === st.regNo;
+                          return (
+                            <span
+                              key={st.regNo}
+                              onClick={() => { setSelectedMinusStudent(localStudents.find(x => x.regNo === st.regNo) || st); setEditingMinusLog(null); }}
+                              style={{ background: isInspecting ? '#0f766e' : '#ffffff', color: isInspecting ? '#ffffff' : '#0f172a', border: '1.5px solid #0f766e', padding: '5px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '800', display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+                            >
+                              <span>{st.firstName} (#{st.adNo}) • -{stStat.minusCount || 0}</span>
+                              <button type="button" onClick={(ev) => { ev.stopPropagation(); const next = selectedMinusStudentsList.filter(x => x.regNo !== st.regNo); setSelectedMinusStudentsList(next); if (selectedMinusStudent?.regNo === st.regNo) setSelectedMinusStudent(next[0] || null); }} style={{ background: 'transparent', border: 'none', color: isInspecting ? '#fecaca' : '#dc2626', fontWeight: '900', cursor: 'pointer' }}>✕</button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label style={styles.label}>Minus Count (Periods to Deduct):</label>
+                    <input type="number" min="1" max="30" value={minusCount} onChange={e => setMinusCount(e.target.value)} required style={styles.input} />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Reason / Law Broken:</label>
+                    <input type="text" value={minusReason} onChange={e => setMinusReason(e.target.value)} placeholder="e.g. Late to Fajr, Class Skipping..." required style={styles.input} />
+                  </div>
+                  <button type="submit" disabled={loading || (selectedMinusStudentsList.length === 0 && !selectedMinusStudent)} style={{ ...styles.buttonPrimary, background: editingMinusLog ? '#d97706' : '#dc2626' }}>
+                    {loading ? 'Processing...' : editingMinusLog ? `💾 Save Updated Minus Entry` : `⚠️ Deduct -${minusCount} Minus from ${selectedMinusStudentsList.length || 1} Student(s)`}
+                  </button>
+                </form>
+              </div>
+
+              {/* Right Column: Selected Student's Minus History */}
+              <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
+                <h3 style={{ margin: '0 0 6px 0', fontSize: '18px', color: '#0f172a', fontWeight: '900' }}>📜 Selected Student's Minus History</h3>
+                <p style={{ margin: '0 0 14px 0', fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
+                  🔒 Only the teacher who issued a minus (or Admin) can edit or delete it.
+                </p>
+                {!selectedMinusStudent ? (
+                  <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', color: '#64748b', fontWeight: '700', textAlign: 'center' }}>
+                    Select a student on the left (or switch to "Manage Records" above to see all records).
+                  </div>
+                ) : (selectedMinusStudentStats.minusLogs || []).length === 0 ? (
+                  <div style={{ padding: '20px', background: '#ecfdf5', borderRadius: '12px', color: '#047857', fontWeight: '800', textAlign: 'center' }}>
+                    ✅ {selectedMinusStudent.firstName} has 0 minus deductions!
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '420px', overflowY: 'auto' }}>
+                    {(selectedMinusStudentStats.minusLogs || []).map(log => {
+                      const canModify = canUserModifyMinusLog(log);
                       return (
-                        <button
-                          key={st.regNo}
-                          type="button"
-                          onClick={() => {
-                            setSelectedMinusStudent(st);
-                            setEditingMinusLog(null);
-                            setSelectedMinusStudentsList(prev =>
-                              prev.some(x => x.regNo === st.regNo) ? prev : [...prev, st]
-                            );
-                            const parts = minusSearchQuery.split(',');
-                            if (parts.length > 1) {
-                              parts.pop();
-                              setMinusSearchQuery(parts.join(', ') + ', ');
-                            } else {
-                              setMinusSearchQuery('');
-                            }
-                          }}
-                          style={{
-                            padding: '6px 10px',
-                            borderRadius: '8px',
-                            border: isAdded ? '2px solid #0f766e' : '1px solid #cbd5e1',
-                            background: isAdded ? '#ccfbf1' : '#f8fafc',
-                            fontWeight: '800',
-                            cursor: 'pointer',
-                            fontSize: '12px'
-                          }}
-                        >
-                          {isAdded ? '✓ ' : '+ '}{st.firstName} (#{st.adNo})
-                        </button>
+                        <div key={log.id} style={{ padding: '14px', background: editingMinusLog?.id === log.id ? '#fffbeb' : '#fef2f2', border: editingMinusLog?.id === log.id ? '2px solid #f59e0b' : '1px solid #fecaca', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                          <div>
+                            <div style={{ fontSize: '15px', fontWeight: '900', color: '#991b1b' }}>-{log.count} Period(s)</div>
+                            <div style={{ fontSize: '13px', color: '#dc2626', fontWeight: '700', marginTop: '3px' }}>"{log.reason}"</div>
+                            <div style={{ fontSize: '11px', color: '#7f1d1d', marginTop: '4px', fontWeight: '700' }}>📅 {log.date} • By: <strong>{log.issuedBy}</strong></div>
+                          </div>
+                          {canModify ? (
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button type="button" onClick={() => { setEditingMinusLog(log); setMinusCount(log.count); setMinusReason(log.reason); }} style={{ padding: '8px 12px', background: '#e0e7ff', color: '#4338ca', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>✏️</button>
+                              <button type="button" onClick={() => handleDeleteMinus(selectedMinusStudent, log)} style={{ padding: '8px 12px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>🗑️</button>
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '700' }}>🔒 Locked</span>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
                 )}
               </div>
+            </div>
+          )}
 
-              {selectedMinusStudentsList.length > 0 && (
-                <div style={{ padding: '12px 14px', background: '#f0fdfa', border: '1.5px solid #0d9488', borderRadius: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ color: '#0f766e', fontWeight: '900', fontSize: '13px' }}>
-                      🎯 Selected Students for Minus ({selectedMinusStudentsList.length}):
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedMinusStudentsList([]);
-                        setSelectedMinusStudent(null);
-                      }}
-                      style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}
-                    >
-                      Clear All
-                    </button>
-                  </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {selectedMinusStudentsList.map(st => {
-                      const stStat = getStudentAttStat(localStudents.find(x => x.regNo === st.regNo) || st);
-                      const isInspecting = selectedMinusStudent?.regNo === st.regNo;
-                      return (
-                        <span
-                          key={st.regNo}
-                          onClick={() => {
-                            setSelectedMinusStudent(localStudents.find(x => x.regNo === st.regNo) || st);
-                            setEditingMinusLog(null);
-                          }}
-                          style={{
-                            background: isInspecting ? '#0f766e' : '#ffffff',
-                            color: isInspecting ? '#ffffff' : '#0f172a',
-                            border: '1.5px solid #0f766e',
-                            padding: '5px 10px',
-                            borderRadius: '999px',
-                            fontSize: '12px',
-                            fontWeight: '800',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            cursor: 'pointer'
-                          }}
-                          title="Click to view this student's minus history on the right"
-                        >
-                          <span>{st.firstName} (#{st.adNo}) • -{stStat.minusCount || 0}</span>
-                          <button
-                            type="button"
-                            onClick={(ev) => {
-                              ev.stopPropagation();
-                              const next = selectedMinusStudentsList.filter(x => x.regNo !== st.regNo);
-                              setSelectedMinusStudentsList(next);
-                              if (selectedMinusStudent?.regNo === st.regNo) {
-                                setSelectedMinusStudent(next[0] || null);
-                              }
-                            }}
-                            style={{ background: 'transparent', border: 'none', color: isInspecting ? '#fecaca' : '#dc2626', fontWeight: '900', cursor: 'pointer', padding: 0 }}
-                          >
-                            ✕
-                          </button>
-                        </span>
-                      );
-                    })}
-                  </div>
-                  <div style={{ fontSize: '11px', color: '#0f766e', marginTop: '6px', fontWeight: '700' }}>
-                    👆 Click any student chip above to inspect or edit their individual minus history on the right.
+          {/* SUB-TAB 2: EXCEL UPLOAD */}
+          {minusSubTab === 'excel' && userRole === 'admin' && (
+            <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '900', color: '#0f172a' }}>📤 Bulk Upload Minus Records via Excel / CSV</h3>
+              <p style={{ margin: '0 0 14px 0', fontSize: '13px', color: '#64748b', fontWeight: '600' }}>
+                Upload an Excel sheet with columns: <code>Admission No</code>, <code>Minus</code>, <code>Reason</code>, <code>Date</code>, and <code>By</code>.
+              </p>
+              <input type="file" accept=".xlsx,.xls,.csv" onChange={handleBulkMinusExcelUpload} disabled={loading} style={styles.input} />
+            </div>
+          )}
+
+          {/* SUB-TAB 3: MANAGE ALL RECORDS TABLE (Matches Screenshot 3) */}
+          {minusSubTab === 'manage' && (
+            <div style={{ background: '#ffffff', padding: '26px', borderRadius: '18px', border: '1px solid #cbd5e1' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '900', color: '#0f172a' }}>All Records</h3>
+                  <div style={{ fontSize: '13px', color: '#64748b', fontWeight: '600' }}>
+                    {allFlattenedMinusRecords.length} records total {userRole !== 'admin' ? '(Issued by You)' : ''}
                   </div>
                 </div>
-              )}
-
-              <div>
-                <label style={styles.label}>Minus Count (Periods to Deduct):</label>
-                <input type="number" min="1" max="30" value={minusCount} onChange={e => setMinusCount(e.target.value)} required style={styles.input} />
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    value={minusTableSearch}
+                    onChange={e => setMinusTableSearch(e.target.value)}
+                    placeholder="🔍 Search by name or admission no."
+                    style={{ ...styles.input, width: '260px', padding: '9px 14px', fontSize: '13px' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleExportMinusRecordsExcel}
+                    style={{ padding: '10px 16px', background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', fontSize: '13px', cursor: 'pointer' }}
+                  >
+                    📗 Export Excel
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <label style={styles.label}>Reason / Law Broken:</label>
-                <input type="text" value={minusReason} onChange={e => setMinusReason(e.target.value)} placeholder="e.g. Late to Fajr, Mobile Violation..." required style={styles.input} />
+              <div style={{ overflowX: 'auto', border: '1px solid #f1f5f9', borderRadius: '12px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '900', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px 14px' }}>ROLL NO.</th>
+                      <th style={{ padding: '12px 14px' }}>STUDENT</th>
+                      <th style={{ padding: '12px 14px' }}>ADM. NO.</th>
+                      <th style={{ padding: '12px 14px' }}>MINUS</th>
+                      <th style={{ padding: '12px 14px' }}>REASON</th>
+                      <th style={{ padding: '12px 14px' }}>DATE</th>
+                      <th style={{ padding: '12px 14px' }}>BY</th>
+                      <th style={{ padding: '12px 14px', textAlign: 'right' }}>ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allFlattenedMinusRecords.map((item, idx) => (
+                      <tr key={`${item.adNo}_${item.log.id}_${idx}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '14px', fontWeight: '800', color: '#4f46e5' }}>{item.rollNo || 0}</td>
+                        <td style={{ padding: '14px', fontWeight: '800', color: '#0f172a' }}>{item.studentName}</td>
+                        <td style={{ padding: '14px', color: '#475569', fontWeight: '700' }}>{item.adNo}</td>
+                        <td style={{ padding: '14px' }}>
+                          <span style={{ background: '#ffe4e6', color: '#e11d48', padding: '4px 10px', borderRadius: '999px', fontWeight: '900', fontSize: '12px' }}>
+                            - {item.log.count}
+                          </span>
+                        </td>
+                        <td style={{ padding: '14px', fontStyle: 'italic', color: '#334155' }}>{item.log.reason || '—'}</td>
+                        <td style={{ padding: '14px', color: '#64748b' }}>{item.log.date}</td>
+                        <td style={{ padding: '14px', color: '#64748b', fontSize: '12px', fontWeight: '700' }}>{item.log.issuedBy}</td>
+                        <td style={{ padding: '14px', textAlign: 'right' }}>
+                          <div style={{ display: 'inline-flex', gap: '6px' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedMinusStudent(item.studentObj);
+                                setSelectedMinusStudentsList([item.studentObj]);
+                                setEditingMinusLog(item.log);
+                                setMinusCount(item.log.count);
+                                setMinusReason(item.log.reason);
+                                setMinusSubTab('add');
+                              }}
+                              style={{ padding: '6px 10px', background: '#e0e7ff', color: '#4f46e5', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+                              title="Edit Minus"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteMinus(item.studentObj, item.log)}
+                              style={{ padding: '6px 10px', background: '#ffe4e6', color: '#e11d48', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+                              title="Delete Minus"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
+            </div>
+          )}
+        </div>
+      )}
 
-              <button
-                type="submit"
-                disabled={loading || (selectedMinusStudentsList.length === 0 && !selectedMinusStudent)}
-                style={{ ...styles.buttonPrimary, background: editingMinusLog ? '#d97706' : '#dc2626' }}
-              >
-                {loading
-                  ? 'Processing...'
-                  : editingMinusLog
-                  ? `💾 Save Updated Minus Entry for ${selectedMinusStudent?.firstName}`
-                  : `⚠️ Deduct -${minusCount} Minus from ${selectedMinusStudentsList.length || 1} Student(s)`}
-              </button>
-            </form>
+      {/* ============================================================
+          VIEW 6: 3-STEP SHUHOOD-STYLE ATTENDANCE CLEARANCE + COMPLETE DELETE
+         ============================================================ */}
+      {activeTab === 'clearance' && userRole === 'admin' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '22px', maxWidth: '880px' }}>
+          {/* DARK BANNER (Matches Screenshots 4 & 5) */}
+          <div style={{ background: 'linear-gradient(135deg, #0f172a 0%, #064e3b 65%, #0f172a 100%)', color: '#ffffff', padding: '28px 32px', borderRadius: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '800', letterSpacing: '1px', color: '#6ee7b7', textTransform: 'uppercase' }}>
+                DAILY FOCUS
+              </div>
+              <h2 style={{ margin: '4px 0 6px', fontSize: '28px', fontWeight: '900', color: '#ffffff' }}>
+                Attendance Clearance
+              </h2>
+              <p style={{ margin: 0, fontSize: '14px', color: '#cbd5e1' }}>
+                Select a date scope, fetch absent subjects, and apply official, medical, or permitted clearance with better control.
+              </p>
+            </div>
+            <div style={{ width: '48px', height: '48px', borderRadius: '14px', background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px' }}>
+              🛡️
+            </div>
           </div>
 
-          <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
-            <h3 style={{ margin: '0 0 6px 0', fontSize: '18px', color: '#0f172a', fontWeight: '900' }}>📜 Student's Minus History</h3>
-            <p style={{ margin: '0 0 14px 0', fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
-              🔒 Only the teacher who issued a minus (or Admin) can edit or delete it.
-            </p>
-            {!selectedMinusStudent ? (
-              <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', color: '#64748b', fontWeight: '700', textAlign: 'center' }}>
-                Select a student on the left to view, edit, or delete minus logs.
-              </div>
-            ) : (selectedMinusStudentStats.minusLogs || []).length === 0 ? (
-              <div style={{ padding: '20px', background: '#ecfdf5', borderRadius: '12px', color: '#047857', fontWeight: '800', textAlign: 'center' }}>
-                ✅ {selectedMinusStudent.firstName} has 0 minus deductions!
+          {/* STEP 1: DATE SCOPE & FETCH DATA */}
+          <div style={{ background: '#ffffff', padding: '24px', borderRadius: '18px', border: '1px solid #e2e8f0' }}>
+            <h4 style={{ margin: '0 0 14px 0', fontSize: '15px', fontWeight: '900', color: '#0f172a' }}>Step 1: Date Scope</h4>
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '18px' }}>
+              <button
+                type="button"
+                onClick={() => setClearDateMode('single')}
+                style={{
+                  padding: '10px 18px',
+                  borderRadius: '10px',
+                  fontWeight: '800',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  border: clearDateMode === 'single' ? '2px solid #0f766e' : '1px solid #cbd5e1',
+                  background: clearDateMode === 'single' ? '#0d9488' : '#ffffff',
+                  color: clearDateMode === 'single' ? '#ffffff' : '#334155'
+                }}
+              >
+                📅 Selected Date
+              </button>
+              <button
+                type="button"
+                onClick={() => setClearDateMode('range')}
+                style={{
+                  padding: '10px 18px',
+                  borderRadius: '10px',
+                  fontWeight: '800',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  border: clearDateMode === 'range' ? '2px solid #0f766e' : '1px solid #cbd5e1',
+                  background: clearDateMode === 'range' ? '#0d9488' : '#ffffff',
+                  color: clearDateMode === 'range' ? '#ffffff' : '#334155'
+                }}
+              >
+                🗓️ Bulk Date Range
+              </button>
+            </div>
+
+            {clearDateMode === 'single' ? (
+              <div style={{ marginBottom: '14px' }}>
+                <label style={styles.label}>Selected Date</label>
+                <input type="date" value={clearDate} onChange={e => setClearDate(e.target.value)} style={styles.input} />
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '420px', overflowY: 'auto' }}>
-                {(selectedMinusStudentStats.minusLogs || []).map(log => {
-                  const canModify = canUserModifyMinusLog(log);
-
-                  return (
-                    <div key={log.id} style={{ padding: '14px', background: editingMinusLog?.id === log.id ? '#fffbeb' : '#fef2f2', border: editingMinusLog?.id === log.id ? '2px solid #f59e0b' : '1px solid #fecaca', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-                      <div>
-                        <div style={{ fontSize: '15px', fontWeight: '900', color: '#991b1b' }}>-{log.count} Period(s)</div>
-                        <div style={{ fontSize: '13px', color: '#dc2626', fontWeight: '700', marginTop: '3px' }}>"{log.reason}"</div>
-                        <div style={{ fontSize: '11px', color: '#7f1d1d', marginTop: '4px', fontWeight: '700' }}>
-                          📅 {log.date} • By: <strong>{log.issuedBy}</strong>
-                        </div>
-                      </div>
-                      {canModify ? (
-                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingMinusLog(log);
-                              setMinusCount(log.count);
-                              setMinusReason(log.reason);
-                            }}
-                            disabled={loading}
-                            style={{ padding: '8px 12px', background: '#f59e0b', color: '#ffffff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                          >
-                            ✏️ Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteMinus(selectedMinusStudent, log)}
-                            disabled={loading}
-                            style={{ padding: '8px 12px', background: '#dc2626', color: '#ffffff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                          >
-                            🗑️ Delete
-                          </button>
-                        </div>
-                      ) : (
-                        <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '700' }}>🔒 Locked</span>
-                      )}
-                    </div>
-                  );
-                })}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                <div>
+                  <label style={styles.label}>Start Date</label>
+                  <input type="date" value={clearStartDate} onChange={e => setClearStartDate(e.target.value)} style={styles.input} />
+                </div>
+                <div>
+                  <label style={styles.label}>End Date</label>
+                  <input type="date" value={clearEndDate} onChange={e => setClearEndDate(e.target.value)} style={styles.input} />
+                </div>
               </div>
             )}
+
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={clearAdNo}
+                onChange={e => setClearAdNo(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleFetchStudentForClearance(); } }}
+                placeholder="Enter Student Admission Number (e.g. 3551)..."
+                style={{ ...styles.input, flex: 1 }}
+              />
+              <button
+                type="button"
+                onClick={handleFetchStudentForClearance}
+                style={{ padding: '12px 22px', background: '#0d9488', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >
+                🔍 Fetch Data
+              </button>
+            </div>
+          </div>
+
+          {/* STEP 2 & STEP 3: STUDENT INFORMATION & ABSENT SUBJECTS (Appears when student is fetched) */}
+          {fetchedClearStudent && (
+            <form onSubmit={handleSaveClearance} style={{ background: '#ffffff', padding: '24px', borderRadius: '18px', border: '1px solid #cbd5e1' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px', marginBottom: '20px' }}>
+                <div>
+                  <h4 style={{ margin: '0 0 10px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ color: '#0d9488' }}>👤</span> Student Information
+                  </h4>
+                  <div style={{ fontSize: '14px', color: '#334155', lineHeight: 1.7 }}>
+                    <div><strong>Name:</strong> {fetchedClearStudent.firstName}</div>
+                    <div><strong>Class:</strong> {(fetchedClearStudent.classes || []).join(', ')}</div>
+                    <div><strong>Admission Number:</strong> {fetchedClearStudent.adNo}</div>
+                    <div><strong>Roll Number:</strong> {fetchedClearStudent.rollNo || '—'}</div>
+                  </div>
+                </div>
+
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', padding: '12px 18px', minWidth: '150px' }}>
+                  <div style={{ fontSize: '10px', fontWeight: '900', color: '#64748b', textTransform: 'uppercase' }}>SELECTED SUBJECTS</div>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>{clearSelectedSubjects.length}</div>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '900', color: '#0f172a' }}>Step 2: Select Absent Subjects</h4>
+                  <button
+                    type="button"
+                    onClick={() => setShowAllClearSubjects(prev => !prev)}
+                    style={{ background: 'transparent', border: 'none', color: '#0284c7', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}
+                  >
+                    {showAllClearSubjects ? 'Show Only Recorded Absent Subjects on Date' : 'Show All Class Subjects'}
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                  {(showAllClearSubjects
+                    ? Object.keys(getStudentAttStat(fetchedClearStudent).subjectWise || {}).concat(DEFAULT_SUBJECTS.filter(s => s.toUpperCase() !== 'HIFZ'))
+                    : fetchedAbsentSubjects
+                  )
+                    .filter((v, i, a) => a.indexOf(v) === i)
+                    .map(sub => {
+                      const checked = clearSelectedSubjects.includes(sub);
+                      const clsTag = (fetchedClearStudent.classes || [])[0] || '';
+                      const label = sub.includes(clsTag) ? sub : `${sub} ${clsTag}`;
+                      return (
+                        <label
+                          key={sub}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '9px 14px',
+                            borderRadius: '10px',
+                            border: checked ? '2px solid #0d9488' : '1px solid #cbd5e1',
+                            background: checked ? '#f0fdfa' : '#ffffff',
+                            fontSize: '12px',
+                            fontWeight: '800',
+                            color: '#0f172a',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleClearanceSubject(sub)}
+                          />
+                          {label}
+                        </label>
+                      );
+                    })}
+                </div>
+              </div>
+
+              <div>
+                <label style={styles.label}>Step 3: Select Reason</label>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <select value={clearReason} onChange={e => setClearReason(e.target.value)} style={{ ...styles.input, flex: 1 }}>
+                    <option value="medical">Medical</option>
+                    <option value="official">Official (Counts as Present)</option>
+                    <option value="permitted">Permitted / Activity</option>
+                  </select>
+                  <button
+                    type="submit"
+                    disabled={loading || clearSelectedSubjects.length === 0}
+                    style={{ padding: '12px 24px', background: clearSelectedSubjects.length > 0 ? '#0f172a' : '#94a3b8', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '14px', cursor: clearSelectedSubjects.length > 0 ? 'pointer' : 'not-allowed' }}
+                  >
+                    Apply Clearance
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+
+          {/* COMPLETE ATTENDANCE DELETE (Matches Screenshots 4 & 5) */}
+          <div style={{ background: '#ffffff', padding: '24px', borderRadius: '18px', border: '1.5px solid #fecaca' }}>
+            <h4 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>Complete Attendance Delete</h4>
+            <p style={{ margin: '0 0 14px 0', fontSize: '12px', color: '#64748b' }}>
+              Deletes all attendance records. Password verification is required.
+            </p>
+            <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', padding: '18px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ fontSize: '12px', fontWeight: '800', color: '#e11d48' }}>
+                High-risk action: this permanently deletes all attendance records.
+              </div>
+              <div>
+                <label style={{ ...styles.label, fontSize: '11px' }}>Account Password</label>
+                <input
+                  type="password"
+                  value={deleteAllPassword}
+                  onChange={e => setDeleteAllPassword(e.target.value)}
+                  placeholder="Enter your account password"
+                  style={styles.input}
+                />
+              </div>
+              <div>
+                <label style={{ ...styles.label, fontSize: '11px' }}>Type confirmation: DELETE ALL</label>
+                <input
+                  type="text"
+                  value={deleteAllConfirmText}
+                  onChange={e => setDeleteAllConfirmText(e.target.value)}
+                  placeholder="DELETE ALL"
+                  style={styles.input}
+                />
+              </div>
+            </div>
+            <div style={{ marginTop: '14px', textAlign: 'right' }}>
+              <button
+                type="button"
+                onClick={handleCompleteAttendanceDeleteAll}
+                style={{ padding: '11px 20px', background: '#e11d48', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '13px', cursor: 'pointer' }}
+              >
+                🗑️ Delete Attendance
+              </button>
+            </div>
           </div>
         </div>
       )}
