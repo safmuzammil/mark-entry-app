@@ -15,7 +15,7 @@ import {
   WEB_APP_URL, DEFAULT_SUBJECTS, DEFAULT_CLASSES, GRADES, styles
 } from './erpConstants';
 import {
-  INDIAN_STATES, KERALA_DISTRICTS, CollapsibleCard,
+  INDIAN_STATES, KERALA_DISTRICTS,
   compressImageFileToDataUrl, openDirectWhatsApp, openWhatsAppGroupAndCopy,
   sendDirectEmailNotification, ProfileAvatar, TeacherPrivilegeModal
 } from './ErpExtensions';
@@ -34,16 +34,22 @@ const TEACHER_PARTIAL_FIELDS = [
 ];
 
 const QUICK_NON_MARK_SUBJECTS = [
-  'Speech Practice',
-  'PKV',
-  'Economics DG D3',
-  'Arabic Debate',
-  'Urdu Debate',
-  'English Oratory',
-  'General Assembly'
+  'Speech Practice', 'PKV', 'Economics DG D3', 'Arabic Debate',
+  'Urdu Debate', 'English Oratory', 'General Assembly'
 ];
 
 export default function TeacherManager({ onOpenProxyMarks }) {
+  // 🌟 Minimalist Top Action Panel Toggles ('none' | 'add' | 'import' | 'broadcast' | 'filters')
+  const [activeTopPanel, setActiveTopPanel] = useState('none');
+  const [expandedTeacherUsername, setExpandedTeacherUsername] = useState(null);
+  const [visibleCols, setVisibleCols] = useState({
+    roles: false,
+    contact: false,
+    subjects: false
+  });
+  const [teacherSearch, setTeacherSearch] = useState('');
+  const [teacherRoleFilter, setTeacherRoleFilter] = useState('All');
+
   const [selectedTeacherUsernames, setSelectedTeacherUsernames] = useState([]);
   const [broadcastTitle, setBroadcastTitle] = useState('');
   const [broadcastBody, setBroadcastBody] = useState('');
@@ -72,7 +78,6 @@ export default function TeacherManager({ onOpenProxyMarks }) {
   const [isOfficeSecRole, setIsOfficeSecRole] = useState(false);
   const [isEventLeaderRole, setIsEventLeaderRole] = useState(false);
   const [classTeacherOf, setClassTeacherOf] = useState([]);
-
   const [isNonMarkMode, setIsNonMarkMode] = useState(false);
 
   const [registeredTeachers, setRegisteredTeachers] = useState([]);
@@ -438,6 +443,7 @@ export default function TeacherManager({ onOpenProxyMarks }) {
       setStatusMsg(isEditing ? '✅ Teacher profile, roles & subjects updated!' : '✅ Teacher registered successfully!');
       fetchInitialData();
       resetForm();
+      setActiveTopPanel('none');
     } catch (err) {
       setIsLoading(false);
       setStatusMsg('Error: ' + err.message);
@@ -466,17 +472,33 @@ export default function TeacherManager({ onOpenProxyMarks }) {
     setIsEventLeaderRole(Boolean(teacher.isEventLeader || teacher.roleCategory === 'Event Leader'));
     setClassTeacherOf(Array.isArray(priv.classTeacherOf) ? priv.classTeacherOf : []);
     setPassword('');
+    setActiveTopPanel('add');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleDeleteClick = async (teacherUsername) => {
-    if (window.confirm(`Are you sure you want to delete @${teacherUsername}?\n(Any attendance or marks already saved in student records will remain intact.)`)) {
+    if (window.confirm(`Are you sure you want to delete @${teacherUsername}?`)) {
       try {
         await deleteDoc(doc(db, 'teachers', teacherUsername));
         fetchInitialData();
       } catch (err) {
         alert("Failed to delete.");
       }
+    }
+  };
+
+  const handleBulkDeleteSelectedTeachers = async () => {
+    if (selectedTeacherUsernames.length === 0) return;
+    if (!window.confirm(`Delete ${selectedTeacherUsernames.length} selected teacher(s)?`)) return;
+    setIsLoading(true);
+    try {
+      await Promise.all(selectedTeacherUsernames.map(u => deleteDoc(doc(db, 'teachers', u))));
+      setSelectedTeacherUsernames([]);
+      fetchInitialData();
+    } catch (err) {
+      alert("Error deleting selected teachers.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -498,11 +520,24 @@ export default function TeacherManager({ onOpenProxyMarks }) {
     }
   };
 
+  const filteredTeachers = registeredTeachers.filter(t => {
+    if (teacherSearch.trim()) {
+      const q = teacherSearch.trim().toLowerCase();
+      if (!String(t.fullName || '').toLowerCase().includes(q) && !String(t.username || '').toLowerCase().includes(q)) return false;
+    }
+    const priv = t.outpassPrivileges || {};
+    if (teacherRoleFilter === 'ClassTeacher' && !(priv.classTeacherOf || []).length) return false;
+    if (teacherRoleFilter === 'Mentor' && priv.isMentor === false) return false;
+    if (teacherRoleFilter === 'Coordinator' && !priv.isPrincipal && !priv.isNiicsCoordinator && !priv.isOutreachCoordinator && !priv.isAcademicCoordinator) return false;
+    if (teacherRoleFilter === 'EventLeader' && !t.isEventLeader) return false;
+    return true;
+  });
+
   const toggleSelectAllTeachers = () => {
-    if (selectedTeacherUsernames.length === registeredTeachers.length) {
+    if (selectedTeacherUsernames.length === filteredTeachers.length) {
       setSelectedTeacherUsernames([]);
     } else {
-      setSelectedTeacherUsernames(registeredTeachers.map(t => t.username));
+      setSelectedTeacherUsernames(filteredTeachers.map(t => t.username));
     }
   };
 
@@ -516,167 +551,232 @@ export default function TeacherManager({ onOpenProxyMarks }) {
         />
       )}
 
-      {/* 🌟 SLIDING DRAWER 1: CUSTOM PARTIAL CSV & PC FOLDER PHOTO UPLOADER FOR TEACHERS */}
-      <CollapsibleCard
-        title="Teachers CSV Uploader & Bulk PC Folder Photo Uploader"
-        subtitle="Click to open teacher CSV template generator, bulk CSV uploader, or faculty photo linker"
-        badgeText="CSV & Photos"
-        icon="📂"
-        accentColor="#0284c7"
-        defaultOpen={false}
-      >
-        <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#334155', fontWeight: '600' }}>
-          Select specific teacher fields to generate a custom partial CSV template, OR select teacher photos from a PC folder named by their username (e.g. <code>yusuf.jpg</code>):
-        </p>
-
-        <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '10px', border: '1.5px solid #cbd5e1', marginBottom: '14px' }}>
-          <div style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>
-            ☑️ Select fields to include in your Partial CSV Template (`username` and `fullName` are included automatically):
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {TEACHER_PARTIAL_FIELDS.map(f => {
-              const active = selectedPartialCols.includes(f.key);
-              return (
-                <label
-                  key={f.key}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: '800',
-                    background: active ? '#00897b' : '#ffffff',
-                    color: active ? '#ffffff' : '#0f172a',
-                    border: active ? '1.5px solid #00897b' : '1.5px solid #94a3b8'
-                  }}
-                >
-                  <input type="checkbox" checked={active} onChange={() => togglePartialCol(f.key)} style={{ display: 'none' }} />
-                  {active ? `✓ ${f.label}` : `+ ${f.label}`}
-                </label>
-              );
-            })}
-          </div>
+      {/* 🌟 SHUHOOD MINIMALIST HEADER + ACTION BUTTONS (Matches Screenshot 1) */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px', marginBottom: '22px' }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: '26px', fontWeight: '800', color: '#0f172a' }}>Teacher Management</h1>
+          <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b', fontWeight: '500' }}>
+            Manage all faculty members and their details efficiently.
+          </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <button type="button" onClick={handleDownloadCustomPartialTeacherCSV} style={{ padding: '10px 16px', background: '#00897b', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>
-            📥 Download Custom Partial CSV ({selectedPartialCols.length} Fields)
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => {
+              if (activeTopPanel === 'add') {
+                setActiveTopPanel('none');
+                resetForm();
+              } else {
+                setActiveTopPanel('add');
+              }
+            }}
+            style={{
+              padding: '10px 18px',
+              background: '#4f46e5',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '10px',
+              fontWeight: '700',
+              fontSize: '13px',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: '0 2px 6px rgba(79, 70, 229, 0.25)'
+            }}
+          >
+            {activeTopPanel === 'add' ? '✕ Close Form' : '＋ Add Teacher'}
           </button>
-          <button type="button" onClick={handleDownloadFullTeacherCSV} style={{ padding: '10px 16px', background: '#f8fafc', color: '#0f172a', border: '1.5px solid #94a3b8', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>
-            📥 Full Master Template (All Fields)
-          </button>
-          <label style={{ padding: '10px 18px', background: '#0284c7', color: '#ffffff', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>
-            📤 Upload Completed CSV (Full or Partial)
-            <input type="file" accept=".csv" onChange={handleTeacherCSVUpload} style={{ display: 'none' }} />
-          </label>
-          <label style={{ padding: '10px 18px', background: '#0f172a', color: '#ffffff', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>
-            📸 Select Teacher Photos from PC Folder (Named by Username)
-            <input type="file" accept="image/*" multiple onChange={handleBulkTeacherPhotoUploadFromFolder} style={{ display: 'none' }} />
-          </label>
-          {bulkTeacherPhotoProgress && <span style={{ fontWeight: '800', color: '#0284c7', fontSize: '13px' }}>⏳ {bulkTeacherPhotoProgress}</span>}
-        </div>
-      </CollapsibleCard>
 
-      {/* 🌟 SLIDING DRAWER 2: REGISTER / EDIT TEACHER FORM (Auto-Opens When Editing!) */}
-      <CollapsibleCard
-        key={isEditing ? `edit_${username}` : 'new_teacher'}
-        title={isEditing ? `✏️ Editing Teacher: ${fullName} (@${username})` : 'Register Teacher, Roles & Subject Assignments'}
-        subtitle="Click to open faculty registration form, multi-role selector, and subject mapper"
-        badgeText={isEditing ? 'Editing Mode' : '+ Add Faculty'}
-        icon={isEditing ? '✏️' : '👨‍🏫'}
-        accentColor={isEditing ? '#f59e0b' : '#0f766e'}
-        defaultOpen={isEditing}
-      >
-        {isEditing && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
-            <button type="button" onClick={resetForm} style={{ padding: '8px 16px', background: '#e2e8f0', color: '#0f172a', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>
-              ✕ Cancel Editing
+          <button
+            type="button"
+            onClick={() => setActiveTopPanel(activeTopPanel === 'import' ? 'none' : 'import')}
+            style={{
+              padding: '10px 18px',
+              background: activeTopPanel === 'import' ? '#eef2ff' : '#ffffff',
+              color: '#4f46e5',
+              border: '1px solid #c7d2fe',
+              borderRadius: '10px',
+              fontWeight: '700',
+              fontSize: '13px',
+              cursor: 'pointer'
+            }}
+          >
+            ⬆️ Import CSV / Photos
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTopPanel(activeTopPanel === 'broadcast' ? 'none' : 'broadcast')}
+            style={{
+              padding: '10px 16px',
+              background: activeTopPanel === 'broadcast' ? '#eef2ff' : '#ffffff',
+              color: '#334155',
+              border: '1px solid #cbd5e1',
+              borderRadius: '10px',
+              fontWeight: '700',
+              fontSize: '13px',
+              cursor: 'pointer'
+            }}
+          >
+            📢 Broadcast
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTopPanel(activeTopPanel === 'filters' ? 'none' : 'filters')}
+            style={{
+              padding: '10px 16px',
+              background: activeTopPanel === 'filters' ? '#eef2ff' : '#ffffff',
+              color: '#334155',
+              border: '1px solid #cbd5e1',
+              borderRadius: '10px',
+              fontWeight: '700',
+              fontSize: '13px',
+              cursor: 'pointer'
+            }}
+          >
+            🎛️ Filter &amp; Columns
+          </button>
+        </div>
+      </div>
+
+      {statusMsg && (
+        <div style={{ marginBottom: '18px', padding: '12px 16px', background: statusMsg.includes('Error') ? '#fff1f2' : '#ecfdf5', borderRadius: '10px', color: statusMsg.includes('Error') ? '#e11d48' : '#047857', fontWeight: '700', fontSize: '13px', border: `1px solid ${statusMsg.includes('Error') ? '#ffe4e6' : '#a7f3d0'}` }}>
+          {statusMsg}
+        </div>
+      )}
+
+      {/* PANEL 1: IMPORT CSV & PHOTOS (Opens only when clicked) */}
+      {activeTopPanel === 'import' && (
+        <div className="erp-slide-panel" style={styles.card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>Teachers CSV &amp; Bulk Photo Uploader</h3>
+            <button type="button" onClick={() => setActiveTopPanel('none')} style={styles.buttonSecondary}>✕ Close</button>
+          </div>
+          <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '14px' }}>
+            <div style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '8px' }}>
+              Select fields for Partial CSV Template (`username` and `fullName` included automatically):
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {TEACHER_PARTIAL_FIELDS.map(f => {
+                const active = selectedPartialCols.includes(f.key);
+                return (
+                  <button
+                    key={f.key}
+                    type="button"
+                    onClick={() => togglePartialCol(f.key)}
+                    style={{
+                      padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: '700',
+                      background: active ? '#4f46e5' : '#ffffff',
+                      color: active ? '#ffffff' : '#334155',
+                      border: active ? '1px solid #4f46e5' : '1px solid #cbd5e1'
+                    }}
+                  >
+                    {active ? `✓ ${f.label}` : `+ ${f.label}`}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button type="button" onClick={handleDownloadCustomPartialTeacherCSV} style={styles.buttonPrimary}>
+              📥 Download Partial CSV ({selectedPartialCols.length})
             </button>
+            <button type="button" onClick={handleDownloadFullTeacherCSV} style={styles.buttonSecondary}>
+              📥 Full Master Template
+            </button>
+            <label style={{ ...styles.buttonSecondary, background: '#eef2ff', color: '#4f46e5', borderColor: '#c7d2fe', display: 'inline-flex', alignItems: 'center' }}>
+              📤 Upload CSV
+              <input type="file" accept=".csv" onChange={handleTeacherCSVUpload} style={{ display: 'none' }} />
+            </label>
+            <label style={{ ...styles.buttonSecondary, display: 'inline-flex', alignItems: 'center' }}>
+              📸 Bulk Link Photos (By Username)
+              <input type="file" accept="image/*" multiple onChange={handleBulkTeacherPhotoUploadFromFolder} style={{ display: 'none' }} />
+            </label>
+            {bulkTeacherPhotoProgress && <span style={{ fontWeight: '700', color: '#4f46e5', fontSize: '12px' }}>⏳ {bulkTeacherPhotoProgress}</span>}
           </div>
-        )}
+        </div>
+      )}
 
-        <form onSubmit={handleAddOrUpdateTeacher} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-            <div><label style={styles.label}>Full Name</label><input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} required style={styles.input} /></div>
-            <div><label style={styles.label}>Username</label><input type="text" value={username} onChange={(e) => setUsername(e.target.value)} disabled={isEditing} required style={styles.input} /></div>
-            <div>
-              <label style={styles.label}>{isEditing ? 'Password (Only for new account)' : 'Initial Password (Min 6 chars)'}</label>
-              <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={isEditing ? "Teachers can change password in their portal..." : "Min 6 chars"} required={!isEditing} style={styles.input} />
-            </div>
-            <div><label style={styles.label}>Designation</label><input type="text" value={designation} onChange={(e) => setDesignation(e.target.value)} placeholder="e.g. Faculty, Senior Lecturer" style={styles.input} /></div>
-            <div><label style={styles.label}>Mobile Number</label><input type="text" value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} placeholder="9876543210" style={styles.input} /></div>
-            <div><label style={styles.label}>WhatsApp Number</label><input type="text" value={whatsappNumber} onChange={(e) => setWhatsappNumber(e.target.value)} placeholder="9876543210" style={styles.input} /></div>
-            <div><label style={styles.label}>Email Address</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teacher@dhiu.in" style={styles.input} /></div>
-            <div>
-              <label style={styles.label}>State / Country</label>
-              <select
-                value={state}
-                onChange={(e) => {
-                  const nextState = e.target.value;
-                  setState(nextState);
-                  if (nextState === 'Kerala' && !KERALA_DISTRICTS.includes(district)) {
-                    setDistrict('Malappuram');
-                  } else if (nextState !== 'Kerala' && KERALA_DISTRICTS.includes(district)) {
-                    setDistrict('');
-                  }
-                }}
-                style={styles.input}
-              >
-                {INDIAN_STATES.map(st => <option key={st} value={st}>{st}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={styles.label}>
-                {state === 'Kerala' ? 'District (Kerala)' : 'District / Province / City (Type)'}
-              </label>
-              {state === 'Kerala' ? (
-                <select value={district} onChange={(e) => setDistrict(e.target.value)} style={styles.input}>
-                  {KERALA_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
+      {/* PANEL 2: ADD / EDIT TEACHER FORM (Opens only when "+ Add Teacher" or "Edit" is clicked) */}
+      {activeTopPanel === 'add' && (
+        <div className="erp-slide-panel" style={styles.card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+            <h3 style={{ margin: 0, fontSize: '17px', fontWeight: '800', color: '#0f172a' }}>
+              {isEditing ? `Edit Teacher: ${fullName} (@${username})` : 'Register New Teacher'}
+            </h3>
+            <button type="button" onClick={() => { resetForm(); setActiveTopPanel('none'); }} style={styles.buttonSecondary}>Cancel</button>
+          </div>
+
+          <form onSubmit={handleAddOrUpdateTeacher} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px' }}>
+              <div><label style={styles.label}>Full Name</label><input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} required style={styles.input} /></div>
+              <div><label style={styles.label}>Username</label><input type="text" value={username} onChange={(e) => setUsername(e.target.value)} disabled={isEditing} required style={styles.input} /></div>
+              <div>
+                <label style={styles.label}>{isEditing ? 'New Password (Optional)' : 'Initial Password (Min 6 chars)'}</label>
+                <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min 6 chars" required={!isEditing} style={styles.input} />
+              </div>
+              <div><label style={styles.label}>Designation</label><input type="text" value={designation} onChange={(e) => setDesignation(e.target.value)} style={styles.input} /></div>
+              <div><label style={styles.label}>Mobile Number</label><input type="text" value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} style={styles.input} /></div>
+              <div><label style={styles.label}>WhatsApp Number</label><input type="text" value={whatsappNumber} onChange={(e) => setWhatsappNumber(e.target.value)} style={styles.input} /></div>
+              <div><label style={styles.label}>Email Address</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={styles.input} /></div>
+              <div>
+                <label style={styles.label}>State / Country</label>
+                <select value={state} onChange={(e) => setState(e.target.value)} style={styles.input}>
+                  {INDIAN_STATES.map(st => <option key={st} value={st}>{st}</option>)}
                 </select>
-              ) : (
-                <input
-                  type="text"
-                  value={district}
-                  onChange={(e) => setDistrict(e.target.value)}
-                  placeholder="Type district, province, or city..."
-                  style={styles.input}
-                />
-              )}
-            </div>
-            <div>
-              <label style={styles.label}>Single Teacher Photo</label>
-              <input type="file" accept="image/*" onChange={handleTeacherPhotoUpload} style={styles.input} />
-            </div>
-          </div>
-
-          <div style={{ background: '#f8fafc', padding: '18px', borderRadius: '12px', border: '1.5px solid #cbd5e1' }}>
-            <h4 style={{ margin: '0 0 8px 0', fontSize: '15px', color: '#0f172a', fontWeight: '800' }}>
-              🛡️ Assign Institutional Roles &amp; Class Teacher Authority (Multi-Select)
-            </h4>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
-              {[
-                { label: '🧭 Mentor (Can be assigned mentees)', state: isMentorRole, setter: setIsMentorRole },
-                { label: '👑 Principal', state: isPrincipalRole, setter: setIsPrincipalRole },
-                { label: '🎓 NIICS Coordinator (Urdu Principal)', state: isNiicsCoordRole, setter: setIsNiicsCoordRole },
-                { label: '📊 Academic Coordinator', state: isAcademicCoordRole, setter: setIsAcademicCoordRole },
-                { label: '🌍 Outreach Coordinator', state: isOutreachCoordRole, setter: setIsOutreachCoordRole },
-                { label: '🏢 Office Secretary', state: isOfficeSecRole, setter: setIsOfficeSecRole },
-                { label: '🎭 Event / Arts Fest Rehearsal Leader (Temp Attendance Only)', state: isEventLeaderRole, setter: setIsEventLeaderRole }
-              ].map((r, i) => (
-                <label
-                  key={i}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '800',
-                    background: r.state ? '#0f172a' : '#ffffff',
-                    color: r.state ? '#ffffff' : '#0f172a',
-                    border: '1.5px solid #94a3b8'
-                  }}
-                >
-                  <input type="checkbox" checked={r.state} onChange={(e) => r.setter(e.target.checked)} style={{ accentColor: '#00897b', width: '16px', height: '16px' }} />
-                  {r.label}
-                </label>
-              ))}
+              </div>
+              <div>
+                <label style={styles.label}>District</label>
+                {state === 'Kerala' ? (
+                  <select value={district} onChange={(e) => setDistrict(e.target.value)} style={styles.input}>
+                    {KERALA_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                ) : (
+                  <input type="text" value={district} onChange={(e) => setDistrict(e.target.value)} style={styles.input} />
+                )}
+              </div>
+              <div>
+                <label style={styles.label}>Profile Photo</label>
+                <input type="file" accept="image/*" onChange={handleTeacherPhotoUpload} style={styles.input} />
+              </div>
             </div>
 
-            <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
-              <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a', marginBottom: '6px' }}>
-                🏫 Designated Class Teacher For (Automatically links all students of that class + assigns <strong>Hifz</strong> mark entry):
+            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a', marginBottom: '10px', textTransform: 'uppercase' }}>
+                Institutional Roles &amp; Class Teacher Assignment
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '14px' }}>
+                {[
+                  { label: 'Mentor', state: isMentorRole, setter: setIsMentorRole },
+                  { label: 'Principal', state: isPrincipalRole, setter: setIsPrincipalRole },
+                  { label: 'NIICS Coordinator', state: isNiicsCoordRole, setter: setIsNiicsCoordRole },
+                  { label: 'Academic Coordinator', state: isAcademicCoordRole, setter: setIsAcademicCoordRole },
+                  { label: 'Outreach Coordinator', state: isOutreachCoordRole, setter: setIsOutreachCoordRole },
+                  { label: 'Office Secretary', state: isOfficeSecRole, setter: setIsOfficeSecRole },
+                  { label: 'Event Rehearsal Leader', state: isEventLeaderRole, setter: setIsEventLeaderRole }
+                ].map((r, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => r.setter(!r.state)}
+                    style={{
+                      padding: '7px 13px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: '700',
+                      background: r.state ? '#4f46e5' : '#ffffff',
+                      color: r.state ? '#ffffff' : '#334155',
+                      border: r.state ? '1px solid #4f46e5' : '1px solid #cbd5e1'
+                    }}
+                  >
+                    {r.state ? `✓ ${r.label}` : r.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '8px' }}>
+                Class Teacher Of (Auto-assigns Hifz):
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                 {DEFAULT_CLASSES.map(cls => {
@@ -687,60 +787,50 @@ export default function TeacherManager({ onOpenProxyMarks }) {
                       type="button"
                       onClick={() => toggleClassTeacherClass(cls)}
                       style={{
-                        padding: '7px 14px', borderRadius: '8px', fontWeight: '800', fontSize: '13px', cursor: 'pointer',
-                        border: active ? '2px solid #00897b' : '1.5px solid #94a3b8',
-                        background: active ? '#00897b' : '#ffffff',
-                        color: active ? '#ffffff' : '#0f172a'
+                        padding: '6px 12px', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer',
+                        border: active ? '1.5px solid #4f46e5' : '1px solid #cbd5e1',
+                        background: active ? '#eef2ff' : '#ffffff',
+                        color: active ? '#4f46e5' : '#334155'
                       }}
                     >
-                      {active ? `✓ Class ${cls} (+Hifz)` : cls}
+                      {active ? `✓ ${cls}` : cls}
                     </button>
                   );
                 })}
               </div>
             </div>
-          </div>
 
-          <div style={{ background: '#f0fdfa', padding: '20px', borderRadius: '12px', border: '2px solid #0d9488' }}>
-            <h4 style={{ margin: '0 0 6px 0', fontSize: '16px', color: '#0f172a', fontWeight: '800' }}>
-              📚 Assign Grade, Class &amp; Subject Taught
-            </h4>
-            <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#334155', fontWeight: '600' }}>
-              Assign regular academic subjects (with marks) OR tick the checkbox below to add an <strong>Attendance-Only Period (No Marks — e.g. Speech Practice, PKV, Debate)</strong>.
-            </p>
-
-            <div style={{ marginBottom: '14px', padding: '12px 16px', background: isNonMarkMode ? '#fffbeb' : '#ffffff', borderRadius: '10px', border: isNonMarkMode ? '2px solid #d97706' : '1.5px solid #0d9488', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', fontWeight: '800', color: isNonMarkMode ? '#b45309' : '#0f766e', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={Boolean(isNonMarkMode)}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setIsNonMarkMode(checked);
-                    if (checked) setEnvSubject('Speech Practice');
-                    else setEnvSubject(DEFAULT_SUBJECTS[0] || 'Thafseer');
-                  }}
-                  style={{ width: '18px', height: '18px', accentColor: '#d97706' }}
-                />
-                📅 Attendance-Only Period (No Marks — e.g., Speech Practice, PKV, Economics — Hidden from Mark Entry &amp; Student Mark Sheet)
-              </label>
+            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+                <div style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a', textTransform: 'uppercase' }}>
+                  Assign Subjects Taught ({enrollments.length})
+                </div>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '700', color: '#4f46e5', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(isNonMarkMode)}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setIsNonMarkMode(checked);
+                      setEnvSubject(checked ? 'Speech Practice' : (DEFAULT_SUBJECTS[0] || 'Thafseer'));
+                    }}
+                  />
+                  Attendance-Only Period (No Marks — e.g. PKV, Speech Practice)
+                </label>
+              </div>
 
               {isNonMarkMode && (
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
                   {QUICK_NON_MARK_SUBJECTS.map(qSub => (
                     <button
                       key={qSub}
                       type="button"
                       onClick={() => setEnvSubject(qSub)}
                       style={{
-                        padding: '4px 10px',
-                        borderRadius: '999px',
-                        fontSize: '11px',
-                        fontWeight: '800',
-                        cursor: 'pointer',
-                        border: envSubject === qSub ? '2px solid #b45309' : '1px solid #fcd34d',
-                        background: envSubject === qSub ? '#d97706' : '#ffffff',
-                        color: envSubject === qSub ? '#ffffff' : '#92400e'
+                        padding: '4px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: '700', cursor: 'pointer',
+                        border: envSubject === qSub ? '1px solid #4f46e5' : '1px solid #cbd5e1',
+                        background: envSubject === qSub ? '#eef2ff' : '#ffffff',
+                        color: envSubject === qSub ? '#4f46e5' : '#475569'
                       }}
                     >
                       {qSub}
@@ -748,378 +838,365 @@ export default function TeacherManager({ onOpenProxyMarks }) {
                   ))}
                 </div>
               )}
-            </div>
 
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'flex-end', marginBottom: '16px', background: '#ffffff', padding: '16px', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
-              <div style={{ flex: '1 1 110px' }}>
-                <label style={styles.label}>1. Grade</label>
-                <select
-                  value={envGrade}
-                  onChange={(e) => {
-                    const g = e.target.value;
-                    setEnvGrade(g);
-                    const matchingCls = DEFAULT_CLASSES.find(c => c.includes(g));
-                    if (matchingCls) setEnvTargetClass(matchingCls);
-                  }}
-                  style={styles.input}
-                >
-                  {GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}
-                </select>
-              </div>
-
-              <div style={{ flex: '1 1 140px' }}>
-                <label style={styles.label}>2. Class / Batch</label>
-                <select value={envTargetClass} onChange={(e) => setEnvTargetClass(e.target.value)} style={styles.input}>
-                  {DEFAULT_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
-                  <option value={`Grade ${envGrade}`}>All Grade {envGrade}</option>
-                  {isNonMarkMode && <option value="CUSTOM">Custom Student Group</option>}
-                </select>
-              </div>
-
-              <div style={{ flex: '2 1 200px' }}>
-                <label style={styles.label}>
-                  {isNonMarkMode ? '3. Attendance-Only Period Name' : '3. Academic Subject'}
-                </label>
-                {isNonMarkMode ? (
-                  <input
-                    type="text"
-                    value={envSubject}
-                    onChange={(e) => setEnvSubject(e.target.value)}
-                    placeholder="Type period name (e.g. Speech Practice, PKV)..."
-                    style={{ ...styles.input, borderColor: '#d97706', backgroundColor: '#fffbeb', fontWeight: '800' }}
-                  />
-                ) : (
-                  <select value={envSubject} onChange={(e) => setEnvSubject(e.target.value)} style={styles.input}>
-                    {DEFAULT_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'flex-end', marginBottom: '12px' }}>
+                <div style={{ flex: '1 1 100px' }}>
+                  <label style={styles.label}>Grade</label>
+                  <select
+                    value={envGrade}
+                    onChange={(e) => {
+                      const g = e.target.value;
+                      setEnvGrade(g);
+                      const matchingCls = DEFAULT_CLASSES.find(c => c.includes(g));
+                      if (matchingCls) setEnvTargetClass(matchingCls);
+                    }}
+                    style={styles.input}
+                  >
+                    {GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}
                   </select>
-                )}
+                </div>
+
+                <div style={{ flex: '1 1 130px' }}>
+                  <label style={styles.label}>Class</label>
+                  <select value={envTargetClass} onChange={(e) => setEnvTargetClass(e.target.value)} style={styles.input}>
+                    {DEFAULT_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                    <option value={`Grade ${envGrade}`}>All Grade {envGrade}</option>
+                    {isNonMarkMode && <option value="CUSTOM">Custom Group</option>}
+                  </select>
+                </div>
+
+                <div style={{ flex: '2 1 180px' }}>
+                  <label style={styles.label}>Subject</label>
+                  {isNonMarkMode ? (
+                    <input type="text" value={envSubject} onChange={(e) => setEnvSubject(e.target.value)} style={styles.input} />
+                  ) : (
+                    <select value={envSubject} onChange={(e) => setEnvSubject(e.target.value)} style={styles.input}>
+                      {DEFAULT_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  )}
+                </div>
+
+                <div style={{ flex: '1 1 120px' }}>
+                  <label style={styles.label}>Stream</label>
+                  <select value={envLangTag} onChange={(e) => setEnvLangTag(e.target.value)} style={styles.input}>
+                    <option value="">General</option>
+                    <option value="Urdu">Urdu Only</option>
+                    <option value="Non-Urdu">Non-Urdu</option>
+                  </select>
+                </div>
+
+                <button type="button" onClick={handleAddEnrollment} style={styles.buttonPrimary}>
+                  + Add Subject
+                </button>
               </div>
 
-              <div style={{ flex: '1 1 130px' }}>
-                <label style={styles.label}>4. Medium / Tag</label>
-                <select value={envLangTag} onChange={(e) => setEnvLangTag(e.target.value)} style={styles.input}>
-                  <option value="">General (All)</option>
-                  <option value="Urdu">Urdu Only</option>
-                  <option value="Non-Urdu">Non-Urdu Only</option>
-                </select>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleAddEnrollment}
-                style={{
-                  ...styles.buttonPrimary,
-                  padding: '12px 20px',
-                  background: isNonMarkMode ? '#d97706' : '#00897b'
-                }}
-              >
-                {isNonMarkMode ? '+ Add Attendance Period' : '+ Add Subject'}
-              </button>
+              {enrollments.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {enrollments.map((env) => (
+                    <span key={env.id} style={{ background: '#ffffff', padding: '6px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '12px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                      {env.alias || env.subject} {env.isAttendanceOnly ? '(Att-Only)' : ''}
+                      <button type="button" onClick={() => handleRemoveEnrollment(env.id)} style={{ background: 'transparent', border: 'none', color: '#e11d48', fontWeight: '800', cursor: 'pointer' }}>✕</button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {enrollments.length > 0 && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '10px' }}>
-                {enrollments.map((env) => (
-                  <div key={env.id} style={{ background: '#ffffff', padding: '12px 16px', borderRadius: '10px', border: env.isAttendanceOnly ? '2px solid #f59e0b' : '1.5px solid #cbd5e1', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontWeight: '800', fontSize: '14px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                        <span>📖 {env.alias || `${env.targetClass || `Grade ${env.grade}`} ${env.subject}`}</span>
-                        {env.isAttendanceOnly && (
-                          <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '900' }}>
-                            ATTENDANCE ONLY
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: '12px', color: '#0f766e', fontWeight: '700', marginTop: '2px' }}>
-                        Grade {env.grade} • {env.langTag || 'General'} • {(env.studentIds || []).length} manual IDs
-                      </div>
-                    </div>
-                    <button type="button" onClick={() => handleRemoveEnrollment(env.id)} style={{ padding: '6px 10px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', fontWeight: '800', cursor: 'pointer', fontSize: '12px' }}>
-                      ✕
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <button type="submit" disabled={isLoading} style={isEditing ? styles.buttonWarning : styles.buttonSuccess}>
-            {isLoading ? 'Processing...' : isEditing ? 'Update Teacher Profile & Roles' : 'Register Teacher'}
-          </button>
-        </form>
-      </CollapsibleCard>
-
-      {statusMsg && (
-        <div style={{ marginBottom: '18px', padding: '14px 18px', background: statusMsg.includes('Error') ? '#fee2e2' : '#ecfdf5', borderRadius: '12px', color: statusMsg.includes('Error') ? '#991b1b' : '#065f46', fontWeight: '800', border: `1px solid ${statusMsg.includes('Error') ? '#fecaca' : '#a7f3d0'}` }}>
-          {statusMsg}
+            <button type="submit" disabled={isLoading} style={styles.buttonPrimary}>
+              {isLoading ? 'Saving...' : isEditing ? 'Save Updated Teacher Profile' : 'Register Teacher'}
+            </button>
+          </form>
         </div>
       )}
 
-      {/* 🌟 SLIDING DRAWER 3: BROADCAST COMPOSER */}
-      <CollapsibleCard
-        title="Broadcast Message to Teachers (Portal Banner + Email + WhatsApp)"
-        subtitle="Click to open announcement composer for Teacher Portals, Email, and Staff WhatsApp Group"
-        badgeText={selectedTeacherUsernames.length === 0 ? `All (${registeredTeachers.length})` : `${selectedTeacherUsernames.length} Selected`}
-        icon="📢"
-        accentColor="#2563eb"
-        defaultOpen={false}
-      >
-        <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', marginBottom: '12px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '12px', fontWeight: '800', color: '#1e3a8a' }}>
-              👥 Click Teachers to Select Recipients:
-            </span>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button type="button" onClick={() => setSelectedTeacherUsernames(registeredTeachers.map(t => t.username))} style={{ padding: '4px 10px', background: '#dbeafe', color: '#1e40af', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}>
-                Select All
-              </button>
-              <button type="button" onClick={() => setSelectedTeacherUsernames([])} style={{ padding: '4px 10px', background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}>
-                Clear Selection (Send to All)
-              </button>
-            </div>
+      {/* PANEL 3: BROADCAST COMPOSER (Opens only when clicked) */}
+      {activeTopPanel === 'broadcast' && (
+        <div className="erp-slide-panel" style={styles.card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>
+              Broadcast Notice ({selectedTeacherUsernames.length === 0 ? `All ${registeredTeachers.length} Teachers` : `${selectedTeacherUsernames.length} Selected`})
+            </h3>
+            <button type="button" onClick={() => setActiveTopPanel('none')} style={styles.buttonSecondary}>✕ Close</button>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '110px', overflowY: 'auto' }}>
-            {registeredTeachers.map(t => {
-              const active = selectedTeacherUsernames.includes(t.username);
-              return (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px', marginBottom: '12px' }}>
+            <input type="text" placeholder="Notice Title..." value={broadcastTitle} onChange={(e) => setBroadcastTitle(e.target.value)} style={styles.input} />
+            <input type="text" placeholder="Type message for Portal Banner, Email, or WhatsApp..." value={broadcastBody} onChange={(e) => setBroadcastBody(e.target.value)} style={styles.input} />
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!broadcastBody.trim()) return alert("Please enter a broadcast message.");
+                await setDoc(doc(db, 'systemCache', 'teacherBroadcast'), {
+                  title: broadcastTitle.trim() || 'Admin Broadcast Notice',
+                  message: broadcastBody.trim(),
+                  targetTeachers: selectedTeacherUsernames,
+                  active: true,
+                  updatedAt: new Date().toISOString()
+                }, { merge: true });
+                alert("✅ Broadcast Banner pinned to Teacher Portals!");
+              }}
+              style={styles.buttonPrimary}
+            >
+              📌 Pin Portal Banner
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const msg = `*DHIU DEGREE SECTION — STAFF NOTICE*\n*${broadcastTitle || 'Official Announcement'}*\n\n${broadcastBody || 'Assalamu Alaikum,'}`;
+                openWhatsAppGroupAndCopy(staffGroupLink, msg, 'DHIU Staff WhatsApp Group');
+              }}
+              style={styles.buttonSecondary}
+            >
+              💬 Send to Staff WA Group
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                await setDoc(doc(db, 'systemCache', 'teacherBroadcast'), { active: false }, { merge: true });
+                alert("Cleared active broadcast banner.");
+              }}
+              style={styles.buttonDanger}
+            >
+              Clear Active Banner
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* PANEL 4: FILTER & COLUMN TOGGLE BAR (Opens only when clicked) */}
+      {activeTopPanel === 'filters' && (
+        <div className="erp-slide-panel" style={{ ...styles.card, padding: '16px 20px', background: '#f8fafc' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <input
+                type="text"
+                placeholder="🔍 Search faculty name or @username..."
+                value={teacherSearch}
+                onChange={e => setTeacherSearch(e.target.value)}
+                style={{ ...styles.input, width: '240px', padding: '8px 12px' }}
+              />
+              <select value={teacherRoleFilter} onChange={e => setTeacherRoleFilter(e.target.value)} style={styles.filterSelect}>
+                <option value="All">All Roles ({registeredTeachers.length})</option>
+                <option value="ClassTeacher">Class Teachers</option>
+                <option value="Mentor">Mentors</option>
+                <option value="Coordinator">Principals &amp; Coordinators</option>
+                <option value="EventLeader">Event Rehearsal Leaders</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Show Columns:</span>
+              {[
+                { key: 'roles', label: 'Roles & CT' },
+                { key: 'contact', label: 'Phone & Location' },
+                { key: 'subjects', label: 'Subjects Taught' }
+              ].map(col => (
                 <button
-                  key={t.username}
+                  key={col.key}
                   type="button"
-                  onClick={() => toggleSelectTeacherForBroadcast(t.username)}
+                  onClick={() => setVisibleCols(prev => ({ ...prev, [col.key]: !prev[col.key] }))}
                   style={{
-                    padding: '5px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '700', cursor: 'pointer',
-                    background: active ? '#1d4ed8' : '#ffffff',
-                    color: active ? '#ffffff' : '#0f172a',
-                    border: active ? '1.5px solid #1d4ed8' : '1px solid #cbd5e1'
+                    padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer',
+                    background: visibleCols[col.key] ? '#4f46e5' : '#ffffff',
+                    color: visibleCols[col.key] ? '#ffffff' : '#475569',
+                    border: '1px solid #cbd5e1'
                   }}
                 >
-                  {active ? `✓ ${t.fullName}` : t.fullName}
+                  {visibleCols[col.key] ? `✓ ${col.label}` : `+ ${col.label}`}
                 </button>
-              );
-            })}
+              ))}
+            </div>
           </div>
         </div>
+      )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px', marginBottom: '12px' }}>
+      {/* 🌟 MINIMALIST SHUHOOD FACULTY TABLE (Matches Screenshot 1) */}
+      <div style={{ ...styles.card, padding: 0, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
           <input
             type="text"
-            placeholder="Title (e.g. Urgent Faculty Meeting / Mark Entry Notice)"
-            value={broadcastTitle}
-            onChange={(e) => setBroadcastTitle(e.target.value)}
-            style={styles.input}
+            placeholder="🔍 Quick search teacher..."
+            value={teacherSearch}
+            onChange={e => setTeacherSearch(e.target.value)}
+            style={{ ...styles.input, maxWidth: '260px', padding: '7px 12px', fontSize: '13px' }}
           />
-          <input
-            type="text"
-            placeholder="Type your message for Teachers' Portal Banner, Email & WhatsApp..."
-            value={broadcastBody}
-            onChange={(e) => setBroadcastBody(e.target.value)}
-            style={styles.input}
-          />
-        </div>
-
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button
             type="button"
-            onClick={async () => {
-              if (!broadcastBody.trim()) return alert("Please enter a broadcast message.");
-              await setDoc(doc(db, 'systemCache', 'teacherBroadcast'), {
-                title: broadcastTitle.trim() || 'Admin Broadcast Notice',
-                message: broadcastBody.trim(),
-                targetTeachers: selectedTeacherUsernames,
-                active: true,
-                updatedAt: new Date().toISOString()
-              }, { merge: true });
-              alert("✅ Broadcast Banner pinned to Teacher Portals!");
+            disabled={selectedTeacherUsernames.length === 0}
+            onClick={handleBulkDeleteSelectedTeachers}
+            style={{
+              padding: '7px 14px',
+              background: selectedTeacherUsernames.length > 0 ? '#e11d48' : '#fda4af',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '8px',
+              fontWeight: '700',
+              fontSize: '12px',
+              cursor: selectedTeacherUsernames.length > 0 ? 'pointer' : 'not-allowed'
             }}
-            style={{ padding: '10px 16px', background: '#1d4ed8', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}
           >
-            📌 1. Pin Top Banner ({selectedTeacherUsernames.length === 0 ? 'All' : selectedTeacherUsernames.length})
-          </button>
-
-          <button
-            type="button"
-            onClick={async () => {
-              if (!broadcastBody.trim()) return alert("Please type a message first.");
-              const targets = selectedTeacherUsernames.length > 0
-                ? registeredTeachers.filter(t => selectedTeacherUsernames.includes(t.username))
-                : registeredTeachers;
-              const withEmail = targets.filter(t => t.email && t.email.includes('@'));
-              if (withEmail.length === 0) return alert("No email addresses saved for the selected teachers.");
-              for (const t of withEmail) {
-                await sendDirectEmailNotification(
-                  WEB_APP_URL,
-                  t.email,
-                  broadcastTitle || 'DHIU Faculty Broadcast',
-                  `Assalamu Alaikum ${t.fullName},\n\n${broadcastTitle ? broadcastTitle + '\n' : ''}${broadcastBody}`
-                );
-              }
-            }}
-            style={{ padding: '10px 16px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}
-          >
-            ✉️ 2. Email Selected Teachers
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              if (!broadcastBody.trim()) return alert("Please type a message first.");
-              const targets = selectedTeacherUsernames.length > 0
-                ? registeredTeachers.filter(t => selectedTeacherUsernames.includes(t.username))
-                : registeredTeachers;
-              const withPhone = targets.filter(t => t.whatsappNumber || t.mobileNumber);
-              if (withPhone.length === 0) return alert("No WhatsApp numbers saved for the selected teachers.");
-              withPhone.forEach((t, idx) => {
-                const msg = `*DHIU DEGREE SECTION NOTICE*\n*${broadcastTitle || 'Announcement'}*\n\nAssalamu Alaikum ${t.fullName},\n${broadcastBody}`;
-                setTimeout(() => {
-                  openDirectWhatsApp(t.whatsappNumber || t.mobileNumber, msg);
-                }, idx * 600);
-              });
-            }}
-            style={{ padding: '10px 16px', background: '#16a34a', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}
-          >
-            💬 3. WhatsApp Selected Teachers
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              const msg = `*DHIU DEGREE SECTION — STAFF NOTICE*\n*${broadcastTitle || 'Official Announcement'}*\n\n${broadcastBody || 'Assalamu Alaikum,'}`;
-              openWhatsAppGroupAndCopy(staffGroupLink, msg, 'DHIU Staff WhatsApp Group');
-            }}
-            style={{ padding: '10px 16px', background: '#0f766e', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}
-          >
-            👥 4. Open Staff WhatsApp Group &amp; Send
-          </button>
-
-          <button
-            type="button"
-            onClick={async () => {
-              await setDoc(doc(db, 'systemCache', 'teacherBroadcast'), { active: false }, { merge: true });
-              alert("Cleared active broadcast banner from Teacher Portals.");
-            }}
-            style={{ padding: '10px 14px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '12px' }}
-          >
-            ✕ Clear Banner
+            Delete Selected ({selectedTeacherUsernames.length})
           </button>
         </div>
-      </CollapsibleCard>
 
-      {/* 4. TEACHERS DIRECTORY */}
-      <div style={styles.card}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-          <h3 style={{ ...styles.sectionTitle, margin: 0, borderBottom: 'none' }}>🛡️ Users, Faculty &amp; Privileges Directory ({registeredTeachers.length})</h3>
-          {selectedTeacherUsernames.length > 0 && (
-            <button type="button" onClick={() => setSelectedTeacherUsernames([])} style={{ padding: '6px 12px', background: '#f1f5f9', color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>
-              Clear Selection ({selectedTeacherUsernames.length})
-            </button>
-          )}
-        </div>
-        <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '14px' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '880px' }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
             <thead>
-              <tr style={{ background: '#0f172a', color: '#ffffff' }}>
-                <th style={{ padding: '14px', width: '42px', color: '#ffffff' }}>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
+                <th style={{ padding: '14px 16px', width: '40px' }}>
                   <input
                     type="checkbox"
-                    checked={registeredTeachers.length > 0 && selectedTeacherUsernames.length === registeredTeachers.length}
+                    checked={filteredTeachers.length > 0 && selectedTeacherUsernames.length === filteredTeachers.length}
                     onChange={toggleSelectAllTeachers}
-                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                   />
                 </th>
-                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Sn</th>
-                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Teacher &amp; Username</th>
-                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Roles &amp; Class Teacher</th>
-                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Contact &amp; Location</th>
-                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Subjects Taught</th>
-                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff', textAlign: 'right' }}>Actions</th>
+                <th style={{ padding: '14px 16px', width: '60px' }}>#</th>
+                <th style={{ padding: '14px 16px' }}>NAME</th>
+                <th style={{ padding: '14px 16px' }}>SERIAL / USERNAME</th>
+                {visibleCols.roles && <th style={{ padding: '14px 16px' }}>ROLES &amp; CLASS</th>}
+                {visibleCols.contact && <th style={{ padding: '14px 16px' }}>CONTACT</th>}
+                {visibleCols.subjects && <th style={{ padding: '14px 16px' }}>SUBJECTS</th>}
+                <th style={{ padding: '14px 16px' }}>STATUS</th>
+                <th style={{ padding: '14px 16px', textAlign: 'right' }}>ACTIONS</th>
               </tr>
             </thead>
             <tbody>
-              {registeredTeachers.map((teacher, index) => {
+              {filteredTeachers.map((teacher, index) => {
                 const priv = teacher.outpassPrivileges || {};
                 const isSelected = selectedTeacherUsernames.includes(teacher.username);
+                const isExpanded = expandedTeacherUsername === teacher.username;
                 const isLeader = Boolean(teacher.isEventLeader || teacher.roleCategory === 'Event Leader');
 
                 return (
-                  <tr key={index} style={{ borderBottom: '1px solid #e2e8f0', background: isSelected ? '#eff6ff' : index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                    <td style={{ padding: '12px 14px' }}>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleSelectTeacherForBroadcast(teacher.username)}
-                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                      />
-                    </td>
-                    <td style={{ padding: '12px 14px', fontWeight: '700', color: '#64748b' }}>{index + 1}</td>
-                    <td style={{ padding: '12px 14px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <ProfileAvatar name={teacher.fullName} code={teacher.username} photoUrl={teacher.photoUrl} size={38} />
-                        <div>
-                          <div style={{ fontWeight: '800', color: '#0f172a' }}>{teacher.fullName}</div>
-                          <div style={{ fontSize: '12px', color: '#64748b' }}>@{teacher.username} • {teacher.designation || 'Faculty'}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ padding: '12px 14px' }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                        {isLeader && <span style={{ ...styles.badge, background: '#ede9fe', color: '#6d28d9' }}>🎭 Event Leader</span>}
-                        {priv.isPrincipal && <span style={{ ...styles.badge, background: '#fef08a', color: '#854d0e' }}>👑 Principal</span>}
-                        {priv.isNiicsCoordinator && <span style={{ ...styles.badge, background: '#fef3c7', color: '#92400e' }}>🎓 NIICS</span>}
-                        {(!isLeader && priv.isMentor !== false) && <span style={{ ...styles.badge, background: '#f0fdfa', color: '#0f766e' }}>🧭 Mentor</span>}
-                        {(priv.classTeacherOf || []).length > 0 && (
-                          <span style={{ ...styles.badge, background: '#dcfce7', color: '#166534' }}>🏫 CT: {priv.classTeacherOf.join(', ')}</span>
-                        )}
-                        {priv.isOutreachCoordinator && <span style={{ ...styles.badge, background: '#ffedd5', color: '#c2410c' }}>🌍 Outreach</span>}
-                        {priv.isAcademicCoordinator && <span style={{ ...styles.badge, background: '#dbeafe', color: '#1e40af' }}>📊 Academic</span>}
-                        {priv.isOfficeSecretary && <span style={{ ...styles.badge, background: '#f3e8ff', color: '#6d28d9' }}>🏢 Secretary</span>}
-                      </div>
-                    </td>
-                    <td style={{ padding: '12px 14px', fontSize: '12px', color: '#334155' }}>
-                      <div>📱 {teacher.whatsappNumber || teacher.mobileNumber || '—'}</div>
-                      <div>📍 {teacher.district || 'Malappuram'}, {teacher.state || 'Kerala'}</div>
-                    </td>
-                    <td style={{ padding: '12px 14px' }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                        {(teacher.enrollments || []).map((env, i) => (
-                          <span
-                            key={i}
-                            style={{
-                              display: 'inline-block',
-                              background: env.isAttendanceOnly ? '#fffbeb' : '#f1f5f9',
-                              color: env.isAttendanceOnly ? '#b45309' : '#0f172a',
-                              padding: '4px 8px',
-                              borderRadius: '6px',
-                              fontSize: '12px',
-                              fontWeight: '800',
-                              border: env.isAttendanceOnly ? '1px solid #fcd34d' : '1px solid #cbd5e1'
-                            }}
+                  <React.Fragment key={teacher.username}>
+                    <tr
+                      onClick={() => setExpandedTeacherUsername(isExpanded ? null : teacher.username)}
+                      style={{ borderBottom: '1px solid #f1f5f9', background: isSelected || isExpanded ? '#f8fafc' : '#ffffff', cursor: 'pointer' }}
+                    >
+                      <td style={{ padding: '14px 16px' }} onClick={e => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectTeacherForBroadcast(teacher.username)}
+                        />
+                      </td>
+                      <td style={{ padding: '14px 16px', color: '#64748b', fontWeight: '600' }}>{index + 1}</td>
+                      <td style={{ padding: '14px 16px', fontWeight: '700', color: '#0f172a', textTransform: 'uppercase' }}>
+                        {teacher.fullName}
+                      </td>
+                      <td style={{ padding: '14px 16px', color: '#475569', fontWeight: '600' }}>
+                        T{String(index + 1).padStart(2, '0')} <span style={{ color: '#94a3b8', fontSize: '12px' }}>(@{teacher.username})</span>
+                      </td>
+
+                      {visibleCols.roles && (
+                        <td style={{ padding: '14px 16px', fontSize: '12px', color: '#334155' }}>
+                          {teacher.roleCategory || 'Teacher'}
+                        </td>
+                      )}
+                      {visibleCols.contact && (
+                        <td style={{ padding: '14px 16px', fontSize: '12px', color: '#334155' }}>
+                          {teacher.whatsappNumber || teacher.mobileNumber || '—'}
+                        </td>
+                      )}
+                      {visibleCols.subjects && (
+                        <td style={{ padding: '14px 16px', fontSize: '12px', color: '#334155' }}>
+                          {(teacher.enrollments || []).map(e => e.alias || e.subject).join(', ') || '—'}
+                        </td>
+                      )}
+
+                      <td style={{ padding: '14px 16px' }}>
+                        <span style={{ background: '#dcfce7', color: '#15803d', padding: '4px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '700' }}>
+                          Active
+                        </span>
+                      </td>
+
+                      <td style={{ padding: '14px 16px', textAlign: 'right' }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleEditClick(teacher)}
+                            style={{ padding: '6px 12px', background: '#eef2ff', color: '#4f46e5', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
                           >
-                            {env.alias || env.subject} {env.isAttendanceOnly ? '[Att-Only]' : ''} ({(env.studentIds || []).length})
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                        <button onClick={() => setPrivilegeModalTeacher(teacher)} style={{ padding: '7px 12px', background: '#00897b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>
-                          🔑 Roles &amp; Leaves
-                        </button>
-                        <button onClick={() => openDirectWhatsApp(teacher.whatsappNumber || teacher.mobileNumber, `Assalamu Alaikum ${teacher.fullName}, message from DHIU Admin:`)} style={{ padding: '7px 10px', background: '#dcfce7', color: '#166534', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>
-                          💬 WA
-                        </button>
-                        <button onClick={() => sendDirectEmailNotification(WEB_APP_URL, teacher.email, 'DHIU Admin Message', `Assalamu Alaikum ${teacher.fullName},`)} style={{ padding: '7px 10px', background: '#e0f2fe', color: '#0369a1', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>
-                          ✉️ Mail
-                        </button>
-                        {onOpenProxyMarks && !isLeader && (
-                          <button onClick={() => onOpenProxyMarks(teacher.username)} style={{ padding: '7px 12px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '12px' }}>
-                            📝 Marks
+                            ✏️ Edit / Password
                           </button>
-                        )}
-                        <button onClick={() => handleEditClick(teacher)} style={{ padding: '7px 12px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '12px' }}>Edit</button>
-                        <button onClick={() => handleDeleteClick(teacher.username)} style={{ padding: '7px 12px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '12px' }}>Delete</button>
-                      </div>
-                    </td>
-                  </tr>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedTeacherUsername(isExpanded ? null : teacher.username)}
+                            style={{ padding: '6px 12px', background: '#f1f5f9', color: '#334155', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
+                          >
+                            👁️ {isExpanded ? 'Hide' : 'View'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteClick(teacher.username)}
+                            style={{ padding: '6px 10px', background: 'transparent', color: '#e11d48', border: 'none', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
+                          >
+                            🗑️ Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {/* 🌟 EXPANDABLE TEACHER DETAILS ROW (Shown only when "View" or Row is clicked!) */}
+                    {isExpanded && (
+                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                        <td colSpan={9} style={{ padding: '18px 24px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '18px' }}>
+                            <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
+                              <ProfileAvatar name={teacher.fullName} code={teacher.username} photoUrl={teacher.photoUrl} size={48} />
+                              <div>
+                                <div style={{ fontWeight: '800', fontSize: '15px', color: '#0f172a' }}>{teacher.fullName} (@{teacher.username})</div>
+                                <div style={{ fontSize: '12px', color: '#475569', marginTop: '3px' }}>
+                                  📱 {teacher.whatsappNumber || teacher.mobileNumber || 'No phone'} • ✉️ {teacher.email || 'No email'} • 📍 {teacher.district || 'Malappuram'}, {teacher.state || 'Kerala'}
+                                </div>
+                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>
+                                  {(priv.classTeacherOf || []).length > 0 && (
+                                    <span style={{ ...styles.badge, background: '#dcfce7', color: '#166534' }}>Class Teacher: {priv.classTeacherOf.join(', ')}</span>
+                                  )}
+                                  {priv.isPrincipal && <span style={{ ...styles.badge, background: '#fef3c7', color: '#92400e' }}>Principal</span>}
+                                  {priv.isNiicsCoordinator && <span style={{ ...styles.badge, background: '#fef3c7', color: '#92400e' }}>NIICS Coordinator</span>}
+                                  {priv.isOutreachCoordinator && <span style={{ ...styles.badge, background: '#e0f2fe', color: '#0369a1' }}>Outreach Coordinator</span>}
+                                  {priv.isAcademicCoordinator && <span style={{ ...styles.badge, background: '#eef2ff', color: '#4f46e5' }}>Academic Coordinator</span>}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ flex: 1, minWidth: '240px' }}>
+                              <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
+                                Assigned Subjects ({(teacher.enrollments || []).length})
+                              </div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                {(teacher.enrollments || []).map((env, i) => (
+                                  <span key={i} style={{ background: '#ffffff', border: '1px solid #cbd5e1', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', color: '#334155' }}>
+                                    {env.alias || env.subject} {env.isAttendanceOnly ? '(Att-Only)' : ''}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              <button type="button" onClick={() => setPrivilegeModalTeacher(teacher)} style={styles.buttonPrimary}>
+                                🔑 Configure Roles &amp; Leaves
+                              </button>
+                              {onOpenProxyMarks && !isLeader && (
+                                <button type="button" onClick={() => onOpenProxyMarks(teacher.username)} style={styles.buttonSecondary}>
+                                  📝 Open Proxy Marks
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => openDirectWhatsApp(teacher.whatsappNumber || teacher.mobileNumber, `Assalamu Alaikum ${teacher.fullName},`)}
+                                style={styles.buttonSecondary}
+                              >
+                                💬 WhatsApp
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </tbody>

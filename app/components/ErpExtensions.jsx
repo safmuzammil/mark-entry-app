@@ -23,7 +23,7 @@ export const KERALA_DISTRICTS = [
 ];
 
 // ============================================================================
-// 🎨 1. HIGH-CONTRAST CSS & SMOOTH SLIDING ANIMATIONS (Fixes Mobile Text Visibility!)
+// 🎨 1. HIGH-CONTRAST CSS & SMOOTH SLIDING ANIMATIONS
 // ============================================================================
 export function HighContrastStyles() {
   return (
@@ -31,45 +31,45 @@ export function HighContrastStyles() {
       input, select, textarea {
         color: #0f172a !important;
         background-color: #ffffff !important;
-        border: 1.5px solid #94a3b8 !important;
+        border: 1px solid #cbd5e1 !important;
         color-scheme: light !important;
-        font-weight: 600 !important;
-      }
-      input::placeholder, textarea::placeholder {
-        color: #64748b !important;
-        opacity: 1 !important;
         font-weight: 500 !important;
       }
+      input::placeholder, textarea::placeholder {
+        color: #94a3b8 !important;
+        opacity: 1 !important;
+        font-weight: 400 !important;
+      }
       input:disabled, select:disabled {
-        background-color: #f1f5f9 !important;
-        color: #475569 !important;
-        border-color: #cbd5e1 !important;
+        background-color: #f8fafc !important;
+        color: #64748b !important;
+        border-color: #e2e8f0 !important;
       }
       input:focus, select:focus, textarea:focus {
-        outline: 2px solid #00897b !important;
-        border-color: #00897b !important;
+        outline: 2px solid #4f46e5 !important;
+        border-color: #4f46e5 !important;
       }
       table th {
-        color: #0f172a;
+        color: #475569;
         font-weight: 800;
       }
       table td {
         color: #1e293b;
-        font-weight: 600;
+        font-weight: 500;
       }
       @keyframes erpSlideDown {
-        from { opacity: 0; transform: translateY(-6px); }
+        from { opacity: 0; transform: translateY(-4px); }
         to { opacity: 1; transform: translateY(0); }
       }
       .erp-slide-panel {
-        animation: erpSlideDown 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        animation: erpSlideDown 0.18s ease-out forwards;
       }
       .erp-card-hover {
         transition: transform 0.18s ease, box-shadow 0.18s ease;
       }
       .erp-card-hover:hover {
         transform: translateY(-3px);
-        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.14) !important;
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12) !important;
       }
       .erp-pill-readable {
         color: #0f172a !important;
@@ -80,14 +80,14 @@ export function HighContrastStyles() {
 }
 
 // ============================================================================
-// 🪗 1B. REUSABLE SMOOTH SLIDING ACCORDION DRAWER (For Clean, Neat Tabs)
+// 🪗 1B. REUSABLE MINIMALIST COLLAPSIBLE DRAWER
 // ============================================================================
 export function CollapsibleCard({
   title,
   subtitle,
   badgeText,
   defaultOpen = false,
-  accentColor = '#0f766e',
+  accentColor = '#4f46e5',
   icon = '✨',
   children
 }) {
@@ -97,18 +97,18 @@ export function CollapsibleCard({
     <div
       style={{
         background: '#ffffff',
-        borderRadius: '16px',
-        border: isOpen ? `2px solid ${accentColor}` : '1px solid #cbd5e1',
-        boxShadow: isOpen ? '0 8px 24px rgba(15, 23, 42, 0.06)' : '0 2px 8px rgba(15, 23, 42, 0.02)',
+        borderRadius: '14px',
+        border: isOpen ? `1.5px solid ${accentColor}` : '1px solid #e2e8f0',
+        boxShadow: '0 1px 3px rgba(15, 23, 42, 0.03)',
         marginBottom: '16px',
         overflow: 'hidden',
-        transition: 'all 0.22s ease'
+        transition: 'all 0.2s ease'
       }}
     >
       <div
         onClick={() => setIsOpen(prev => !prev)}
         style={{
-          padding: '16px 20px',
+          padding: '14px 20px',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -122,32 +122,31 @@ export function CollapsibleCard({
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
           <span
             style={{
-              width: '38px',
-              height: '38px',
-              borderRadius: '10px',
+              width: '34px',
+              height: '34px',
+              borderRadius: '8px',
               background: isOpen ? accentColor : '#f1f5f9',
               color: isOpen ? '#ffffff' : '#0f172a',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '18px',
-              flexShrink: 0,
-              transition: 'all 0.2s ease'
+              fontSize: '16px',
+              flexShrink: 0
             }}
           >
             {icon}
           </span>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>{title}</h3>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>{title}</h3>
               {badgeText && (
-                <span style={{ background: '#f0fdfa', color: accentColor, border: `1px solid ${accentColor}`, padding: '2px 9px', borderRadius: '999px', fontSize: '11px', fontWeight: '800' }}>
+                <span style={{ background: '#eef2ff', color: accentColor, padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '700' }}>
                   {badgeText}
                 </span>
               )}
             </div>
             {subtitle && (
-              <p style={{ margin: '3px 0 0 0', fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
+              <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#64748b', fontWeight: '500' }}>
                 {subtitle}
               </p>
             )}
@@ -156,14 +155,14 @@ export function CollapsibleCard({
 
         <span
           style={{
-            padding: '7px 14px',
-            borderRadius: '999px',
-            background: isOpen ? accentColor : '#f1f5f9',
-            color: isOpen ? '#ffffff' : '#0f172a',
-            fontWeight: '900',
+            padding: '6px 12px',
+            borderRadius: '8px',
+            background: isOpen ? accentColor : '#f8fafc',
+            color: isOpen ? '#ffffff' : '#475569',
+            border: isOpen ? 'none' : '1px solid #e2e8f0',
+            fontWeight: '700',
             fontSize: '12px',
-            whiteSpace: 'nowrap',
-            transition: 'all 0.2s ease'
+            whiteSpace: 'nowrap'
           }}
         >
           {isOpen ? '▲ Hide' : '▼ Open'}
@@ -403,17 +402,16 @@ export function ProfileAvatar({ name, code, photoUrl, size = 40, onClick }) {
         height: size,
         minWidth: size,
         borderRadius: '50%',
-        background: 'linear-gradient(135deg, #00897b 0%, #0f766e 100%)',
+        background: '#4f46e5',
         color: '#ffffff',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontWeight: '800',
+        fontWeight: '700',
         fontSize: Math.round(size * 0.42),
         overflow: 'hidden',
-        border: '2px solid #99f6e4',
-        cursor: onClick ? 'pointer' : 'default',
-        boxShadow: '0 2px 5px rgba(0,0,0,0.1)'
+        border: '1.5px solid #e0e7ff',
+        cursor: onClick ? 'pointer' : 'default'
       }}
     >
       {srcToTry && step < 2 ? (
@@ -535,57 +533,47 @@ export function SubjectTeacherSelector({
   };
 
   return (
-    <div style={{ background: '#f0fdfa', padding: '20px', borderRadius: '14px', border: '2px solid #0d9488', marginTop: '12px' }}>
+    <div style={{ background: '#ffffff', padding: '18px', borderRadius: '12px', border: '1px solid #e2e8f0', marginTop: '12px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
         <div>
-          <h4 style={{ margin: 0, fontSize: '16px', color: '#0f172a', fontWeight: '900' }}>
+          <h4 style={{ margin: 0, fontSize: '15px', color: '#0f172a', fontWeight: '800' }}>
             📚 Assign Subject Teachers (Batch: Grade {targetGrade} • {selectedClasses.join(', ') || 'Select a Class above'})
           </h4>
-          <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#334155', fontWeight: '600' }}>
+          <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#475569', fontWeight: '500' }}>
             Select <strong>one teacher per subject</strong> below.
             {designatedClassTeacher && (
-              <span style={{ marginLeft: '8px', color: '#0f766e', fontWeight: '800' }}>
+              <span style={{ marginLeft: '8px', color: '#4f46e5', fontWeight: '700' }}>
                 • 🏫 Class Teacher &amp; Hifz: {designatedClassTeacher.fullName} (Auto-Assigned)
               </span>
             )}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            type="button"
-            onClick={handleAutoSelectBestSingleTeacherPerSubject}
-            style={{ padding: '8px 14px', background: '#00897b', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
-          >
+          <button type="button" onClick={handleAutoSelectBestSingleTeacherPerSubject} style={styles.buttonPrimary}>
             ✓ Auto-Select 1 Teacher Per Subject
           </button>
-          <button
-            type="button"
-            onClick={() => onChangeSelectedKeys([])}
-            style={{ padding: '8px 12px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
-          >
+          <button type="button" onClick={() => onChangeSelectedKeys([])} style={styles.buttonSecondary}>
             Clear All
           </button>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '10px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(235px, 1fr))', gap: '10px' }}>
         {subjectMappings.map((item) => (
-          <div key={item.subject} style={{ background: '#ffffff', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
-            <div style={{ fontWeight: '800', fontSize: '13px', color: '#0f172a', marginBottom: '6px', borderBottom: '1px solid #f1f5f9', paddingBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
+          <div key={item.subject} style={{ background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+            <div style={{ fontWeight: '800', fontSize: '12px', color: '#0f172a', marginBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
               <span>📖 {item.subject}</span>
               {item.isHifz && designatedClassTeacher && (
-                <span style={{ fontSize: '11px', color: '#059669' }}>🏫 Auto via Class Teacher</span>
+                <span style={{ fontSize: '10px', color: '#047857' }}>🏫 Auto CT</span>
               )}
             </div>
 
             {item.options.length === 0 ? (
-              <div style={{ fontSize: '12px', color: item.isHifz && designatedClassTeacher ? '#0f766e' : '#94a3b8', fontWeight: '700' }}>
-                {item.isHifz && designatedClassTeacher
-                  ? `👨‍🏫 ${designatedClassTeacher.fullName} (Class Teacher)`
-                  : `No teacher assigned for Grade ${targetGrade}`}
+              <div style={{ fontSize: '11px', color: '#64748b' }}>
+                {item.isHifz && designatedClassTeacher ? `👨‍🏫 ${designatedClassTeacher.fullName} (Class Teacher)` : `No teacher assigned for Grade ${targetGrade}`}
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                 {item.options.map(opt => {
                   const isChecked = selectedEnrollmentKeys.includes(opt.key);
                   return (
@@ -597,28 +585,20 @@ export function SubjectTeacherSelector({
                       }}
                       style={{
                         display: 'flex',
-                        alignItems: 'flex-start',
+                        alignItems: 'center',
                         gap: '8px',
                         cursor: 'pointer',
                         fontSize: '12px',
-                        padding: '7px 8px',
-                        borderRadius: '8px',
-                        background: isChecked ? '#ecfdf5' : '#f8fafc',
-                        border: isChecked ? '2px solid #059669' : '1px solid #e2e8f0'
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        background: isChecked ? '#eef2ff' : '#ffffff',
+                        border: isChecked ? '1.5px solid #4f46e5' : '1px solid #e2e8f0'
                       }}
                     >
-                      <input
-                        type="radio"
-                        name={`subject_radio_${item.subject}`}
-                        checked={isChecked}
-                        readOnly
-                        style={{ marginTop: '2px', width: '15px', height: '15px', accentColor: '#00897b' }}
-                      />
+                      <input type="radio" name={`subject_radio_${item.subject}`} checked={isChecked} readOnly style={{ accentColor: '#4f46e5' }} />
                       <div>
-                        <div style={{ fontWeight: '800', color: '#0f172a' }}>👨‍🏫 {opt.teacherName}</div>
-                        <div style={{ color: '#0f766e', fontSize: '11px', fontWeight: '700' }}>
-                          {opt.alias} ({opt.langTag})
-                        </div>
+                        <div style={{ fontWeight: '700', color: '#0f172a' }}>👨‍🏫 {opt.teacherName}</div>
+                        <div style={{ color: '#64748b', fontSize: '10px' }}>{opt.alias} ({opt.langTag})</div>
                       </div>
                     </label>
                   );
@@ -667,6 +647,9 @@ export async function syncStudentToSelectedTeacherEnrollments(studentRegNo, sele
   if (updates.length > 0) await Promise.all(updates);
 }
 
+// ============================================================================
+// 🔑 7. TEACHER PRIVILEGE MODAL (Includes Weekend Leave Authority!)
+// ============================================================================
 export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
   const [priv, setPriv] = useState({
     isPrincipal: false,
@@ -699,16 +682,12 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
       };
 
       let rawEnrollments = Array.isArray(teacher.enrollments) ? [...teacher.enrollments] : [];
-
       const seenHifzClasses = new Set();
       let updatedEnrollments = rawEnrollments.filter(e => {
         const isSubHifz = String(e.subject || '').toUpperCase() === 'HIFZ' || String(e.alias || '').toUpperCase().includes('HIFZ');
         if (!isSubHifz) return true;
-
         const normKey = normalizeCls(e.targetClass || e.alias).replace('HIFZ', '');
-        if (normKey && seenHifzClasses.has(normKey)) {
-          return false;
-        }
+        if (normKey && seenHifzClasses.has(normKey)) return false;
         if (normKey) seenHifzClasses.add(normKey);
         return true;
       });
@@ -717,14 +696,10 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
         const normCls = normalizeCls(clsName);
         const gradeMatch = String(clsName).match(/\d+/);
         const gradeNum = gradeMatch ? gradeMatch[0] : '1';
-
         const hasHifzForClass = updatedEnrollments.some(e => {
           const isSubHifz = String(e.subject || '').toUpperCase() === 'HIFZ' || String(e.alias || '').toUpperCase().includes('HIFZ');
-          const normTarget = normalizeCls(e.targetClass);
-          const normAlias = normalizeCls(e.alias);
-          return isSubHifz && (normTarget === normCls || normAlias.includes(normCls));
+          return isSubHifz && (normalizeCls(e.targetClass) === normCls || normalizeCls(e.alias).includes(normCls));
         });
-
         if (!hasHifzForClass) {
           updatedEnrollments.push({
             id: `hifz_${normCls}`,
@@ -771,51 +746,51 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '16px' }}>
-      <div style={{ background: '#ffffff', borderRadius: '18px', maxWidth: '680px', width: '100%', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 48px rgba(0,0,0,0.35)', color: '#0f172a' }}>
-        <div style={{ background: '#0f172a', color: '#ffffff', padding: '18px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '16px' }}>
+      <div style={{ background: '#ffffff', borderRadius: '16px', maxWidth: '660px', width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 40px rgba(15,23,42,0.2)', border: '1px solid #e2e8f0', color: '#0f172a' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: '11px', color: '#38bdf8', fontWeight: '800', textTransform: 'uppercase' }}>ROLE-BASED ACCESS &amp; LEAVE AUTHORITY MATRIX</div>
-            <h3 style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: '800', color: '#ffffff' }}>
+            <div style={{ fontSize: '11px', color: '#4f46e5', fontWeight: '800', textTransform: 'uppercase' }}>ROLE-BASED ACCESS &amp; LEAVE AUTHORITY</div>
+            <h3 style={{ margin: '2px 0 0', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
               🔑 Configure Roles &amp; Privileges: {teacher.fullName} (@{teacher.username})
             </h3>
           </div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', fontWeight: '800' }}>✕</button>
+          <button onClick={onClose} style={styles.buttonSecondary}>✕</button>
         </div>
 
         <div style={{ padding: '22px 24px' }}>
-          <div style={{ fontSize: '13px', fontWeight: '900', color: '#0f172a', marginBottom: '10px', textTransform: 'uppercase' }}>
+          <div style={{ fontSize: '12px', fontWeight: '800', color: '#475569', marginBottom: '10px', textTransform: 'uppercase' }}>
             1. Assign Institutional Roles (Multi-Select)
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '10px', marginBottom: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px', marginBottom: '18px' }}>
             {[
-              { key: 'isMentor', title: '🧭 Academic Mentor', desc: 'Can be assigned mentees, log mentor consultations & update mentee profile details', bg: '#f0fdfa', border: '#14b8a6' },
-              { key: 'isPrincipal', title: '👑 Principal Authority', desc: 'Universal approval for all leaves, Principal-locked students & Weekend leaves', bg: '#fef9c3', border: '#facc15' },
-              { key: 'isNiicsCoordinator', title: '🎓 NIICS Coordinator (Urdu Principal)', desc: 'Acts as Principal for all Urdu students (Ad.No starting with U) across all leaves & portfolios', bg: '#fef3c7', border: '#f59e0b' },
-              { key: 'isAcademicCoordinator', title: '📊 Academic Coordinator', desc: 'Unlocks Admin Mark Entry, Inspector & Academic Evaluation tabs inside Teacher Portal', bg: '#eff6ff', border: '#60a5fa' },
-              { key: 'isOutreachCoordinator', title: '🌍 Outreach Coordinator', desc: 'Unlocks Outreach Mentor-Mentee dialogues tab, Bulk Mentor Assignment & Outreach Leave approval', bg: '#f0fdf4', border: '#4ade80' },
-              { key: 'isOfficeSecretary', title: '🏢 Office Secretary', desc: 'Unlocks full Out-Pass Management, Live Campus Dashboard & Request Tracking', bg: '#faf5ff', border: '#c084fc' }
+              { key: 'isMentor', title: '🧭 Academic Mentor', desc: 'Can be assigned mentees, log consultations & update mentee profiles' },
+              { key: 'isPrincipal', title: '👑 Principal Authority', desc: 'Universal approval for all leaves, Principal-locked students & Weekend leaves' },
+              { key: 'isNiicsCoordinator', title: '🎓 NIICS Coordinator (Urdu Principal)', desc: 'Acts as Principal for all Urdu students (Ad.No starting with U)' },
+              { key: 'isAcademicCoordinator', title: '📊 Academic Coordinator', desc: 'Unlocks Admin Mark Entry, Inspector & Academic Evaluation tabs' },
+              { key: 'isOutreachCoordinator', title: '🌍 Outreach Coordinator', desc: 'Unlocks Outreach Mentor-Mentee dialogues & Bulk Mentor Assignment' },
+              { key: 'isOfficeSecretary', title: '🏢 Office Secretary', desc: 'Unlocks full Out-Pass Management & Live Campus Dashboard' }
             ].map(role => (
-              <label key={role.key} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px', borderRadius: '10px', background: priv[role.key] ? role.bg : '#f8fafc', border: `2px solid ${priv[role.key] ? role.border : '#cbd5e1'}`, cursor: 'pointer' }}>
+              <label key={role.key} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px', borderRadius: '10px', background: priv[role.key] ? '#eef2ff' : '#f8fafc', border: `1.5px solid ${priv[role.key] ? '#4f46e5' : '#e2e8f0'}`, cursor: 'pointer' }}>
                 <input
                   type="checkbox"
                   checked={Boolean(priv[role.key])}
                   onChange={(e) => setPriv({ ...priv, [role.key]: e.target.checked })}
-                  style={{ width: '18px', height: '18px', marginTop: '2px', accentColor: '#00897b' }}
+                  style={{ marginTop: '2px', accentColor: '#4f46e5' }}
                 />
                 <div>
-                  <div style={{ fontWeight: '800', fontSize: '14px', color: '#0f172a' }}>{role.title}</div>
-                  <div style={{ fontSize: '12px', color: '#334155', fontWeight: '600', marginTop: '2px' }}>{role.desc}</div>
+                  <div style={{ fontWeight: '700', fontSize: '13px', color: '#0f172a' }}>{role.title}</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{role.desc}</div>
                 </div>
               </label>
             ))}
           </div>
 
-          <div style={{ marginBottom: '20px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1.5px solid #cbd5e1' }}>
-            <div style={{ fontSize: '13px', fontWeight: '900', color: '#0f172a', marginBottom: '4px' }}>
+          <div style={{ marginBottom: '18px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <div style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>
               2. 🏫 Designated Class Teacher Of (Auto-Assigns Class Students &amp; Hifz Mark Entry):
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '8px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
               {DEFAULT_CLASSES.map(cls => {
                 const active = (priv.classTeacherOf || []).includes(cls);
                 return (
@@ -828,10 +803,10 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
                       setPriv({ ...priv, classTeacherOf: next });
                     }}
                     style={{
-                      padding: '8px 16px', borderRadius: '8px', fontWeight: '800', fontSize: '13px', cursor: 'pointer',
-                      border: active ? '2px solid #00897b' : '1.5px solid #94a3b8',
-                      background: active ? '#00897b' : '#ffffff',
-                      color: active ? '#ffffff' : '#0f172a'
+                      padding: '6px 14px', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer',
+                      border: active ? '1.5px solid #4f46e5' : '1px solid #cbd5e1',
+                      background: active ? '#4f46e5' : '#ffffff',
+                      color: active ? '#ffffff' : '#334155'
                     }}
                   >
                     {active ? `✓ Class ${cls} (+Hifz)` : cls}
@@ -841,8 +816,8 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
             </div>
           </div>
 
-          <div style={{ border: '1.5px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden' }}>
-            <div style={{ background: '#00897b', color: '#ffffff', padding: '10px 16px', fontWeight: '800', fontSize: '13px' }}>
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
+            <div style={{ background: '#f8fafc', padding: '10px 16px', fontWeight: '800', fontSize: '12px', color: '#475569', borderBottom: '1px solid #e2e8f0' }}>
               3. Out-Pass Leave Category Permissions
             </div>
             {[
@@ -853,7 +828,7 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
             ].map(row => {
               const allowed = (priv.allowedCategories || []).includes(row.id);
               return (
-                <label key={row.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #e2e8f0', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: '#0f172a', cursor: 'pointer', background: '#ffffff' }}>
+                <label key={row.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid #f1f5f9', alignItems: 'center', fontSize: '13px', fontWeight: '600', color: '#0f172a', cursor: 'pointer' }}>
                   <span>{row.label}</span>
                   <input
                     type="checkbox"
@@ -863,26 +838,25 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
                       const next = e.target.checked ? [...cur, row.id] : cur.filter(x => x !== row.id);
                       setPriv({ ...priv, allowedCategories: next });
                     }}
-                    style={{ width: '18px', height: '18px', accentColor: '#00897b' }}
                   />
                 </label>
               );
             })}
 
-            <label style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #e2e8f0', alignItems: 'center', fontSize: '13px', fontWeight: '800', color: '#0f172a', background: '#f0fdfa', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: '#4f46e5', background: '#eef2ff', cursor: 'pointer' }}>
               <span>🗓️ Weekend Leave Authority (Thu Eve ➔ Fri Eve / Sat)</span>
               <input
                 type="checkbox"
                 checked={Boolean(priv.canApproveWeekend || priv.isPrincipal)}
                 onChange={(e) => setPriv({ ...priv, canApproveWeekend: e.target.checked })}
-                style={{ width: '18px', height: '18px', accentColor: '#00897b' }}
+                style={{ width: '16px', height: '16px', accentColor: '#4f46e5' }}
               />
             </label>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
-            <button type="button" onClick={onClose} style={{ padding: '10px 18px', background: '#e2e8f0', color: '#0f172a', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer' }}>Cancel</button>
-            <button type="button" onClick={handleSave} disabled={saving} style={{ padding: '10px 22px', background: '#00897b', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer' }}>
+            <button type="button" onClick={onClose} style={styles.buttonSecondary}>Cancel</button>
+            <button type="button" onClick={handleSave} disabled={saving} style={styles.buttonPrimary}>
               {saving ? 'Saving...' : '💾 Save Roles & Privileges'}
             </button>
           </div>
@@ -892,6 +866,9 @@ export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
   );
 }
 
+// ============================================================================
+// 🏆 8. STUDENT PORTFOLIO & CONSULTANCY MODAL (100% Full Features Restored!)
+// ============================================================================
 export function StudentPortfolioModal({
   student,
   canEditSkills = true,
@@ -923,7 +900,7 @@ export function StudentPortfolioModal({
   const [achievements, setAchievements] = useState(Array.isArray(student?.achievements) ? student.achievements : []);
   const [achTitle, setAchTitle] = useState('');
   const [achCategory, setAchCategory] = useState('Academic');
-  const [achLevel, setAchLevel] = useState('Campus / Sibaq');
+  const [achLevel, setAchLevel] = useState('Campus / Class Level');
   const [achDate, setAchDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [achNotes, setAchNotes] = useState('');
 
@@ -1097,33 +1074,33 @@ export function StudentPortfolioModal({
   const targetMet = sittingsCount >= Number(semesterTarget || 1);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2200, padding: '14px' }}>
-      <div style={{ background: '#ffffff', borderRadius: '18px', maxWidth: '880px', width: '100%', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.35)', color: '#0f172a' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2200, padding: '14px' }}>
+      <div style={{ background: '#ffffff', borderRadius: '16px', maxWidth: '860px', width: '100%', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 48px rgba(15,23,42,0.2)', border: '1px solid #e2e8f0', color: '#0f172a' }}>
 
-        <div style={{ background: '#0f172a', color: '#ffffff', padding: '18px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', position: 'sticky', top: 0, zIndex: 10 }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', position: 'sticky', top: 0, background: '#ffffff', zIndex: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <ProfileAvatar name={formData.firstName} code={student.adNo} photoUrl={formData.photoUrl} size={52} />
+            <ProfileAvatar name={formData.firstName} code={student.adNo} photoUrl={formData.photoUrl} size={48} />
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '900', color: '#ffffff' }}>{formData.firstName}</h3>
-                <span style={{ background: '#00897b', color: '#fff', padding: '3px 9px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
+                <h3 style={{ margin: 0, fontSize: '19px', fontWeight: '800', color: '#0f172a' }}>{formData.firstName}</h3>
+                <span style={{ background: '#eef2ff', color: '#4f46e5', padding: '3px 9px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' }}>
                   Ad.No #{student.adNo}
                 </span>
-                <span style={{ background: targetMet ? '#16a34a' : '#ea580c', color: '#fff', padding: '3px 9px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
+                <span style={{ background: targetMet ? '#dcfce7' : '#fef3c7', color: targetMet ? '#15803d' : '#92400e', padding: '3px 9px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' }}>
                   🗣️ Sittings: {sittingsCount} / {semesterTarget} {targetMet ? '✅' : '⏳'}
                 </span>
               </div>
-              <div style={{ fontSize: '12px', color: '#cbd5e1', marginTop: '4px', fontWeight: '600' }}>
+              <div style={{ fontSize: '12px', color: '#64748b', marginTop: '3px', fontWeight: '500' }}>
                 Reg: {student.regNo} • Class {(student.classes || []).join(', ')} ({student.department || 'GENERAL'}) • Mentor: {student.mentorName || student.mentorUsername || 'Unassigned'}
               </div>
             </div>
           </div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.15)', color: '#ffffff', border: 'none', borderRadius: '8px', width: '36px', height: '36px', fontWeight: '900', cursor: 'pointer', fontSize: '16px' }}>✕</button>
+          <button onClick={onClose} style={styles.buttonSecondary}>✕ Close</button>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', background: '#f1f5f9', padding: '10px 20px', borderBottom: '1px solid #cbd5e1', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '8px', background: '#f8fafc', padding: '10px 24px', borderBottom: '1px solid #e2e8f0', flexWrap: 'wrap' }}>
           {[
-            { id: 'log', label: `📝 Mentor-Mentee Consultancy Log (${mentorLogs.length})` },
+            { id: 'log', label: `📝 Consultancy Log (${mentorLogs.length})` },
             { id: 'skills', label: `🏆 Skills (${skills.length}) & Achievements (${achievements.length})` },
             { id: 'profile', label: '📱 Contact & Personal Profile' }
           ].map(tab => (
@@ -1132,14 +1109,14 @@ export function StudentPortfolioModal({
               type="button"
               onClick={() => setActiveModalTab(tab.id)}
               style={{
-                padding: '10px 16px',
+                padding: '9px 16px',
                 borderRadius: '8px',
-                border: 'none',
-                fontWeight: '800',
+                border: activeModalTab === tab.id ? '1px solid #4f46e5' : '1px solid transparent',
+                fontWeight: '700',
                 fontSize: '13px',
                 cursor: 'pointer',
-                background: activeModalTab === tab.id ? '#0f766e' : '#ffffff',
-                color: activeModalTab === tab.id ? '#ffffff' : '#0f172a'
+                background: activeModalTab === tab.id ? '#4f46e5' : 'transparent',
+                color: activeModalTab === tab.id ? '#ffffff' : '#475569'
               }}
             >
               {tab.label}
@@ -1149,24 +1126,24 @@ export function StudentPortfolioModal({
 
         <div style={{ padding: '24px' }}>
           {activeModalTab === 'log' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
-              <form onSubmit={handleAddConsultationLog} style={{ background: '#f0fdfa', border: '2px solid #0d9488', borderRadius: '14px', padding: '18px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <form onSubmit={handleAddConsultationLog} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '18px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
-                  <h4 style={{ margin: 0, fontSize: '16px', fontWeight: '900', color: '#0f766e' }}>
+                  <h4 style={{ margin: 0, fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
                     ➕ Record New Mentor-Mentee Consultancy Sitting
                   </h4>
-                  <span style={{ fontSize: '12px', fontWeight: '800', color: '#047857', background: '#ccfbf1', padding: '4px 10px', borderRadius: '999px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '700', color: '#4f46e5', background: '#eef2ff', padding: '4px 10px', borderRadius: '999px' }}>
                     Logged by: {editorName}
                   </span>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px', marginBottom: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '12px' }}>
                   <div>
-                    <label style={styles.label}>Sitting Date:</label>
+                    <label style={styles.label}>Sitting Date</label>
                     <input type="date" value={sessionDate} onChange={e => setSessionDate(e.target.value)} required style={styles.input} />
                   </div>
                   <div>
-                    <label style={styles.label}>Interaction Type:</label>
+                    <label style={styles.label}>Interaction Type</label>
                     <select value={sessionType} onChange={e => setSessionType(e.target.value)} style={styles.input}>
                       <option value="1-on-1 Personal Sitting">🗣️ 1-on-1 Personal Sitting</option>
                       <option value="Academic & CCE Review">📊 Academic &amp; CCE Review</option>
@@ -1177,7 +1154,7 @@ export function StudentPortfolioModal({
                     </select>
                   </div>
                   <div>
-                    <label style={styles.label}>Student Status / Wellbeing:</label>
+                    <label style={styles.label}>Student Status / Wellbeing</label>
                     <select value={wellbeingStatus} onChange={e => setWellbeingStatus(e.target.value)} style={styles.input}>
                       <option value="Thriving / On Track">🟢 Thriving / On Track</option>
                       <option value="Needs Academic Support">🟡 Needs Academic Support</option>
@@ -1187,9 +1164,9 @@ export function StudentPortfolioModal({
                   </div>
                 </div>
 
-                <div style={{ marginBottom: '14px' }}>
-                  <label style={styles.label}>Topics Discussed in Sitting (Click to select):</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ marginBottom: '12px' }}>
+                  <label style={styles.label}>Topics Discussed in Sitting (Click to select)</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                     {DISCUSSION_TOPICS.map(topic => {
                       const active = discussedTopics.includes(topic);
                       return (
@@ -1198,14 +1175,14 @@ export function StudentPortfolioModal({
                           type="button"
                           onClick={() => toggleTopic(topic)}
                           style={{
-                            padding: '6px 12px',
+                            padding: '5px 11px',
                             borderRadius: '999px',
                             fontSize: '12px',
-                            fontWeight: '800',
+                            fontWeight: '700',
                             cursor: 'pointer',
-                            border: active ? '2px solid #0f766e' : '1px solid #cbd5e1',
-                            background: active ? '#0f766e' : '#ffffff',
-                            color: active ? '#ffffff' : '#0f172a'
+                            border: active ? '1.5px solid #4f46e5' : '1px solid #cbd5e1',
+                            background: active ? '#eef2ff' : '#ffffff',
+                            color: active ? '#4f46e5' : '#475569'
                           }}
                         >
                           {active ? `✓ ${topic}` : `+ ${topic}`}
@@ -1215,9 +1192,9 @@ export function StudentPortfolioModal({
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px', marginBottom: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px', marginBottom: '12px' }}>
                   <div>
-                    <label style={styles.label}>Consultation Summary &amp; Observations:</label>
+                    <label style={styles.label}>Consultation Summary &amp; Observations</label>
                     <textarea
                       rows={3}
                       placeholder="Summarize how the student is progressing, challenges discussed, and advice given..."
@@ -1228,21 +1205,21 @@ export function StudentPortfolioModal({
                   </div>
                   {canViewConfidential && (
                     <div>
-                      <label style={{ ...styles.label, color: '#b45309' }}>🔒 Confidential Faculty Note (Hidden from Student):</label>
+                      <label style={{ ...styles.label, color: '#b45309' }}>🔒 Confidential Faculty Note (Hidden from Student)</label>
                       <textarea
                         rows={3}
                         placeholder="Private family/financial/behavioral notes for Mentor & Outreach Coordinator only..."
                         value={confidentialNote}
                         onChange={e => setConfidentialNote(e.target.value)}
-                        style={{ ...styles.input, resize: 'vertical', borderColor: '#fcd34d', background: '#fffbeb' }}
+                        style={{ ...styles.input, resize: 'vertical', borderColor: '#fde68a', background: '#fffbeb' }}
                       />
                     </div>
                   )}
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '14px', marginBottom: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px', marginBottom: '14px' }}>
                   <div>
-                    <label style={styles.label}>🎯 Next Action Plan / Target Given to Student:</label>
+                    <label style={styles.label}>🎯 Next Action Plan / Target Given to Student</label>
                     <input
                       type="text"
                       placeholder="e.g. Complete pending Fiqh Level 2 CCE work before next Friday..."
@@ -1252,7 +1229,7 @@ export function StudentPortfolioModal({
                     />
                   </div>
                   <div>
-                    <label style={styles.label}>📅 Next Follow-Up Date:</label>
+                    <label style={styles.label}>📅 Next Follow-Up Date</label>
                     <input
                       type="date"
                       value={nextFollowUpDate}
@@ -1268,39 +1245,39 @@ export function StudentPortfolioModal({
               </form>
 
               <div>
-                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
                   📜 Past Consultancy Sittings History ({mentorLogs.length})
                 </h4>
                 {mentorLogs.length === 0 ? (
-                  <div style={{ padding: '28px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>
+                  <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
                     No mentor-mentee sittings have been logged for this student yet.
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     {mentorLogs.map((log, index) => {
                       const isUrgent = String(log.wellbeingStatus || '').includes('Urgent');
                       const isSupport = String(log.wellbeingStatus || '').includes('Support') || String(log.wellbeingStatus || '').includes('Concern');
                       return (
-                        <div key={log.id || index} style={{ padding: '16px', borderRadius: '12px', border: isUrgent ? '2px solid #dc2626' : '1px solid #cbd5e1', background: isUrgent ? '#fef2f2' : '#ffffff' }}>
+                        <div key={log.id || index} style={{ padding: '16px', borderRadius: '12px', border: isUrgent ? '1.5px solid #e11d48' : '1px solid #e2e8f0', background: isUrgent ? '#fff1f2' : '#ffffff' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                              <span style={{ background: '#0f172a', color: '#fff', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
+                              <span style={{ background: '#0f172a', color: '#fff', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' }}>
                                 📅 {log.date || 'N/A'}
                               </span>
-                              <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
+                              <span style={{ background: '#eef2ff', color: '#4f46e5', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' }}>
                                 {log.type || 'Sitting'}
                               </span>
                               <span style={{
-                                background: isUrgent ? '#fee2e2' : isSupport ? '#fef3c7' : '#dcfce7',
-                                color: isUrgent ? '#991b1b' : isSupport ? '#92400e' : '#166534',
-                                padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800'
+                                background: isUrgent ? '#ffe4e6' : isSupport ? '#fef3c7' : '#dcfce7',
+                                color: isUrgent ? '#be123c' : isSupport ? '#92400e' : '#15803d',
+                                padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700'
                               }}>
                                 {log.wellbeingStatus || 'Logged'}
                               </span>
                             </div>
-                            <div style={{ fontSize: '12px', color: '#475569', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ fontSize: '12px', color: '#475569', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '10px' }}>
                               <span>👨‍🏫 By <strong>{log.loggedBy || 'Mentor'}</strong></span>
-                              <button type="button" onClick={() => handleDeleteLog(log.id)} style={{ background: 'transparent', border: 'none', color: '#dc2626', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>
+                              <button type="button" onClick={() => handleDeleteLog(log.id)} style={{ background: 'transparent', border: 'none', color: '#e11d48', cursor: 'pointer', fontWeight: '700', fontSize: '12px' }}>
                                 🗑️ Delete
                               </button>
                             </div>
@@ -1309,7 +1286,7 @@ export function StudentPortfolioModal({
                           {Array.isArray(log.topics) && log.topics.length > 0 && (
                             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
                               {log.topics.map((t, idx) => (
-                                <span key={idx} style={{ background: '#f1f5f9', color: '#334155', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '700' }}>
+                                <span key={idx} style={{ background: '#f1f5f9', color: '#334155', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '600' }}>
                                   #{t}
                                 </span>
                               ))}
@@ -1317,19 +1294,19 @@ export function StudentPortfolioModal({
                           )}
 
                           {log.summary && (
-                            <div style={{ fontSize: '14px', color: '#0f172a', fontWeight: '600', marginBottom: '6px', lineHeight: 1.5 }}>
+                            <div style={{ fontSize: '13px', color: '#0f172a', fontWeight: '500', marginBottom: '6px', lineHeight: 1.5 }}>
                               {log.summary}
                             </div>
                           )}
 
                           {canViewConfidential && log.confidential && (
-                            <div style={{ fontSize: '13px', color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', padding: '8px 12px', borderRadius: '8px', marginTop: '6px', fontWeight: '700' }}>
+                            <div style={{ fontSize: '12px', color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', padding: '8px 12px', borderRadius: '8px', marginTop: '6px', fontWeight: '600' }}>
                               🔒 <strong>Confidential Note:</strong> {log.confidential}
                             </div>
                           )}
 
                           {(log.actionPlan || log.nextFollowUpDate) && (
-                            <div style={{ marginTop: '8px', padding: '8px 12px', background: '#f0fdfa', borderRadius: '8px', fontSize: '12px', color: '#0f766e', fontWeight: '800', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                            <div style={{ marginTop: '8px', padding: '8px 12px', background: '#f8fafc', borderRadius: '8px', fontSize: '12px', color: '#4f46e5', fontWeight: '700', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
                               {log.actionPlan && <span>🎯 Action Plan: {log.actionPlan}</span>}
                               {log.nextFollowUpDate && <span>⏰ Next Follow-Up: {log.nextFollowUpDate}</span>}
                             </div>
@@ -1344,9 +1321,9 @@ export function StudentPortfolioModal({
           )}
 
           {activeModalTab === 'skills' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              <div style={{ background: '#f8fafc', padding: '18px', borderRadius: '14px', border: '1px solid #cbd5e1' }}>
-                <h4 style={{ margin: '0 0 10px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
                   🌟 Student Skills &amp; Talents ({skills.length})
                 </h4>
 
@@ -1365,8 +1342,8 @@ export function StudentPortfolioModal({
                       </button>
                     </div>
 
-                    <div style={{ marginBottom: '14px' }}>
-                      <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                    <div style={{ marginBottom: '12px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
                         ⚡ Quick 1-Click Skill Tags:
                       </span>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
@@ -1375,7 +1352,7 @@ export function StudentPortfolioModal({
                             key={sug}
                             type="button"
                             onClick={() => handleAddSkill(sug)}
-                            style={{ padding: '5px 10px', borderRadius: '999px', border: '1px solid #0d9488', background: '#ffffff', color: '#0f766e', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                            style={{ padding: '4px 10px', borderRadius: '999px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#475569', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}
                           >
                             + {sug}
                           </button>
@@ -1385,15 +1362,15 @@ export function StudentPortfolioModal({
                   </>
                 )}
 
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '10px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                   {skills.length === 0 ? (
-                    <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '600' }}>No skills added yet.</span>
+                    <span style={{ fontSize: '12px', color: '#64748b' }}>No skills added yet.</span>
                   ) : (
                     skills.map((sk, i) => (
-                      <span key={i} style={{ background: '#ccfbf1', color: '#0f766e', border: '1px solid #14b8a6', padding: '6px 12px', borderRadius: '999px', fontSize: '13px', fontWeight: '800', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                      <span key={i} style={{ background: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe', padding: '5px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                         ✦ {sk}
                         {canEditSkills && (
-                          <button type="button" onClick={() => handleRemoveSkill(sk)} style={{ background: 'transparent', border: 'none', color: '#dc2626', fontWeight: '900', cursor: 'pointer' }}>
+                          <button type="button" onClick={() => handleRemoveSkill(sk)} style={{ background: 'transparent', border: 'none', color: '#e11d48', fontWeight: '800', cursor: 'pointer' }}>
                             ✕
                           </button>
                         )}
@@ -1403,12 +1380,12 @@ export function StudentPortfolioModal({
                 </div>
               </div>
 
-              <div style={{ background: '#f8fafc', padding: '18px', borderRadius: '14px', border: '1px solid #cbd5e1' }}>
-                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
                   🏅 Add New Achievement / Award / Sibaq Record
                 </h4>
                 {canEditSkills && (
-                  <form onSubmit={handleAddAchievement} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '18px' }}>
+                  <form onSubmit={handleAddAchievement} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '10px', marginBottom: '16px' }}>
                     <input type="text" placeholder="Award / Achievement Title..." value={achTitle} onChange={e => setAchTitle(e.target.value)} required style={styles.input} />
                     <select value={achCategory} onChange={e => setAchCategory(e.target.value)} style={styles.input}>
                       <option value="Academic">📚 Academic Excellence</option>
@@ -1431,18 +1408,18 @@ export function StudentPortfolioModal({
                   </form>
                 )}
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {achievements.map((ach, i) => (
-                    <div key={ach.id || i} style={{ background: '#ffffff', padding: '14px', borderRadius: '10px', border: '1px solid #cbd5e1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                    <div key={ach.id || i} style={{ background: '#ffffff', padding: '12px 14px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
                       <div>
-                        <div style={{ fontWeight: '800', fontSize: '15px', color: '#0f172a' }}>🏅 {ach.title}</div>
-                        <div style={{ fontSize: '12px', color: '#475569', fontWeight: '700', marginTop: '4px' }}>
+                        <div style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>🏅 {ach.title}</div>
+                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
                           {ach.category} • {ach.level} • 📅 {ach.date} {ach.addedBy ? `• Verified by ${ach.addedBy}` : ''}
                         </div>
-                        {ach.notes && <div style={{ fontSize: '13px', color: '#0f766e', fontWeight: '700', marginTop: '4px' }}>{ach.notes}</div>}
+                        {ach.notes && <div style={{ fontSize: '12px', color: '#4f46e5', fontWeight: '600', marginTop: '3px' }}>{ach.notes}</div>}
                       </div>
                       {canEditSkills && (
-                        <button type="button" onClick={() => handleRemoveAchievement(ach.id)} style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>
+                        <button type="button" onClick={() => handleRemoveAchievement(ach.id)} style={styles.buttonDanger}>
                           Delete
                         </button>
                       )}
@@ -1455,54 +1432,34 @@ export function StudentPortfolioModal({
 
           {activeModalTab === 'profile' && (
             <form onSubmit={handleSaveProfileDetails} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
-                <ProfileAvatar name={formData.firstName} code={student.adNo} photoUrl={formData.photoUrl} size={64} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <ProfileAvatar name={formData.firstName} code={student.adNo} photoUrl={formData.photoUrl} size={60} />
                 <div>
-                  <label style={styles.label}>Update Student Profile Photo:</label>
+                  <label style={styles.label}>Update Student Profile Photo</label>
                   <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ fontSize: '13px' }} />
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px' }}>
+                <div><label style={styles.label}>Student Full Name</label><input type="text" value={formData.firstName} onChange={e => setFormData({ ...formData, firstName: e.target.value })} style={styles.input} /></div>
+                <div><label style={styles.label}>Student WhatsApp / Mobile</label><input type="text" value={formData.whatsappNumber} onChange={e => setFormData({ ...formData, whatsappNumber: e.target.value })} style={styles.input} /></div>
+                <div><label style={styles.label}>Parent WhatsApp / Mobile</label><input type="text" value={formData.parentWhatsapp} onChange={e => setFormData({ ...formData, parentWhatsapp: e.target.value })} style={styles.input} /></div>
+                <div><label style={styles.label}>Email Address</label><input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} style={styles.input} /></div>
                 <div>
-                  <label style={styles.label}>Student Full Name:</label>
-                  <input type="text" value={formData.firstName} onChange={e => setFormData({ ...formData, firstName: e.target.value })} style={styles.input} />
-                </div>
-                <div>
-                  <label style={styles.label}>Student WhatsApp / Mobile:</label>
-                  <input type="text" value={formData.whatsappNumber} onChange={e => setFormData({ ...formData, whatsappNumber: e.target.value })} placeholder="10-digit number" style={styles.input} />
-                </div>
-                <div>
-                  <label style={styles.label}>Parent WhatsApp / Mobile:</label>
-                  <input type="text" value={formData.parentWhatsapp} onChange={e => setFormData({ ...formData, parentWhatsapp: e.target.value })} placeholder="Parent 10-digit number" style={styles.input} />
-                </div>
-                <div>
-                  <label style={styles.label}>Email Address:</label>
-                  <input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} placeholder="student@email.com" style={styles.input} />
-                </div>
-                <div>
-                  <label style={styles.label}>State:</label>
+                  <label style={styles.label}>State</label>
                   <select value={formData.state} onChange={e => setFormData({ ...formData, state: e.target.value })} style={styles.input}>
-                    {INDIAN_STATES.map(st => (
-                      <option key={st} value={st}>{st}</option>
-                    ))}
+                    {INDIAN_STATES.map(st => <option key={st} value={st}>{st}</option>)}
                   </select>
                 </div>
+                <div><label style={styles.label}>District</label><input type="text" value={formData.district} onChange={e => setFormData({ ...formData, district: e.target.value })} style={styles.input} /></div>
                 <div>
-                  <label style={styles.label}>District:</label>
-                  <input type="text" value={formData.district} onChange={e => setFormData({ ...formData, district: e.target.value })} placeholder="e.g. Malappuram" style={styles.input} />
-                </div>
-                <div>
-                  <label style={styles.label}>Madhab:</label>
+                  <label style={styles.label}>Madhab</label>
                   <select value={formData.madhab} onChange={e => setFormData({ ...formData, madhab: e.target.value })} style={styles.input}>
                     <option value="SHAFI">SHAFI</option>
                     <option value="HANAFI">HANAFI</option>
                   </select>
                 </div>
-                <div>
-                  <label style={styles.label}>Blood Group:</label>
-                  <input type="text" value={formData.bloodGroup} onChange={e => setFormData({ ...formData, bloodGroup: e.target.value })} placeholder="e.g. O+" style={styles.input} />
-                </div>
+                <div><label style={styles.label}>Blood Group</label><input type="text" value={formData.bloodGroup} onChange={e => setFormData({ ...formData, bloodGroup: e.target.value })} placeholder="e.g. O+" style={styles.input} /></div>
               </div>
 
               <button type="submit" disabled={saving} style={styles.buttonPrimary}>
@@ -1516,6 +1473,9 @@ export function StudentPortfolioModal({
   );
 }
 
+// ============================================================================
+// 🧭 9. MINIMALIST MENTORSHIP & OUTREACH TAB (100% Features Restored + Clean UI!)
+// ============================================================================
 export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAdmin = false, isOutreachView = false, onStudentUpdated }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCompletion, setFilterCompletion] = useState('All');
@@ -1523,9 +1483,19 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
   const [editingStudent, setEditingStudent] = useState(null);
   const [modalInitialSection, setModalInitialSection] = useState('log');
 
+  // 🌟 Minimalist Panel & Row Expansion State
+  const [activeToolDrawer, setActiveToolDrawer] = useState('none'); // 'none' | 'filters' | 'bulk' | 'target' | 'pta'
+  const [expandedRowRegNo, setExpandedRowRegNo] = useState(null);
+  const [visibleCols, setVisibleCols] = useState({
+    skills: false,
+    contact: false
+  });
+
+  // 🌟 Class PTA WhatsApp Broadcast State (100% Restored!)
   const [classPtaMessage, setClassPtaMessage] = useState('');
   const [ptaGroupLink, setPtaGroupLink] = useState('');
 
+  // 🌟 Outreach Coordinator Top-Level View Switcher ('dashboard' | 'usthads' | 'directory' | 'queue')
   const [outreachActiveSubTab, setOutreachActiveSubTab] = useState('directory');
   const [inspectingUsthadUsername, setInspectingUsthadUsername] = useState('');
 
@@ -1558,9 +1528,7 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
 
   useEffect(() => {
     getDoc(doc(db, 'systemCache', 'mentorshipConfig')).then(snap => {
-      if (snap.exists()) {
-        setSemesterTargetConfig(prev => ({ ...prev, ...snap.data() }));
-      }
+      if (snap.exists()) setSemesterTargetConfig(prev => ({ ...prev, ...snap.data() }));
     }).catch(() => {});
   }, []);
 
@@ -1577,6 +1545,7 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
       };
       await setDoc(doc(db, 'systemCache', 'mentorshipConfig'), updated, { merge: true });
       setSemesterTargetConfig(updated);
+      setActiveToolDrawer('none');
       alert(`✅ Semester Minimum Consultancy Target set to ${cleanMin} sittings per mentee!`);
     } catch (err) {
       alert('Failed to save target: ' + err.message);
@@ -1606,9 +1575,7 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
     const isOverdue30 = daysSinceLast === null || daysSinceLast > 30;
     const isEscalated = String(latestLog?.wellbeingStatus || st?.latestWellbeingStatus || '').includes('Urgent');
 
-    return {
-      logs, count, minReq, metTarget, latestLog, lastDateStr, daysSinceLast, isOverdue30, isEscalated
-    };
+    return { logs, count, minReq, metTarget, latestLog, lastDateStr, daysSinceLast, isOverdue30, isEscalated };
   };
 
   const isStudentMyMentee = (st) => {
@@ -1620,15 +1587,11 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
   const isStudentInMyClass = (st) => {
     const stClasses = Array.isArray(st.classes) ? st.classes : [st.class].filter(Boolean);
     const normStClasses = stClasses.map(c => normalizeCls(c));
-    const matchesClassList = myClassTeacherOf.some(c => normStClasses.includes(normalizeCls(c)));
-    const matchesCTUser = myUsername && String(st.classTeacherUsername || '').trim().toLowerCase() === myUsername;
-    return matchesClassList || matchesCTUser;
+    return myClassTeacherOf.some(c => normStClasses.includes(normalizeCls(c))) ||
+           (myUsername && String(st.classTeacherUsername || '').trim().toLowerCase() === myUsername);
   };
 
-  const isStudentMyNiics = (st) => {
-    const isUrduStudent = String(st.adNo || '').trim().toUpperCase().startsWith('U');
-    return isNiicsCoord && isUrduStudent;
-  };
+  const isStudentMyNiics = (st) => isNiicsCoord && String(st.adNo || '').trim().toUpperCase().startsWith('U');
 
   const classStudentsList = students.filter(isStudentInMyClass);
   const menteeStudentsList = students.filter(isStudentMyMentee);
@@ -1639,15 +1602,9 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
 
   const availableDutyTabs = [];
   if (!isAdmin && !isOutreachView) {
-    if (hasClassDuty) {
-      availableDutyTabs.push({ id: 'CLASS', label: `🏫 Class ${myClassTeacherOf.join(', ') || ''} Students (${classStudentsList.length})` });
-    }
-    if (hasMentorDuty) {
-      availableDutyTabs.push({ id: 'MENTEES', label: `🧭 My Mentees (${menteeStudentsList.length})` });
-    }
-    if (isNiicsCoord) {
-      availableDutyTabs.push({ id: 'NIICS', label: `🎓 NIICS Urdu Students (${niicsStudentsList.length})` });
-    }
+    if (hasClassDuty) availableDutyTabs.push({ id: 'CLASS', label: `🏫 Class ${myClassTeacherOf.join(', ') || ''} (${classStudentsList.length})` });
+    if (hasMentorDuty) availableDutyTabs.push({ id: 'MENTEES', label: `🧭 My Mentees (${menteeStudentsList.length})` });
+    if (isNiicsCoord) availableDutyTabs.push({ id: 'NIICS', label: `🎓 NIICS Urdu (${niicsStudentsList.length})` });
     if (availableDutyTabs.length > 1) {
       const combinedCount = students.filter(st => isStudentInMyClass(st) || isStudentMyMentee(st) || isStudentMyNiics(st)).length;
       availableDutyTabs.push({ id: 'ALL', label: `👥 Combined View (${combinedCount})` });
@@ -1695,16 +1652,12 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
 
   const scopedStudents = students.filter(st => {
     if (isAdmin || isOutreachView) {
-      if (inspectingUsthadUsername) {
-        return String(st.mentorUsername || '').toLowerCase() === inspectingUsthadUsername.toLowerCase();
-      }
+      if (inspectingUsthadUsername) return String(st.mentorUsername || '').toLowerCase() === inspectingUsthadUsername.toLowerCase();
       return true;
     }
-
     if (teacherViewMode === 'MENTEES') return isStudentMyMentee(st);
     if (teacherViewMode === 'CLASS') return isStudentInMyClass(st);
     if (teacherViewMode === 'NIICS') return isStudentMyNiics(st);
-
     return isStudentMyMentee(st) || isStudentInMyClass(st) || isStudentMyNiics(st);
   });
 
@@ -1754,9 +1707,7 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
       totalSessions += cm.count;
       if (cm.metTarget) metTargetMentees++;
       if (cm.count === 0) zeroSittingMentees++;
-      if (cm.lastDateStr && (!latestSittingDate || cm.lastDateStr > latestSittingDate)) {
-        latestSittingDate = cm.lastDateStr;
-      }
+      if (cm.lastDateStr && (!latestSittingDate || cm.lastDateStr > latestSittingDate)) latestSittingDate = cm.lastDateStr;
     });
 
     const targetCompletionPct = totalMentees > 0 ? Math.round((metTargetMentees / totalMentees) * 100) : 0;
@@ -1794,9 +1745,7 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
       if (onStudentUpdated) {
         selectedStudentRegs.forEach(regNo => {
           const found = students.find(s => s.regNo === regNo);
-          if (found) {
-            onStudentUpdated({ ...found, mentorUsername: newMentorUser, mentorName: newMentorName });
-          }
+          if (found) onStudentUpdated({ ...found, mentorUsername: newMentorUser, mentorName: newMentorName });
         });
       }
 
@@ -1814,7 +1763,8 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
     }
   };
 
-  const handleBulkAssignSkill = async () => {
+  // 🌟 100% Restored: Bulk Assign Skill Tag to Checked Students!
+ const handleBulkAssignSkill = async () => {
     const cleanSkill = bulkSkillInput.trim();
     if (!cleanSkill) return alert('Please type a Skill name to assign (e.g. Arabic Debate).');
     if (selectedStudentRegs.length === 0) return alert('Please select at least one student using the checkboxes.');
@@ -1841,38 +1791,14 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
     }
   };
 
-  const handleSingleStudentMentorChange = async (student, newMentorUsername) => {
-    const mentorObj = teachers.find(t => t.username === newMentorUsername);
-    const updatedUser = mentorObj ? mentorObj.username : '';
-    const updatedName = mentorObj ? mentorObj.fullName : '';
-
-    try {
-      await setDoc(doc(db, 'students', String(student.regNo).toLowerCase()), {
-        mentorUsername: updatedUser,
-        mentorName: updatedName
-      }, { merge: true });
-
-      if (onStudentUpdated) {
-        onStudentUpdated({ ...student, mentorUsername: updatedUser, mentorName: updatedName });
-      }
-    } catch (err) {
-      alert('Error updating mentor: ' + err.message);
-    }
-  };
-
   const toggleSelectAllDisplayed = () => {
     const displayedRegs = displayStudents.map(s => s.regNo);
     const allChecked = displayedRegs.length > 0 && displayedRegs.every(r => selectedStudentRegs.includes(r));
-    if (allChecked) {
-      setSelectedStudentRegs(prev => prev.filter(r => !displayedRegs.includes(r)));
-    } else {
-      setSelectedStudentRegs(prev => Array.from(new Set([...prev, ...displayedRegs])));
-    }
+    setSelectedStudentRegs(allChecked ? [] : displayedRegs);
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
+    <div>
       {editingStudent && (
         <StudentPortfolioModal
           student={editingStudent}
@@ -1889,559 +1815,501 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
         />
       )}
 
-      <div style={{ background: '#ffffff', padding: '24px', borderRadius: '18px', boxShadow: '0 4px 20px rgba(15, 23, 42, 0.04)', border: '1px solid #cbd5e1' }}>
-
-        {canManageMentorAssignments && (isAdmin || isOutreachView) && (
-          <div style={{ display: 'flex', gap: '8px', background: '#0f172a', padding: '8px', borderRadius: '14px', flexWrap: 'wrap', marginBottom: '20px' }}>
-            {[
-              { id: 'dashboard', label: '📊 1. Outreach Overview & Target' },
-              { id: 'usthads', label: `👨‍🏫 2. Usthad Consultancy Audit (${usthadAuditRows.length})` },
-              { id: 'directory', label: `👥 3. Student Directory & Bulk Assign (${students.length})` },
-              { id: 'queue', label: `🚨 4. Pending & Escalated Queue (${belowTargetCount})` }
+      {/* 🌟 MINIMALIST TOP BAR + ACTION BUTTONS */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {canManageMentorAssignments && (isAdmin || isOutreachView) ? (
+            [
+              { id: 'directory', label: `Students (${students.length})` },
+              { id: 'usthads', label: `Usthad Audit (${usthadAuditRows.length})` },
+              { id: 'queue', label: `Pending Sittings (${belowTargetCount})` }
             ].map(tab => (
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => {
-                  setOutreachActiveSubTab(tab.id);
-                  if (tab.id !== 'directory') setInspectingUsthadUsername('');
-                }}
+                onClick={() => { setOutreachActiveSubTab(tab.id); setInspectingUsthadUsername(''); }}
                 style={{
-                  flex: '1 1 200px',
-                  padding: '11px 14px',
-                  borderRadius: '10px',
-                  border: 'none',
-                  fontWeight: '800',
-                  fontSize: '13px',
+                  padding: '9px 16px',
+                  borderRadius: '8px',
                   cursor: 'pointer',
-                  background: outreachActiveSubTab === tab.id ? '#00897b' : 'rgba(255,255,255,0.08)',
-                  color: '#ffffff'
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  border: outreachActiveSubTab === tab.id ? '1px solid #4f46e5' : '1px solid #cbd5e1',
+                  background: outreachActiveSubTab === tab.id ? '#4f46e5' : '#ffffff',
+                  color: outreachActiveSubTab === tab.id ? '#ffffff' : '#334155'
                 }}
               >
                 {tab.label}
               </button>
-            ))}
-          </div>
-        )}
-
-        {!isAdmin && !isOutreachView && availableDutyTabs.length > 1 && (
-          <div style={{ display: 'flex', gap: '8px', background: '#f1f5f9', padding: '8px', borderRadius: '12px', flexWrap: 'wrap', marginBottom: '20px', border: '1px solid #cbd5e1' }}>
-            {availableDutyTabs.map(tab => (
+            ))
+          ) : (
+            availableDutyTabs.map(tab => (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => setTeacherViewMode(tab.id)}
                 style={{
-                  flex: '1 1 190px',
-                  padding: '11px 14px',
+                  padding: '9px 16px',
                   borderRadius: '8px',
-                  border: teacherViewMode === tab.id ? '2px solid #0f766e' : '1px solid transparent',
-                  fontWeight: '800',
-                  fontSize: '13px',
                   cursor: 'pointer',
-                  background: teacherViewMode === tab.id ? '#00897b' : '#ffffff',
-                  color: teacherViewMode === tab.id ? '#ffffff' : '#0f172a'
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  border: teacherViewMode === tab.id ? '1px solid #4f46e5' : '1px solid #cbd5e1',
+                  background: teacherViewMode === tab.id ? '#4f46e5' : '#ffffff',
+                  color: teacherViewMode === tab.id ? '#ffffff' : '#334155'
                 }}
               >
                 {tab.label}
               </button>
-            ))}
-          </div>
-        )}
-
-        {/* COMPACT SEMESTER TARGET SUMMARY BANNER */}
-        <div style={{ background: '#fffbeb', border: '1.5px solid #f59e0b', padding: '14px 18px', borderRadius: '14px', marginBottom: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <span style={{ background: '#d97706', color: '#ffffff', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '900', textTransform: 'uppercase' }}>
-              🎯 {semesterTargetConfig.semesterName || 'Semester'} Consultancy Mandate
-            </span>
-            <div style={{ fontSize: '14px', fontWeight: '800', color: '#78350f', marginTop: '4px' }}>
-              Minimum Required Consultations: <strong>{semesterTargetConfig.minConsultations} Sittings per Mentee</strong>
-              {semesterTargetConfig.targetDeadline ? ` • Target Deadline: ${semesterTargetConfig.targetDeadline}` : ''}
-            </div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '10px', fontWeight: '900', color: '#92400e' }}>TARGET ACHIEVED IN SCOPE</div>
-            <div style={{ fontSize: '19px', fontWeight: '900', color: '#047857' }}>
-              {targetMetCount} / {totalScope} Students ({totalScope > 0 ? Math.round((targetMetCount / totalScope) * 100) : 0}%)
-            </div>
-          </div>
+            ))
+          )}
         </div>
 
-        {/* SUB-TAB 1: OUTREACH COMMAND DASHBOARD WITH SMOOTH SLIDING TARGET DRAWER */}
-        {canManageMentorAssignments && (isAdmin || isOutreachView) && outreachActiveSubTab === 'dashboard' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: '14px' }}>
-              <div style={{ padding: '18px', borderRadius: '14px', background: '#f8fafc', border: '1px solid #cbd5e1', textAlign: 'center' }}>
-                <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b' }}>TOTAL SITTINGS LOGGED</span>
-                <div style={{ fontSize: '28px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>{totalSittingsLoggedInScope}</div>
-              </div>
-              <div style={{ padding: '18px', borderRadius: '14px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center' }}>
-                <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857' }}>MET TARGET (&ge;{semesterTargetConfig.minConsultations})</span>
-                <div style={{ fontSize: '28px', fontWeight: '900', color: '#059669', marginTop: '4px' }}>{targetMetCount}</div>
-              </div>
-              <div style={{ padding: '18px', borderRadius: '14px', background: '#fffbeb', border: '1px solid #fde68a', textAlign: 'center' }}>
-                <span style={{ fontSize: '11px', fontWeight: '800', color: '#b45309' }}>BELOW TARGET (&lt;{semesterTargetConfig.minConsultations})</span>
-                <div style={{ fontSize: '28px', fontWeight: '900', color: '#d97706', marginTop: '4px' }}>{belowTargetCount}</div>
-              </div>
-              <div style={{ padding: '18px', borderRadius: '14px', background: '#fee2e2', border: '1px solid #fecaca', textAlign: 'center' }}>
-                <span style={{ fontSize: '11px', fontWeight: '800', color: '#991b1b' }}>NO SITTING IN 30+ DAYS</span>
-                <div style={{ fontSize: '28px', fontWeight: '900', color: '#dc2626', marginTop: '4px' }}>{overdue30Count}</div>
-              </div>
-              <div style={{ padding: '18px', borderRadius: '14px', background: '#fef2f2', border: '2px solid #dc2626', textAlign: 'center' }}>
-                <span style={{ fontSize: '11px', fontWeight: '900', color: '#dc2626' }}>🚨 ESCALATED CASES</span>
-                <div style={{ fontSize: '28px', fontWeight: '900', color: '#dc2626', marginTop: '4px' }}>{escalatedCount}</div>
-              </div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {canManageMentorAssignments && (isAdmin || isOutreachView) && (
+            <>
+              <button
+                type="button"
+                onClick={() => setActiveToolDrawer(activeToolDrawer === 'bulk' ? 'none' : 'bulk')}
+                style={{
+                  padding: '9px 14px',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  background: activeToolDrawer === 'bulk' ? '#eef2ff' : '#ffffff',
+                  color: '#4f46e5',
+                  border: '1px solid #c7d2fe'
+                }}
+              >
+                🧭 Bulk Assign ({selectedStudentRegs.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveToolDrawer(activeToolDrawer === 'target' ? 'none' : 'target')}
+                style={styles.buttonSecondary}
+              >
+                ⚙️ Target ({semesterTargetConfig.minConsultations} Sittings)
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => setActiveToolDrawer(activeToolDrawer === 'filters' ? 'none' : 'filters')}
+            style={styles.buttonSecondary}
+          >
+            🎛️ Filter &amp; Columns
+          </button>
+        </div>
+      </div>
+
+      {/* SOFT PASTEL KPI STRIP */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '14px', marginBottom: '20px' }}>
+        <div style={{ padding: '16px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#475569' }}>STUDENTS IN SCOPE</span>
+          <div style={{ fontSize: '24px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>{totalScope}</div>
+        </div>
+        <div style={{ padding: '16px', borderRadius: '12px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857' }}>MET TARGET (&ge;{semesterTargetConfig.minConsultations})</span>
+          <div style={{ fontSize: '24px', fontWeight: '900', color: '#065f46', marginTop: '4px' }}>{targetMetCount}</div>
+        </div>
+        <div style={{ padding: '16px', borderRadius: '12px', background: '#fff1f2', border: '1px solid #fecdd3', textAlign: 'center' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#be123c' }}>BELOW TARGET</span>
+          <div style={{ fontSize: '24px', fontWeight: '900', color: '#e11d48', marginTop: '4px' }}>{belowTargetCount}</div>
+        </div>
+        <div style={{ padding: '16px', borderRadius: '12px', background: '#eff6ff', border: '1px solid #bfdbfe', textAlign: 'center' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#1d4ed8' }}>TOTAL SITTINGS LOGGED</span>
+          <div style={{ fontSize: '24px', fontWeight: '900', color: '#2563eb', marginTop: '4px' }}>{totalSittingsLoggedInScope}</div>
+        </div>
+      </div>
+
+      {/* TOOL DRAWER 1: TARGET SETTER */}
+      {activeToolDrawer === 'target' && (
+        <form onSubmit={handleSaveSemesterTargetConfig} className="erp-slide-panel" style={styles.card}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', alignItems: 'end' }}>
+            <div>
+              <label style={styles.label}>Semester Name</label>
+              <input
+                type="text"
+                value={semesterTargetConfig.semesterName}
+                onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, semesterName: e.target.value })}
+                style={styles.input}
+              />
+            </div>
+            <div>
+              <label style={styles.label}>Minimum Sittings per Mentee</label>
+              <input
+                type="number"
+                min="1"
+                max="20"
+                value={semesterTargetConfig.minConsultations}
+                onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, minConsultations: Number(e.target.value) })}
+                style={styles.input}
+              />
+            </div>
+            <div>
+              <label style={styles.label}>Target Deadline</label>
+              <input
+                type="date"
+                value={semesterTargetConfig.targetDeadline || ''}
+                onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, targetDeadline: e.target.value })}
+                style={styles.input}
+              />
+            </div>
+            <button type="submit" disabled={isSavingConfig} style={styles.buttonPrimary}>
+              {isSavingConfig ? 'Saving...' : 'Save Target'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* TOOL DRAWER 2: BULK MENTOR & BULK SKILL ASSIGN */}
+      {activeToolDrawer === 'bulk' && (
+        <div className="erp-slide-panel" style={styles.card}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <select
+                value={targetMentorUsername}
+                onChange={(e) => setTargetMentorUsername(e.target.value)}
+                style={{ ...styles.input, flex: 1 }}
+              >
+                <option value="">-- Select Mentor Usthad --</option>
+                <option value="__UNASSIGN__">Clear Mentor</option>
+                {teachers.map(t => (
+                  <option key={t.username} value={t.username}>{t.fullName}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={isAssigningMentor}
+                onClick={handleBulkAssignMentor}
+                style={{ ...styles.buttonPrimary, whiteSpace: 'nowrap' }}
+              >
+                Assign Mentor ({selectedStudentRegs.length})
+              </button>
             </div>
 
-            <CollapsibleCard
-              title="Fix Minimum Mentor-Mentee Consultancy Target for Semester"
-              subtitle="Click to configure minimum required sittings, semester title, and deadline"
-              badgeText={`Min: ${semesterTargetConfig.minConsultations} Sittings`}
-              icon="⚙️"
-              defaultOpen={false}
-            >
-              <form onSubmit={handleSaveSemesterTargetConfig}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '14px' }}>
-                  <div>
-                    <label style={styles.label}>Semester Title:</label>
-                    <input
-                      type="text"
-                      value={semesterTargetConfig.semesterName}
-                      onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, semesterName: e.target.value })}
-                      style={styles.input}
-                    />
-                  </div>
-                  <div>
-                    <label style={styles.label}>Minimum Sittings per Mentee:</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="20"
-                      value={semesterTargetConfig.minConsultations}
-                      onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, minConsultations: Number(e.target.value) })}
-                      style={{ ...styles.input, fontWeight: '900', color: '#0f766e' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={styles.label}>Semester Target Deadline:</label>
-                    <input
-                      type="date"
-                      value={semesterTargetConfig.targetDeadline || ''}
-                      onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, targetDeadline: e.target.value })}
-                      style={styles.input}
-                    />
-                  </div>
-                </div>
-                <div style={{ marginBottom: '14px' }}>
-                  <label style={styles.label}>Coordinator Instructions / Guidelines for Mentors:</label>
-                  <input
-                    type="text"
-                    value={semesterTargetConfig.guidelinesNote || ''}
-                    onChange={e => setSemesterTargetConfig({ ...semesterTargetConfig, guidelinesNote: e.target.value })}
-                    style={styles.input}
-                  />
-                </div>
-                <button type="submit" disabled={isSavingConfig} style={styles.buttonPrimary}>
-                  {isSavingConfig ? 'Saving Target...' : '💾 Save Semester Consultancy Target'}
-                </button>
-              </form>
-            </CollapsibleCard>
-          </div>
-        )}
-
-        {/* SUB-TAB 2: USTHAD-WISE CONSULTANCY AUDIT */}
-        {canManageMentorAssignments && (isAdmin || isOutreachView) && outreachActiveSubTab === 'usthads' && (
-          <div>
-            <h4 style={{ margin: '0 0 14px 0', fontSize: '18px', fontWeight: '900', color: '#0f172a' }}>
-              👨‍🏫 Individual Usthad Mentorship &amp; Consultancy Progress Audit
-            </h4>
-            <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '880px' }}>
-                <thead>
-                  <tr style={{ background: '#0f172a', color: '#ffffff' }}>
-                    <th style={{ padding: '14px 16px' }}>Mentor Usthad</th>
-                    <th style={{ padding: '14px 16px', textAlign: 'center' }}>Assigned Mentees</th>
-                    <th style={{ padding: '14px 16px', textAlign: 'center' }}>Total Sittings Held</th>
-                    <th style={{ padding: '14px 16px', textAlign: 'center' }}>Met Target (&ge;{semesterTargetConfig.minConsultations})</th>
-                    <th style={{ padding: '14px 16px', textAlign: 'center' }}>Never Met (0)</th>
-                    <th style={{ padding: '14px 16px' }}>Progress</th>
-                    <th style={{ padding: '14px 16px', textAlign: 'right' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {usthadAuditRows.map((row, idx) => (
-                    <tr key={row.teacher.username} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                      <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>
-                        {row.teacher.fullName}
-                        <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
-                          @{row.teacher.username} • Last Sitting: {row.latestSittingDate || 'None yet'}
-                        </div>
-                      </td>
-                      <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '900', fontSize: '15px' }}>{row.totalMentees}</td>
-                      <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '800', color: '#0369a1', fontSize: '15px' }}>{row.totalSessions}</td>
-                      <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                        <span style={{ background: '#dcfce7', color: '#166534', padding: '4px 10px', borderRadius: '6px', fontWeight: '800' }}>
-                          {row.metTargetMentees} / {row.totalMentees}
-                        </span>
-                      </td>
-                      <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                        <span style={{ background: row.zeroSittingMentees > 0 ? '#fee2e2' : '#f1f5f9', color: row.zeroSittingMentees > 0 ? '#dc2626' : '#64748b', padding: '4px 10px', borderRadius: '6px', fontWeight: '800' }}>
-                          {row.zeroSittingMentees}
-                        </span>
-                      </td>
-                      <td style={{ padding: '14px 16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ width: '100px', height: '8px', background: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
-                            <div style={{ width: `${row.targetCompletionPct}%`, height: '100%', background: row.targetCompletionPct >= 80 ? '#10b981' : row.targetCompletionPct >= 40 ? '#f59e0b' : '#ef4444' }} />
-                          </div>
-                          <span style={{ fontWeight: '800', fontSize: '13px' }}>{row.targetCompletionPct}%</span>
-                        </div>
-                      </td>
-                      <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setInspectingUsthadUsername(row.teacher.username);
-                              setOutreachActiveSubTab('directory');
-                            }}
-                            style={{ padding: '8px 12px', background: '#0f766e', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
-                          >
-                            🔍 Inspect ({row.totalMentees})
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openDirectWhatsApp(
-                                row.teacher.whatsappNumber || row.teacher.mobileNumber,
-                                `Assalamu Alaikum Usthad ${row.teacher.fullName}, gentle reminder from DHIU Outreach Desk: Currently ${row.metTargetMentees}/${row.totalMentees} of your mentees have completed the ${semesterTargetConfig.minConsultations} required sittings.`
-                              )
-                            }
-                            style={{ padding: '8px 12px', background: '#dcfce7', color: '#166534', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
-                          >
-                            💬 WA Nudge
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="text"
+                placeholder="Type skill (e.g. Debate, Calligraphy)..."
+                value={bulkSkillInput}
+                onChange={e => setBulkSkillInput(e.target.value)}
+                style={{ ...styles.input, flex: 1 }}
+              />
+              <button
+                type="button"
+                disabled={isAssigningMentor}
+                onClick={handleBulkAssignSkill}
+                style={{ ...styles.buttonSecondary, whiteSpace: 'nowrap' }}
+              >
+                + Bulk Skill
+              </button>
+              <button
+                type="button"
+                onClick={toggleSelectAllDisplayed}
+                style={{ ...styles.buttonSecondary, whiteSpace: 'nowrap' }}
+              >
+                Select All ({displayStudents.length})
+              </button>
             </div>
           </div>
-        )}
+          {mentorAssignStatus && (
+            <div style={{ marginTop: '10px', color: '#047857', fontWeight: '700', fontSize: '13px' }}>
+              {mentorAssignStatus}
+            </div>
+          )}
+        </div>
+      )}
 
-        {/* SUB-TAB 3 & 4 (OR REGULAR TEACHER VIEW): STUDENT DIRECTORY */}
-        {((!isAdmin && !isOutreachView) || outreachActiveSubTab === 'directory' || outreachActiveSubTab === 'queue') && (
-          <>
-            {inspectingUsthadUsername && (
-              <div style={{ background: '#e0f2fe', border: '2px solid #0284c7', padding: '12px 16px', borderRadius: '10px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: '800', color: '#0369a1', fontSize: '14px' }}>
-                  🔍 Inspecting Mentees Assigned to: <strong>{teachers.find(t => t.username === inspectingUsthadUsername)?.fullName || inspectingUsthadUsername}</strong> ({scopedStudents.length} Mentees)
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setInspectingUsthadUsername('')}
-                  style={{ background: '#0284c7', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', cursor: 'pointer', fontSize: '12px' }}
-                >
-                  ✕ Show All Students
-                </button>
-              </div>
-            )}
-
-            {/* SLIDING DRAWER: BULK MENTOR & BULK SKILL ASSIGNMENT */}
-            {canManageMentorAssignments && (isAdmin || isOutreachView) && outreachActiveSubTab === 'directory' && (
-              <CollapsibleCard
-                title="Bulk Assign Mentor OR Bulk Add Skill to Checked Students"
-                subtitle="Check students in the table below, then open this drawer to assign their Mentor Usthad or add a Skill tag"
-                badgeText={`${selectedStudentRegs.length} Selected`}
-                icon="🧭"
-                defaultOpen={selectedStudentRegs.length > 0}
+      {/* TOOL DRAWER 3: FILTERS & EXTRA COLUMNS */}
+      {activeToolDrawer === 'filters' && (
+        <div className="erp-slide-panel" style={{ ...styles.card, background: '#f8fafc', padding: '16px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <select
+                value={filterConsultancyStatus}
+                onChange={(e) => setFilterConsultancyStatus(e.target.value)}
+                style={styles.filterSelect}
               >
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
-                  <button
-                    type="button"
-                    onClick={toggleSelectAllDisplayed}
-                    style={{ background: '#f0fdfa', color: '#0f766e', border: '1.5px solid #0d9488', padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}
-                  >
-                    ☑️ Select / Deselect Visible ({displayStudents.length})
-                  </button>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <select
-                      value={targetMentorUsername}
-                      onChange={(e) => setTargetMentorUsername(e.target.value)}
-                      style={{ ...styles.input, flex: 1, borderColor: '#0d9488', fontWeight: '700' }}
-                    >
-                      <option value="">-- Select Mentor Usthad --</option>
-                      <option value="__UNASSIGN__">❌ Unassign / Clear Mentor</option>
-                      {teachers.map(t => (
-                        <option key={t.username} value={t.username}>
-                          {t.fullName} (@{t.username})
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      disabled={isAssigningMentor}
-                      onClick={handleBulkAssignMentor}
-                      style={{ background: '#0d9488', color: '#ffffff', border: 'none', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                    >
-                      🚀 Assign Mentor
-                    </button>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input
-                      type="text"
-                      placeholder="Type skill (e.g. Debate, Calligraphy)..."
-                      value={bulkSkillInput}
-                      onChange={e => setBulkSkillInput(e.target.value)}
-                      style={{ ...styles.input, flex: 1, borderColor: '#0284c7' }}
-                    />
-                    <button
-                      type="button"
-                      disabled={isAssigningMentor}
-                      onClick={handleBulkAssignSkill}
-                      style={{ background: '#0284c7', color: '#ffffff', border: 'none', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                    >
-                      🏆 + Bulk Skill
-                    </button>
-                  </div>
-                </div>
-
-                {mentorAssignStatus && (
-                  <div style={{ marginTop: '12px', padding: '10px 14px', background: '#dcfce7', color: '#166534', borderRadius: '8px', fontWeight: '800', fontSize: '13px' }}>
-                    {mentorAssignStatus}
-                  </div>
-                )}
-              </CollapsibleCard>
-            )}
-
-            {/* SLIDING DRAWER: CLASS TEACHER PTA BROADCAST BAR */}
-            {(!isAdmin && !isOutreachView && myClassTeacherOf.length > 0 && (teacherViewMode === 'CLASS' || teacherViewMode === 'ALL')) && (
-              <CollapsibleCard
-                title={`Class ${myClassTeacherOf[0]} PTA / Parents WhatsApp Group Broadcast`}
-                subtitle="Send notices to your class parents WhatsApp group"
-                icon="👨‍👩‍👦"
-                accentColor="#16a34a"
-                defaultOpen={false}
+                <option value="All">All Consultancy Status</option>
+                <option value="TargetMet">Met Target</option>
+                <option value="BelowTarget">Below Target</option>
+                <option value="ZeroSittings">Zero Sittings (0)</option>
+              </select>
+              <select
+                value={filterCompletion}
+                onChange={(e) => setFilterCompletion(e.target.value)}
+                style={styles.filterSelect}
               >
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
-                  <button type="button" onClick={savePtaGroupLink} style={{ background: '#ffffff', color: '#059669', border: '1px solid #10b981', padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>
-                    🔗 Set Class {myClassTeacherOf[0]} WhatsApp Group Link
-                  </button>
-                </div>
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                  <input
-                    type="text"
-                    placeholder={`Type message for Class ${myClassTeacherOf[0]} PTA / Parents Group...`}
-                    value={classPtaMessage}
-                    onChange={(e) => setClassPtaMessage(e.target.value)}
-                    style={{ ...styles.input, flex: '1 1 200px', borderColor: '#86efac' }}
-                  />
-                  <button type="button" onClick={openPtaGroupAndSend} style={{ background: '#16a34a', color: '#ffffff', border: 'none', padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: '800', cursor: 'pointer' }}>
-                    💬 Open Class {myClassTeacherOf[0]} PTA Group &amp; Send
-                  </button>
-                </div>
-              </CollapsibleCard>
-            )}
-
-            {/* SEARCH & CONSULTANCY FILTERS */}
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '18px', background: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
-              <input type="text" placeholder="🔍 Search student name, Ad.No, or district..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ ...styles.input, flex: '1 1 200px' }} />
-
-              <select value={filterConsultancyStatus} onChange={(e) => setFilterConsultancyStatus(e.target.value)} style={{ ...styles.input, flex: '1 1 210px', borderColor: '#0f766e', fontWeight: '800' }}>
-                <option value="All">All Consultancy Statuses</option>
-                <option value="TargetMet">✅ Met Semester Target (&ge;{semesterTargetConfig.minConsultations})</option>
-                <option value="BelowTarget">⏳ Below Semester Target (&lt;{semesterTargetConfig.minConsultations})</option>
-                <option value="ZeroSittings">⚠️ Zero Sittings Logged (0)</option>
-                <option value="Overdue30">🔴 Overdue (&gt;30 Days Since Sitting)</option>
-                <option value="Escalated">🚨 Escalated Urgent Cases</option>
+                <option value="All">All Profile Status</option>
+                <option value="Incomplete">Incomplete</option>
+                <option value="Complete">Complete</option>
               </select>
-
-              <select value={filterCompletion} onChange={(e) => setFilterCompletion(e.target.value)} style={{ ...styles.input, flex: '1 1 170px' }}>
-                <option value="All">All Profile Statuses</option>
-                <option value="Incomplete">⚠️ Incomplete Profiles</option>
-                <option value="Complete">✅ 100% Complete</option>
-              </select>
-
               {(isAdmin || isOutreachView) && (
                 <>
-                  <select value={outreachClassFilter} onChange={(e) => setOutreachClassFilter(e.target.value)} style={{ ...styles.input, flex: '1 1 130px' }}>
+                  <select
+                    value={outreachClassFilter}
+                    onChange={(e) => setOutreachClassFilter(e.target.value)}
+                    style={styles.filterSelect}
+                  >
                     <option value="All">All Classes</option>
-                    {DEFAULT_CLASSES.map(c => <option key={c} value={c}>Class {c}</option>)}
+                    {DEFAULT_CLASSES.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
                   </select>
-                  <select value={outreachRoleFilter} onChange={(e) => setOutreachRoleFilter(e.target.value)} style={{ ...styles.input, flex: '1 1 160px' }}>
+                  <select
+                    value={outreachRoleFilter}
+                    onChange={(e) => setOutreachRoleFilter(e.target.value)}
+                    style={styles.filterSelect}
+                  >
                     <option value="All">All Mentor Status</option>
-                    <option value="Mentors Assigned">✅ Mentor Assigned</option>
-                    <option value="No Mentor">⚠️ No Mentor</option>
+                    <option value="Mentors Assigned">Mentor Assigned</option>
+                    <option value="No Mentor">Unassigned</option>
                   </select>
                 </>
               )}
             </div>
 
-            {/* MAIN STUDENT CONSULTANCY & PORTFOLIO TABLE */}
-            <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '14px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '1020px' }}>
-                <thead>
-                  <tr style={{ background: '#0f172a', color: '#ffffff' }}>
-                    {canManageMentorAssignments && (isAdmin || isOutreachView) && (
-                      <th style={{ padding: '14px 12px', width: '40px' }}>
-                        <input
-                          type="checkbox"
-                          checked={displayStudents.length > 0 && displayStudents.every(s => selectedStudentRegs.includes(s.regNo))}
-                          onChange={toggleSelectAllDisplayed}
-                        />
-                      </th>
-                    )}
-                    <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Student &amp; Ad.No</th>
-                    <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Class &amp; Mentor</th>
-                    <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Consultancy Progress (Target: {semesterTargetConfig.minConsultations})</th>
-                    <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Skills &amp; Profile</th>
-                    <th style={{ padding: '14px 16px', fontWeight: '800', color: '#ffffff' }}>Contact Details</th>
-                    <th style={{ padding: '14px 16px', fontWeight: '800', textAlign: 'right', color: '#ffffff' }}>Quick Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {displayStudents.map((st, idx) => {
-                    const comp = computeStudentProfileCompletion(st);
-                    const cMetrics = getStudentConsultancyMetrics(st);
-                    const isUrdu = String(st.adNo || '').toUpperCase().startsWith('U');
-                    const autoCT = resolveClassTeacherForStudent(st, teachers);
-                    const actualMentor = teachers.find(t => String(t.username || '').toLowerCase() === String(st.mentorUsername || '').toLowerCase());
-                    const isChecked = selectedStudentRegs.includes(st.regNo);
-                    const stSkills = Array.isArray(st.skills) ? st.skills : [];
-                    const stAch = Array.isArray(st.achievements) ? st.achievements : [];
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b' }}>COLUMNS:</span>
+              {[
+                { key: 'skills', label: 'Skills & Profile %' },
+                { key: 'contact', label: 'Phone & District' }
+              ].map(col => (
+                <button
+                  key={col.key}
+                  type="button"
+                  onClick={() => setVisibleCols(prev => ({ ...prev, [col.key]: !prev[col.key] }))}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    background: visibleCols[col.key] ? '#4f46e5' : '#ffffff',
+                    color: visibleCols[col.key] ? '#ffffff' : '#475569',
+                    border: '1px solid #cbd5e1'
+                  }}
+                >
+                  {visibleCols[col.key] ? `✓ ${col.label}` : `+ ${col.label}`}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
-                    if (outreachActiveSubTab === 'queue' && cMetrics.metTarget && !cMetrics.isEscalated) {
-                      return null;
-                    }
+      {/* USTHAD AUDIT VIEW */}
+      {canManageMentorAssignments && (isAdmin || isOutreachView) && outreachActiveSubTab === 'usthads' ? (
+        <div style={{ ...styles.card, padding: 0, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
+                <th style={{ padding: '14px 16px' }}>MENTOR USTHAD</th>
+                <th style={{ padding: '14px 16px', textAlign: 'center' }}>MENTEES</th>
+                <th style={{ padding: '14px 16px', textAlign: 'center' }}>SITTINGS HELD</th>
+                <th style={{ padding: '14px 16px', textAlign: 'center' }}>MET TARGET</th>
+                <th style={{ padding: '14px 16px', textAlign: 'right' }}>ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {usthadAuditRows.map((row) => (
+                <tr key={row.teacher.username} style={{ borderBottom: '1px solid #f1f5f9', background: '#ffffff' }}>
+                  <td style={{ padding: '14px 16px', fontWeight: '700', color: '#0f172a' }}>
+                    {row.teacher.fullName} <span style={{ color: '#94a3b8', fontSize: '12px' }}>(@{row.teacher.username})</span>
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700' }}>{row.totalMentees}</td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: '#4f46e5' }}>{row.totalSessions}</td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                    <span style={{ background: '#dcfce7', color: '#15803d', padding: '4px 10px', borderRadius: '999px', fontWeight: '700', fontSize: '11px' }}>
+                      {row.metTargetMentees} / {row.totalMentees} ({row.targetCompletionPct}%)
+                    </span>
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+                    <button
+                      type="button"
+                      onClick={() => { setInspectingUsthadUsername(row.teacher.username); setOutreachActiveSubTab('directory'); }}
+                      style={{ padding: '6px 12px', background: '#eef2ff', color: '#4f46e5', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
+                    >
+                      👁️ View Mentees
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        /* MINIMALIST STUDENT MENTORSHIP TABLE */
+        <div style={{ ...styles.card, padding: 0, overflow: 'hidden' }}>
+          <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              placeholder="🔍 Search student name or Ad.No..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ ...styles.input, maxWidth: '300px', padding: '8px 12px', fontSize: '13px' }}
+            />
+            {inspectingUsthadUsername && (
+              <button type="button" onClick={() => setInspectingUsthadUsername('')} style={styles.buttonSecondary}>
+                ✕ Clear Usthad Filter (@{inspectingUsthadUsername})
+              </button>
+            )}
+          </div>
 
-                    return (
-                      <tr key={st.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: isChecked ? '#ccfbf1' : cMetrics.isEscalated ? '#fef2f2' : idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
+                  {canManageMentorAssignments && (isAdmin || isOutreachView) && (
+                    <th style={{ padding: '14px 12px', width: '40px' }}>
+                      <input
+                        type="checkbox"
+                        checked={displayStudents.length > 0 && displayStudents.every(s => selectedStudentRegs.includes(s.regNo))}
+                        onChange={toggleSelectAllDisplayed}
+                      />
+                    </th>
+                  )}
+                  <th style={{ padding: '14px 16px' }}>STUDENT NAME</th>
+                  <th style={{ padding: '14px 16px' }}>AD.NO</th>
+                  <th style={{ padding: '14px 16px' }}>CLASS &amp; MENTOR</th>
+                  {visibleCols.skills && <th style={{ padding: '14px 16px' }}>SKILLS &amp; PROFILE</th>}
+                  {visibleCols.contact && <th style={{ padding: '14px 16px' }}>CONTACT</th>}
+                  <th style={{ padding: '14px 16px' }}>SITTINGS STATUS</th>
+                  <th style={{ padding: '14px 16px', textAlign: 'right' }}>ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayStudents.map((st) => {
+                  const comp = computeStudentProfileCompletion(st);
+                  const cMetrics = getStudentConsultancyMetrics(st);
+                  const isChecked = selectedStudentRegs.includes(st.regNo);
+                  const isExpanded = expandedRowRegNo === st.regNo;
+
+                  if (outreachActiveSubTab === 'queue' && cMetrics.metTarget && !cMetrics.isEscalated) return null;
+
+                  return (
+                    <React.Fragment key={st.regNo}>
+                      <tr
+                        onClick={() => setExpandedRowRegNo(isExpanded ? null : st.regNo)}
+                        style={{ borderBottom: '1px solid #f1f5f9', background: isChecked || isExpanded ? '#f8fafc' : '#ffffff', cursor: 'pointer' }}
+                      >
                         {canManageMentorAssignments && (isAdmin || isOutreachView) && (
-                          <td style={{ padding: '14px 12px' }}>
+                          <td style={{ padding: '14px 12px' }} onClick={e => e.stopPropagation()}>
                             <input
                               type="checkbox"
                               checked={isChecked}
-                              onChange={() =>
-                                setSelectedStudentRegs(prev =>
-                                  prev.includes(st.regNo) ? prev.filter(r => r !== st.regNo) : [...prev, st.regNo]
-                                )
-                              }
+                              onChange={() => setSelectedStudentRegs(prev => prev.includes(st.regNo) ? prev.filter(r => r !== st.regNo) : [...prev, st.regNo])}
                             />
                           </td>
                         )}
-                        <td style={{ padding: '14px 16px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <ProfileAvatar name={st.firstName} code={st.adNo} photoUrl={st.photoUrl} size={42} onClick={() => { setModalInitialSection('log'); setEditingStudent(st); }} />
-                            <div>
-                              <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '15px' }}>{st.firstName}</div>
-                              <div style={{ fontSize: '12px', color: '#475569', fontWeight: '700' }}>Ad.No: #{st.adNo} • Reg: {st.regNo}</div>
-                              {isUrdu && <span style={{ ...styles.badge, background: '#fef3c7', color: '#b45309', marginTop: '4px' }}>URDU</span>}
-                            </div>
-                          </div>
-                        </td>
-
-                        <td style={{ padding: '14px 16px', fontSize: '12px', fontWeight: '800' }}>
-                          <div style={{ fontSize: '13px', marginBottom: '4px', color: '#0f172a' }}>{(st.classes || []).join(', ')} ({st.department || 'GENERAL'})</div>
+                        <td style={{ padding: '14px 16px', fontWeight: '700', color: '#0f172a' }}>{st.firstName}</td>
+                        <td style={{ padding: '14px 16px', color: '#475569', fontWeight: '600' }}>{st.adNo}</td>
+                        <td style={{ padding: '14px 16px' }} onClick={e => e.stopPropagation()}>
+                          <span style={{ fontWeight: '700', color: '#334155', marginRight: '8px' }}>{(st.classes || []).join(', ')}</span>
                           {canManageMentorAssignments && (isAdmin || isOutreachView) ? (
                             <select
                               value={st.mentorUsername || ''}
                               onChange={(e) => handleSingleStudentMentorChange(st, e.target.value)}
-                              style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #0d9488', fontSize: '12px', fontWeight: '700', background: '#ffffff', color: '#0f172a', maxWidth: '185px', marginBottom: '4px' }}
+                              style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px' }}
                             >
-                              <option value="">⚠️ Unassigned</option>
+                              <option value="">Unassigned</option>
                               {teachers.map(t => (
                                 <option key={t.username} value={t.username}>{t.fullName}</option>
                               ))}
                             </select>
                           ) : (
-                            <div style={{ color: '#0f766e', marginBottom: '2px' }}>
-                              🧭 Mentor: {actualMentor ? actualMentor.fullName : (st.mentorName || 'Unassigned')}
-                            </div>
+                            <span style={{ fontSize: '12px', color: '#64748b' }}>• {st.mentorName || st.mentorUsername || 'Unassigned'}</span>
                           )}
-                          <div style={{ color: '#1d4ed8' }}>🏫 CT: {autoCT ? autoCT.fullName : (st.classTeacherUsername || 'Unassigned')}</div>
                         </td>
+
+                        {visibleCols.skills && (
+                          <td style={{ padding: '14px 16px', fontSize: '12px', color: '#475569' }}>
+                            {(st.skills || []).length} Skills • {comp.pct}% Profile
+                          </td>
+                        )}
+                        {visibleCols.contact && (
+                          <td style={{ padding: '14px 16px', fontSize: '12px', color: '#475569' }}>
+                            {st.parentWhatsapp || st.parentMobile || '—'}
+                          </td>
+                        )}
 
                         <td style={{ padding: '14px 16px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                            <span style={{
-                              background: cMetrics.metTarget ? '#dcfce7' : cMetrics.count > 0 ? '#fef3c7' : '#fee2e2',
-                              color: cMetrics.metTarget ? '#166534' : cMetrics.count > 0 ? '#92400e' : '#991b1b',
-                              padding: '4px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '900'
-                            }}>
-                              {cMetrics.metTarget ? '✅' : '⏳'} {cMetrics.count} / {cMetrics.minReq} Sittings
-                            </span>
-                            {cMetrics.isEscalated && (
-                              <span style={{ background: '#dc2626', color: '#fff', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '900' }}>
-                                🚨 URGENT
-                              </span>
-                            )}
-                          </div>
-                          <div style={{ fontSize: '11px', color: '#475569', fontWeight: '700' }}>
-                            {cMetrics.lastDateStr
-                              ? `Last met: ${cMetrics.lastDateStr} (${cMetrics.daysSinceLast}d ago)`
-                              : '⚠️ No sitting logged yet'}
-                          </div>
+                          <span style={{
+                            background: cMetrics.metTarget ? '#dcfce7' : cMetrics.count > 0 ? '#fef3c7' : '#fff1f2',
+                            color: cMetrics.metTarget ? '#15803d' : cMetrics.count > 0 ? '#b45309' : '#e11d48',
+                            padding: '4px 10px',
+                            borderRadius: '999px',
+                            fontSize: '11px',
+                            fontWeight: '700'
+                          }}>
+                            {cMetrics.count} / {cMetrics.minReq} Sittings
+                          </span>
                         </td>
 
-                        <td style={{ padding: '14px 16px' }}>
-                          <div style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>
-                            🌟 {stSkills.length} Skills • 🏅 {stAch.length} Awards
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <div style={{ width: '90px', height: '7px', background: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
-                              <div style={{ width: `${comp.pct}%`, height: '100%', background: comp.isComplete ? '#10b981' : '#f59e0b' }} />
-                            </div>
-                            <span style={{ fontSize: '11px', fontWeight: '800', color: '#475569' }}>{comp.pct}% Profile</span>
-                          </div>
-                        </td>
-
-                        <td style={{ padding: '14px 16px', fontSize: '12px', color: '#334155', fontWeight: '600' }}>
-                          <div>📱 St: {st.whatsappNumber || st.mobileNumber || '—'}</div>
-                          <div>👨‍👩‍👦 Par: {st.parentWhatsapp || st.parentMobile || '—'}</div>
-                          <div style={{ color: '#64748b' }}>📍 {st.district || '—'}</div>
-                        </td>
-
-                        <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                        <td style={{ padding: '14px 16px', textAlign: 'right' }} onClick={e => e.stopPropagation()}>
+                          <div style={{ display: 'inline-flex', gap: '8px' }}>
                             <button
                               type="button"
                               onClick={() => { setModalInitialSection('log'); setEditingStudent(st); }}
-                              style={{ padding: '8px 12px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}
+                              style={{ padding: '6px 12px', background: '#eef2ff', color: '#4f46e5', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
                             >
-                              📝 Log Sitting ({cMetrics.count})
+                              📝 Log Sitting
                             </button>
                             <button
                               type="button"
-                              onClick={() => { setModalInitialSection('skills'); setEditingStudent(st); }}
-                              style={{ padding: '8px 12px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}
+                              onClick={() => setExpandedRowRegNo(isExpanded ? null : st.regNo)}
+                              style={{ padding: '6px 12px', background: '#f1f5f9', color: '#334155', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
                             >
-                              🏆 + Skill
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => openDirectWhatsApp(st.parentWhatsapp || st.parentMobile, `Assalamu Alaikum, official message regarding ${st.firstName} (#${st.adNo}) from DHIU Mentor/Outreach Desk:`)}
-                              style={{ padding: '8px 10px', background: '#dcfce7', color: '#166534', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}
-                            >
-                              💬 WA
+                              👁️ {isExpanded ? 'Hide' : 'View'}
                             </button>
                           </div>
                         </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-      </div>
+
+                      {isExpanded && (
+                        <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                          <td colSpan={8} style={{ padding: '16px 24px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+                              <div>
+                                <div style={{ fontWeight: '700', fontSize: '13px', color: '#0f172a' }}>
+                                  Latest Sitting: {cMetrics.lastDateStr || 'None'} • Profile Completion: {comp.pct}% • Skills: {(st.skills || []).join(', ') || 'None'}
+                                </div>
+                                {cMetrics.latestLog?.summary && (
+                                  <div style={{ fontSize: '12px', color: '#475569', marginTop: '4px' }}>
+                                    💬 "{cMetrics.latestLog.summary}"
+                                  </div>
+                                )}
+                              </div>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => { setModalInitialSection('skills'); setEditingStudent(st); }}
+                                  style={styles.buttonSecondary}
+                                >
+                                  🏆 Manage Skills &amp; Awards
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openDirectWhatsApp(st.parentWhatsapp || st.parentMobile, `Assalamu Alaikum, update regarding ${st.firstName} (#${st.adNo}):`)}
+                                  style={styles.buttonSecondary}
+                                >
+                                  💬 Parent WA
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

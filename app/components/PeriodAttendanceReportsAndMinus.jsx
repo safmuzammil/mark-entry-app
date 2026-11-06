@@ -42,6 +42,7 @@ export default function PeriodAttendanceReportsAndMinus({
   const [repSearch, setRepSearch] = useState('');
   const [dailySessionsCache, setDailySessionsCache] = useState([]);
   const [loadingReport, setLoadingReport] = useState(false);
+  const [showReportFilters, setShowReportFilters] = useState(false);
 
   // --- 2. MINUS ATTENDANCE STATE ---
   const [minusSubTab, setMinusSubTab] = useState('add'); // 'add' | 'manage' | 'excel'
@@ -96,7 +97,7 @@ export default function PeriodAttendanceReportsAndMinus({
     fetchDailySessionsForReport();
   }, [activeTab, repScope, repDate]);
 
-  // 🌟 Smart Teacher Ownership Matcher: Matches username, full name, OR shared distinctive name words (e.g. "MUZAMMIL HUDAWI" <-> "MUHAMMED MUZAMMIL P")
+  // Smart Teacher Ownership Matcher
   const canUserModifyMinusLog = (logItem) => {
     if (userRole === 'admin') return true;
     const myUser = String(loggedInUser?.username || activeTeacherObj?.username || '').trim().toLowerCase();
@@ -111,10 +112,7 @@ export default function PeriodAttendanceReportsAndMinus({
     const myTokens = myFullName.split(/[\s._-]+/).filter(w => w.length >= 4 && !stopWords.has(w));
     const issuerTokens = issuerName.split(/[\s._-]+/).filter(w => w.length >= 4 && !stopWords.has(w));
 
-    if (myTokens.length > 0 && issuerTokens.some(t => myTokens.includes(t))) {
-      return true;
-    }
-    return false;
+    return myTokens.length > 0 && issuerTokens.some(t => myTokens.includes(t));
   };
 
   const lastMinusToken = minusSearchQuery.split(',').pop().trim().toLowerCase();
@@ -128,11 +126,7 @@ export default function PeriodAttendanceReportsAndMinus({
     : [];
 
   const handleAddCommaSeparatedMinusStudents = () => {
-    const tokens = minusSearchQuery
-      .split(/[,;\n]+/)
-      .map(t => t.replace(/^#/, '').trim().toLowerCase())
-      .filter(Boolean);
-
+    const tokens = minusSearchQuery.split(/[,;\n]+/).map(t => t.replace(/^#/, '').trim().toLowerCase()).filter(Boolean);
     if (tokens.length === 0) return alert('Type one or more Admission Numbers or Student Names separated by commas.');
 
     const newlyFound = [];
@@ -166,10 +160,6 @@ export default function PeriodAttendanceReportsAndMinus({
     setSelectedMinusStudent(newlyFound[0]);
     setEditingMinusLog(null);
     setMinusSearchQuery('');
-
-    if (unmatchedTokens.length > 0) {
-      alert(`✅ Added ${newlyFound.length} student(s)! (Could not match: ${unmatchedTokens.join(', ')})`);
-    }
   };
 
   const handleSaveMinus = async (e) => {
@@ -178,15 +168,9 @@ export default function PeriodAttendanceReportsAndMinus({
 
     const targetStudents = editingMinusLog
       ? (selectedMinusStudent ? [selectedMinusStudent] : [])
-      : (selectedMinusStudentsList.length > 0
-          ? selectedMinusStudentsList
-          : selectedMinusStudent
-          ? [selectedMinusStudent]
-          : []);
+      : (selectedMinusStudentsList.length > 0 ? selectedMinusStudentsList : selectedMinusStudent ? [selectedMinusStudent] : []);
 
-    if (targetStudents.length === 0) {
-      return alert('Please select or add at least one student first.');
-    }
+    if (targetStudents.length === 0) return alert('Please select or add at least one student first.');
 
     setLoading(true);
     try {
@@ -202,12 +186,7 @@ export default function PeriodAttendanceReportsAndMinus({
 
         const updatedLogs = (curStat.minusLogs || []).map(l => {
           if (l.id === editingMinusLog.id) {
-            return {
-              ...l,
-              count: Number(minusCount),
-              reason: minusReason.trim(),
-              editedAt: new Date().toISOString().split('T')[0]
-            };
+            return { ...l, count: Number(minusCount), reason: minusReason.trim(), editedAt: new Date().toISOString().split('T')[0] };
           }
           return l;
         });
@@ -221,10 +200,8 @@ export default function PeriodAttendanceReportsAndMinus({
         setSelectedMinusStudentsList(prev => prev.map(x => x.regNo === updatedSt.regNo ? updatedSt : x));
         syncUpdatedStudentsState({ [st.regNo]: updatedSt });
 
-        setStatusMsg(`✅ Updated minus entry for ${st.firstName} to -${minusCount} period(s) ("${minusReason.trim()}").`);
-        setEditingMinusLog(null);
-        setMinusReason('');
-        setMinusCount(1);
+        setStatusMsg(`✅ Updated minus entry for ${st.firstName} to -${minusCount} period(s).`);
+        setEditingMinusLog(null); setMinusReason(''); setMinusCount(1);
       } else {
         const batch = writeBatch(db);
         const updatedMap = {};
@@ -259,11 +236,8 @@ export default function PeriodAttendanceReportsAndMinus({
         if (lastTarget) setSelectedMinusStudent(lastTarget);
         setSelectedMinusStudentsList(targetStudents.map(s => updatedMap[s.regNo] || s));
 
-        setStatusMsg(
-          `✅ Deducted -${minusCount} period(s) from ${targetStudents.length} student(s): ${targetStudents.map(s => `${s.firstName} (#${s.adNo})`).join(', ')}!`
-        );
-        setMinusReason('');
-        setMinusCount(1);
+        setStatusMsg(`✅ Deducted -${minusCount} period(s) from ${targetStudents.length} student(s)!`);
+        setMinusReason(''); setMinusCount(1);
       }
     } catch (error) {
       setStatusMsg('❌ Error: ' + error.message);
@@ -293,9 +267,7 @@ export default function PeriodAttendanceReportsAndMinus({
       syncUpdatedStudentsState({ [studentObj.regNo]: updatedSt });
 
       if (editingMinusLog?.id === logItem.id) {
-        setEditingMinusLog(null);
-        setMinusReason('');
-        setMinusCount(1);
+        setEditingMinusLog(null); setMinusReason(''); setMinusCount(1);
       }
       setStatusMsg(`✅ Minus entry deleted and ${logItem.count} period(s) restored!`);
     } catch (error) {
@@ -336,15 +308,7 @@ export default function PeriodAttendanceReportsAndMinus({
           const matchReason = String(log.reason || '').toLowerCase().includes(q);
           if (!matchName && !matchAd && !matchReason) return;
         }
-        rows.push({
-          studentObj: st,
-          rollNo: st.rollNo || 0,
-          studentName: st.firstName,
-          adNo: st.adNo,
-          className: (st.classes || []).join(', '),
-          isMine,
-          log
-        });
+        rows.push({ studentObj: st, rollNo: st.rollNo || 0, studentName: st.firstName, adNo: st.adNo, className: (st.classes || []).join(', '), isMine, log });
       });
     });
     return rows.sort((a, b) => String(b.log.date || '').localeCompare(String(a.log.date || '')));
@@ -352,14 +316,9 @@ export default function PeriodAttendanceReportsAndMinus({
 
   const handleExportMinusRecordsExcel = () => {
     const data = allFlattenedMinusRecords.map(r => ({
-      'Roll No': r.rollNo,
-      'Student Name': r.studentName,
-      'Admission No': r.adNo,
-      'Class': r.className,
-      'Minus': -Math.abs(Number(r.log.count) || 0),
-      'Reason': r.log.reason || '—',
-      'Date': r.log.date || '—',
-      'Issued By': r.log.issuedBy || 'Admin'
+      'Roll No': r.rollNo, 'Student Name': r.studentName, 'Admission No': r.adNo,
+      'Class': r.className, 'Minus': -Math.abs(Number(r.log.count) || 0),
+      'Reason': r.log.reason || '—', 'Date': r.log.date || '—', 'Issued By': r.log.issuedBy || 'Admin'
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -422,7 +381,6 @@ export default function PeriodAttendanceReportsAndMinus({
     }
   };
 
-  // --- 3. MULTI-STUDENT COMMA-SEPARATED CLEARANCE FUNCTIONS ---
   const toggleClearanceSubject = (sub) => {
     setClearSelectedSubjects(prev => prev.includes(sub) ? prev.filter(s => s !== sub) : [...prev, sub]);
   };
@@ -430,11 +388,7 @@ export default function PeriodAttendanceReportsAndMinus({
   const handleFetchStudentForClearance = () => {
     if (!clearAdNo.trim()) return alert('Please enter one or more Student Admission Numbers (e.g. 3551, U1107).');
 
-    const tokens = clearAdNo
-      .split(/[,;\n]+/)
-      .map(t => t.replace(/^#/, '').trim().toUpperCase())
-      .filter(Boolean);
-
+    const tokens = clearAdNo.split(/[,;\n]+/).map(t => t.replace(/^#/, '').trim().toUpperCase()).filter(Boolean);
     const foundStudents = [];
     const unmatched = [];
 
@@ -466,9 +420,7 @@ export default function PeriodAttendanceReportsAndMinus({
       Object.entries(subWise).forEach(([subKey, sObj]) => {
         const absDates = Array.isArray(sObj.absentDates) ? sObj.absentDates : [];
         const hasAbsenceInScope = absDates.some(d =>
-          clearDateMode === 'single'
-            ? d === clearDate
-            : ((!clearStartDate || d >= clearStartDate) && (!clearEndDate || d <= clearEndDate))
+          clearDateMode === 'single' ? d === clearDate : ((!clearStartDate || d >= clearStartDate) && (!clearEndDate || d <= clearEndDate))
         );
         if (hasAbsenceInScope) subSet.add(subKey);
       });
@@ -477,10 +429,6 @@ export default function PeriodAttendanceReportsAndMinus({
     const matchedSubs = Array.from(subSet);
     setFetchedAbsentSubjects(matchedSubs);
     setShowAllClearSubjects(matchedSubs.length === 0);
-
-    if (unmatched.length > 0) {
-      alert(`✅ Fetched ${foundStudents.length} student(s)! (Could not find: ${unmatched.join(', ')})`);
-    }
   };
 
   const handleSaveClearance = async (e) => {
@@ -566,8 +514,7 @@ export default function PeriodAttendanceReportsAndMinus({
         await batch.commit();
       }
       syncUpdatedStudentsState(updatedMap);
-      setDeleteAllPassword('');
-      setDeleteAllConfirmText('');
+      setDeleteAllPassword(''); setDeleteAllConfirmText('');
       setStatusMsg('✅ All student period attendance records have been reset.');
     } catch (err) {
       alert('Error deleting attendance: ' + err.message);
@@ -576,7 +523,6 @@ export default function PeriodAttendanceReportsAndMinus({
     }
   };
 
-  // --- 4. OLD SHUHOOD IMPORTER & REHEARSAL AUTO-CLEARANCE ---
   const fetchRehearsalCreditsByRegAndDate = async () => {
     const cacheSnap = await getDocs(collection(db, 'systemCache'));
     const map = {};
@@ -837,7 +783,6 @@ export default function PeriodAttendanceReportsAndMinus({
 
       {/* ============================================================
           VIEW A: SHUHOOD-STYLE MONTHLY, DAILY & TOTAL REPORTS HUB
-          (Strictly Scoped to Teacher's Own Subjects & Students when userRole !== 'admin'!)
          ============================================================ */}
       {activeTab === 'reports_hub' && (() => {
         const teacherAllowedClassesSet = new Set();
@@ -957,13 +902,22 @@ export default function PeriodAttendanceReportsAndMinus({
                     : `Showing summaries strictly for your ${subjectColsSet.size} assigned subject(s) and enrolled students.`}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleExportReportMatrixExcel}
-                style={{ padding: '11px 20px', background: '#059669', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '13px', cursor: 'pointer' }}
-              >
-                ⬇️ Export Excel
-              </button>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowReportFilters(prev => !prev)}
+                  style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #cbd5e1', background: showReportFilters ? '#4f46e5' : '#ffffff', color: showReportFilters ? '#ffffff' : '#334155', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}
+                >
+                  🎛️ {showReportFilters ? 'Hide Filters' : 'Filter Options'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportReportMatrixExcel}
+                  style={{ padding: '11px 20px', background: '#059669', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '13px', cursor: 'pointer' }}
+                >
+                  ⬇️ Export Excel
+                </button>
+              </div>
             </div>
 
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', background: '#f8fafc', padding: '14px 18px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
@@ -1000,72 +954,75 @@ export default function PeriodAttendanceReportsAndMinus({
                   onChange={e => setRepMinusMode(e.target.value)}
                   style={{ ...styles.input, width: 'auto', padding: '8px 12px', fontSize: '12px', fontWeight: '800' }}
                 >
-                  <option value="both">Show Both (Gross % &amp; Minus Affected %)</option>
+                  <option value="both">Show Both (Gross % &amp; Net %)</option>
                   <option value="with_minus">Minus Affected Only (Net %)</option>
                   <option value="without_minus">Without Minus Only (Gross %)</option>
                 </select>
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: '14px', alignItems: 'end', background: '#ffffff', padding: '18px', borderRadius: '14px', border: '1px solid #cbd5e1' }}>
-              <div>
-                <label style={styles.label}>Select Class:</label>
-                <select value={repClass} onChange={e => setRepClass(e.target.value)} style={styles.input}>
-                  <option value="ALL">{userRole === 'admin' ? 'All Classes' : `All My Classes (${availableClassesForDropdown.length})`}</option>
-                  {availableClassesForDropdown.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-
-              {repScope === 'monthly' && (
+            {/* 🌟 TOGGLEABLE ADVANCED FILTERS GRID */}
+            {showReportFilters && (
+              <div className="erp-slide-panel" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: '14px', alignItems: 'end', background: '#ffffff', padding: '18px', borderRadius: '14px', border: '1px solid #cbd5e1' }}>
                 <div>
-                  <label style={styles.label}>Select Month:</label>
-                  <input type="month" value={repMonth} onChange={e => setRepMonth(e.target.value)} style={styles.input} />
-                </div>
-              )}
-
-              {repScope === 'daily' && (
-                <div>
-                  <label style={styles.label}>Select Specific Date:</label>
-                  <input type="date" value={repDate} onChange={e => setRepDate(e.target.value)} style={styles.input} />
-                </div>
-              )}
-
-              {userRole === 'admin' && (
-                <div>
-                  <label style={styles.label}>Filter by Teacher:</label>
-                  <select value={repTeacher} onChange={e => { setRepTeacher(e.target.value); setRepSubject('ALL'); }} style={styles.input}>
-                    <option value="ALL">All Teachers</option>
-                    {localTeachers.filter(t => !t.isEventLeader).map(t => (
-                      <option key={t.username} value={t.username}>{t.fullName}</option>
-                    ))}
+                  <label style={styles.label}>Select Class:</label>
+                  <select value={repClass} onChange={e => setRepClass(e.target.value)} style={styles.input}>
+                    <option value="ALL">{userRole === 'admin' ? 'All Classes' : `All My Classes (${availableClassesForDropdown.length})`}</option>
+                    {availableClassesForDropdown.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
-              )}
 
-              <div>
-                <label style={styles.label}>{userRole === 'admin' ? 'Filter by Subject:' : 'My Subjects:'}</label>
-                <select value={repSubject} onChange={e => setRepSubject(e.target.value)} style={styles.input}>
-                  <option value="ALL">{userRole === 'admin' ? `All Subjects (${subjectColsSet.size})` : `All My Subjects (${subjectColsSet.size})`}</option>
-                  {Array.from(subjectColsSet).map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
+                {repScope === 'monthly' && (
+                  <div>
+                    <label style={styles.label}>Select Month:</label>
+                    <input type="month" value={repMonth} onChange={e => setRepMonth(e.target.value)} style={styles.input} />
+                  </div>
+                )}
 
-              <div>
-                <label style={styles.label}>Search Student:</label>
-                <input type="text" value={repSearch} onChange={e => setRepSearch(e.target.value)} placeholder="Name or Ad.No..." style={styles.input} />
+                {repScope === 'daily' && (
+                  <div>
+                    <label style={styles.label}>Select Specific Date:</label>
+                    <input type="date" value={repDate} onChange={e => setRepDate(e.target.value)} style={styles.input} />
+                  </div>
+                )}
+
+                {userRole === 'admin' && (
+                  <div>
+                    <label style={styles.label}>Filter by Teacher:</label>
+                    <select value={repTeacher} onChange={e => { setRepTeacher(e.target.value); setRepSubject('ALL'); }} style={styles.input}>
+                      <option value="ALL">All Teachers</option>
+                      {localTeachers.filter(t => !t.isEventLeader).map(t => (
+                        <option key={t.username} value={t.username}>{t.fullName}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label style={styles.label}>{userRole === 'admin' ? 'Filter by Subject:' : 'My Subjects:'}</label>
+                  <select value={repSubject} onChange={e => setRepSubject(e.target.value)} style={styles.input}>
+                    <option value="ALL">{userRole === 'admin' ? `All Subjects (${subjectColsSet.size})` : `All My Subjects (${subjectColsSet.size})`}</option>
+                    {Array.from(subjectColsSet).map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={styles.label}>Search Student:</label>
+                  <input type="text" value={repSearch} onChange={e => setRepSearch(e.target.value)} placeholder="Name or Ad.No..." style={styles.input} />
+                </div>
               </div>
-            </div>
+            )}
 
             {repScope === 'daily' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div style={{ fontWeight: '900', fontSize: '15px', color: '#0f172a' }}>
-                  📅 Recorded Period Sessions on {repDate}
+                  📅 Recorded Period Sessions on {repDate} ({dailySessionsCache.length} Sessions Found)
                 </div>
                 {loadingReport ? (
-                  <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>Loading sessions...</div>
-                ) : dailySessionsCache.filter(s => userRole === 'admin' || s.teacherUsername === loggedInUser?.username).length === 0 ? (
+                  <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>Loading sessions for {repDate}...</div>
+                ) : dailySessionsCache.length === 0 ? (
                   <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>
-                    No period sessions recorded for {repDate} yet.
+                    No period sessions recorded in the new portal for {repDate} yet.
                   </div>
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
@@ -1105,7 +1062,7 @@ export default function PeriodAttendanceReportsAndMinus({
                               }}
                               style={{ padding: '8px 12px', background: '#f59e0b', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
                             >
-                              ✏️ Edit
+                              ✏️ Edit Session
                             </button>
                           </div>
                         );
@@ -1116,13 +1073,12 @@ export default function PeriodAttendanceReportsAndMinus({
             )}
 
             <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '14px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', minWidth: '880px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', minWidth: '900px' }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '900', textTransform: 'uppercase' }}>
                     <th style={{ padding: '14px 12px' }}>#</th>
                     <th style={{ padding: '14px 12px' }}>STUDENT NAME</th>
                     <th style={{ padding: '14px 12px' }}>ADMISSION NO</th>
-                    <th style={{ padding: '14px 12px' }}>CLASS</th>
                     {(repMinusMode === 'both' || repMinusMode === 'without_minus') && (
                       <th style={{ padding: '14px 12px', textAlign: 'center' }}>GROSS % (NO MINUS)</th>
                     )}
@@ -1166,8 +1122,7 @@ export default function PeriodAttendanceReportsAndMinus({
                       <tr key={st.regNo} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#ffffff' : '#fcfdff' }}>
                         <td style={{ padding: '14px 12px', color: '#64748b', fontWeight: '700' }}>{idx + 1}</td>
                         <td style={{ padding: '14px 12px', fontWeight: '800', color: '#0f172a' }}>{st.firstName}</td>
-                        <td style={{ padding: '14px 12px', fontWeight: '700', color: '#475569' }}>#{st.adNo}</td>
-                        <td style={{ padding: '14px 12px', fontWeight: '800', color: '#0f766e' }}>{(st.classes || []).join(', ')}</td>
+                        <td style={{ padding: '14px 12px', fontWeight: '700', color: '#475569' }}>{st.adNo}</td>
 
                         {(repMinusMode === 'both' || repMinusMode === 'without_minus') && (
                           <td style={{ padding: '14px 12px', textAlign: 'center' }}>
@@ -1225,7 +1180,7 @@ export default function PeriodAttendanceReportsAndMinus({
       })()}
 
       {/* ============================================================
-          VIEW B: MINUS ATTENDANCE (With High-Contrast Readable Search Pills!)
+          VIEW 2: MINUS ATTENDANCE (With High-Contrast Search Pills)
          ============================================================ */}
       {activeTab === 'minus_attendance' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -1246,9 +1201,9 @@ export default function PeriodAttendanceReportsAndMinus({
 
           <div style={{ display: 'inline-flex', background: '#e2e8f0', padding: '5px', borderRadius: '12px', gap: '6px', alignSelf: 'flex-start', flexWrap: 'wrap' }}>
             {[
-              { id: 'add', label: '➕ Add Records' },
-              ...(userRole === 'admin' ? [{ id: 'excel', label: '📤 Excel Upload' }] : []),
-              { id: 'manage', label: `📋 Manage Records (${allFlattenedMinusRecords.length})` }
+              { id: 'add', label: 'Add Records' },
+              ...(userRole === 'admin' ? [{ id: 'excel', label: 'Excel Upload' }] : []),
+              { id: 'manage', label: `Manage Records (${allFlattenedMinusRecords.length})` }
             ].map(t => (
               <button
                 key={t.id}
@@ -1271,14 +1226,18 @@ export default function PeriodAttendanceReportsAndMinus({
           </div>
 
           {minusSubTab === 'add' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: '24px' }}>
-              <div style={{ background: '#ffffff', padding: '24px', borderRadius: '18px', border: editingMinusLog ? '2px solid #f59e0b' : '1px solid #cbd5e1' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '24px' }}>
+              <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: editingMinusLog ? '2px solid #f59e0b' : '1px solid #cbd5e1' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                   <h3 style={{ margin: 0, fontSize: '18px', color: editingMinusLog ? '#b45309' : '#dc2626', fontWeight: '900' }}>
                     {editingMinusLog ? `✏️ Edit Minus Entry (${editingMinusLog.date})` : '⚠️ Issue Disciplinary Minus Attendance'}
                   </h3>
                   {editingMinusLog && (
-                    <button type="button" onClick={() => { setEditingMinusLog(null); setMinusCount(1); setMinusReason(''); }} style={{ padding: '5px 10px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '6px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}>
+                    <button
+                      type="button"
+                      onClick={() => { setEditingMinusLog(null); setMinusCount(1); setMinusReason(''); }}
+                      style={{ padding: '5px 10px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '6px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                    >
                       ✕ Cancel Edit
                     </button>
                   )}
@@ -1298,7 +1257,7 @@ export default function PeriodAttendanceReportsAndMinus({
                             handleAddCommaSeparatedMinusStudents();
                           }
                         }}
-                        placeholder="e.g. 3551, U1434, Salmanul Faris..."
+                        placeholder="e.g. U1434, 3527, Salmanul Faris..."
                         style={{ ...styles.input, flex: 1 }}
                       />
                       <button
@@ -1310,9 +1269,8 @@ export default function PeriodAttendanceReportsAndMinus({
                       </button>
                     </div>
 
-                    {/* 🌟 HIGH-CONTRAST READABLE SEARCH PILLS (Dark text #0f172a on white/teal background!) */}
                     {matchingMinusStudents.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '10px' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
                         {matchingMinusStudents.map(st => {
                           const isAdded = selectedMinusStudentsList.some(x => x.regNo === st.regNo);
                           return (
@@ -1328,20 +1286,14 @@ export default function PeriodAttendanceReportsAndMinus({
                                 else { setMinusSearchQuery(''); }
                               }}
                               style={{
-                                padding: '8px 12px',
-                                borderRadius: '10px',
-                                border: isAdded ? '2px solid #0f766e' : '1.5px solid #475569',
-                                backgroundColor: isAdded ? '#ccfbf1' : '#ffffff',
+                                padding: '8px 12px', borderRadius: '8px',
+                                border: isAdded ? '2px solid #0f766e' : '1.5px solid #64748b',
+                                background: isAdded ? '#ccfbf1' : '#ffffff',
                                 color: isAdded ? '#065f46' : '#0f172a',
-                                fontWeight: '900',
-                                cursor: 'pointer',
-                                fontSize: '13px',
-                                boxShadow: '0 2px 6px rgba(15, 23, 42, 0.08)'
+                                fontWeight: '900', cursor: 'pointer', fontSize: '13px'
                               }}
                             >
-                              <span style={{ color: isAdded ? '#065f46' : '#0f172a' }}>
-                                {isAdded ? '✓ ' : '+ '}{st.firstName} (#{st.adNo} • {(st.classes || []).join(',')})
-                              </span>
+                              {isAdded ? '✓ ' : '+ '}{st.firstName} (#{st.adNo} • {(st.classes || []).join(',')})
                             </button>
                           );
                         })}
@@ -1350,7 +1302,7 @@ export default function PeriodAttendanceReportsAndMinus({
                   </div>
 
                   {selectedMinusStudentsList.length > 0 && (
-                    <div style={{ padding: '12px 14px', background: '#f0fdfa', border: '1.5px solid #0d9488', borderRadius: '12px' }}>
+                    <div style={{ padding: '12px 14px', background: '#f0fdfa', border: '1.5px solid #0d9488', borderRadius: '10px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                         <span style={{ color: '#0f766e', fontWeight: '900', fontSize: '13px' }}>
                           🎯 Selected Students ({selectedMinusStudentsList.length}):
@@ -1390,7 +1342,7 @@ export default function PeriodAttendanceReportsAndMinus({
                 </form>
               </div>
 
-              <div style={{ background: '#ffffff', padding: '24px', borderRadius: '18px', border: '1px solid #cbd5e1' }}>
+              <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
                 <h3 style={{ margin: '0 0 6px 0', fontSize: '18px', color: '#0f172a', fontWeight: '900' }}>📜 Selected Student's Minus History</h3>
                 <p style={{ margin: '0 0 14px 0', fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
                   🔒 Only the teacher who issued a minus (or Admin) can edit or delete it.
@@ -1447,7 +1399,7 @@ export default function PeriodAttendanceReportsAndMinus({
                 <div>
                   <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '900', color: '#0f172a' }}>All Records</h3>
                   <div style={{ fontSize: '13px', color: '#64748b', fontWeight: '600' }}>
-                    {allFlattenedMinusRecords.length} records shown
+                    {allFlattenedMinusRecords.length} records total {userRole !== 'admin' ? '(Issued by You)' : ''}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1455,9 +1407,9 @@ export default function PeriodAttendanceReportsAndMinus({
                     <select
                       value={minusTeacherFilter}
                       onChange={e => setMinusTeacherFilter(e.target.value)}
-                      style={{ ...styles.input, width: 'auto', padding: '9px 12px', fontSize: '13px', fontWeight: '800' }}
+                      style={{ ...styles.input, width: 'auto', padding: '9px 12px', fontSize: '12px', fontWeight: '800' }}
                     >
-                      <option value="ALL">👤 Issued by Me</option>
+                      <option value="ALL">👤 Issued by Me Only</option>
                       <option value="ALL_STUDENTS">🏫 All My Students' Minuses</option>
                     </select>
                   )}
@@ -1466,7 +1418,7 @@ export default function PeriodAttendanceReportsAndMinus({
                     value={minusTableSearch}
                     onChange={e => setMinusTableSearch(e.target.value)}
                     placeholder="🔍 Search by name or admission no."
-                    style={{ ...styles.input, width: '250px', padding: '9px 14px', fontSize: '13px' }}
+                    style={{ ...styles.input, width: '260px', padding: '9px 14px', fontSize: '13px' }}
                   />
                   <button
                     type="button"
@@ -1507,33 +1459,31 @@ export default function PeriodAttendanceReportsAndMinus({
                         <td style={{ padding: '14px', color: '#64748b' }}>{item.log.date}</td>
                         <td style={{ padding: '14px', color: '#64748b', fontSize: '12px', fontWeight: '700' }}>{item.log.issuedBy}</td>
                         <td style={{ padding: '14px', textAlign: 'right' }}>
-                          {item.isMine ? (
-                            <div style={{ display: 'inline-flex', gap: '6px' }}>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedMinusStudent(item.studentObj);
-                                  setSelectedMinusStudentsList([item.studentObj]);
-                                  setEditingMinusLog(item.log);
-                                  setMinusCount(item.log.count);
-                                  setMinusReason(item.log.reason);
-                                  setMinusSubTab('add');
-                                }}
-                                style={{ padding: '6px 10px', background: '#e0e7ff', color: '#4f46e5', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-                              >
-                                ✏️
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteMinus(item.studentObj, item.log)}
-                                style={{ padding: '6px 10px', background: '#ffe4e6', color: '#e11d48', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-                              >
-                                🗑️
-                              </button>
-                            </div>
-                          ) : (
-                            <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '700' }}>🔒 Locked</span>
-                          )}
+                          <div style={{ display: 'inline-flex', gap: '6px' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedMinusStudent(item.studentObj);
+                                setSelectedMinusStudentsList([item.studentObj]);
+                                setEditingMinusLog(item.log);
+                                setMinusCount(item.log.count);
+                                setMinusReason(item.log.reason);
+                                setMinusSubTab('add');
+                              }}
+                              style={{ padding: '6px 10px', background: '#e0e7ff', color: '#4f46e5', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+                              title="Edit Minus"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteMinus(item.studentObj, item.log)}
+                              style={{ padding: '6px 10px', background: '#ffe4e6', color: '#e11d48', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+                              title="Delete Minus"
+                            >
+                              🗑️
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1546,23 +1496,23 @@ export default function PeriodAttendanceReportsAndMinus({
       )}
 
       {/* ============================================================
-          VIEW C: 3-STEP MULTI-STUDENT COMMA CLEARANCE + COMPLETE DELETE
+          VIEW 3: 3-STEP CLEARANCE & SHORTAGE
          ============================================================ */}
       {activeTab === 'clearance' && userRole === 'admin' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '880px' }}>
-          <div style={{ background: 'linear-gradient(135deg, #0f172a 0%, #064e3b 65%, #0f172a 100%)', color: '#ffffff', padding: '26px 30px', borderRadius: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '22px', maxWidth: '880px' }}>
+          <div style={{ background: 'linear-gradient(135deg, #0f172a 0%, #064e3b 65%, #0f172a 100%)', color: '#ffffff', padding: '28px 32px', borderRadius: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ fontSize: '11px', fontWeight: '800', letterSpacing: '1px', color: '#6ee7b7', textTransform: 'uppercase' }}>DAILY FOCUS</div>
-              <h2 style={{ margin: '4px 0 6px', fontSize: '26px', fontWeight: '900', color: '#ffffff' }}>Attendance Clearance</h2>
-              <p style={{ margin: 0, fontSize: '13px', color: '#cbd5e1' }}>
-                Select a date scope, enter one or multiple comma-separated Admission Numbers, fetch absent subjects, and apply clearance.
+              <h2 style={{ margin: '4px 0 6px', fontSize: '28px', fontWeight: '900', color: '#ffffff' }}>Attendance Clearance</h2>
+              <p style={{ margin: 0, fontSize: '14px', color: '#cbd5e1' }}>
+                Select a date scope, fetch absent subjects, and apply official, medical, or permitted clearance with better control.
               </p>
             </div>
             <div style={{ width: '48px', height: '48px', borderRadius: '14px', background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px' }}>🛡️</div>
           </div>
 
           <div style={{ background: '#ffffff', padding: '24px', borderRadius: '18px', border: '1px solid #e2e8f0' }}>
-            <h4 style={{ margin: '0 0 14px 0', fontSize: '15px', fontWeight: '900', color: '#0f172a' }}>Step 1: Date Scope &amp; Student Admission Number(s)</h4>
+            <h4 style={{ margin: '0 0 14px 0', fontSize: '15px', fontWeight: '900', color: '#0f172a' }}>Step 1: Date Scope</h4>
             <div style={{ display: 'flex', gap: '10px', marginBottom: '18px' }}>
               <button
                 type="button"
@@ -1614,7 +1564,7 @@ export default function PeriodAttendanceReportsAndMinus({
                 value={clearAdNo}
                 onChange={e => setClearAdNo(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleFetchStudentForClearance(); } }}
-                placeholder="Enter Admission Number(s) separated by comma (e.g. 3448, 3551, U1107)..."
+                placeholder="Enter Student Admission Number (e.g. 3551)..."
                 style={{ ...styles.input, flex: 1 }}
               />
               <button
@@ -1630,7 +1580,7 @@ export default function PeriodAttendanceReportsAndMinus({
           {fetchedClearStudentsList.length > 0 && (
             <form onSubmit={handleSaveClearance} style={{ background: '#ffffff', padding: '24px', borderRadius: '18px', border: '1px solid #cbd5e1' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px', marginBottom: '20px' }}>
-                <div style={{ flex: 1 }}>
+                <div>
                   <h4 style={{ margin: '0 0 10px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
                     👤 Student Information ({fetchedClearStudentsList.length} Matched)
                   </h4>
@@ -1657,7 +1607,7 @@ export default function PeriodAttendanceReportsAndMinus({
                     onClick={() => setShowAllClearSubjects(prev => !prev)}
                     style={{ background: 'transparent', border: 'none', color: '#0284c7', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}
                   >
-                    {showAllClearSubjects ? 'Show Only Recorded Absent Subjects' : 'Show All Class Subjects'}
+                    {showAllClearSubjects ? 'Show Only Recorded Absent Subjects on Date' : 'Show All Class Subjects'}
                   </button>
                 </div>
 
@@ -1701,20 +1651,18 @@ export default function PeriodAttendanceReportsAndMinus({
                     disabled={loading || clearSelectedSubjects.length === 0}
                     style={{ padding: '12px 24px', background: clearSelectedSubjects.length > 0 ? '#0f172a' : '#94a3b8', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '14px', cursor: clearSelectedSubjects.length > 0 ? 'pointer' : 'not-allowed' }}
                   >
-                    Apply Clearance ({fetchedClearStudentsList.length} Student{fetchedClearStudentsList.length > 1 ? 's' : ''})
+                    Apply Clearance
                   </button>
                 </div>
               </div>
             </form>
           )}
 
-          <CollapsibleCard
-            title="Complete Attendance Delete (High-Risk Action)"
-            subtitle="Permanently resets all period attendance records; requires Admin confirmation"
-            icon="🗑️"
-            accentColor="#e11d48"
-            defaultOpen={false}
-          >
+          <div style={{ background: '#ffffff', padding: '24px', borderRadius: '18px', border: '1.5px solid #fecaca' }}>
+            <h4 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>Complete Attendance Delete</h4>
+            <p style={{ margin: '0 0 14px 0', fontSize: '12px', color: '#64748b' }}>
+              Deletes all attendance records. Password verification is required.
+            </p>
             <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', padding: '18px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
                 <label style={{ ...styles.label, fontSize: '11px' }}>Account Password</label>
@@ -1724,19 +1672,19 @@ export default function PeriodAttendanceReportsAndMinus({
                 <label style={{ ...styles.label, fontSize: '11px' }}>Type confirmation: DELETE ALL</label>
                 <input type="text" value={deleteAllConfirmText} onChange={e => setDeleteAllConfirmText(e.target.value)} placeholder="DELETE ALL" style={styles.input} />
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <button type="button" onClick={handleCompleteAttendanceDeleteAll} style={{ padding: '11px 20px', background: '#e11d48', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '13px', cursor: 'pointer' }}>
-                  🗑️ Delete Attendance
-                </button>
-              </div>
             </div>
-          </CollapsibleCard>
+            <div style={{ marginTop: '14px', textAlign: 'right' }}>
+              <button type="button" onClick={handleCompleteAttendanceDeleteAll} style={{ padding: '11px 20px', background: '#e11d48', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '13px', cursor: 'pointer' }}>
+                🗑️ Delete Attendance
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
       {/* VIEW D: SHORTAGE REPORT (<85%) */}
       {activeTab === 'shortage' && (
-        <div style={{ background: '#ffffff', padding: '24px', borderRadius: '18px', border: '1px solid #cbd5e1' }}>
+        <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', flexWrap: 'wrap', gap: '12px' }}>
             <h3 style={{ margin: 0, fontSize: '19px', color: '#d97706', fontWeight: '900' }}>
               📉 Below 85% Attendance Shortage List ({shortageList.length} Students)
@@ -1786,7 +1734,7 @@ export default function PeriodAttendanceReportsAndMinus({
 
       {/* VIEW E: OLD SHUHOOD IMPORTER */}
       {activeTab === 'import_old' && userRole === 'admin' && (
-        <div style={{ background: '#ffffff', padding: '24px', borderRadius: '18px', border: '1px solid #cbd5e1', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1', display: 'flex', flexDirection: 'column', gap: '18px' }}>
           <div>
             <h3 style={{ margin: '0 0 8px 0', fontSize: '19px', color: '#4f46e5', fontWeight: '900' }}>
               📂 Import Old Shuhood Data (JSON or Excel)

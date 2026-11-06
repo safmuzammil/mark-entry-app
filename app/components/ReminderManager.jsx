@@ -15,7 +15,11 @@ export default function ReminderManager() {
   const [trackerData, setTrackerData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Staff WhatsApp Group Link State
+  // Minimalist Top Panel & Filter States
+  const [activeTopPanel, setActiveTopPanel] = useState('none'); // 'none' | 'config' | 'whatsapp'
+  const [statusFilter, setStatusFilter] = useState('All'); // 'All' | 'Pending' | 'Completed'
+  const [searchQuery, setSearchQuery] = useState('');
+
   const [staffGroupLink, setStaffGroupLink] = useState('');
   const [editingGroupLink, setEditingGroupLink] = useState(false);
 
@@ -161,7 +165,8 @@ export default function ReminderManager() {
       active: isActive,
       updatedAt: new Date().toISOString()
     });
-    alert('Reminder settings updated and broadcasted to teachers & students!');
+    setActiveTopPanel('none');
+    alert('✅ Reminder settings updated and broadcasted to portals!');
     fetchTrackerData();
   };
 
@@ -229,25 +234,117 @@ export default function ReminderManager() {
     });
   };
 
-  return (
-    <div style={styles.card}>
-      <h3 style={styles.sectionTitle}>📅 Weekly Mark Entry Reminder &amp; Staff WhatsApp Group Tracker</h3>
+  const completedCount = trackerData.filter(r => r.missingCount === 0).length;
+  const pendingCount = trackerData.length - completedCount;
+  const completionPct = trackerData.length > 0 ? Math.round((completedCount / trackerData.length) * 100) : 0;
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '24px', background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px' }}>
-          <div style={{ flex: '1 1 150px' }}>
-            <label style={styles.label}>Academic Week:</label>
-            <input type="text" value={weekName} onChange={(e) => setWeekName(e.target.value)} placeholder="e.g. Week 3" style={styles.input} />
-          </div>
-          <div style={{ flex: '2 1 300px' }}>
-            <label style={styles.label}>Reminder Message for Teachers &amp; Students:</label>
-            <input type="text" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="e.g. Please complete your mark entry for this week." style={styles.input} />
-          </div>
+  const filteredTrackerRows = trackerData.filter(row => {
+    if (statusFilter === 'Pending' && row.missingCount === 0) return false;
+    if (statusFilter === 'Completed' && row.missingCount > 0) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      if (!row.teacherName?.toLowerCase().includes(q) && !row.subject?.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+      {/* 🌟 MINIMALIST TOP ACTION BAR */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <span style={{
+            background: isActive ? '#dcfce7' : '#f1f5f9',
+            color: isActive ? '#15803d' : '#475569',
+            padding: '5px 12px',
+            borderRadius: '999px',
+            fontSize: '12px',
+            fontWeight: '700'
+          }}>
+            {isActive ? `● Active (${weekName})` : '○ Paused'}
+          </span>
+          <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '500' }}>
+            {message}
+          </span>
         </div>
 
-        <div>
-          <label style={styles.label}>Select Subjects &amp; Check One or Multiple Levels:</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', background: '#ffffff', padding: '20px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => setActiveTopPanel(activeTopPanel === 'config' ? 'none' : 'config')}
+            style={{
+              padding: '9px 16px',
+              background: activeTopPanel === 'config' ? '#4f46e5' : '#ffffff',
+              color: activeTopPanel === 'config' ? '#ffffff' : '#0f172a',
+              border: '1px solid #cbd5e1',
+              borderRadius: '8px',
+              fontWeight: '700',
+              fontSize: '13px',
+              cursor: 'pointer'
+            }}
+          >
+            ⚙️ Configure Targets ({Object.keys(targetConfigs).length})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTopPanel(activeTopPanel === 'whatsapp' ? 'none' : 'whatsapp')}
+            style={{
+              padding: '9px 16px',
+              background: activeTopPanel === 'whatsapp' ? '#eef2ff' : '#ffffff',
+              color: '#4f46e5',
+              border: '1px solid #c7d2fe',
+              borderRadius: '8px',
+              fontWeight: '700',
+              fontSize: '13px',
+              cursor: 'pointer'
+            }}
+          >
+            💬 Staff WA Reminder
+          </button>
+        </div>
+      </div>
+
+      {/* 🌟 MARKS-AUDITOR STYLE SOFT PASTEL KPI ROW */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+        <div onClick={() => setStatusFilter('All')} style={{ padding: '18px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center', cursor: 'pointer' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#475569' }}>TARGETED BATCHES</span>
+          <div style={{ fontSize: '26px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>{trackerData.length}</div>
+        </div>
+        <div onClick={() => setStatusFilter('Completed')} style={{ padding: '18px', borderRadius: '12px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center', cursor: 'pointer' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857' }}>COMPLETED (100%)</span>
+          <div style={{ fontSize: '26px', fontWeight: '900', color: '#065f46', marginTop: '4px' }}>{completedCount}</div>
+        </div>
+        <div onClick={() => setStatusFilter('Pending')} style={{ padding: '18px', borderRadius: '12px', background: '#fff1f2', border: '1px solid #fecdd3', textAlign: 'center', cursor: 'pointer' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#be123c' }}>MISSING / PENDING</span>
+          <div style={{ fontSize: '26px', fontWeight: '900', color: '#e11d48', marginTop: '4px' }}>{pendingCount}</div>
+        </div>
+        <div style={{ padding: '18px', borderRadius: '12px', background: '#eff6ff', border: '1px solid #bfdbfe', textAlign: 'center' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#1d4ed8' }}>COMPLETION RATE</span>
+          <div style={{ fontSize: '26px', fontWeight: '900', color: '#2563eb', marginTop: '4px' }}>{completionPct}%</div>
+        </div>
+      </div>
+
+      {/* PANEL 1: CONFIGURE TARGETS (Opens only when clicked) */}
+      {activeTopPanel === 'config' && (
+        <div className="erp-slide-panel" style={styles.card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>Configure Weekly Mark Entry Targets</h3>
+            <button type="button" onClick={() => setActiveTopPanel('none')} style={styles.buttonSecondary}>✕ Close</button>
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', marginBottom: '16px' }}>
+            <div style={{ flex: '1 1 160px' }}>
+              <label style={styles.label}>Academic Week</label>
+              <input type="text" value={weekName} onChange={(e) => setWeekName(e.target.value)} style={styles.input} />
+            </div>
+            <div style={{ flex: '2 1 300px' }}>
+              <label style={styles.label}>Reminder Notice Text</label>
+              <input type="text" value={message} onChange={(e) => setMessage(e.target.value)} style={styles.input} />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
             {DEFAULT_SUBJECTS.map(sub => {
               const isSubHifz = sub.toUpperCase() === 'HIFZ';
               const levelOptions = isSubHifz ? HIFZ_LEVELS : CCE_LEVELS;
@@ -257,30 +354,30 @@ export default function ReminderManager() {
               const isSubjectChecked = selectedLevels.length > 0;
 
               return (
-                <div key={sub} style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: isSubjectChecked ? '#eff6ff' : '#f8fafc', padding: '10px 14px', borderRadius: '10px', border: `1px solid ${isSubjectChecked ? '#93c5fd' : '#e2e8f0'}` }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: 'pointer', color: '#0f172a', fontWeight: '800' }}>
-                    <input type="checkbox" checked={isSubjectChecked} onChange={() => toggleSubjectConfig(sub)} style={{ width: '16px', height: '16px', accentColor: '#2563eb' }} />
+                <div key={sub} style={{ background: isSubjectChecked ? '#eef2ff' : '#ffffff', padding: '10px 12px', borderRadius: '10px', border: `1px solid ${isSubjectChecked ? '#4f46e5' : '#e2e8f0'}` }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', color: '#0f172a', fontWeight: '700' }}>
+                    <input type="checkbox" checked={isSubjectChecked} onChange={() => toggleSubjectConfig(sub)} style={{ accentColor: '#4f46e5' }} />
                     {sub}
                   </label>
 
                   {isSubjectChecked && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', paddingTop: '4px', borderTop: '1px dashed #bfdbfe' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '8px', paddingTop: '6px', borderTop: '1px dashed #c7d2fe' }}>
                       {Object.entries(levelOptions).map(([name, val]) => {
                         const isLvlSelected = selectedLevels.includes(val);
-                        const shortLabel = isSubHifz ? name.replace(' (Max 50)', '') : `${name.replace('Level ', 'Lvl ')} (/${val})`;
+                        const shortLabel = isSubHifz ? name.replace(' (Max 50)', '') : `${name.replace('Level ', 'L')} (/${val})`;
                         return (
                           <button
                             key={val}
                             type="button"
                             onClick={() => toggleSubjectLevel(sub, val)}
                             style={{
-                              padding: '4px 10px',
+                              padding: '3px 8px',
                               borderRadius: '6px',
-                              fontSize: '12px',
-                              fontWeight: '800',
+                              fontSize: '11px',
+                              fontWeight: '700',
                               cursor: 'pointer',
-                              border: isLvlSelected ? '1px solid #2563eb' : '1px solid #cbd5e1',
-                              background: isLvlSelected ? '#2563eb' : '#ffffff',
+                              border: isLvlSelected ? '1px solid #4f46e5' : '1px solid #cbd5e1',
+                              background: isLvlSelected ? '#4f46e5' : '#ffffff',
                               color: isLvlSelected ? '#ffffff' : '#475569'
                             }}
                           >
@@ -294,123 +391,150 @@ export default function ReminderManager() {
               );
             })}
           </div>
-        </div>
 
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', flexWrap: 'wrap', marginTop: '8px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '700', color: isActive ? '#047857' : '#64748b', background: isActive ? '#d1fae5' : '#e2e8f0', padding: '12px 16px', borderRadius: '8px', cursor: 'pointer', border: `1px solid ${isActive ? '#34d399' : '#cbd5e1'}` }}>
-            <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} style={{ width: '18px', height: '18px' }} />
-            {isActive ? 'Reminder is ACTIVE' : 'Reminder is OFF'}
-          </label>
-          <button onClick={handleSave} disabled={isLoading} style={{ ...styles.buttonPrimary, padding: '12px 24px', margin: 0 }}>
-            {isLoading ? 'Saving...' : '💾 Save & Broadcast to Portal'}
-          </button>
-        </div>
-      </div>
-
-      {/* STAFF WHATSAPP GROUP REMINDER BAR */}
-      <div style={{ background: '#f0fdf4', border: '2px solid #16a34a', padding: '16px 20px', borderRadius: '12px', marginBottom: '20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <h4 style={{ margin: 0, color: '#14532d', fontSize: '16px', fontWeight: '800' }}>
-              💬 Send Pending Mark Entry Reminder to Official Staff WhatsApp Group
-            </h4>
-            <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#166534', fontWeight: '600' }}>
-              Automatically copies the formatted pending teachers list and opens your Staff WhatsApp Group directly.
-            </p>
-          </div>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={() => setEditingGroupLink(!editingGroupLink)}
-              style={{ padding: '9px 14px', background: '#ffffff', color: '#15803d', border: '1px solid #86efac', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
-            >
-              🔗 {staffGroupLink ? 'Edit Staff Group Link' : 'Set Staff WhatsApp Group Link'}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const text = buildStaffGroupPendingReportText();
-                navigator.clipboard.writeText(text);
-                alert('✅ Copied formatted Pending Mark Entry Report to clipboard!');
-              }}
-              style={{ padding: '9px 14px', background: '#f59e0b', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
-            >
-              📋 Copy Report Text
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const text = buildStaffGroupPendingReportText();
-                openWhatsAppGroupAndCopy(staffGroupLink, text, 'DHIU Staff WhatsApp Group');
-              }}
-              style={{ padding: '9px 18px', background: '#16a34a', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '13px', cursor: 'pointer' }}
-            >
-              💬 Open Staff WhatsApp Group &amp; Send
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontWeight: '700', fontSize: '13px', color: '#0f172a', cursor: 'pointer' }}>
+              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} style={{ width: '16px', height: '16px', accentColor: '#4f46e5' }} />
+              Enable Active Reminder Banner on Portals
+            </label>
+            <button onClick={handleSave} disabled={isLoading} style={styles.buttonPrimary}>
+              {isLoading ? 'Saving...' : 'Save & Broadcast'}
             </button>
           </div>
         </div>
+      )}
 
-        {editingGroupLink && (
-          <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
-            <input
-              type="text"
-              value={staffGroupLink}
-              onChange={(e) => setStaffGroupLink(e.target.value)}
-              placeholder="Paste Staff WhatsApp Group Invite Link (https://chat.whatsapp.com/...)..."
-              style={{ ...styles.input, flex: 1 }}
-            />
-            <button type="button" onClick={handleSaveStaffGroupLink} style={{ padding: '10px 18px', background: '#15803d', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer' }}>
-              Save Link
-            </button>
+      {/* PANEL 2: WHATSAPP GROUP REMINDER (Opens only when clicked) */}
+      {activeTopPanel === 'whatsapp' && (
+        <div className="erp-slide-panel" style={styles.card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <h4 style={{ margin: 0, fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>Send Pending Report to Staff WhatsApp Group</h4>
+              <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>Copies the formatted list of pending submissions and opens your Staff WhatsApp Group.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button type="button" onClick={() => setEditingGroupLink(!editingGroupLink)} style={styles.buttonSecondary}>
+                🔗 {staffGroupLink ? 'Edit Group Link' : 'Set Group Link'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(buildStaffGroupPendingReportText());
+                  alert('✅ Copied Pending Mark Entry Report to clipboard!');
+                }}
+                style={styles.buttonSecondary}
+              >
+                📋 Copy Text
+              </button>
+              <button
+                type="button"
+                onClick={() => openWhatsAppGroupAndCopy(staffGroupLink, buildStaffGroupPendingReportText(), 'DHIU Staff WhatsApp Group')}
+                style={styles.buttonPrimary}
+              >
+                💬 Open Staff Group &amp; Send
+              </button>
+            </div>
           </div>
-        )}
-      </div>
 
-      <h4 style={{ margin: '0 0 16px 0', color: '#0f172a', fontWeight: '800' }}>
-        Teacher Completion Tracker ({weekName})
-      </h4>
-      <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '15px', minWidth: '800px' }}>
-          <thead>
-            <tr style={{ background: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>
-              <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Teacher Name</th>
-              <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800' }}>Subject Assignment</th>
-              <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Target Level</th>
-              <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Enrolled</th>
-              <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Missing</th>
-              <th style={{ padding: '14px 16px', color: '#0f172a', fontWeight: '800', textAlign: 'center' }}>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {trackerData.length === 0 ? (
-              <tr><td colSpan="6" style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>No teachers match this week&apos;s active targets.</td></tr>
-            ) : (
-              trackerData.map((row, idx) => {
-                const lvlLabel = row.levelRequired === '50_1' ? 'Part 1 (/50)'
-                  : row.levelRequired === '50_2' ? 'Part 2 (/50)'
+          {editingGroupLink && (
+            <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+              <input
+                type="text"
+                value={staffGroupLink}
+                onChange={(e) => setStaffGroupLink(e.target.value)}
+                placeholder="Paste Staff WhatsApp Group Invite Link..."
+                style={{ ...styles.input, flex: 1 }}
+              />
+              <button type="button" onClick={handleSaveStaffGroupLink} style={styles.buttonPrimary}>Save Link</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 🌟 MINIMALIST COMPLETION TRACKER TABLE */}
+      <div style={{ ...styles.card, padding: 0, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+          <input
+            type="text"
+            placeholder="🔍 Search teacher or subject..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ ...styles.input, maxWidth: '280px', padding: '7px 12px', fontSize: '13px' }}
+          />
+          <div style={{ display: 'flex', gap: '6px' }}>
+            {['All', 'Pending', 'Completed'].map(f => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setStatusFilter(f)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  background: statusFilter === f ? '#4f46e5' : '#f8fafc',
+                  color: statusFilter === f ? '#ffffff' : '#475569',
+                  border: '1px solid #e2e8f0'
+                }}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
+                <th style={{ padding: '14px 16px' }}>#</th>
+                <th style={{ padding: '14px 16px' }}>TEACHER</th>
+                <th style={{ padding: '14px 16px' }}>SUBJECT BATCH</th>
+                <th style={{ padding: '14px 16px', textAlign: 'center' }}>TARGET LEVEL</th>
+                <th style={{ padding: '14px 16px', textAlign: 'center' }}>PROGRESS</th>
+                <th style={{ padding: '14px 16px', textAlign: 'right' }}>STATUS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredTrackerRows.length === 0 ? (
+                <tr><td colSpan="6" style={{ padding: '28px', textAlign: 'center', color: '#64748b' }}>No matching records found.</td></tr>
+              ) : (
+                filteredTrackerRows.map((row, idx) => {
+                  const lvlLabel = row.levelRequired === '50_1' ? 'Part 1 (/50)'
+                    : row.levelRequired === '50_2' ? 'Part 2 (/50)'
                     : `Max ${row.levelRequired}`;
-                return (
-                  <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: '#ffffff' }}>
-                    <td style={{ padding: '14px 16px', fontWeight: '800', color: '#0f172a' }}>{row.teacherName}</td>
-                    <td style={{ padding: '14px 16px', color: '#334155', fontWeight: '700' }}>{row.subject}</td>
-                    <td style={{ padding: '14px 16px', textAlign: 'center' }}><span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 8px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>{lvlLabel}</span></td>
-                    <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: '#64748b' }}>{row.totalEnrolled}</td>
-                    <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '800', color: row.missingCount > 0 ? '#ef4444' : '#10b981' }}>{row.missingCount}</td>
-                    <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                      {row.missingCount === 0 ? (
-                        <span style={{ background: '#d1fae5', color: '#047857', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>✅ DONE</span>
-                      ) : row.enteredCount > 0 ? (
-                        <span style={{ background: '#fef3c7', color: '#d97706', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>⏳ IN PROGRESS</span>
-                      ) : (
-                        <span style={{ background: '#fee2e2', color: '#dc2626', padding: '6px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '13px' }}>❌ PENDING</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                  return (
+                    <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', background: '#ffffff' }}>
+                      <td style={{ padding: '14px 16px', color: '#64748b' }}>{idx + 1}</td>
+                      <td style={{ padding: '14px 16px', fontWeight: '700', color: '#0f172a' }}>{row.teacherName}</td>
+                      <td style={{ padding: '14px 16px', color: '#334155', fontWeight: '600' }}>{row.subject}</td>
+                      <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                        <span style={{ background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: '6px', fontWeight: '700', fontSize: '11px' }}>
+                          {lvlLabel}
+                        </span>
+                      </td>
+                      <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '600', color: '#475569' }}>
+                        {row.enteredCount} / {row.totalEnrolled}
+                      </td>
+                      <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+                        {row.missingCount === 0 ? (
+                          <span style={{ background: '#dcfce7', color: '#15803d', padding: '4px 10px', borderRadius: '999px', fontWeight: '700', fontSize: '11px' }}>
+                            Completed
+                          </span>
+                        ) : (
+                          <span style={{ background: '#fff1f2', color: '#e11d48', padding: '4px 10px', borderRadius: '999px', fontWeight: '700', fontSize: '11px' }}>
+                            {row.missingCount} Pending
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

@@ -32,10 +32,11 @@ export const parseCSVLine = (str) => {
 
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// 🌟 MINIMALIST SHUHOOD DESIGN SYSTEM (Clean Indigo #4f46e5 + Soft Slate #f8fafc)
 export const styles = {
   pageBackground: {
     minHeight: '100vh',
-    backgroundColor: '#f1f5f9',
+    backgroundColor: '#f8fafc',
     padding: '24px 16px',
     fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
     color: '#0f172a'
@@ -43,105 +44,112 @@ export const styles = {
   card: {
     background: '#ffffff',
     padding: '24px',
-    borderRadius: '18px',
-    boxShadow: '0 4px 20px rgba(15, 23, 42, 0.04)',
-    border: '1px solid #cbd5e1',
-    marginBottom: '22px',
+    borderRadius: '14px',
+    boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)',
+    border: '1px solid #e2e8f0',
+    marginBottom: '20px',
     boxSizing: 'border-box'
   },
   input: {
     width: '100%',
-    padding: '11px 14px',
-    borderRadius: '10px',
-    border: '1.5px solid #94a3b8',
+    padding: '10px 14px',
+    borderRadius: '8px',
+    border: '1px solid #cbd5e1',
     backgroundColor: '#ffffff',
     color: '#0f172a',
     fontSize: '14px',
-    fontWeight: '600',
+    fontWeight: '500',
     outline: 'none',
     boxSizing: 'border-box',
-    transition: 'border-color 0.15s ease, box-shadow 0.15s ease'
+    transition: 'border-color 0.15s ease'
   },
   label: {
     display: 'block',
-    fontSize: '12px',
-    fontWeight: '800',
-    color: '#0f172a',
+    fontSize: '11px',
+    fontWeight: '700',
+    color: '#475569',
     marginBottom: '6px',
     textTransform: 'uppercase',
-    letterSpacing: '0.4px'
+    letterSpacing: '0.5px'
   },
   buttonPrimary: {
-    padding: '12px 22px',
-    background: 'linear-gradient(135deg, #00897b 0%, #0f766e 100%)',
+    padding: '10px 20px',
+    background: '#4f46e5',
     color: '#ffffff',
     border: 'none',
-    borderRadius: '10px',
-    fontWeight: '800',
+    borderRadius: '8px',
+    fontWeight: '700',
     cursor: 'pointer',
-    fontSize: '14px',
-    boxShadow: '0 4px 12px rgba(15, 118, 110, 0.22)'
+    fontSize: '14px'
+  },
+  buttonSecondary: {
+    padding: '10px 18px',
+    background: '#ffffff',
+    color: '#334155',
+    border: '1px solid #cbd5e1',
+    borderRadius: '8px',
+    fontWeight: '700',
+    cursor: 'pointer',
+    fontSize: '13px'
   },
   buttonSuccess: {
-    padding: '14px 24px',
-    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+    padding: '12px 22px',
+    background: '#10b981',
     color: '#ffffff',
     border: 'none',
-    borderRadius: '10px',
-    fontWeight: '800',
+    borderRadius: '8px',
+    fontWeight: '700',
     cursor: 'pointer',
-    fontSize: '15px',
+    fontSize: '14px',
     width: '100%',
-    marginTop: '10px',
-    boxShadow: '0 4px 12px rgba(5, 150, 105, 0.22)'
+    marginTop: '8px'
   },
   buttonWarning: {
-    padding: '14px 24px',
-    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+    padding: '12px 22px',
+    background: '#f59e0b',
     color: '#ffffff',
     border: 'none',
-    borderRadius: '10px',
-    fontWeight: '800',
+    borderRadius: '8px',
+    fontWeight: '700',
     cursor: 'pointer',
-    fontSize: '15px',
+    fontSize: '14px',
     width: '100%',
-    marginTop: '10px',
-    boxShadow: '0 4px 12px rgba(217, 119, 6, 0.22)'
+    marginTop: '8px'
   },
   buttonDanger: {
-    padding: '9px 16px',
-    background: '#fef2f2',
-    color: '#dc2626',
-    border: '1px solid #fecaca',
-    borderRadius: '10px',
-    fontWeight: '800',
+    padding: '8px 14px',
+    background: '#fff1f2',
+    color: '#e11d48',
+    border: '1px solid #ffe4e6',
+    borderRadius: '8px',
+    fontWeight: '700',
     cursor: 'pointer',
     fontSize: '13px'
   },
   sectionTitle: {
-    margin: '0 0 18px 0',
-    fontSize: '19px',
+    margin: '0 0 16px 0',
+    fontSize: '18px',
     color: '#0f172a',
-    fontWeight: '900',
-    borderBottom: '2px solid #f1f5f9',
+    fontWeight: '800',
+    borderBottom: '1px solid #f1f5f9',
     paddingBottom: '12px'
   },
   badge: {
     display: 'inline-block',
-    padding: '4px 9px',
-    borderRadius: '7px',
+    padding: '4px 10px',
+    borderRadius: '999px',
     fontSize: '11px',
-    fontWeight: '800'
+    fontWeight: '700'
   },
   filterSelect: {
     padding: '8px 12px',
     borderRadius: '8px',
-    border: '1.5px solid #94a3b8',
+    border: '1px solid #cbd5e1',
     outline: 'none',
     fontSize: '13px',
     backgroundColor: '#ffffff',
     color: '#0f172a',
-    fontWeight: '700',
+    fontWeight: '600',
     cursor: 'pointer'
   }
 };

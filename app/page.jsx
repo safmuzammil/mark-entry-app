@@ -41,6 +41,7 @@ export default function UnifiedSchoolPortal() {
   const [userRole, setUserRole] = useState(null); // 'admin' | 'teacher'
   const [loggedInTeacherData, setLoggedInTeacherData] = useState(null);
   const [activeAdminTab, setActiveAdminTab] = useState('dashboard');
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const [adminTeachersList, setAdminTeachersList] = useState([]);
   const [adminStudentsList, setAdminStudentsList] = useState([]);
@@ -183,236 +184,345 @@ export default function UnifiedSchoolPortal() {
 
   if (userRole === 'admin') {
     const selectedProxyTeacher = adminTeachersList.find(t => t.username === proxyTeacherUsername);
-
-    const metroTiles = [
-      { id: 'students', title: '1. Student Management', sub: 'Registration, 14-Subject Auto-Map & CSV', icon: '👨‍🎓', gradient: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', action: () => setActiveAdminTab('students') },
-      { id: 'teachers', title: '2. Teachers & Roles', sub: 'Assign Roles, NIICS, Privileges & Broadcast', icon: '🛡️', gradient: 'linear-gradient(135deg, #e11d48 0%, #be123c 100%)', action: () => setActiveAdminTab('teachers') },
-      { id: 'reports', title: '3. Student Filtering & Marks', sub: 'Marks Auditor, Inspector & Analytics', icon: '📊', gradient: 'linear-gradient(135deg, #0891b2 0%, #0e7490 100%)', action: () => setActiveAdminTab('reports') },
-      { id: 'outpass', title: '4. Out-Pass Portal', sub: 'Live Campus Movement & Leave Tracking', icon: '🪪', gradient: 'linear-gradient(135deg, #059669 0%, #047857 100%)', action: () => setActiveAdminTab('outpass') },
-      { id: 'mentorship', title: '5. Mentor & Performance', sub: 'Mentee Consultations, Skills & Outreach', icon: '🧭', gradient: 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)', action: () => setActiveAdminTab('mentorship') },
-      { id: 'proxy_marks', title: '6. Proxy Mark Entry', sub: 'Enter or Unlock Marks for Any Teacher', icon: '📝', gradient: 'linear-gradient(135deg, #ea580c 0%, #c2410c 100%)', action: () => setActiveAdminTab('proxy_marks') },
-      { id: 'reminders', title: '7. Weekly Reminders', sub: 'Notice Board & Staff Group Tracker', icon: '🔔', gradient: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)', action: () => setActiveAdminTab('reminders') },
-      { id: 'attendance', title: '8. Night Attendance', sub: 'Mobile Cards, Out-Pass Sync & Absentees', icon: '🌙', gradient: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', action: () => setActiveAdminTab('attendance') },
-      { id: 'attendance_minus', title: '9. Period Attendance & Minus', sub: 'Roll-Call, Reports, Minus & 3-Step Clearance', icon: '📅', gradient: 'linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)', action: () => setActiveAdminTab('attendance_minus') }
-    ];
-
     const totalEnrollmentsCount = adminTeachersList.reduce((acc, t) => acc + (Array.isArray(t.enrollments) ? t.enrollments.length : 0), 0);
 
+    const sidebarNavItems = [
+      { id: 'dashboard', label: 'Dashboard', icon: '⊞', desc: 'Institutional overview & quick access' },
+      { id: 'students', label: 'Students', icon: '👥', desc: 'Manage student profiles & subject mappings' },
+      { id: 'teachers', label: 'Teachers', icon: '🎓', desc: 'Manage all faculty members and roles' },
+      { id: 'attendance_minus', label: 'Period Attendance', icon: '📅', desc: 'Roll-call, monthly reports, minus & clearance' },
+      { id: 'attendance', label: 'Night Attendance', icon: '🌙', desc: 'Hostel roll-call & out-pass verification' },
+      { id: 'reports', label: 'Marks & Auditor', icon: '📊', desc: 'CCE mark auditor & level-by-level inspector' },
+      { id: 'outpass', label: 'Out-Pass Portal', icon: '🪪', desc: 'Live campus movement & leave approvals' },
+      { id: 'mentorship', label: 'Mentorship & Outreach', icon: '🧭', desc: 'Consultancy logs, skills & usthad audit' },
+      { id: 'reminders', label: 'Weekly Reminders', icon: '🔔', desc: 'Academic target broadcasts & tracker' },
+      { id: 'proxy_marks', label: 'Proxy Mark Entry', icon: '✍️', desc: 'Inspect or enter marks on behalf of faculty' }
+    ];
+
+    const currentTabObj = sidebarNavItems.find(x => x.id === activeAdminTab) || sidebarNavItems[0];
+
     return (
-      <div style={{ minHeight: '100vh', backgroundColor: '#f1f5f9', fontFamily: 'Inter, system-ui, sans-serif', color: '#0f172a' }}>
+      <div style={{ minHeight: '100vh', display: 'flex', backgroundColor: '#f8fafc', fontFamily: 'Inter, system-ui, -apple-system, sans-serif', color: '#0f172a' }}>
         <HighContrastStyles />
+        <style>{`
+          @media (max-width: 960px) {
+            .shuhood-sidebar {
+              position: fixed !important;
+              top: 0;
+              left: 0;
+              bottom: 0;
+              z-index: 1200;
+              transform: translateX(-100%);
+              transition: transform 0.25s ease;
+            }
+            .shuhood-sidebar.open {
+              transform: translateX(0);
+            }
+            .shuhood-mobile-menu-btn {
+              display: inline-flex !important;
+            }
+          }
+        `}</style>
 
-        {/* SLEEK STICKY COMMAND HEADER */}
-        <header style={{ background: 'linear-gradient(135deg, #0f172a 0%, #134e4a 100%)', color: '#ffffff', padding: '14px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 20px rgba(15, 23, 42, 0.15)', position: 'sticky', top: 0, zIndex: 100, flexWrap: 'wrap', gap: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer' }} onClick={() => setActiveAdminTab('dashboard')}>
-            <span style={{ fontSize: '20px', background: 'rgba(255,255,255,0.14)', padding: '7px 11px', borderRadius: '10px' }}>☰</span>
-            <img src={DHIU_LOGO_URL} alt="DHIU" style={{ width: '44px', height: '44px', borderRadius: '50%', background: '#fff', padding: '2px', objectFit: 'contain' }} />
-            <div>
-              <div style={{ fontSize: '18px', fontWeight: '900', letterSpacing: '-0.3px' }}>Darul Huda Degree Institution</div>
-              <div style={{ fontSize: '11px', color: '#99f6e4', fontWeight: '700' }}>Central Admin ERP • Marks, Out-Pass, Period &amp; Night Attendance &amp; Mentorship</div>
+        {/* Mobile Overlay */}
+        {mobileSidebarOpen && (
+          <div
+            onClick={() => setMobileSidebarOpen(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.4)', zIndex: 1150 }}
+          />
+        )}
+
+        {/* 🌟 SHUHOOD LEFT SIDEBAR NAVIGATION (Matches Screenshot 1) */}
+        <aside
+          className={`shuhood-sidebar ${mobileSidebarOpen ? 'open' : ''}`}
+          style={{
+            width: '255px',
+            minWidth: '255px',
+            backgroundColor: '#ffffff',
+            borderRight: '1px solid #e2e8f0',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            position: 'sticky',
+            top: 0,
+            height: '100vh',
+            overflowY: 'auto',
+            padding: '20px 14px',
+            boxSizing: 'border-box'
+          }}
+        >
+          <div>
+            {/* Brand Logo Header */}
+            <div
+              onClick={() => { setActiveAdminTab('dashboard'); setMobileSidebarOpen(false); }}
+              style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '4px 10px 20px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
+            >
+              <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#4f46e5', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '900', fontSize: '18px', flexShrink: 0 }}>
+                ✦
+              </div>
+              <div>
+                <div style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', lineHeight: 1.2 }}>Shuhood</div>
+                <div style={{ fontSize: '10px', fontWeight: '800', color: '#4f46e5', letterSpacing: '0.6px', textTransform: 'uppercase', marginTop: '2px' }}>
+                  🛡️ ADMIN PORTAL
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-            {activeAdminTab !== 'dashboard' && (
-              <button onClick={() => setActiveAdminTab('dashboard')} style={{ padding: '9px 15px', background: '#ffffff', color: '#0f766e', border: 'none', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>
-                🏠 Home Grid
-              </button>
-            )}
-            <Link href="/outpass" style={{ padding: '9px 15px', background: 'rgba(255,255,255,0.14)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)', borderRadius: '10px', fontWeight: '800', textDecoration: 'none', fontSize: '13px' }}>
-              🛡️ Gate Kiosk
-            </Link>
-            <button onClick={handleLogout} style={{ ...styles.buttonDanger, background: '#fee2e2', color: '#dc2626', border: 'none' }}>Logout</button>
-          </div>
-        </header>
+            <div style={{ fontSize: '11px', fontWeight: '800', color: '#94a3b8', letterSpacing: '0.8px', padding: '18px 12px 8px', textTransform: 'uppercase' }}>
+              NAVIGATION
+            </div>
 
-        <div style={{ maxWidth: '1300px', margin: '0 auto', padding: '22px 16px' }}>
-          <InstallAppBanner />
-
-          {/* HORIZONTAL SCROLLABLE PILL NAVIGATION BAR (Mobile & Desktop Friendly) */}
-          <div style={{ background: '#ffffff', padding: '10px 14px', borderRadius: '16px', border: '1px solid #cbd5e1', marginBottom: '22px', boxShadow: '0 2px 10px rgba(15,23,42,0.03)', overflowX: 'auto' }}>
-            <div style={{ display: 'flex', gap: '6px', minWidth: 'max-content' }}>
-              {[
-                { id: 'dashboard', label: '🏠 Home Grid' },
-                { id: 'students', label: '1. Students' },
-                { id: 'teachers', label: '2. Teachers & Roles' },
-                { id: 'reports', label: '3. Marks & Reports' },
-                { id: 'outpass', label: '4. 🪪 Out-Pass' },
-                { id: 'mentorship', label: '5. 🧭 Mentorship' },
-                { id: 'proxy_marks', label: '6. 📝 Proxy Marks' },
-                { id: 'reminders', label: '7. 🔔 Reminders' },
-                { id: 'attendance', label: '8. 🌙 Night Attendance' },
-                { id: 'attendance_minus', label: '9. 📅 Period Attendance & Clearance' }
-              ].map(t => {
-                const active = activeAdminTab === t.id;
+            {/* Sidebar Links */}
+            <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {sidebarNavItems.map(item => {
+                const isActive = activeAdminTab === item.id;
                 return (
                   <button
-                    key={t.id}
-                    onClick={() => setActiveAdminTab(t.id)}
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveAdminTab(item.id);
+                      setMobileSidebarOpen(false);
+                    }}
                     style={{
-                      padding: '9px 15px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      width: '100%',
+                      padding: '11px 14px',
                       borderRadius: '10px',
-                      border: 'none',
-                      fontSize: '13px',
-                      fontWeight: '800',
+                      border: isActive ? '1.5px solid #1e1b4b' : '1.5px solid transparent',
+                      backgroundColor: isActive ? '#4f46e5' : 'transparent',
+                      color: isActive ? '#ffffff' : '#475569',
+                      fontWeight: isActive ? '700' : '600',
+                      fontSize: '14px',
+                      textAlign: 'left',
                       cursor: 'pointer',
-                      background: active ? 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)' : '#f8fafc',
-                      color: active ? '#ffffff' : '#334155',
-                      boxShadow: active ? '0 4px 12px rgba(15, 118, 110, 0.25)' : 'none',
-                      transition: 'all 0.2s ease'
+                      transition: 'all 0.15s ease'
                     }}
                   >
-                    {t.label}
+                    <span style={{ fontSize: '16px', opacity: isActive ? 1 : 0.75 }}>{item.icon}</span>
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>
                   </button>
                 );
               })}
-            </div>
+            </nav>
           </div>
 
-          {activeAdminTab === 'dashboard' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              {/* 5 ELEVATED KPI STAT CARDS */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-                <div style={{ background: '#ffffff', padding: '20px', borderRadius: '16px', border: '1px solid #cbd5e1', boxShadow: '0 4px 12px rgba(15,23,42,0.03)' }}>
-                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Total Students</span>
-                  <div style={{ fontSize: '30px', fontWeight: '900', color: '#0f172a', marginTop: '6px' }}>{adminStudentsList.length}</div>
-                  <span style={{ fontSize: '11px', color: '#059669', fontWeight: '800' }}>● Active Enrolled</span>
-                </div>
+          {/* Bottom Gate Kiosk & Logout */}
+          <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <Link
+              href="/outpass"
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '8px', background: '#f8fafc', color: '#334155', textDecoration: 'none', fontSize: '13px', fontWeight: '700', border: '1px solid #e2e8f0' }}
+            >
+              <span>🛡️</span> Gate Security Kiosk
+            </Link>
+            <button
+              type="button"
+              onClick={handleLogout}
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '8px', background: '#fff1f2', color: '#e11d48', border: '1px solid #ffe4e6', fontSize: '13px', fontWeight: '700', cursor: 'pointer', width: '100%', textAlign: 'left' }}
+            >
+              <span>🚪</span> Sign Out
+            </button>
+          </div>
+        </aside>
 
-                <div style={{ background: '#ffffff', padding: '20px', borderRadius: '16px', border: '1px solid #cbd5e1', boxShadow: '0 4px 12px rgba(15,23,42,0.03)' }}>
-                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Total Teachers</span>
-                  <div style={{ fontSize: '30px', fontWeight: '900', color: '#0f172a', marginTop: '6px' }}>{adminTeachersList.length}</div>
-                  <span style={{ fontSize: '11px', color: '#2563eb', fontWeight: '800' }}>● Faculty Members</span>
-                </div>
+        {/* 🌟 MAIN CONTENT AREA */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          {/* TOP INSTITUTIONAL BAR (Matches Screenshot 1) */}
+          <header style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '14px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 90 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button
+                type="button"
+                className="shuhood-mobile-menu-btn"
+                onClick={() => setMobileSidebarOpen(true)}
+                style={{ display: 'none', padding: '8px 12px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '16px' }}
+              >
+                ☰
+              </button>
+              <span style={{ background: '#f8fafc', color: '#4f46e5', border: '1px solid #e2e8f0', padding: '6px 14px', borderRadius: '999px', fontSize: '11px', fontWeight: '800', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                🛡️ INSTITUTIONAL PORTAL
+              </span>
+            </div>
 
-                <div style={{ background: '#ffffff', padding: '20px', borderRadius: '16px', border: '1px solid #cbd5e1', boxShadow: '0 4px 12px rgba(15,23,42,0.03)' }}>
-                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Malayalam Stream</span>
-                  <div style={{ fontSize: '30px', fontWeight: '900', color: '#0f766e', marginTop: '6px' }}>
-                    {adminStudentsList.filter(s => !String(s.adNo || '').toUpperCase().startsWith('U')).length}
-                  </div>
-                  <span style={{ fontSize: '11px', color: '#0f766e', fontWeight: '800' }}>● General Batch</span>
-                </div>
-
-                <div style={{ background: '#ffffff', padding: '20px', borderRadius: '16px', border: '1px solid #cbd5e1', boxShadow: '0 4px 12px rgba(15,23,42,0.03)' }}>
-                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Urdu Stream</span>
-                  <div style={{ fontSize: '30px', fontWeight: '900', color: '#d97706', marginTop: '6px' }}>
-                    {adminStudentsList.filter(s => String(s.adNo || '').toUpperCase().startsWith('U')).length}
-                  </div>
-                  <span style={{ fontSize: '11px', color: '#d97706', fontWeight: '800' }}>● NIICS Batch</span>
-                </div>
-
-                <div style={{ background: '#ffffff', padding: '20px', borderRadius: '16px', border: '1px solid #cbd5e1', boxShadow: '0 4px 12px rgba(15,23,42,0.03)' }}>
-                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Active Courses</span>
-                  <div style={{ fontSize: '30px', fontWeight: '900', color: '#4f46e5', marginTop: '6px' }}>{totalEnrollmentsCount}</div>
-                  <span style={{ fontSize: '11px', color: '#4f46e5', fontWeight: '800' }}>● Subject Batches</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#f8fafc', padding: '7px 14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '16px', color: '#4f46e5' }}>🏢</span>
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a' }}>Sayyid Muhammed Ali Shihab Thangal Building</div>
+                  <div style={{ fontSize: '10px', color: '#64748b', fontWeight: '600' }}>Darul Huda Islamic University, Chemmad, Kerala, India</div>
                 </div>
               </div>
 
-              {/* 9 MODERN INTERACTIVE METRO TILES */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '18px' }}>
-                {metroTiles.map((item) => (
-                  <div
-                    key={item.id}
-                    onClick={item.action}
-                    className="erp-card-hover"
-                    style={{
-                      background: item.gradient,
-                      padding: '26px 22px',
-                      borderRadius: '18px',
-                      color: '#ffffff',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      textAlign: 'center',
-                      boxShadow: '0 8px 20px rgba(15, 23, 42, 0.12)'
-                    }}
-                  >
-                    <div style={{ fontSize: '38px', marginBottom: '12px', background: 'rgba(255,255,255,0.16)', width: '68px', height: '68px', borderRadius: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      {item.icon}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#4f46e5', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', fontSize: '14px' }}>
+                  A
+                </div>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>ADMIN USER</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>Admin</div>
+                </div>
+              </div>
+            </div>
+          </header>
+
+          {/* PAGE BODY */}
+          <main style={{ padding: '28px', maxWidth: '1280px', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
+            <InstallAppBanner />
+
+            {/* Clean Page Title Header */}
+            {activeAdminTab !== 'teachers' && activeAdminTab !== 'students' && (
+              <div style={{ marginBottom: '22px' }}>
+                <h1 style={{ margin: 0, fontSize: '24px', fontWeight: '800', color: '#0f172a' }}>{currentTabObj.label}</h1>
+                <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b', fontWeight: '500' }}>{currentTabObj.desc}</p>
+              </div>
+            )}
+
+            {activeAdminTab === 'dashboard' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+                {/* MINIMALIST KPI ROW (Matches Marks Auditor Style in Screenshot 3) */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                  <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '14px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>TOTAL STUDENTS</span>
+                    <div style={{ fontSize: '28px', fontWeight: '900', color: '#0f172a', marginTop: '6px' }}>{adminStudentsList.length}</div>
+                  </div>
+
+                  <div style={{ background: '#ecfdf5', padding: '20px', borderRadius: '14px', border: '1px solid #a7f3d0', textAlign: 'center' }}>
+                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857', textTransform: 'uppercase' }}>MALAYALAM STREAM</span>
+                    <div style={{ fontSize: '28px', fontWeight: '900', color: '#065f46', marginTop: '6px' }}>
+                      {adminStudentsList.filter(s => !String(s.adNo || '').toUpperCase().startsWith('U')).length}
                     </div>
-                    <h3 style={{ margin: '0 0 6px 0', fontSize: '18px', fontWeight: '900', color: '#ffffff' }}>{item.title}</h3>
-                    <p style={{ margin: 0, fontSize: '12px', fontWeight: '600', color: 'rgba(255,255,255,0.9)' }}>{item.sub}</p>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
 
-          {activeAdminTab === 'teachers' && (
-            <TeacherManager
-              onOpenProxyMarks={(teacherUsername) => {
-                setProxyTeacherUsername(teacherUsername);
-                setActiveAdminTab('proxy_marks');
-              }}
-            />
-          )}
-          {activeAdminTab === 'students' && <StudentManager />}
-          {activeAdminTab === 'reports' && <ReportManager />}
-
-          {activeAdminTab === 'attendance_minus' && (
-            <PeriodAttendanceManager
-              userRole="admin"
-              loggedInUser={{ username: 'admin', fullName: 'Central Admin' }}
-              preloadedStudents={adminStudentsList}
-              preloadedTeachers={adminTeachersList}
-              onStudentsUpdated={(nextStudents) => setAdminStudentsList(nextStudents)}
-              onTeachersUpdated={(nextTeachers) => setAdminTeachersList(nextTeachers)}
-            />
-          )}
-
-          {activeAdminTab === 'reminders' && <ReminderManager />}
-
-          {activeAdminTab === 'outpass' && (
-            <OutPassPortal
-              embeddedMode={true}
-              isAdminProp={true}
-              preloadedStudents={adminStudentsList}
-              preloadedTeachers={adminTeachersList}
-            />
-          )}
-
-          {activeAdminTab === 'attendance' && (
-            <NightAttendanceManager
-              isAdmin={true}
-              preloadedStudents={adminStudentsList}
-              preloadedTeachers={adminTeachersList}
-            />
-          )}
-
-          {activeAdminTab === 'mentorship' && (
-            <MentorAndOutreachTab
-              students={adminStudentsList}
-              teachers={adminTeachersList}
-              isAdmin={true}
-              isOutreachView={true}
-              onStudentUpdated={(updated) => setAdminStudentsList(prev => prev.map(s => s.regNo === updated.regNo ? updated : s))}
-            />
-          )}
-
-          {activeAdminTab === 'proxy_marks' && (
-            <div>
-              <div style={{ ...styles.card, background: '#ecfdf5', border: '2px solid #10b981', marginBottom: '24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: '20px', color: '#065f46', fontWeight: '900' }}>👨‍🏫 Admin Proxy Mode: Select Teacher Account</h3>
+                  <div style={{ background: '#fff1f2', padding: '20px', borderRadius: '14px', border: '1px solid #fecdd3', textAlign: 'center' }}>
+                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#be123c', textTransform: 'uppercase' }}>URDU (NIICS) STREAM</span>
+                    <div style={{ fontSize: '28px', fontWeight: '900', color: '#9f1239', marginTop: '6px' }}>
+                      {adminStudentsList.filter(s => String(s.adNo || '').toUpperCase().startsWith('U')).length}
+                    </div>
                   </div>
-                  <select value={proxyTeacherUsername} onChange={(e) => setProxyTeacherUsername(e.target.value)} style={{ ...styles.input, maxWidth: '380px' }}>
-                    {adminTeachersList.map(t => (
-                      <option key={t.username} value={t.username}>{t.fullName} (@{t.username})</option>
-                    ))}
-                  </select>
+
+                  <div style={{ background: '#eff6ff', padding: '20px', borderRadius: '14px', border: '1px solid #bfdbfe', textAlign: 'center' }}>
+                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#1d4ed8', textTransform: 'uppercase' }}>FACULTY &amp; COURSES</span>
+                    <div style={{ fontSize: '28px', fontWeight: '900', color: '#1e40af', marginTop: '6px' }}>
+                      {adminTeachersList.length} <span style={{ fontSize: '15px', fontWeight: '700', color: '#64748b' }}>({totalEnrollmentsCount} Batches)</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CLEAN MINIMALIST WHITE MODULE CARDS */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: '16px' }}>
+                  {sidebarNavItems.filter(i => i.id !== 'dashboard').map(item => (
+                    <div
+                      key={item.id}
+                      onClick={() => setActiveAdminTab(item.id)}
+                      style={{
+                        background: '#ffffff',
+                        padding: '22px',
+                        borderRadius: '14px',
+                        border: '1px solid #e2e8f0',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        gap: '14px',
+                        boxShadow: '0 1px 3px rgba(15, 23, 42, 0.03)',
+                        transition: 'border-color 0.15s ease, transform 0.15s ease'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ width: '42px', height: '42px', borderRadius: '10px', background: '#eef2ff', color: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', flexShrink: 0 }}>
+                          {item.icon}
+                        </div>
+                        <div>
+                          <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>{item.label}</h3>
+                          <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b', fontWeight: '500' }}>{item.desc}</p>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '12px', fontWeight: '700', color: '#4f46e5', textAlign: 'right' }}>
+                        Open Module ➔
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-              {selectedProxyTeacher && (
-                <TeacherPortalView
-                  key={selectedProxyTeacher.username}
-                  loggedInTeacher={selectedProxyTeacher}
-                  onLogout={() => setActiveAdminTab('teachers')}
-                />
-              )}
-            </div>
-          )}
+            )}
+
+            {activeAdminTab === 'teachers' && (
+              <TeacherManager
+                onOpenProxyMarks={(teacherUsername) => {
+                  setProxyTeacherUsername(teacherUsername);
+                  setActiveAdminTab('proxy_marks');
+                }}
+              />
+            )}
+            {activeAdminTab === 'students' && <StudentManager />}
+            {activeAdminTab === 'reports' && <ReportManager />}
+
+            {activeAdminTab === 'attendance_minus' && (
+              <PeriodAttendanceManager
+                userRole="admin"
+                loggedInUser={{ username: 'admin', fullName: 'Central Admin' }}
+                preloadedStudents={adminStudentsList}
+                preloadedTeachers={adminTeachersList}
+                onStudentsUpdated={(nextStudents) => setAdminStudentsList(nextStudents)}
+                onTeachersUpdated={(nextTeachers) => setAdminTeachersList(nextTeachers)}
+              />
+            )}
+
+            {activeAdminTab === 'reminders' && <ReminderManager />}
+
+            {activeAdminTab === 'outpass' && (
+              <OutPassPortal
+                embeddedMode={true}
+                isAdminProp={true}
+                preloadedStudents={adminStudentsList}
+                preloadedTeachers={adminTeachersList}
+              />
+            )}
+
+            {activeAdminTab === 'attendance' && (
+              <NightAttendanceManager
+                isAdmin={true}
+                preloadedStudents={adminStudentsList}
+                preloadedTeachers={adminTeachersList}
+              />
+            )}
+
+            {activeAdminTab === 'mentorship' && (
+              <MentorAndOutreachTab
+                students={adminStudentsList}
+                teachers={adminTeachersList}
+                isAdmin={true}
+                isOutreachView={true}
+                onStudentUpdated={(updated) => setAdminStudentsList(prev => prev.map(s => s.regNo === updated.regNo ? updated : s))}
+              />
+            )}
+
+            {activeAdminTab === 'proxy_marks' && (
+              <div>
+                <div style={{ ...styles.card, background: '#f8fafc', border: '1px solid #cbd5e1', marginBottom: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a', fontWeight: '800' }}>👨‍🏫 Select Faculty Account to Inspect / Enter Marks:</h3>
+                    </div>
+                    <select value={proxyTeacherUsername} onChange={(e) => setProxyTeacherUsername(e.target.value)} style={{ ...styles.input, maxWidth: '360px' }}>
+                      {adminTeachersList.map(t => (
+                        <option key={t.username} value={t.username}>{t.fullName} (@{t.username})</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                {selectedProxyTeacher && (
+                  <TeacherPortalView
+                    key={selectedProxyTeacher.username}
+                    loggedInTeacher={selectedProxyTeacher}
+                    embeddedInAdmin={true}
+                    onLogout={() => setActiveAdminTab('teachers')}
+                  />
+                )}
+              </div>
+            )}
+          </main>
         </div>
       </div>
     );
@@ -420,29 +530,26 @@ export default function UnifiedSchoolPortal() {
 
   if (userRole === 'teacher') {
     return (
-      <div style={{ minHeight: '100vh', backgroundColor: '#f1f5f9', padding: '24px 14px', fontFamily: 'Inter, system-ui, sans-serif' }}>
+      <div style={{ minHeight: '100vh', backgroundColor: '#f8fafc', fontFamily: 'Inter, system-ui, sans-serif' }}>
         <HighContrastStyles />
-        <div style={{ maxWidth: '1260px', margin: '0 auto' }}>
-          <InstallAppBanner />
-          <TeacherPortalView loggedInTeacher={loggedInTeacherData} onLogout={handleLogout} />
-        </div>
+        <TeacherPortalView loggedInTeacher={loggedInTeacherData} onLogout={handleLogout} />
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9', fontFamily: 'Inter, system-ui, sans-serif', padding: '16px' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', fontFamily: 'Inter, system-ui, sans-serif', padding: '16px' }}>
       <HighContrastStyles />
-      <div style={{ width: '100%', maxWidth: '440px' }}>
+      <div style={{ width: '100%', maxWidth: '420px' }}>
         <InstallAppBanner />
-        <div style={{ background: '#ffffff', padding: '40px 32px', borderRadius: '20px', boxShadow: '0 12px 32px rgba(15, 23, 42, 0.08)', border: '1px solid #cbd5e1' }}>
-          <div style={{ textAlign: 'center', marginBottom: '32px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <img src={DHIU_LOGO_URL} alt="DHIU Logo" style={{ width: '76px', height: '76px', borderRadius: '50%', objectFit: 'contain', marginBottom: '12px' }} />
-            <h2 style={{ color: '#0f172a', margin: '0 0 8px 0', fontSize: '26px', fontWeight: '900' }}>School Portal</h2>
-            <p style={{ color: '#475569', fontSize: '15px', margin: 0, fontWeight: '600' }}>Sign in as Student, Teacher, or Admin</p>
+        <div style={{ background: '#ffffff', padding: '38px 32px', borderRadius: '16px', boxShadow: '0 4px 20px rgba(15, 23, 42, 0.05)', border: '1px solid #e2e8f0' }}>
+          <div style={{ textAlign: 'center', marginBottom: '28px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <img src={DHIU_LOGO_URL} alt="DHIU Logo" style={{ width: '68px', height: '68px', borderRadius: '50%', objectFit: 'contain', marginBottom: '12px' }} />
+            <h2 style={{ color: '#0f172a', margin: '0 0 6px 0', fontSize: '24px', fontWeight: '800' }}>Shuhood Portal</h2>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: 0, fontWeight: '500' }}>Sign in as Student, Faculty, or Admin</p>
           </div>
 
-          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
             <div>
               <label style={styles.label}>Username or Reg.No</label>
               <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. admin, teacher_name, or 726007" required style={styles.input} />
@@ -451,13 +558,13 @@ export default function UnifiedSchoolPortal() {
               <label style={styles.label}>Password or Admission No. (Ad.No)</label>
               <div style={{ position: 'relative' }}>
                 <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="•••••••• or U1278" required style={{ ...styles.input, paddingRight: '65px' }} />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#0f766e', fontWeight: '800', cursor: 'pointer' }}>
+                <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#4f46e5', fontWeight: '700', cursor: 'pointer', fontSize: '13px' }}>
                   {showPassword ? 'Hide' : 'Show'}
                 </button>
               </div>
             </div>
-            {loginError && <div style={{ padding: '12px', background: '#fef2f2', color: '#b91c1c', borderRadius: '10px', fontSize: '14px', fontWeight: '700', textAlign: 'center', border: '1px solid #fecaca' }}>{loginError}</div>}
-            <button type="submit" disabled={isLoading} style={{ ...styles.buttonPrimary, width: '100%', padding: '15px', fontWeight: '800' }}>
+            {loginError && <div style={{ padding: '12px', background: '#fff1f2', color: '#e11d48', borderRadius: '8px', fontSize: '13px', fontWeight: '700', textAlign: 'center', border: '1px solid #ffe4e6' }}>{loginError}</div>}
+            <button type="submit" disabled={isLoading} style={{ ...styles.buttonPrimary, width: '100%', padding: '13px', fontWeight: '700' }}>
               {isLoading ? 'Signing In...' : 'Sign In'}
             </button>
           </form>

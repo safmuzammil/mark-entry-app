@@ -23,7 +23,7 @@ export const isAttendanceOnlyEnrollment = (env) => {
   return subUp !== '' && !normDefault.includes(subUp);
 };
 
-export const LEADER_CLASS_ORDER = ['QLA3', 'HFC3', 'FC2', 'AL2', 'ALC2', 'QH2', 'FC1', 'QH1', 'AL1', 'ALC1'];
+export const LEADER_CLASS_ORDER = ['QLA3', 'HFC3', 'FC2', 'AL2', 'QH2', 'FC1', 'QH1', 'AL1'];
 
 export const sortStudentsForEventLeader = (studentsArray) => {
   return [...studentsArray].sort((a, b) => {
@@ -966,86 +966,58 @@ export default function PeriodAttendanceManager({
         </div>
       )}
 
-      {/* 🌟 MODERN TOP NAVIGATION BAR */}
+      {/* 🌟 MINIMALIST SHUHOOD SUB-NAVIGATION BAR */}
       {!isEventLeaderUser && (
-        <div style={{ background: '#ffffff', padding: '14px 18px', borderRadius: '16px', border: '1px solid #cbd5e1', boxShadow: '0 2px 10px rgba(15,23,42,0.03)', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <button
-            type="button"
-            onClick={() => setActiveTab('cards')}
-            style={{ padding: '10px 16px', borderRadius: '10px', fontWeight: '800', fontSize: '13px', border: 'none', cursor: 'pointer', background: activeTab === 'cards' || activeTab === 'mark_sheet' ? '#4f46e5' : '#f1f5f9', color: activeTab === 'cards' || activeTab === 'mark_sheet' ? '#ffffff' : '#0f172a' }}
-          >
-            📚 Subject Cards ({attendanceEnrollments.length})
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('reports_hub')}
-            style={{ padding: '10px 16px', borderRadius: '10px', fontWeight: '800', fontSize: '13px', border: 'none', cursor: 'pointer', background: activeTab === 'reports_hub' ? '#0f766e' : '#f0fdfa', color: activeTab === 'reports_hub' ? '#ffffff' : '#0f766e' }}
-          >
-            📊 Monthly / Daily / Total Reports
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('minus_attendance')}
-            style={{ padding: '10px 16px', borderRadius: '10px', fontWeight: '800', fontSize: '13px', border: 'none', cursor: 'pointer', background: '#e11d48', color: '#ffffff', boxShadow: '0 4px 10px rgba(225, 29, 72, 0.22)' }}
-          >
-            ⚠️ Manage Minus Attendance
-          </button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff', padding: '10px 14px', borderRadius: '12px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {[
+              { id: 'cards', match: ['cards', 'mark_sheet'], label: `Subject Cards (${attendanceEnrollments.length})` },
+              { id: 'reports_hub', match: ['reports_hub'], label: 'Monthly / Daily / Total Reports' },
+              { id: 'minus_attendance', match: ['minus_attendance'], label: 'Minus Attendance' },
+              { id: 'shortage', match: ['shortage'], label: `Shortage <85% (${shortageCount})` },
+              ...(userRole === 'admin' ? [
+                { id: 'clearance', match: ['clearance'], label: 'Clearance' },
+                { id: 'manage_leaders', match: ['manage_leaders', 'rehearsal_leader'], label: `Event Leaders (${eventLeadersList.length})` },
+                { id: 'non_mark_subjects', match: ['non_mark_subjects'], label: 'Non-Mark Subjects' },
+                { id: 'import_old', match: ['import_old'], label: 'Import Shuhood' }
+              ] : [])
+            ].map(tab => {
+              const isAct = tab.match.includes(activeTab);
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    fontWeight: '700',
+                    fontSize: '13px',
+                    border: isAct ? '1px solid #4f46e5' : '1px solid transparent',
+                    cursor: 'pointer',
+                    background: isAct ? '#4f46e5' : '#f8fafc',
+                    color: isAct ? '#ffffff' : '#475569',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
 
           <button
             type="button"
             onClick={handleDownloadAbsentReport}
-            style={{ padding: '10px 16px', borderRadius: '10px', fontWeight: '800', fontSize: '13px', border: '1px solid #cbd5e1', cursor: 'pointer', background: '#f8fafc', color: '#1e293b' }}
+            style={{ padding: '8px 14px', borderRadius: '8px', fontWeight: '700', fontSize: '12px', border: '1px solid #cbd5e1', cursor: 'pointer', background: '#ffffff', color: '#334155' }}
           >
-            ⬇️ Absent CSV
+            ⬇️ Export Absent CSV
           </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('shortage')}
-            style={{ padding: '10px 16px', borderRadius: '10px', fontWeight: '800', fontSize: '13px', border: 'none', cursor: 'pointer', background: activeTab === 'shortage' ? '#d97706' : '#f1f5f9', color: activeTab === 'shortage' ? '#ffffff' : '#0f172a' }}
-          >
-            📉 Shortage &lt;85% ({shortageCount})
-          </button>
-
-          {userRole === 'admin' && (
-            <>
-              <button
-                type="button"
-                onClick={() => setActiveTab('manage_leaders')}
-                style={{ padding: '10px 15px', borderRadius: '10px', fontWeight: '800', fontSize: '13px', border: 'none', cursor: 'pointer', background: activeTab === 'manage_leaders' || activeTab === 'rehearsal_leader' ? '#7c3aed' : '#f5f3ff', color: activeTab === 'manage_leaders' || activeTab === 'rehearsal_leader' ? '#ffffff' : '#6d28d9' }}
-              >
-                🎭 Event Leaders ({eventLeadersList.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('non_mark_subjects')}
-                style={{ padding: '10px 15px', borderRadius: '10px', fontWeight: '800', fontSize: '13px', border: 'none', cursor: 'pointer', background: activeTab === 'non_mark_subjects' ? '#0d9488' : '#f0fdfa', color: activeTab === 'non_mark_subjects' ? '#ffffff' : '#0f766e' }}
-              >
-                ➕ Non-Mark Subjects
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('clearance')}
-                style={{ padding: '10px 15px', borderRadius: '10px', fontWeight: '800', fontSize: '13px', border: 'none', cursor: 'pointer', background: activeTab === 'clearance' ? '#0284c7' : '#f1f5f9', color: activeTab === 'clearance' ? '#ffffff' : '#0f172a' }}
-              >
-                ⚖️ Clearance
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('import_old')}
-                style={{ padding: '10px 15px', borderRadius: '10px', fontWeight: '800', fontSize: '13px', border: 'none', cursor: 'pointer', background: activeTab === 'import_old' ? '#4f46e5' : '#f1f5f9', color: activeTab === 'import_old' ? '#ffffff' : '#0f172a' }}
-              >
-                📂 Import Shuhood
-              </button>
-            </>
-          )}
         </div>
       )}
 
       {statusMsg && (
-        <div style={{ padding: '14px 18px', background: statusMsg.includes('✅') || statusMsg.includes('🎉') ? '#dcfce7' : '#fee2e2', color: statusMsg.includes('✅') || statusMsg.includes('🎉') ? '#166534' : '#991b1b', borderRadius: '12px', fontWeight: '800' }}>
+        <div style={{ padding: '12px 16px', background: statusMsg.includes('✅') || statusMsg.includes('🎉') ? '#ecfdf5' : '#fff1f2', color: statusMsg.includes('✅') || statusMsg.includes('🎉') ? '#047857' : '#e11d48', borderRadius: '10px', fontWeight: '700', fontSize: '13px', border: `1px solid ${statusMsg.includes('✅') || statusMsg.includes('🎉') ? '#a7f3d0' : '#fecdd3'}` }}>
           {statusMsg}
         </div>
       )}
@@ -1054,7 +1026,7 @@ export default function PeriodAttendanceManager({
       {activeTab === 'cards' && !isEventLeaderUser && (
         <div>
           {userRole === 'admin' && (
-            <div style={{ marginBottom: '20px', background: '#ffffff', padding: '16px 20px', borderRadius: '14px', border: '1px solid #cbd5e1', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+            <div style={{ marginBottom: '18px', background: '#ffffff', padding: '14px 18px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
               <label style={{ ...styles.label, margin: 0 }}>👨‍🏫 Inspect / Take Attendance for Teacher:</label>
               <select value={selectedTeacherUsername} onChange={e => setSelectedTeacherUsername(e.target.value)} style={{ ...styles.input, maxWidth: '340px' }}>
                 {localTeachers.filter(t => !t.isEventLeader).map(t => (
@@ -1065,24 +1037,23 @@ export default function PeriodAttendanceManager({
           )}
 
           {attendanceEnrollments.length === 0 ? (
-            <div style={{ background: '#ffffff', padding: '40px', borderRadius: '16px', border: '1px dashed #cbd5e1', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>
+            <div style={{ background: '#ffffff', padding: '40px', borderRadius: '14px', border: '1px dashed #cbd5e1', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
               No period-attendance subjects assigned yet (Hifz is automatically excluded from period attendance).
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '18px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: '16px' }}>
               {attendanceEnrollments.map(env => {
                 const enrolledList = getStudentsForEnrollment(env);
                 const isNonMark = isAttendanceOnlyEnrollment(env);
                 return (
                   <div
                     key={env.id}
-                    className="erp-card-hover"
                     style={{
                       background: '#ffffff',
-                      padding: '22px',
-                      borderRadius: '18px',
-                      border: '1px solid #cbd5e1',
-                      boxShadow: '0 4px 14px rgba(15, 23, 42, 0.04)',
+                      padding: '20px',
+                      borderRadius: '14px',
+                      border: '1px solid #e2e8f0',
+                      boxShadow: '0 1px 3px rgba(15, 23, 42, 0.03)',
                       display: 'flex',
                       flexDirection: 'column',
                       justifyContent: 'space-between',
@@ -1091,22 +1062,22 @@ export default function PeriodAttendanceManager({
                   >
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase' }}>
+                        <h3 style={{ margin: 0, fontSize: '17px', fontWeight: '800', color: '#0f172a', textTransform: 'uppercase' }}>
                           {env.alias || `${env.subject} ${env.targetClass || ''}`}
                         </h3>
                         {isNonMark && (
-                          <span style={{ background: '#fef3c7', color: '#b45309', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '900' }}>
+                          <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '800' }}>
                             ATTENDANCE ONLY
                           </span>
                         )}
                       </div>
                       <div style={{ marginTop: '8px' }}>
-                        <span style={{ background: '#f1f5f9', color: '#475569', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
+                        <span style={{ background: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>
                           Class: {env.targetClass || env.alias?.split(' ').pop() || `Grade ${env.grade || '-'}`}
                         </span>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '16px', color: '#475569', fontSize: '14px', fontWeight: '700' }}>
-                        <span style={{ background: '#eef2ff', color: '#4f46e5', padding: '6px 8px', borderRadius: '8px', fontSize: '14px' }}>👥</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '14px', color: '#475569', fontSize: '13px', fontWeight: '600' }}>
+                        <span style={{ background: '#eef2ff', color: '#4f46e5', padding: '5px 8px', borderRadius: '8px', fontSize: '13px' }}>👥</span>
                         <span><strong>{enrolledList.length}</strong> Students Enrolled</span>
                       </div>
                     </div>
@@ -1119,9 +1090,9 @@ export default function PeriodAttendanceManager({
                         setExistingSessionDoc(null);
                         setActiveTab('mark_sheet');
                       }}
-                      style={{ width: '100%', padding: '13px', background: '#0f172a', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '14px', cursor: 'pointer' }}
+                      style={{ width: '100%', padding: '11px', background: '#4f46e5', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}
                     >
-                      ✍️ Mark Attendance
+                      Mark Attendance
                     </button>
                   </div>
                 );
@@ -1133,17 +1104,17 @@ export default function PeriodAttendanceManager({
 
       {/* VIEW 1B: 9-PERIOD ROLL-CALL SHEET */}
       {activeTab === 'mark_sheet' && !isEventLeaderUser && (
-        <div style={{ background: '#ffffff', padding: '24px', borderRadius: '18px', border: '1px solid #cbd5e1' }}>
+        <div style={styles.card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '18px' }}>
             <button
               type="button"
               onClick={() => setActiveTab('cards')}
-              style={{ padding: '8px 14px', background: '#f1f5f9', color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '800', cursor: 'pointer' }}
+              style={styles.buttonSecondary}
             >
               ⬅ Back to Subject Cards
             </button>
             {existingSessionDoc && attSession && (
-              <span style={{ background: '#fef3c7', color: '#92400e', padding: '5px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: '800', border: '1px solid #f59e0b' }}>
+              <span style={{ background: '#fef3c7', color: '#92400e', padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: '700', border: '1px solid #fde68a' }}>
                 ✏️ Editing Saved Session ({attDate} • Period {attSession})
               </span>
             )}
@@ -1151,7 +1122,7 @@ export default function PeriodAttendanceManager({
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px', marginBottom: '20px' }}>
             <div>
-              <label style={styles.label}>Selected Subject Batch:</label>
+              <label style={styles.label}>Selected Subject Batch</label>
               <select value={attEnrollmentId} onChange={e => setAttEnrollmentId(e.target.value)} style={styles.input}>
                 {attendanceEnrollments.map(env => (
                   <option key={env.id} value={env.id}>{env.alias || env.subject}</option>
@@ -1159,12 +1130,12 @@ export default function PeriodAttendanceManager({
               </select>
             </div>
             <div>
-              <label style={styles.label}>Date:</label>
+              <label style={styles.label}>Date</label>
               <input type="date" value={attDate} onChange={e => setAttDate(e.target.value)} style={styles.input} />
             </div>
             <div>
-              <label style={{ ...styles.label, color: !attSession ? '#dc2626' : '#0f172a' }}>
-                Period / Session (1 to 9) *Mandatory:
+              <label style={{ ...styles.label, color: !attSession ? '#e11d48' : '#475569' }}>
+                Period / Session (1 to 9) *Mandatory
               </label>
               <select
                 value={attSession}
@@ -1172,9 +1143,9 @@ export default function PeriodAttendanceManager({
                 required
                 style={{
                   ...styles.input,
-                  border: !attSession ? '2px solid #dc2626' : '2px solid #059669',
-                  background: !attSession ? '#fef2f2' : '#ffffff',
-                  fontWeight: '900'
+                  border: !attSession ? '1.5px solid #e11d48' : '1.5px solid #10b981',
+                  background: !attSession ? '#fff1f2' : '#ffffff',
+                  fontWeight: '700'
                 }}
               >
                 <option value="">-- ⚠️ Select Period (1 to 9) --</option>
@@ -1186,18 +1157,18 @@ export default function PeriodAttendanceManager({
           </div>
 
           {!attSession ? (
-            <div style={{ padding: '36px 24px', background: '#fffbeb', border: '2px dashed #f59e0b', borderRadius: '14px', textAlign: 'center', color: '#92400e', fontWeight: '900', fontSize: '15px' }}>
+            <div style={{ padding: '32px 24px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '12px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '14px' }}>
               👆 Please select a Period (Period 1 to Period 9) from the dropdown above to load the roll-call sheet.
             </div>
           ) : classStudents.length > 0 && (
             <form onSubmit={handleSaveAttendance}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '12px 16px', borderRadius: '10px', marginBottom: '14px', fontWeight: '800', flexWrap: 'wrap', gap: '10px', border: '1px solid #cbd5e1' }}>
-                <span style={{ color: '#0f172a' }}>👥 Total: {classStudents.length}</span>
-                <span style={{ color: '#059669' }}>✅ Present: {classStudents.length - absentRegNos.length}</span>
-                <span style={{ color: '#dc2626' }}>❌ Absent: {absentRegNos.length}</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '12px 16px', borderRadius: '10px', marginBottom: '14px', fontWeight: '700', fontSize: '13px', flexWrap: 'wrap', gap: '10px', border: '1px solid #e2e8f0' }}>
+                <span style={{ color: '#0f172a' }}>Total: {classStudents.length}</span>
+                <span style={{ color: '#047857' }}>Present: {classStudents.length - absentRegNos.length}</span>
+                <span style={{ color: '#e11d48' }}>Absent: {absentRegNos.length}</span>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <button type="button" onClick={() => setAbsentRegNos([])} style={{ padding: '5px 10px', background: '#dcfce7', color: '#166534', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>All Present</button>
-                  <button type="button" onClick={() => setAbsentRegNos(classStudents.map(s => s.regNo))} style={{ padding: '5px 10px', background: '#fee2e2', color: '#991b1b', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>All Absent</button>
+                  <button type="button" onClick={() => setAbsentRegNos([])} style={{ padding: '5px 10px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>All Present</button>
+                  <button type="button" onClick={() => setAbsentRegNos(classStudents.map(s => s.regNo))} style={{ padding: '5px 10px', background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>All Absent</button>
                 </div>
               </div>
 
@@ -1214,38 +1185,38 @@ export default function PeriodAttendanceManager({
                       onClick={() => { if (!isAutoOfficial) toggleAbsent(st.regNo); }}
                       style={{
                         padding: '12px 14px',
-                        borderRadius: '12px',
+                        borderRadius: '10px',
                         cursor: isAutoOfficial ? 'default' : 'pointer',
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'flex-start',
                         gap: '8px',
-                        background: isAutoOfficial ? '#eff6ff' : isAbsent ? '#fef2f2' : '#ecfdf5',
-                        border: `2px solid ${isAutoOfficial ? '#3b82f6' : isAbsent ? '#ef4444' : '#10b981'}`
+                        background: isAutoOfficial ? '#eef2ff' : isAbsent ? '#fff1f2' : '#ecfdf5',
+                        border: `1.5px solid ${isAutoOfficial ? '#6366f1' : isAbsent ? '#f43f5e' : '#10b981'}`
                       }}
                     >
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: '800', color: isAutoOfficial ? '#1e40af' : isAbsent ? '#991b1b' : '#065f46', fontSize: '14px' }}>
+                        <div style={{ fontWeight: '700', color: '#0f172a', fontSize: '14px' }}>
                           #{st.rollNo || '-'} • {st.firstName}
                         </div>
-                        <div style={{ fontSize: '12px', color: isAutoOfficial ? '#2563eb' : isAbsent ? '#dc2626' : '#047857', fontWeight: '700' }}>
+                        <div style={{ fontSize: '12px', color: '#475569', fontWeight: '600' }}>
                           Ad.No: #{st.adNo} • {(st.classes || []).join(', ')}
                         </div>
                         {rehPresentHere && (
-                          <span style={{ display: 'inline-block', marginTop: '4px', background: '#dbeafe', color: '#1e40af', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '900' }}>
+                          <span style={{ display: 'inline-block', marginTop: '4px', background: '#e0e7ff', color: '#4338ca', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '800' }}>
                             🎭 Rehearsal Present (Auto-Cleared)
                           </span>
                         )}
                         {op && (
-                          <div style={{ marginTop: '6px', background: op.isOfficial ? '#dbeafe' : '#fef3c7', color: op.isOfficial ? '#1e3a8a' : '#92400e', padding: '5px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', lineHeight: 1.35, border: `1px solid ${op.isOfficial ? '#93c5fd' : '#fcd34d'}` }}>
+                          <div style={{ marginTop: '6px', background: '#ffffff', color: '#334155', padding: '5px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', lineHeight: 1.35, border: '1px solid #cbd5e1' }}>
                             <div>🪪 <strong>{op.category} Leave:</strong> {op.destination} {op.reason ? `(${op.reason})` : ''}</div>
-                            <div style={{ fontSize: '10px', marginTop: '2px', opacity: 0.9 }}>
-                              👨‍🏫 By: {op.teacherName} • ⏳ Return: {op.toFormatted}
+                            <div style={{ fontSize: '10px', marginTop: '2px', color: '#64748b' }}>
+                              By: {op.teacherName} • Return: {op.toFormatted}
                             </div>
                           </div>
                         )}
                       </div>
-                      <span style={{ padding: '4px 10px', borderRadius: '6px', fontWeight: '900', fontSize: '12px', background: isAutoOfficial ? '#2563eb' : isAbsent ? '#dc2626' : '#059669', color: '#ffffff', whiteSpace: 'nowrap' }}>
+                      <span style={{ padding: '4px 10px', borderRadius: '6px', fontWeight: '800', fontSize: '11px', background: isAutoOfficial ? '#4f46e5' : isAbsent ? '#e11d48' : '#10b981', color: '#ffffff', whiteSpace: 'nowrap' }}>
                         {isAutoOfficial ? 'OFFICIAL' : isAbsent ? 'ABSENT' : 'PRESENT'}
                       </span>
                     </div>
@@ -1254,15 +1225,13 @@ export default function PeriodAttendanceManager({
               </div>
 
               {absentStudentsByClassGroups.length > 0 && (
-                <div style={{ background: '#fffbeb', border: '2px solid #f59e0b', borderRadius: '12px', padding: '16px', marginBottom: '18px' }}>
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', marginBottom: '18px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
-                    <div>
-                      <div style={{ fontWeight: '900', color: '#92400e', fontSize: '14px' }}>
-                        📲 Send / Copy Absent Students to Respective Class Teachers ({absentStudentsByClassGroups.length} Class{absentStudentsByClassGroups.length > 1 ? 'es' : ''})
-                      </div>
+                    <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '13px' }}>
+                      📲 Send / Copy Absent Students to Respective Class Teachers ({absentStudentsByClassGroups.length} Class{absentStudentsByClassGroups.length > 1 ? 'es' : ''})
                     </div>
                     {absentStudentsByClassGroups.length > 1 && (
-                      <button type="button" onClick={handleCopyAllAbsentees} style={{ padding: '7px 12px', background: '#0f172a', color: '#ffffff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>
+                      <button type="button" onClick={handleCopyAllAbsentees} style={styles.buttonSecondary}>
                         📋 Copy All Classes Together
                       </button>
                     )}
@@ -1270,24 +1239,24 @@ export default function PeriodAttendanceManager({
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
                     {absentStudentsByClassGroups.map(grp => (
-                      <div key={grp.className} style={{ background: '#ffffff', border: '1px solid #fcd34d', borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '10px' }}>
+                      <div key={grp.className} style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '10px' }}>
                         <div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                            <span style={{ background: '#fef3c7', color: '#92400e', padding: '3px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: '900' }}>
-                              🏫 Class {grp.className} ({grp.students.length} Absent)
+                            <span style={{ background: '#fff1f2', color: '#e11d48', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
+                              Class {grp.className} ({grp.students.length} Absent)
                             </span>
-                            <span style={{ fontSize: '11px', fontWeight: '800', color: '#0f766e' }}>
+                            <span style={{ fontSize: '11px', fontWeight: '700', color: '#475569' }}>
                               CT: {grp.classTeacher?.fullName || 'Unassigned'}
                             </span>
                           </div>
-                          <div style={{ fontSize: '12px', color: '#dc2626', fontWeight: '700', lineHeight: 1.5 }}>
+                          <div style={{ fontSize: '12px', color: '#334155', fontWeight: '600', lineHeight: 1.5 }}>
                             {grp.students.map(s => `${s.firstName} (#${s.adNo})`).join(', ')}
                           </div>
                         </div>
 
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                          <button type="button" onClick={() => handleCopyClassAbsentees(grp)} style={{ flex: 1, padding: '8px 10px', background: '#f1f5f9', color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>
-                            📋 Copy {grp.className} List
+                          <button type="button" onClick={() => handleCopyClassAbsentees(grp)} style={{ ...styles.buttonSecondary, flex: 1, padding: '7px 10px', fontSize: '12px' }}>
+                            📋 Copy {grp.className}
                           </button>
                           <button
                             type="button"
@@ -1296,7 +1265,7 @@ export default function PeriodAttendanceManager({
                               if (!phone) return alert(`No WhatsApp number saved for Class ${grp.className} Teacher.`);
                               openDirectWhatsApp(phone, formatAbsentMessageForClass(grp));
                             }}
-                            style={{ flex: 1, padding: '8px 10px', background: '#16a34a', color: '#ffffff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}
+                            style={{ flex: 1, padding: '7px 10px', background: '#10b981', color: '#ffffff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
                           >
                             💬 WA {grp.classTeacher?.fullName ? grp.classTeacher.fullName.split(' ')[0] : 'CT'}
                           </button>
@@ -1307,7 +1276,7 @@ export default function PeriodAttendanceManager({
                 </div>
               )}
 
-              <button type="submit" disabled={loading} style={{ ...styles.buttonPrimary, width: '100%', padding: '16px', fontSize: '16px' }}>
+              <button type="submit" disabled={loading} style={{ ...styles.buttonPrimary, width: '100%', padding: '14px', fontSize: '15px' }}>
                 {loading ? 'Saving Attendance...' : `💾 ${existingSessionDoc ? 'Update' : 'Save'} Period ${attSession} Attendance`}
               </button>
             </form>
@@ -1317,18 +1286,18 @@ export default function PeriodAttendanceManager({
 
       {/* VIEW 2: EVENT LEADER REHEARSAL ROLL-CALL */}
       {activeTab === 'rehearsal_leader' && (
-        <div style={{ background: '#ffffff', padding: '24px', borderRadius: '18px', border: '2px solid #7c3aed' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', borderBottom: '2px solid #f5f3ff', paddingBottom: '14px' }}>
+        <div style={styles.card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '14px' }}>
             <div>
-              <span style={{ background: '#7c3aed', color: '#ffffff', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '900', textTransform: 'uppercase' }}>
-                🎭 Special Event / Arts Fest Rehearsal Attendance Portal
+              <span style={{ background: '#eef2ff', color: '#4f46e5', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
+                🎭 Special Event / Arts Fest Rehearsal Attendance
               </span>
-              <h3 style={{ margin: '6px 0 0 0', fontSize: '20px', color: '#0f172a', fontWeight: '900' }}>
+              <h3 style={{ margin: '6px 0 0 0', fontSize: '19px', color: '#0f172a', fontWeight: '800' }}>
                 {activeLeaderObj?.fullName || 'Event Leader Roll-Call'} ({leaderStudentsSorted.length} Active Students for {rehDate})
               </h3>
             </div>
             {userRole === 'admin' && (
-              <button type="button" onClick={() => setActiveTab('manage_leaders')} style={{ padding: '8px 14px', background: '#f5f3ff', color: '#6d28d9', border: '1px solid #c4b5fd', borderRadius: '8px', fontWeight: '800', cursor: 'pointer' }}>
+              <button type="button" onClick={() => setActiveTab('manage_leaders')} style={styles.buttonSecondary}>
                 ⚙️ Manage Leader Accounts &amp; Deadlines
               </button>
             )}
@@ -1337,7 +1306,7 @@ export default function PeriodAttendanceManager({
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px', marginBottom: '20px' }}>
             {userRole === 'admin' && eventLeadersList.length > 0 && (
               <div>
-                <label style={styles.label}>Select Event Leader Account:</label>
+                <label style={styles.label}>Select Event Leader Account</label>
                 <select value={rehSelectedLeaderUsername} onChange={e => setRehSelectedLeaderUsername(e.target.value)} style={styles.input}>
                   {eventLeadersList.map(l => (
                     <option key={l.username} value={l.username}>{l.fullName} (@{l.username})</option>
@@ -1346,12 +1315,12 @@ export default function PeriodAttendanceManager({
               </div>
             )}
             <div>
-              <label style={styles.label}>Rehearsal Date:</label>
+              <label style={styles.label}>Rehearsal Date</label>
               <input type="date" value={rehDate} onChange={e => setRehDate(e.target.value)} style={styles.input} />
             </div>
             <div>
-              <label style={styles.label}>Select Rehearsal Sitting:</label>
-              <select value={rehSessionId} onChange={e => setRehSessionId(e.target.value)} style={{ ...styles.input, borderColor: '#7c3aed', fontWeight: '800' }}>
+              <label style={styles.label}>Select Rehearsal Sitting</label>
+              <select value={rehSessionId} onChange={e => setRehSessionId(e.target.value)} style={styles.input}>
                 {REHEARSAL_SESSIONS.map(s => (
                   <option key={s.id} value={s.id}>{s.label}</option>
                 ))}
@@ -1360,7 +1329,7 @@ export default function PeriodAttendanceManager({
           </div>
 
           {leaderStudentsSorted.length === 0 ? (
-            <div style={{ padding: '32px', background: '#f8fafc', borderRadius: '12px', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>
+            <div style={{ padding: '32px', background: '#f8fafc', borderRadius: '12px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
               No active students found for {rehDate}.
             </div>
           ) : (
@@ -1380,22 +1349,22 @@ export default function PeriodAttendanceManager({
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        background: isAbsent ? '#fef2f2' : '#ecfdf5',
-                        border: `2px solid ${isAbsent ? '#ef4444' : '#10b981'}`
+                        background: isAbsent ? '#fff1f2' : '#ecfdf5',
+                        border: `1.5px solid ${isAbsent ? '#f43f5e' : '#10b981'}`
                       }}
                     >
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                          <span style={{ background: '#4c1d95', color: '#ffffff', padding: '2px 7px', borderRadius: '4px', fontSize: '11px', fontWeight: '900' }}>
+                          <span style={{ background: '#4f46e5', color: '#ffffff', padding: '2px 7px', borderRadius: '4px', fontSize: '10px', fontWeight: '800' }}>
                             {(st.classes || []).join(', ') || st.class}
                           </span>
-                          <span style={{ fontWeight: '900', color: '#0f172a', fontSize: '14px' }}>{st.firstName}</span>
+                          <span style={{ fontWeight: '700', color: '#0f172a', fontSize: '14px' }}>{st.firstName}</span>
                         </div>
-                        <div style={{ fontSize: '12px', color: isAbsent ? '#dc2626' : '#047857', fontWeight: '800', marginTop: '4px' }}>
+                        <div style={{ fontSize: '11px', color: '#475569', fontWeight: '600', marginTop: '4px' }}>
                           Ad.No: #{st.adNo} • Sn: {idx + 1} {dl ? `• Until ${dl}` : ''}
                         </div>
                       </div>
-                      <span style={{ padding: '5px 10px', borderRadius: '6px', fontWeight: '900', fontSize: '12px', background: isAbsent ? '#dc2626' : '#059669', color: '#ffffff' }}>
+                      <span style={{ padding: '4px 10px', borderRadius: '6px', fontWeight: '800', fontSize: '11px', background: isAbsent ? '#e11d48' : '#10b981', color: '#ffffff' }}>
                         {isAbsent ? 'ABSENT' : 'PRESENT'}
                       </span>
                     </div>
@@ -1403,7 +1372,7 @@ export default function PeriodAttendanceManager({
                 })}
               </div>
 
-              <button type="submit" disabled={loading} style={{ ...styles.buttonPrimary, width: '100%', padding: '16px', fontSize: '16px', background: '#7c3aed' }}>
+              <button type="submit" disabled={loading} style={{ ...styles.buttonPrimary, width: '100%', padding: '14px', fontSize: '15px' }}>
                 {loading ? 'Submitting Rehearsal Attendance...' : `💾 ${existingRehDoc ? 'Update' : 'Submit'} Rehearsal Attendance (${rehSessionId})`}
               </button>
             </form>
@@ -1419,27 +1388,27 @@ export default function PeriodAttendanceManager({
             subtitle="Create temporary leader logins; revoking them later keeps all recorded attendance 100% permanent"
             badgeText={`${eventLeadersList.length} Leaders`}
             icon="🎭"
-            accentColor="#7c3aed"
+            accentColor="#4f46e5"
             defaultOpen={eventLeadersList.length === 0}
           >
             <form onSubmit={handleCreateEventLeaderAccount} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', alignItems: 'end', marginBottom: '20px' }}>
               <div>
-                <label style={styles.label}>Leader Name:</label>
+                <label style={styles.label}>Leader Name</label>
                 <input type="text" value={newLeaderName} onChange={e => setNewLeaderName(e.target.value)} placeholder="e.g. Sinan QLA3" required style={styles.input} />
               </div>
               <div>
-                <label style={styles.label}>Event / Team Name:</label>
+                <label style={styles.label}>Event / Team Name</label>
                 <input type="text" value={newLeaderEventTitle} onChange={e => setNewLeaderEventTitle(e.target.value)} placeholder="e.g. Arts Fest Zone A" required style={styles.input} />
               </div>
               <div>
-                <label style={styles.label}>Login Username:</label>
+                <label style={styles.label}>Login Username</label>
                 <input type="text" value={newLeaderUsername} onChange={e => setNewLeaderUsername(e.target.value)} placeholder="e.g. leader_zone1" required style={styles.input} />
               </div>
               <div>
-                <label style={styles.label}>Password (Min 6 chars):</label>
+                <label style={styles.label}>Password (Min 6 chars)</label>
                 <input type="text" value={newLeaderPassword} onChange={e => setNewLeaderPassword(e.target.value)} placeholder="e.g. fest123" required style={styles.input} />
               </div>
-              <button type="submit" disabled={loading} style={{ ...styles.buttonPrimary, background: '#7c3aed', padding: '12px 18px' }}>
+              <button type="submit" disabled={loading} style={styles.buttonPrimary}>
                 ➕ Create Leader Login
               </button>
             </form>
@@ -1449,14 +1418,14 @@ export default function PeriodAttendanceManager({
                 {eventLeadersList.map(l => {
                   const sIds = l.enrollments?.[0]?.studentIds || l.assignedStudentIds || [];
                   return (
-                    <div key={l.username} style={{ padding: '14px 16px', background: '#f5f3ff', border: '1.5px solid #c4b5fd', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                    <div key={l.username} style={{ padding: '14px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
                       <div>
-                        <div style={{ fontWeight: '900', color: '#4c1d95', fontSize: '15px' }}>🎭 {l.fullName}</div>
-                        <div style={{ fontSize: '12px', color: '#6d28d9', fontWeight: '700', marginTop: '2px' }}>
+                        <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '14px' }}>🎭 {l.fullName}</div>
+                        <div style={{ fontSize: '12px', color: '#475569', fontWeight: '600', marginTop: '2px' }}>
                           Login: <code>@{l.username}</code> • <strong>{sIds.length} Students Mapped</strong>
                         </div>
                       </div>
-                      <button type="button" onClick={() => handleDeleteEventLeaderAccount(l)} style={{ padding: '7px 12px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}>
+                      <button type="button" onClick={() => handleDeleteEventLeaderAccount(l)} style={styles.buttonDanger}>
                         🗑️ Revoke
                       </button>
                     </div>
@@ -1466,26 +1435,26 @@ export default function PeriodAttendanceManager({
             )}
           </CollapsibleCard>
 
-          <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
+          <div style={styles.card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
-              <h3 style={{ margin: 0, fontSize: '18px', color: '#0f172a', fontWeight: '900' }}>
-                👥 2. Map Students &amp; Set Rehearsal Deadline Date
+              <h3 style={{ margin: 0, fontSize: '17px', color: '#0f172a', fontWeight: '800' }}>
+                2. Map Students &amp; Set Rehearsal Deadline Date
               </h3>
               {eventLeadersList.length > 0 && (
-                <button type="button" onClick={() => setActiveTab('rehearsal_leader')} style={{ padding: '9px 15px', background: '#7c3aed', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '12px' }}>
+                <button type="button" onClick={() => setActiveTab('rehearsal_leader')} style={styles.buttonPrimary}>
                   📋 Open Rehearsal Roll-Call Screen ➔
                 </button>
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '16px', background: '#f5f3ff', padding: '14px', borderRadius: '12px', border: '1.5px solid #8b5cf6', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '16px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', alignItems: 'center' }}>
               <div style={{ flex: '1 1 280px', display: 'flex', gap: '8px' }}>
                 <input
                   type="text"
                   value={bulkAdNoPasteText}
                   onChange={e => setBulkAdNoPasteText(e.target.value)}
                   placeholder="Paste Ad.Nos separated by comma (e.g. 3538, U1127)..."
-                  style={{ ...styles.input, fontSize: '13px', borderColor: '#c4b5fd' }}
+                  style={styles.input}
                 />
                 <button
                   type="button"
@@ -1499,22 +1468,22 @@ export default function PeriodAttendanceManager({
                     setLeaderSelectedRegs(prev => Array.from(new Set([...prev, ...matchedRegs])));
                     setBulkAdNoPasteText('');
                   }}
-                  style={{ padding: '10px 14px', background: '#0f172a', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  style={{ ...styles.buttonSecondary, whiteSpace: 'nowrap' }}
                 >
                   ☑️ Auto-Check
                 </button>
               </div>
 
-              <select value={assignLeaderUsername} onChange={e => setAssignLeaderUsername(e.target.value)} style={{ ...styles.input, maxWidth: '250px', fontWeight: '800' }}>
+              <select value={assignLeaderUsername} onChange={e => setAssignLeaderUsername(e.target.value)} style={{ ...styles.input, maxWidth: '240px' }}>
                 <option value="">-- Select Event Leader --</option>
                 {eventLeadersList.map(l => (
                   <option key={l.username} value={l.username}>{l.fullName} (@{l.username})</option>
                 ))}
               </select>
 
-              <input type="date" value={leaderAssignDeadline} onChange={e => setLeaderAssignDeadline(e.target.value)} style={{ ...styles.input, maxWidth: '165px', borderColor: '#7c3aed', fontWeight: '800' }} />
+              <input type="date" value={leaderAssignDeadline} onChange={e => setLeaderAssignDeadline(e.target.value)} style={{ ...styles.input, maxWidth: '160px' }} />
 
-              <button type="button" onClick={handleAssignStudentsToLeader} disabled={loading} style={{ padding: '12px 18px', background: '#7c3aed', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>
+              <button type="button" onClick={handleAssignStudentsToLeader} disabled={loading} style={styles.buttonPrimary}>
                 🚀 Assign {leaderSelectedRegs.length} Checked
               </button>
             </div>
@@ -1526,9 +1495,9 @@ export default function PeriodAttendanceManager({
                 ).map(st => {
                   const dlMap = localTeachers.find(t => t.username === assignLeaderUsername)?.enrollments?.[0]?.studentDeadlines || {};
                   return (
-                    <span key={st.regNo} style={{ background: '#ede9fe', color: '#5b21b6', padding: '4px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '800', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <span key={st.regNo} style={{ background: '#eef2ff', color: '#4f46e5', padding: '4px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                       [{(st.classes || []).join(',')}] {st.firstName} (#{st.adNo}) • Until: {dlMap[st.regNo] || 'Open'}
-                      <button type="button" onClick={() => handleRemoveStudentFromLeader(assignLeaderUsername, st.regNo)} style={{ border: 'none', background: 'transparent', color: '#dc2626', cursor: 'pointer', fontWeight: '900' }}>✕</button>
+                      <button type="button" onClick={() => handleRemoveStudentFromLeader(assignLeaderUsername, st.regNo)} style={{ border: 'none', background: 'transparent', color: '#e11d48', cursor: 'pointer', fontWeight: '800' }}>✕</button>
                     </span>
                   );
                 })}
@@ -1543,28 +1512,28 @@ export default function PeriodAttendanceManager({
               </select>
             </div>
 
-            <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
+            <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-                <thead style={{ position: 'sticky', top: 0, background: '#0f172a', color: '#ffffff' }}>
+                <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                   <tr>
-                    <th style={{ padding: '10px 14px', width: '40px', color: '#fff' }}>✓</th>
-                    <th style={{ padding: '10px 14px', color: '#fff' }}>Class</th>
-                    <th style={{ padding: '10px 14px', color: '#fff' }}>Ad.No</th>
-                    <th style={{ padding: '10px 14px', color: '#fff' }}>Student Name</th>
+                    <th style={{ padding: '10px 14px', width: '40px' }}>✓</th>
+                    <th style={{ padding: '10px 14px' }}>CLASS</th>
+                    <th style={{ padding: '10px 14px' }}>AD.NO</th>
+                    <th style={{ padding: '10px 14px' }}>STUDENT NAME</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredLeaderAssignStudents.map((st, idx) => {
+                  {filteredLeaderAssignStudents.map((st) => {
                     const checked = leaderSelectedRegs.includes(st.regNo);
                     return (
                       <tr
                         key={st.regNo}
                         onClick={() => setLeaderSelectedRegs(prev => prev.includes(st.regNo) ? prev.filter(r => r !== st.regNo) : [...prev, st.regNo])}
-                        style={{ borderBottom: '1px solid #e2e8f0', background: checked ? '#ede9fe' : idx % 2 === 0 ? '#ffffff' : '#f8fafc', cursor: 'pointer' }}
+                        style={{ borderBottom: '1px solid #f1f5f9', background: checked ? '#eef2ff' : '#ffffff', cursor: 'pointer' }}
                       >
                         <td style={{ padding: '10px 14px' }}><input type="checkbox" checked={checked} readOnly /></td>
-                        <td style={{ padding: '10px 14px', fontWeight: '900', color: '#4c1d95' }}>{(st.classes || []).join(', ')}</td>
-                        <td style={{ padding: '10px 14px', fontWeight: '800' }}>#{st.adNo}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: '700', color: '#4f46e5' }}>{(st.classes || []).join(', ')}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: '600' }}>#{st.adNo}</td>
                         <td style={{ padding: '10px 14px', fontWeight: '700' }}>{st.firstName}</td>
                       </tr>
                     );
@@ -1583,43 +1552,44 @@ export default function PeriodAttendanceManager({
             title="1. Add Non-Mark Subject (Attendance-Only Period like Speech Practice, PKV)"
             subtitle="Click to create a new attendance-only period subject under any teacher"
             icon="➕"
+            accentColor="#4f46e5"
             defaultOpen={true}
           >
             <form onSubmit={handleCreateNonMarkSubject} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', alignItems: 'end' }}>
               <div>
-                <label style={styles.label}>Select Teacher:</label>
+                <label style={styles.label}>Select Teacher</label>
                 <select value={nmTeacherUsername} onChange={e => setNmTeacherUsername(e.target.value)} style={styles.input}>
                   {localTeachers.filter(t => !t.isEventLeader).map(t => <option key={t.username} value={t.username}>{t.fullName}</option>)}
                 </select>
               </div>
               <div>
-                <label style={styles.label}>Period / Subject Name:</label>
+                <label style={styles.label}>Period / Subject Name</label>
                 <input type="text" value={nmSubjectName} onChange={e => setNmSubjectName(e.target.value)} placeholder="e.g. Speech Practice, PKV..." required style={styles.input} />
               </div>
               <div>
-                <label style={styles.label}>Target Class:</label>
+                <label style={styles.label}>Target Class</label>
                 <select value={nmTargetClass} onChange={e => setNmTargetClass(e.target.value)} style={styles.input}>
                   <option value="CUSTOM">Custom Selected Students Only</option>
                   {DEFAULT_CLASSES.map(c => <option key={c} value={c}>Entire Class {c}</option>)}
                 </select>
               </div>
               <div>
-                <label style={styles.label}>Card Title (Optional):</label>
+                <label style={styles.label}>Card Title (Optional)</label>
                 <input type="text" value={nmAlias} onChange={e => setNmAlias(e.target.value)} placeholder="e.g. PKV QLA3" style={styles.input} />
               </div>
-              <button type="submit" disabled={loading} style={{ ...styles.buttonPrimary, padding: '12px 18px' }}>
+              <button type="submit" disabled={loading} style={styles.buttonPrimary}>
                 ➕ Create Subject
               </button>
             </form>
           </CollapsibleCard>
 
-          <div style={{ background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
-            <h3 style={{ margin: '0 0 14px 0', fontSize: '18px', color: '#0f172a', fontWeight: '900' }}>
-              👥 2. Mass Assign Students to Any Period Attendance Subject
+          <div style={styles.card}>
+            <h3 style={{ margin: '0 0 14px 0', fontSize: '17px', color: '#0f172a', fontWeight: '800' }}>
+              2. Mass Assign Students to Any Period Attendance Subject
             </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '16px', background: '#f0fdfa', padding: '16px', borderRadius: '12px', border: '2px solid #0d9488', alignItems: 'end' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '16px', background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', alignItems: 'end' }}>
               <div>
-                <label style={styles.label}>1. Select Teacher:</label>
+                <label style={styles.label}>1. Select Teacher</label>
                 <select
                   value={nmTeacherUsername}
                   onChange={e => {
@@ -1634,7 +1604,7 @@ export default function PeriodAttendanceManager({
                 </select>
               </div>
               <div>
-                <label style={styles.label}>2. Select Teacher's Period Slot:</label>
+                <label style={styles.label}>2. Select Teacher's Period Slot</label>
                 <select value={nmSelectedEnrollmentId} onChange={e => setNmSelectedEnrollmentId(e.target.value)} style={styles.input}>
                   <option value="">-- Select Slot --</option>
                   {(localTeachers.find(t => t.username === nmTeacherUsername)?.enrollments || [])
@@ -1646,7 +1616,7 @@ export default function PeriodAttendanceManager({
                     ))}
                 </select>
               </div>
-              <button type="button" onClick={handleMassAssignToNonMarkSubject} disabled={loading} style={{ ...styles.buttonPrimary, padding: '12px 18px' }}>
+              <button type="button" onClick={handleMassAssignToNonMarkSubject} disabled={loading} style={styles.buttonPrimary}>
                 🚀 Assign {nmSelectedStudentRegs.length} Selected
               </button>
             </div>
@@ -1659,27 +1629,27 @@ export default function PeriodAttendanceManager({
               </select>
             </div>
 
-            <div style={{ maxHeight: '320px', overflowY: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
+            <div style={{ maxHeight: '320px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-                <thead style={{ position: 'sticky', top: 0, background: '#0f172a', color: '#ffffff' }}>
+                <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                   <tr>
-                    <th style={{ padding: '10px 14px', width: '40px', color: '#fff' }}>✓</th>
-                    <th style={{ padding: '10px 14px', color: '#fff' }}>Ad.No</th>
-                    <th style={{ padding: '10px 14px', color: '#fff' }}>Student Name</th>
-                    <th style={{ padding: '10px 14px', color: '#fff' }}>Class &amp; Dept</th>
+                    <th style={{ padding: '10px 14px', width: '40px' }}>✓</th>
+                    <th style={{ padding: '10px 14px' }}>AD.NO</th>
+                    <th style={{ padding: '10px 14px' }}>STUDENT NAME</th>
+                    <th style={{ padding: '10px 14px' }}>CLASS &amp; DEPT</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredNmStudents.map((st, idx) => {
+                  {filteredNmStudents.map((st) => {
                     const checked = nmSelectedStudentRegs.includes(st.regNo);
                     return (
                       <tr
                         key={st.regNo}
                         onClick={() => setNmSelectedStudentRegs(prev => prev.includes(st.regNo) ? prev.filter(r => r !== st.regNo) : [...prev, st.regNo])}
-                        style={{ borderBottom: '1px solid #e2e8f0', background: checked ? '#ccfbf1' : idx % 2 === 0 ? '#ffffff' : '#f8fafc', cursor: 'pointer' }}
+                        style={{ borderBottom: '1px solid #f1f5f9', background: checked ? '#eef2ff' : '#ffffff', cursor: 'pointer' }}
                       >
                         <td style={{ padding: '10px 14px' }}><input type="checkbox" checked={checked} readOnly /></td>
-                        <td style={{ padding: '10px 14px', fontWeight: '800' }}>#{st.adNo}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: '600' }}>#{st.adNo}</td>
                         <td style={{ padding: '10px 14px', fontWeight: '700' }}>{st.firstName}</td>
                         <td style={{ padding: '10px 14px' }}>{(st.classes || []).join(', ')} ({st.department || 'GENERAL'})</td>
                       </tr>

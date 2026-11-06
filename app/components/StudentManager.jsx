@@ -13,7 +13,7 @@ import { doc, setDoc, getDoc, getDocs, collection, deleteDoc, arrayUnion } from 
 import { getApp, initializeApp } from 'firebase/app';
 import { DEFAULT_CLASSES, DEPARTMENTS, MADHABS, styles } from './erpConstants';
 import {
-  INDIAN_STATES, KERALA_DISTRICTS, CollapsibleCard,
+  INDIAN_STATES, KERALA_DISTRICTS,
   compressImageFileToDataUrl, openDirectWhatsApp,
   ProfileAvatar, SubjectTeacherSelector, syncStudentToSelectedTeacherEnrollments,
   StudentPortfolioModal, computeStudentProfileCompletion, resolveClassTeacherForStudent
@@ -35,6 +35,16 @@ const STUDENT_PARTIAL_FIELDS = [
 ];
 
 export default function StudentManager() {
+  // 🌟 Minimalist Top Action Panel Toggles ('none' | 'add' | 'import' | 'filters')
+  const [activeTopPanel, setActiveTopPanel] = useState('none');
+  const [expandedStudentRegNo, setExpandedStudentRegNo] = useState(null);
+  const [visibleCols, setVisibleCols] = useState({
+    regNo: false,
+    mentor: false,
+    location: false,
+    completion: false
+  });
+
   const [rollNo, setRollNo] = useState('');
   const [regNo, setRegNo] = useState('');
   const [adNo, setAdNo] = useState('');
@@ -82,7 +92,6 @@ export default function StudentManager() {
   const [filterLanguage, setFilterLanguage] = useState('All');
   const [filterMentor, setFilterMentor] = useState('All');
   const [filterState, setFilterState] = useState('All');
-  const [filterDistrict, setFilterDistrict] = useState('All');
 
   const [isEditing, setIsEditing] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
@@ -143,11 +152,7 @@ export default function StudentManager() {
 
     setBulkPhotoProgress('');
     e.target.value = null;
-    let msg = `✅ Successfully uploaded & linked ${matchedCount} student photo(s) by Ad.No!`;
-    if (unmatchedNames.length > 0) {
-      msg += `\n\n⚠️ Could not match ${unmatchedNames.length} file(s) to any Ad.No: ${unmatchedNames.slice(0, 8).join(', ')}`;
-    }
-    alert(msg);
+    alert(`✅ Uploaded & linked ${matchedCount} student photo(s) by Ad.No!`);
     fetchStudents();
   };
 
@@ -169,7 +174,7 @@ export default function StudentManager() {
 
   const handleDownloadCustomPartialTemplate = () => {
     if (selectedPartialCols.length === 0) {
-      return alert("Please select at least one field above to generate your custom partial CSV template.");
+      return alert("Please select at least one field above.");
     }
     const headers = ['adNo', 'regNo', 'firstName', ...selectedPartialCols];
     const sourceList = filteredStudents.length > 0 ? filteredStudents : registeredStudents;
@@ -212,7 +217,7 @@ export default function StudentManager() {
     e.preventDefault();
     if (selectedClasses.length === 0) return alert('Please select at least one class or batch.');
     setIsLoading(true);
-    setStatusMsg(isEditing ? 'Updating student profile & subject teachers...' : 'Registering student & mapping to subject teachers...');
+    setStatusMsg(isEditing ? 'Updating student profile...' : 'Registering student...');
     const safeRegNo = regNo.toLowerCase().replace(/[^a-z0-9_.-]/g, '');
     const safeAdNo = adNo.trim();
     const safeRollNo = Number(rollNo);
@@ -231,9 +236,7 @@ export default function StudentManager() {
           await setPersistence(secondaryAuth, inMemoryPersistence);
           await createUserWithEmailAndPassword(secondaryAuth, fakeEmail, firebasePassword);
           await signOut(secondaryAuth);
-        } catch (e) {
-          console.error("Auth creation skipped or failed:", e);
-        }
+        } catch (e) {}
       }
       await setDoc(doc(db, 'students', safeRegNo), {
         rollNo: safeRollNo,
@@ -258,9 +261,10 @@ export default function StudentManager() {
 
       await syncStudentToSelectedTeacherEnrollments(safeRegNo, selectedSubjectEnrollmentKeys);
       setIsLoading(false);
-      setStatusMsg(isEditing ? '✅ Student profile & subject teacher mappings updated!' : '✅ Student registered & added to selected teachers\' classes!');
+      setStatusMsg(isEditing ? '✅ Student profile updated!' : '✅ Student registered successfully!');
       fetchStudents();
       resetForm();
+      setActiveTopPanel('none');
     } catch (err) {
       setIsLoading(false);
       setStatusMsg('Error: ' + err.message);
@@ -270,11 +274,10 @@ export default function StudentManager() {
   const handleBulkUpdate = async () => {
     if (selectedRows.length === 0) return;
     if (!bulkMentor && !bulkReplaceClass && !bulkDept && !bulkMadhab && !bulkAddClass && bulkPrincipalLock === '') {
-      return alert('Please choose at least one bulk action (e.g., Assign Mentor or Set Class).');
+      return alert('Please choose at least one bulk action.');
     }
     if (!window.confirm(`Apply changes to ${selectedRows.length} selected students?`)) return;
     setIsLoading(true);
-    setStatusMsg(`Updating ${selectedRows.length} students...`);
     try {
       const promises = selectedRows.map(rNo => {
         const updateData = {};
@@ -293,10 +296,9 @@ export default function StudentManager() {
       });
       await Promise.all(promises);
       setIsLoading(false);
-      setStatusMsg(`✅ Successfully updated ${selectedRows.length} students!`);
+      setStatusMsg(`✅ Updated ${selectedRows.length} students!`);
       setSelectedRows([]);
       setBulkMentor(''); setBulkReplaceClass(''); setBulkDept(''); setBulkMadhab(''); setBulkAddClass(''); setBulkPrincipalLock('');
-      if (bulkAddClass && !availableStudentClasses.includes(bulkAddClass.trim())) setAvailableStudentClasses([...availableStudentClasses, bulkAddClass.trim()]);
       fetchStudents();
     } catch (err) {
       setIsLoading(false);
@@ -365,7 +367,7 @@ export default function StudentManager() {
 
         await signOut(secondaryAuth);
         setIsLoading(false);
-        setStatusMsg(`✅ Successfully updated ${updatedCount} students!`);
+        setStatusMsg(`✅ Updated ${updatedCount} students!`);
         fetchStudents();
       } catch (err) {
         setIsLoading(false);
@@ -407,10 +409,7 @@ export default function StudentManager() {
 
     const stuClasses = getSafeClassesArray(student);
     setSelectedClasses(stuClasses);
-    const newAvailable = [...availableStudentClasses];
-    let changed = false;
-    stuClasses.forEach(c => { if (!newAvailable.includes(c)) { newAvailable.push(c); changed = true; } });
-    if (changed) setAvailableStudentClasses(newAvailable);
+    setActiveTopPanel('add');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -467,7 +466,6 @@ export default function StudentManager() {
     if (filterLanguage === 'Non-Urdu' && isUrduStudent(student.adNo)) return false;
     if (filterMentor !== 'All' && (student.mentorUsername || '') !== filterMentor) return false;
     if (filterState !== 'All' && (student.state || 'Kerala') !== filterState) return false;
-    if (filterDistrict !== 'All' && (student.district || '') !== filterDistrict) return false;
     return true;
   });
 
@@ -494,12 +492,10 @@ export default function StudentManager() {
 
   const executeRegNoMigration = async () => {
     const updates = Object.entries(regNoDrafts).filter(([oldReg, newReg]) => newReg && newReg.trim() !== '' && newReg !== oldReg);
-    if (updates.length === 0) return alert('No changes entered. Please type a new RegNo for at least one student.');
-    if (!window.confirm(`Are you sure you want to migrate ${updates.length} Registration Numbers?`)) return;
+    if (updates.length === 0) return alert('No changes entered.');
+    if (!window.confirm(`Migrate ${updates.length} Registration Numbers?`)) return;
 
     setIsLoading(true);
-    setStatusMsg(`Migrating ${updates.length} students... Please wait.`);
-
     try {
       const primaryApp = getApp();
       let secondaryApp;
@@ -531,7 +527,7 @@ export default function StudentManager() {
       await signOut(secondaryAuth);
       setRegNoDrafts({});
       setIsRegNoEditMode(false);
-      setStatusMsg(`Successfully migrated ${updates.length} students!`);
+      setStatusMsg(`✅ Migrated ${updates.length} students!`);
       fetchStudents();
     } catch (err) {
       setStatusMsg('Migration Error: ' + err.message);
@@ -552,410 +548,541 @@ export default function StudentManager() {
         />
       )}
 
-      {/* 🌟 SLIDING DRAWER 1: CUSTOM PARTIAL CSV & PC FOLDER MULTI-PHOTO UPLOADER */}
-      <CollapsibleCard
-        title="Students CSV Uploader & Bulk PC Folder Photo Uploader (By Ad.No)"
-        subtitle="Click to open custom CSV template downloader, bulk CSV uploader, or bulk student photo linker"
-        badgeText="CSV & Photos"
-        icon="🗄️"
-        accentColor="#0284c7"
-        defaultOpen={false}
-      >
-        <p style={{ fontSize: '13px', color: '#334155', marginTop: 0, marginBottom: '12px', lineHeight: '1.5', fontWeight: '600' }}>
-          Select the specific student columns you want to update via CSV, OR select all student photos from a folder on your PC named with their Admission Number (e.g. <code>3529.jpg</code>, <code>U1278.png</code>):
-        </p>
-
-        <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '10px', border: '1.5px solid #cbd5e1', marginBottom: '14px' }}>
-          <div style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>
-            ☑️ Select fields to include in your Partial CSV Template (`adNo`, `regNo`, and `firstName` are included automatically):
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {STUDENT_PARTIAL_FIELDS.map(f => {
-              const active = selectedPartialCols.includes(f.key);
-              return (
-                <label
-                  key={f.key}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: '800',
-                    background: active ? '#00897b' : '#ffffff',
-                    color: active ? '#ffffff' : '#0f172a',
-                    border: active ? '1.5px solid #00897b' : '1.5px solid #94a3b8'
-                  }}
-                >
-                  <input type="checkbox" checked={active} onChange={() => togglePartialCol(f.key)} style={{ display: 'none' }} />
-                  {active ? `✓ ${f.label}` : `+ ${f.label}`}
-                </label>
-              );
-            })}
-          </div>
+      {/* 🌟 SHUHOOD MINIMALIST HEADER + ACTION BUTTONS */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px', marginBottom: '22px' }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: '26px', fontWeight: '800', color: '#0f172a' }}>Student Management</h1>
+          <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b', fontWeight: '500' }}>
+            Manage student enrollments, subject mappings, and profile records ({filteredStudents.length} of {registeredStudents.length}).
+          </p>
         </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
-          <button type="button" onClick={handleDownloadCustomPartialTemplate} style={{ padding: '10px 16px', background: '#00897b', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>
-            📥 Download Custom Partial CSV ({selectedPartialCols.length} Selected Fields)
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => {
+              if (activeTopPanel === 'add') {
+                setActiveTopPanel('none');
+                resetForm();
+              } else {
+                setActiveTopPanel('add');
+              }
+            }}
+            style={{
+              padding: '10px 18px',
+              background: '#4f46e5',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '10px',
+              fontWeight: '700',
+              fontSize: '13px',
+              cursor: 'pointer',
+              boxShadow: '0 2px 6px rgba(79, 70, 229, 0.25)'
+            }}
+          >
+            {activeTopPanel === 'add' ? '✕ Close Form' : '＋ Add Student'}
           </button>
-          <button type="button" onClick={handleDownloadMasterTemplate} style={{ padding: '10px 16px', background: '#f8fafc', color: '#0f172a', border: '1.5px solid #94a3b8', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>
-            📥 Full Master Template (All Fields)
+
+          <button
+            type="button"
+            onClick={() => setActiveTopPanel(activeTopPanel === 'import' ? 'none' : 'import')}
+            style={{
+              padding: '10px 18px',
+              background: activeTopPanel === 'import' ? '#eef2ff' : '#ffffff',
+              color: '#4f46e5',
+              border: '1px solid #c7d2fe',
+              borderRadius: '10px',
+              fontWeight: '700',
+              fontSize: '13px',
+              cursor: 'pointer'
+            }}
+          >
+            ⬆️ Import CSV / Photos
           </button>
-          <label style={{ display: 'inline-flex', alignItems: 'center', padding: '10px 18px', background: '#0284c7', color: '#ffffff', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>
-            📂 Upload Completed CSV (Full or Partial)
-            <input type="file" accept=".csv" onChange={handleCSVUpload} style={{ display: 'none' }} />
-          </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', padding: '10px 18px', background: '#0f172a', color: '#ffffff', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>
-            📸 Select Student Photos from PC Folder (Named by Ad.No e.g. 3529.jpg)
-            <input type="file" accept="image/*" multiple onChange={handleBulkPhotoUploadFromPCFolder} style={{ display: 'none' }} />
-          </label>
-          {bulkPhotoProgress && <span style={{ fontWeight: '800', color: '#0284c7', fontSize: '13px' }}>⏳ {bulkPhotoProgress}</span>}
+
+          <button
+            type="button"
+            onClick={() => setActiveTopPanel(activeTopPanel === 'filters' ? 'none' : 'filters')}
+            style={{
+              padding: '10px 16px',
+              background: activeTopPanel === 'filters' ? '#eef2ff' : '#ffffff',
+              color: '#334155',
+              border: '1px solid #cbd5e1',
+              borderRadius: '10px',
+              fontWeight: '700',
+              fontSize: '13px',
+              cursor: 'pointer'
+            }}
+          >
+            🎛️ Filter &amp; Columns
+          </button>
         </div>
-      </CollapsibleCard>
+      </div>
 
-      {/* 🌟 SLIDING DRAWER 2: STUDENT REGISTRATION & 14-SUBJECT TEACHER MAPPER (Auto-Opens When Editing!) */}
-      <CollapsibleCard
-        key={isEditing ? `edit_${regNo}` : 'new_student'}
-        title={isEditing ? `✏️ Editing Student: ${firstName} (${regNo})` : 'Register New Student & Assign Subject Teachers'}
-        subtitle="Click to open student registration form and 14-subject teacher mapper"
-        badgeText={isEditing ? 'Editing Mode' : '+ Add Student'}
-        icon={isEditing ? '✏️' : '👨‍🎓'}
-        accentColor={isEditing ? '#f59e0b' : '#0f766e'}
-        defaultOpen={isEditing}
-      >
-        {isEditing && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
-            <button type="button" onClick={resetForm} style={{ padding: '8px 16px', background: '#e2e8f0', color: '#0f172a', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>
-              ✕ Cancel Editing
-            </button>
-          </div>
-        )}
-
-        <form onSubmit={handleAddOrUpdateStudent} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div style={{ background: '#f8fafc', padding: '18px', borderRadius: '12px', border: '1.5px solid #cbd5e1' }}>
-            <h4 style={{ margin: '0 0 10px 0', fontSize: '15px', color: '#0f172a', fontWeight: '800' }}>
-              1. Select Student&apos;s Class / Batch (Automatically assigns Class Teacher &amp; Hifz Teacher):
-            </h4>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(105px, 1fr))', gap: '10px', background: '#ffffff', padding: '12px', border: '1px solid #cbd5e1', borderRadius: '8px', marginBottom: '12px' }}>
-              {availableStudentClasses.map(cls => (
-                <label key={cls} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', fontSize: '14px', color: '#0f172a', fontWeight: '800' }}>
-                  <input type="checkbox" checked={selectedClasses.includes(cls)} onChange={() => toggleStudentClass(cls)} style={{ marginRight: '8px', accentColor: '#00897b', width: '16px', height: '16px' }} /> {cls}
-                </label>
-              ))}
-            </div>
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              <input type="text" value={customClassInput} onChange={(e) => setCustomClassInput(e.target.value)} placeholder="Or custom group (e.g. Mixed_Urdu)..." style={{ ...styles.input, flex: '1 1 220px' }} />
-              <button type="button" onClick={handleAddCustomClass} style={{ padding: '10px 16px', background: '#0f172a', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>Add Custom Group</button>
-            </div>
-
-            <SubjectTeacherSelector
-              selectedClasses={selectedClasses}
-              adNo={adNo}
-              teachersList={teachersList}
-              selectedEnrollmentKeys={selectedSubjectEnrollmentKeys}
-              onChangeSelectedKeys={setSelectedSubjectEnrollmentKeys}
-            />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '16px' }}>
-            <div><label style={styles.label}>Sn (Roll No)</label><input type="number" value={rollNo} onChange={(e) => setRollNo(e.target.value)} required style={styles.input} /></div>
-            <div><label style={styles.label}>First Name</label><input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required style={styles.input} /></div>
-            <div><label style={styles.label}>Reg.No (Username)</label><input type="text" value={regNo} onChange={(e) => setRegNo(e.target.value)} disabled={isEditing} required style={styles.input} /></div>
-            <div>
-              <label style={styles.label}>Ad.No {isUrduStudent(adNo) && <span style={{ color: '#d97706' }}>★ Urdu</span>}</label>
-              <div style={{ display: 'flex', position: 'relative' }}>
-                <input type={showStudentPassword || isEditing ? "text" : "password"} value={adNo} onChange={(e) => setAdNo(e.target.value)} required style={styles.input} />
-                {!isEditing && <button type="button" onClick={() => setShowStudentPassword(!showStudentPassword)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#2563eb', fontWeight: '800', cursor: 'pointer' }}>{showStudentPassword ? "Hide" : "Show"}</button>}
-              </div>
-            </div>
-            <div><label style={styles.label}>Department</label><select value={department} onChange={(e) => setDepartment(e.target.value)} style={styles.input}>{DEPARTMENTS.map(dept => <option key={dept} value={dept}>{dept}</option>)}</select></div>
-            <div><label style={styles.label}>Madhab</label><select value={madhab} onChange={(e) => setMadhab(e.target.value)} style={styles.input}>{MADHABS.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
-
-            <div>
-              <label style={styles.label}>State / Country</label>
-              <select
-                value={state}
-                onChange={(e) => {
-                  const nextState = e.target.value;
-                  setState(nextState);
-                  if (nextState === 'Kerala' && !KERALA_DISTRICTS.includes(district)) {
-                    setDistrict('Malappuram');
-                  } else if (nextState !== 'Kerala' && KERALA_DISTRICTS.includes(district)) {
-                    setDistrict('');
-                  }
-                }}
-                style={styles.input}
-              >
-                {INDIAN_STATES.map(st => <option key={st} value={st}>{st}</option>)}
-              </select>
-            </div>
-
-            <div>
-              <label style={styles.label}>
-                {state === 'Kerala' ? 'District (Kerala)' : 'District / Province / City (Type)'}
-              </label>
-              {state === 'Kerala' ? (
-                <select value={district} onChange={(e) => setDistrict(e.target.value)} style={styles.input}>
-                  {KERALA_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  value={district}
-                  onChange={(e) => setDistrict(e.target.value)}
-                  placeholder="Type district, province, or city..."
-                  style={styles.input}
-                />
-              )}
-            </div>
-
-            <div><label style={styles.label}>Student Email</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={styles.input} /></div>
-            <div><label style={styles.label}>Student Phone Number</label><input type="text" value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} style={styles.input} /></div>
-            <div><label style={styles.label}>Student WhatsApp Number</label><input type="text" value={whatsappNumber} onChange={(e) => setWhatsappNumber(e.target.value)} style={styles.input} /></div>
-            <div><label style={styles.label}>Parent Mobile Number</label><input type="text" value={parentMobile} onChange={(e) => setParentMobile(e.target.value)} style={styles.input} /></div>
-            <div><label style={styles.label}>Parent WhatsApp Number</label><input type="text" value={parentWhatsapp} onChange={(e) => setParentWhatsapp(e.target.value)} style={styles.input} /></div>
-            <div>
-              <label style={styles.label}>Assigned Mentor (Optional)</label>
-              <select value={mentorUsername} onChange={(e) => setMentorUsername(e.target.value)} style={styles.input}>
-                <option value="">-- Assign Later / None --</option>
-                {teachersList.map(t => <option key={t.username} value={t.username}>{t.fullName} (@{t.username})</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={styles.label}>Single Student Photo (Optional)</label>
-              <input type="file" accept="image/*" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setPhotoUrl(await compressImageFileToDataUrl(f, 180, 0.8)); }} style={styles.input} />
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#fef2f2', padding: '12px 16px', borderRadius: '10px', border: '1.5px solid #fca5a5' }}>
-            <input type="checkbox" checked={requiresPrincipalApproval} onChange={(e) => setRequiresPrincipalApproval(e.target.checked)} style={{ width: '18px', height: '18px', accentColor: '#dc2626' }} />
-            <span style={{ fontSize: '13px', fontWeight: '800', color: '#991b1b' }}>👑 Special Restriction: Require Principal Approval Only for all Out-Pass Leaves of this student</span>
-          </div>
-
-          <button type="submit" disabled={isLoading} style={isEditing ? styles.buttonWarning : styles.buttonSuccess}>
-            {isLoading ? 'Processing...' : isEditing ? 'Update Student Profile & Subject Teachers' : 'Register Student & Map to Selected Teachers'}
-          </button>
-        </form>
-      </CollapsibleCard>
+      {/* MARKS-AUDITOR STYLE SOFT PASTEL KPI STRIP */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '20px' }}>
+        <div onClick={() => setFilterCompletion('All')} style={{ padding: '16px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center', cursor: 'pointer' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#475569' }}>TOTAL ENROLLED</span>
+          <div style={{ fontSize: '24px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>{totalStudentsCount}</div>
+        </div>
+        <div onClick={() => setFilterCompletion('Complete')} style={{ padding: '16px', borderRadius: '12px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center', cursor: 'pointer' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857' }}>COMPLETE PROFILES</span>
+          <div style={{ fontSize: '24px', fontWeight: '900', color: '#065f46', marginTop: '4px' }}>{completeStudentsCount}</div>
+        </div>
+        <div onClick={() => setFilterCompletion('Incomplete')} style={{ padding: '16px', borderRadius: '12px', background: '#fff1f2', border: '1px solid #fecdd3', textAlign: 'center', cursor: 'pointer' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#be123c' }}>MISSING / INCOMPLETE</span>
+          <div style={{ fontSize: '24px', fontWeight: '900', color: '#e11d48', marginTop: '4px' }}>{incompleteStudentsCount}</div>
+        </div>
+        <div style={{ padding: '16px', borderRadius: '12px', background: '#eff6ff', border: '1px solid #bfdbfe', textAlign: 'center' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#1d4ed8' }}>COMPLETION RATE</span>
+          <div style={{ fontSize: '24px', fontWeight: '900', color: '#2563eb', marginTop: '4px' }}>{overallCompletionPct}%</div>
+        </div>
+      </div>
 
       {statusMsg && (
-        <div style={{ marginBottom: '18px', padding: '14px 18px', background: statusMsg.includes('Error') ? '#fee2e2' : '#ecfdf5', borderRadius: '12px', color: statusMsg.includes('Error') ? '#991b1b' : '#065f46', fontWeight: '800', border: `1px solid ${statusMsg.includes('Error') ? '#fecaca' : '#a7f3d0'}` }}>
+        <div style={{ marginBottom: '18px', padding: '12px 16px', background: statusMsg.includes('Error') ? '#fff1f2' : '#ecfdf5', borderRadius: '10px', color: statusMsg.includes('Error') ? '#e11d48' : '#047857', fontWeight: '700', fontSize: '13px' }}>
           {statusMsg}
         </div>
       )}
 
-      {/* 3. STUDENTS DIRECTORY WITH PROFILE COMPLETION KPI BANNER & BULK GROUP ASSIGNMENT */}
-      <div style={styles.card}>
-        <h3 style={styles.sectionTitle}>⚡ Student Profile Completion Rate &amp; Directory ({filteredStudents.length} of {registeredStudents.length})</h3>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '22px' }}>
-          <div onClick={() => setFilterCompletion('All')} style={{ padding: '18px', borderRadius: '14px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center', cursor: 'pointer' }}>
-            <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', letterSpacing: '0.5px' }}>TOTAL ENROLLED</span>
-            <div style={{ fontSize: '26px', fontWeight: '900', color: '#0f172a', marginTop: '6px' }}>{totalStudentsCount}</div>
+      {/* PANEL 1: IMPORT CSV & PHOTOS */}
+      {activeTopPanel === 'import' && (
+        <div className="erp-slide-panel" style={styles.card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>Students CSV &amp; Bulk Folder Photo Uploader</h3>
+            <button type="button" onClick={() => setActiveTopPanel('none')} style={styles.buttonSecondary}>✕ Close</button>
           </div>
-          <div onClick={() => setFilterCompletion('Complete')} style={{ padding: '18px', borderRadius: '14px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center', cursor: 'pointer' }}>
-            <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857', letterSpacing: '0.5px' }}>COMPLETE PROFILES (100%)</span>
-            <div style={{ fontSize: '26px', fontWeight: '900', color: '#047857', marginTop: '6px' }}>{completeStudentsCount}</div>
-          </div>
-          <div onClick={() => setFilterCompletion('Incomplete')} style={{ padding: '18px', borderRadius: '14px', background: '#fee2e2', border: '1px solid #fecaca', textAlign: 'center', cursor: 'pointer' }}>
-            <span style={{ fontSize: '11px', fontWeight: '800', color: '#991b1b', letterSpacing: '0.5px' }}>MISSING / INCOMPLETE</span>
-            <div style={{ fontSize: '26px', fontWeight: '900', color: '#dc2626', marginTop: '6px' }}>{incompleteStudentsCount}</div>
-          </div>
-          <div style={{ padding: '18px', borderRadius: '14px', background: '#eff6ff', border: '1px solid #bfdbfe', textAlign: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: '800', color: '#1e40af', letterSpacing: '0.5px' }}>PROFILE COMPLETION RATE</span>
-            <div style={{ fontSize: '26px', fontWeight: '900', color: '#2563eb', marginTop: '6px' }}>{overallCompletionPct}%</div>
-          </div>
-        </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', marginBottom: '18px', background: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
-          <button
-            onClick={() => { setIsRegNoEditMode(!isRegNoEditMode); setRegNoDrafts({}); }}
-            style={{ padding: '8px 14px', background: isRegNoEditMode ? '#fef3c7' : '#ffffff', color: isRegNoEditMode ? '#d97706' : '#0f172a', border: `1.5px solid ${isRegNoEditMode ? '#fcd34d' : '#94a3b8'}`, borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}
-          >
-            {isRegNoEditMode ? 'Cancel Edit Mode' : '✏️ Mass Edit RegNo'}
-          </button>
-
-          <input type="text" placeholder="🔍 Search Name, Ad.No..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ ...styles.filterSelect, minWidth: '175px' }} />
-
-          <select value={filterCompletion} onChange={(e) => setFilterCompletion(e.target.value)} style={styles.filterSelect}>
-            <option value="All">All Profile Status</option>
-            <option value="Incomplete">⚠️ Incomplete Profiles</option>
-            <option value="Complete">✅ 100% Complete</option>
-          </select>
-
-          {DEPARTMENTS.map(d => (
-            <label key={d} style={{ fontSize: '12px', color: '#0f172a', background: filterDepartments.includes(d) ? '#dbeafe' : '#ffffff', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', border: filterDepartments.includes(d) ? '2px solid #3b82f6' : '1.5px solid #94a3b8', fontWeight: '800' }}>
-              <input type="checkbox" checked={filterDepartments.includes(d)} onChange={() => toggleFilterDirectoryDept(d)} style={{ display: 'none' }} />
-              {d}
-            </label>
-          ))}
-
-          <select value={filterLevel} onChange={(e) => setFilterLevel(e.target.value)} style={styles.filterSelect}>
-            <option value="All">All Levels</option><option value="1">Level 1</option><option value="2">Level 2</option><option value="3">Level 3</option>
-          </select>
-          <select value={filterClass} onChange={(e) => setFilterClass(e.target.value)} style={styles.filterSelect}>
-            <option value="All">All Classes</option>
-            {availableStudentClasses.map(cls => <option key={cls} value={cls}>{cls}</option>)}
-          </select>
-          <select value={filterMentor} onChange={(e) => setFilterMentor(e.target.value)} style={styles.filterSelect}>
-            <option value="All">All Mentors</option>
-            {teachersList.map(t => <option key={t.username} value={t.username}>Mentor: {t.fullName}</option>)}
-          </select>
-          <select value={filterState} onChange={(e) => setFilterState(e.target.value)} style={styles.filterSelect}>
-            <option value="All">All States</option>
-            {INDIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select value={filterMadhab} onChange={(e) => setFilterMadhab(e.target.value)} style={styles.filterSelect}>
-            <option value="All">All Madhabs</option>
-            {MADHABS.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
-          <select value={filterLanguage} onChange={(e) => setFilterLanguage(e.target.value)} style={styles.filterSelect}>
-            <option value="All">All Streams</option><option value="Urdu">Urdu Only</option><option value="Non-Urdu">Non-Urdu</option>
-          </select>
-        </div>
-
-        {selectedRows.length > 0 && !isRegNoEditMode && (
-          <div className="erp-slide-panel" style={{ padding: '16px', background: '#eff6ff', border: '2px solid #3b82f6', borderRadius: '12px', marginBottom: '22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-            <div>
-              <strong style={{ color: '#1e3a8a', fontSize: '15px', display: 'block' }}>
-                ☑️ {selectedRows.length} Students Selected
-              </strong>
-              <span style={{ fontSize: '12px', color: '#1e40af', fontWeight: '600' }}>
-                Assign this group of students to a Mentor or move them to a Class below:
-              </span>
+          <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '14px' }}>
+            <div style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '8px' }}>
+              Select fields to include in Partial CSV Template (`adNo`, `regNo`, and `firstName` included automatically):
             </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <select value={bulkMentor} onChange={(e) => setBulkMentor(e.target.value)} style={{ ...styles.filterSelect, borderColor: '#2563eb' }}>
-                <option value="">🧭 Assign Mentor to Group...</option>
-                <option value="__CLEAR__">✕ Clear Mentor</option>
-                {teachersList.map(t => <option key={t.username} value={t.username}>Mentor: {t.fullName}</option>)}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {STUDENT_PARTIAL_FIELDS.map(f => {
+                const active = selectedPartialCols.includes(f.key);
+                return (
+                  <button
+                    key={f.key}
+                    type="button"
+                    onClick={() => togglePartialCol(f.key)}
+                    style={{
+                      padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: '700',
+                      background: active ? '#4f46e5' : '#ffffff',
+                      color: active ? '#ffffff' : '#334155',
+                      border: active ? '1px solid #4f46e5' : '1px solid #cbd5e1'
+                    }}
+                  >
+                    {active ? `✓ ${f.label}` : `+ ${f.label}`}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
+            <button type="button" onClick={handleDownloadCustomPartialTemplate} style={styles.buttonPrimary}>
+              📥 Download Partial CSV ({selectedPartialCols.length})
+            </button>
+            <button type="button" onClick={handleDownloadMasterTemplate} style={styles.buttonSecondary}>
+              📥 Full Master Template
+            </button>
+            <label style={{ ...styles.buttonSecondary, background: '#eef2ff', color: '#4f46e5', borderColor: '#c7d2fe', display: 'inline-flex', alignItems: 'center' }}>
+              📂 Upload CSV
+              <input type="file" accept=".csv" onChange={handleCSVUpload} style={{ display: 'none' }} />
+            </label>
+            <label style={{ ...styles.buttonSecondary, display: 'inline-flex', alignItems: 'center' }}>
+              📸 Bulk Link Photos (By Ad.No)
+              <input type="file" accept="image/*" multiple onChange={handleBulkPhotoUploadFromPCFolder} style={{ display: 'none' }} />
+            </label>
+            {bulkPhotoProgress && <span style={{ fontWeight: '700', color: '#4f46e5', fontSize: '12px' }}>⏳ {bulkPhotoProgress}</span>}
+          </div>
+        </div>
+      )}
+
+      {/* PANEL 2: REGISTER / EDIT STUDENT */}
+      {activeTopPanel === 'add' && (
+        <div className="erp-slide-panel" style={styles.card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+            <h3 style={{ margin: 0, fontSize: '17px', fontWeight: '800', color: '#0f172a' }}>
+              {isEditing ? `Edit Student: ${firstName} (${regNo})` : 'Register Student & Assign Subject Teachers'}
+            </h3>
+            <button type="button" onClick={() => { resetForm(); setActiveTopPanel('none'); }} style={styles.buttonSecondary}>Cancel</button>
+          </div>
+
+          <form onSubmit={handleAddOrUpdateStudent} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a', marginBottom: '10px', textTransform: 'uppercase' }}>
+                1. Select Student Class / Batch
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                {availableStudentClasses.map(cls => {
+                  const active = selectedClasses.includes(cls);
+                  return (
+                    <button
+                      key={cls}
+                      type="button"
+                      onClick={() => toggleStudentClass(cls)}
+                      style={{
+                        padding: '6px 14px', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer',
+                        background: active ? '#4f46e5' : '#ffffff',
+                        color: active ? '#ffffff' : '#334155',
+                        border: active ? '1px solid #4f46e5' : '1px solid #cbd5e1'
+                      }}
+                    >
+                      {active ? `✓ ${cls}` : cls}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <SubjectTeacherSelector
+                selectedClasses={selectedClasses}
+                adNo={adNo}
+                teachersList={teachersList}
+                selectedEnrollmentKeys={selectedSubjectEnrollmentKeys}
+                onChangeSelectedKeys={setSelectedSubjectEnrollmentKeys}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+              <div><label style={styles.label}>Roll No</label><input type="number" value={rollNo} onChange={(e) => setRollNo(e.target.value)} required style={styles.input} /></div>
+              <div><label style={styles.label}>Full Name</label><input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required style={styles.input} /></div>
+              <div><label style={styles.label}>Reg.No (Login ID)</label><input type="text" value={regNo} onChange={(e) => setRegNo(e.target.value)} disabled={isEditing} required style={styles.input} /></div>
+              <div><label style={styles.label}>Admission No (Ad.No)</label><input type="text" value={adNo} onChange={(e) => setAdNo(e.target.value)} required style={styles.input} /></div>
+              <div><label style={styles.label}>Department</label><select value={department} onChange={(e) => setDepartment(e.target.value)} style={styles.input}>{DEPARTMENTS.map(dept => <option key={dept} value={dept}>{dept}</option>)}</select></div>
+              <div><label style={styles.label}>Madhab</label><select value={madhab} onChange={(e) => setMadhab(e.target.value)} style={styles.input}>{MADHABS.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
+              <div>
+                <label style={styles.label}>State / Country</label>
+                <select value={state} onChange={(e) => setState(e.target.value)} style={styles.input}>
+                  {INDIAN_STATES.map(st => <option key={st} value={st}>{st}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={styles.label}>District</label>
+                {state === 'Kerala' ? (
+                  <select value={district} onChange={(e) => setDistrict(e.target.value)} style={styles.input}>
+                    {KERALA_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                ) : (
+                  <input type="text" value={district} onChange={(e) => setDistrict(e.target.value)} style={styles.input} />
+                )}
+              </div>
+              <div><label style={styles.label}>Student Email</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={styles.input} /></div>
+              <div><label style={styles.label}>Student WhatsApp</label><input type="text" value={whatsappNumber} onChange={(e) => setWhatsappNumber(e.target.value)} style={styles.input} /></div>
+              <div><label style={styles.label}>Parent WhatsApp</label><input type="text" value={parentWhatsapp} onChange={(e) => setParentWhatsapp(e.target.value)} style={styles.input} /></div>
+              <div>
+                <label style={styles.label}>Assigned Mentor</label>
+                <select value={mentorUsername} onChange={(e) => setMentorUsername(e.target.value)} style={styles.input}>
+                  <option value="">-- Assign Later --</option>
+                  {teachersList.map(t => <option key={t.username} value={t.username}>{t.fullName}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={styles.label}>Photo</label>
+                <input type="file" accept="image/*" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setPhotoUrl(await compressImageFileToDataUrl(f, 180, 0.8)); }} style={styles.input} />
+              </div>
+            </div>
+
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '700', color: '#be123c', cursor: 'pointer' }}>
+              <input type="checkbox" checked={requiresPrincipalApproval} onChange={(e) => setRequiresPrincipalApproval(e.target.checked)} />
+              👑 Require Principal Approval Only for Out-Pass Leaves
+            </label>
+
+            <button type="submit" disabled={isLoading} style={styles.buttonPrimary}>
+              {isLoading ? 'Processing...' : isEditing ? 'Update Student Profile' : 'Register Student'}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* PANEL 3: FILTER & COLUMNS DRAWER (Opens only when clicked) */}
+      {activeTopPanel === 'filters' && (
+        <div className="erp-slide-panel" style={{ ...styles.card, background: '#f8fafc', padding: '16px 20px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+              <select value={filterClass} onChange={(e) => setFilterClass(e.target.value)} style={styles.filterSelect}>
+                <option value="All">All Classes</option>
+                {availableStudentClasses.map(cls => <option key={cls} value={cls}>{cls}</option>)}
               </select>
-
-              <select value={bulkReplaceClass} onChange={(e) => setBulkReplaceClass(e.target.value)} style={{ ...styles.filterSelect, borderColor: '#059669' }}>
-                <option value="">🏫 Move Group to Class...</option>
-                {DEFAULT_CLASSES.map(cls => <option key={cls} value={cls}>Set Class: {cls}</option>)}
+              <select value={filterMentor} onChange={(e) => setFilterMentor(e.target.value)} style={styles.filterSelect}>
+                <option value="All">All Mentors</option>
+                {teachersList.map(t => <option key={t.username} value={t.username}>{t.fullName}</option>)}
               </select>
-
-              <select value={bulkDept} onChange={(e) => setBulkDept(e.target.value)} style={styles.filterSelect}>
-                <option value="">Set Dept...</option>
-                {DEPARTMENTS.map(dept => <option key={dept} value={dept}>{dept}</option>)}
+              <select value={filterLanguage} onChange={(e) => setFilterLanguage(e.target.value)} style={styles.filterSelect}>
+                <option value="All">All Streams</option><option value="Urdu">Urdu Only</option><option value="Non-Urdu">Non-Urdu</option>
               </select>
-
-              <select value={bulkMadhab} onChange={(e) => setBulkMadhab(e.target.value)} style={styles.filterSelect}>
-                <option value="">Set Madhab...</option>
-                {MADHABS.map(m => <option key={m} value={m}>{m}</option>)}
+              <select value={filterCompletion} onChange={(e) => setFilterCompletion(e.target.value)} style={styles.filterSelect}>
+                <option value="All">All Profile Status</option>
+                <option value="Incomplete">Incomplete</option>
+                <option value="Complete">Complete</option>
               </select>
-
-              <select value={bulkPrincipalLock} onChange={(e) => setBulkPrincipalLock(e.target.value)} style={styles.filterSelect}>
-                <option value="">Principal Lock...</option>
-                <option value="true">👑 Lock to Principal</option>
-                <option value="false">Unlock</option>
-              </select>
-
-              <input type="text" value={bulkAddClass} onChange={(e) => setBulkAddClass(e.target.value)} placeholder="Add extra group tag..." style={{ padding: '8px 12px', borderRadius: '6px', border: '1.5px solid #94a3b8', fontSize: '13px', width: '140px' }} />
-
-              <button onClick={handleBulkUpdate} style={{ padding: '9px 18px', background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>
-                ✓ Apply to {selectedRows.length} Students
+              <button
+                type="button"
+                onClick={() => { setIsRegNoEditMode(!isRegNoEditMode); setRegNoDrafts({}); }}
+                style={styles.buttonSecondary}
+              >
+                {isRegNoEditMode ? 'Cancel RegNo Edit' : '✏️ Mass Edit RegNo'}
               </button>
             </div>
-          </div>
-        )}
 
-        {isRegNoEditMode && (
-          <div style={{ padding: '16px', background: '#fffbeb', border: '2px dashed #f59e0b', borderRadius: '10px', marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
-            <div>
-              <strong style={{ color: '#b45309', fontSize: '15px', display: 'block' }}>⚠️ Mass RegNo Migration Mode Active</strong>
-              <span style={{ fontSize: '13px', color: '#92400e', fontWeight: '600' }}>Type the new registration number next to the students you want to correct, then click Migrate.</span>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Columns:</span>
+              {[
+                { key: 'regNo', label: 'Reg.No' },
+                { key: 'mentor', label: 'Mentor & CT' },
+                { key: 'location', label: 'District & State' },
+                { key: 'completion', label: 'Profile %' }
+              ].map(col => (
+                <button
+                  key={col.key}
+                  type="button"
+                  onClick={() => setVisibleCols(prev => ({ ...prev, [col.key]: !prev[col.key] }))}
+                  style={{
+                    padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer',
+                    background: visibleCols[col.key] ? '#4f46e5' : '#ffffff',
+                    color: visibleCols[col.key] ? '#ffffff' : '#475569',
+                    border: '1px solid #cbd5e1'
+                  }}
+                >
+                  {visibleCols[col.key] ? `✓ ${col.label}` : `+ ${col.label}`}
+                </button>
+              ))}
             </div>
-            <button onClick={executeRegNoMigration} disabled={isLoading} style={{ padding: '12px 24px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '15px' }}>
-              {isLoading ? 'Migrating...' : '🚀 Migrate Entered RegNos'}
+          </div>
+
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {DEPARTMENTS.map(d => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => toggleFilterDirectoryDept(d)}
+                style={{
+                  fontSize: '11px', padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontWeight: '700',
+                  background: filterDepartments.includes(d) ? '#4f46e5' : '#ffffff',
+                  color: filterDepartments.includes(d) ? '#ffffff' : '#475569',
+                  border: '1px solid #cbd5e1'
+                }}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* BULK ACTION BAR (Appears only when checkboxes are ticked) */}
+      {selectedRows.length > 0 && !isRegNoEditMode && (
+        <div className="erp-slide-panel" style={{ padding: '14px 18px', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: '12px', marginBottom: '18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+          <strong style={{ color: '#3730a3', fontSize: '14px' }}>
+            ☑️ {selectedRows.length} Students Checked
+          </strong>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <select value={bulkMentor} onChange={(e) => setBulkMentor(e.target.value)} style={styles.filterSelect}>
+              <option value="">Assign Mentor...</option>
+              <option value="__CLEAR__">Clear Mentor</option>
+              {teachersList.map(t => <option key={t.username} value={t.username}>{t.fullName}</option>)}
+            </select>
+            <select value={bulkReplaceClass} onChange={(e) => setBulkReplaceClass(e.target.value)} style={styles.filterSelect}>
+              <option value="">Move to Class...</option>
+              {DEFAULT_CLASSES.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+            </select>
+            <select value={bulkDept} onChange={(e) => setBulkDept(e.target.value)} style={styles.filterSelect}>
+              <option value="">Set Dept...</option>
+              {DEPARTMENTS.map(dept => <option key={dept} value={dept}>{dept}</option>)}
+            </select>
+            <button onClick={handleBulkUpdate} style={styles.buttonPrimary}>
+              Apply to {selectedRows.length}
             </button>
           </div>
-        )}
+        </div>
+      )}
 
-        <div style={{ width: '100%', overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '14px' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px', minWidth: '960px' }}>
+      {isRegNoEditMode && (
+        <div style={{ padding: '14px 18px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', marginBottom: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <strong style={{ color: '#92400e', fontSize: '13px' }}>Mass RegNo Edit Mode Active</strong>
+          <button onClick={executeRegNoMigration} disabled={isLoading} style={styles.buttonPrimary}>
+            Migrate RegNos
+          </button>
+        </div>
+      )}
+
+      {/* 🌟 MINIMALIST SHUHOOD STUDENT DIRECTORY TABLE */}
+      <div style={{ ...styles.card, padding: 0, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+          <input
+            type="text"
+            placeholder="🔍 Search student name, Ad.No, or Reg.No..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ ...styles.input, maxWidth: '300px', padding: '8px 12px', fontSize: '13px' }}
+          />
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <select value={filterClass} onChange={(e) => setFilterClass(e.target.value)} style={styles.filterSelect}>
+              <option value="All">All Classes</option>
+              {availableStudentClasses.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ width: '100%', overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
             <thead>
-              <tr style={{ background: '#0f172a', color: '#ffffff' }}>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
                 {!isRegNoEditMode && (
-                  <th style={{ padding: '14px', width: '40px', color: '#ffffff' }}><input type="checkbox" checked={filteredStudents.length > 0 && selectedRows.length === filteredStudents.length} onChange={() => toggleSelectAll(filteredStudents)} style={{ width: '16px', height: '16px', cursor: 'pointer' }} /></th>
+                  <th style={{ padding: '14px 16px', width: '40px' }}>
+                    <input type="checkbox" checked={filteredStudents.length > 0 && selectedRows.length === filteredStudents.length} onChange={() => toggleSelectAll(filteredStudents)} />
+                  </th>
                 )}
-                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Sn</th>
-                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Reg.No</th>
-                {isRegNoEditMode && <th style={{ padding: '14px', color: '#fef08a', fontWeight: '800' }}>Type New Reg.No</th>}
-                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Student &amp; Ad.No</th>
-                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Mentor, Class Teacher &amp; Location</th>
-                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Classes &amp; Dept</th>
-                <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff' }}>Profile Completion</th>
-                {!isRegNoEditMode && <th style={{ padding: '14px', fontWeight: '800', color: '#ffffff', textAlign: 'right' }}>Actions</th>}
+                <th style={{ padding: '14px 16px', width: '55px' }}>#</th>
+                <th style={{ padding: '14px 16px' }}>NAME</th>
+                <th style={{ padding: '14px 16px' }}>ADMISSION NO</th>
+                {visibleCols.regNo && <th style={{ padding: '14px 16px' }}>REG.NO</th>}
+                {isRegNoEditMode && <th style={{ padding: '14px 16px' }}>NEW REG.NO</th>}
+                <th style={{ padding: '14px 16px' }}>CLASS &amp; DEPT</th>
+                {visibleCols.mentor && <th style={{ padding: '14px 16px' }}>MENTOR &amp; CT</th>}
+                {visibleCols.location && <th style={{ padding: '14px 16px' }}>LOCATION</th>}
+                {visibleCols.completion && <th style={{ padding: '14px 16px' }}>PROFILE %</th>}
+                <th style={{ padding: '14px 16px' }}>STATUS</th>
+                {!isRegNoEditMode && <th style={{ padding: '14px 16px', textAlign: 'right' }}>ACTIONS</th>}
               </tr>
             </thead>
             <tbody>
               {filteredStudents.map((student, index) => {
-                const isUrdu = isUrduStudent(student.adNo);
                 const safeClasses = getSafeClassesArray(student);
                 const comp = computeStudentProfileCompletion(student);
                 const autoCT = resolveClassTeacherForStudent(student, teachersList);
+                const isExpanded = expandedStudentRegNo === student.regNo;
 
                 return (
-                  <tr key={index} style={{ borderBottom: '1px solid #e2e8f0', background: selectedRows.includes(student.regNo) || regNoDrafts[student.regNo] ? '#f0f9ff' : index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                    {!isRegNoEditMode && (
-                      <td style={{ padding: '12px 14px' }}><input type="checkbox" checked={selectedRows.includes(student.regNo)} onChange={() => toggleRowSelect(student.regNo)} style={{ width: '16px', height: '16px', cursor: 'pointer' }} /></td>
-                    )}
-                    <td style={{ padding: '12px 14px', fontWeight: '700', color: '#475569' }}>{student.rollNo || '-'}</td>
-                    <td style={{ padding: '12px 14px', fontWeight: '800', color: '#0f172a' }}>{student.regNo}</td>
-
-                    {isRegNoEditMode && (
-                      <td style={{ padding: '12px 14px' }}>
-                        <input
-                          type="text"
-                          value={regNoDrafts[student.regNo] || ''}
-                          onChange={(e) => handleRegNoDraftChange(student.regNo, e.target.value)}
-                          placeholder="Enter correction..."
-                          style={{ width: '100%', padding: '8px 12px', border: '2px solid #94a3b8', borderRadius: '6px', fontWeight: '700' }}
-                        />
+                  <React.Fragment key={student.regNo}>
+                    <tr
+                      onClick={() => setExpandedStudentRegNo(isExpanded ? null : student.regNo)}
+                      style={{ borderBottom: '1px solid #f1f5f9', background: selectedRows.includes(student.regNo) || isExpanded ? '#f8fafc' : '#ffffff', cursor: 'pointer' }}
+                    >
+                      {!isRegNoEditMode && (
+                        <td style={{ padding: '14px 16px' }} onClick={e => e.stopPropagation()}>
+                          <input type="checkbox" checked={selectedRows.includes(student.regNo)} onChange={() => toggleRowSelect(student.regNo)} />
+                        </td>
+                      )}
+                      <td style={{ padding: '14px 16px', color: '#64748b', fontWeight: '600' }}>{student.rollNo || index + 1}</td>
+                      <td style={{ padding: '14px 16px', fontWeight: '700', color: '#0f172a' }}>
+                        {student.firstName}
+                        {student.requiresPrincipalApproval && (
+                          <span style={{ marginLeft: '6px', background: '#fff1f2', color: '#e11d48', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '800' }}>
+                            Principal Lock
+                          </span>
+                        )}
                       </td>
-                    )}
-
-                    <td style={{ padding: '12px 14px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <ProfileAvatar name={student.firstName} code={student.adNo} photoUrl={student.photoUrl} size={38} onClick={() => setPortfolioModalStudent(student)} />
-                        <div>
-                          <div style={{ fontWeight: '800', color: '#0f172a' }}>{student.firstName}</div>
-                          <span style={{ fontSize: '12px', color: '#475569', fontWeight: '700' }}>Ad: #{student.adNo}</span>
-                          {isUrdu && <span style={{ ...styles.badge, background: '#fef3c7', color: '#b45309', marginLeft: '6px' }}>URDU</span>}
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ padding: '12px 14px', fontSize: '12px', color: '#1e293b' }}>
-                      <div>🧭 Mentor: <strong style={{ color: '#0f766e' }}>{student.mentorUsername || '—'}</strong></div>
-                      <div>🏫 Class Teacher: <strong style={{ color: '#1d4ed8' }}>{autoCT ? autoCT.fullName : (student.classTeacherUsername || 'Auto')}</strong></div>
-                      <div>📍 {student.district || '—'}, {student.state || 'Kerala'}</div>
-                      {student.requiresPrincipalApproval && <span style={{ ...styles.badge, background: '#fef2f2', color: '#dc2626' }}>👑 Principal Only</span>}
-                    </td>
-                    <td style={{ padding: '12px 14px' }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                        <span style={{ ...styles.badge, background: '#e0f2fe', color: '#0369a1' }}>{student.department || 'GENERAL'}</span>
-                        {safeClasses.map((c, i) => (
-                          <span key={i} style={{ background: '#f1f5f9', color: '#0f172a', padding: '3px 7px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', border: '1px solid #cbd5e1' }}>{c}</span>
-                        ))}
-                      </div>
-                    </td>
-                    <td style={{ padding: '12px 14px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <div style={{ width: '70px', height: '7px', background: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
-                          <div style={{ width: `${comp.pct}%`, height: '100%', background: comp.pct === 100 ? '#10b981' : comp.pct >= 60 ? '#f59e0b' : '#ef4444' }} />
-                        </div>
-                        <span style={{ fontSize: '12px', fontWeight: '800', color: comp.pct === 100 ? '#047857' : '#b45309' }}>{comp.pct}%</span>
-                      </div>
-                    </td>
-                    {!isRegNoEditMode && (
-                      <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                          <button onClick={() => setPortfolioModalStudent(student)} style={{ padding: '6px 10px', background: '#f0fdfa', color: '#0f766e', border: '1px solid #0d9488', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>🏆 Portfolio</button>
-                          <button onClick={() => openDirectWhatsApp(student.parentWhatsapp || student.parentMobile, `Assalamu Alaikum, official update regarding ${student.firstName} (#${student.adNo}) from DHIU Portal:`)} style={{ padding: '6px 10px', background: '#dcfce7', color: '#166534', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>💬 WA</button>
-                          <button onClick={() => handleEditClick(student)} style={{ padding: '6px 10px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>Edit</button>
-                          <button onClick={() => handleDeleteClick(student.regNo)} style={{ padding: '6px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>Delete</button>
-                        </div>
+                      <td style={{ padding: '14px 16px', color: '#475569', fontWeight: '600' }}>
+                        {student.adNo}
                       </td>
+                      {visibleCols.regNo && <td style={{ padding: '14px 16px', color: '#64748b' }}>{student.regNo}</td>}
+
+                      {isRegNoEditMode && (
+                        <td style={{ padding: '14px 16px' }} onClick={e => e.stopPropagation()}>
+                          <input
+                            type="text"
+                            value={regNoDrafts[student.regNo] || ''}
+                            onChange={(e) => handleRegNoDraftChange(student.regNo, e.target.value)}
+                            placeholder="New Reg.No..."
+                            style={{ ...styles.input, padding: '6px 10px' }}
+                          />
+                        </td>
+                      )}
+
+                      <td style={{ padding: '14px 16px' }}>
+                        <span style={{ fontWeight: '700', color: '#334155' }}>{safeClasses.join(', ')}</span>
+                        <span style={{ color: '#94a3b8', fontSize: '12px', marginLeft: '6px' }}>• {student.department || 'GEN'}</span>
+                      </td>
+
+                      {visibleCols.mentor && (
+                        <td style={{ padding: '14px 16px', fontSize: '12px', color: '#475569' }}>
+                          {student.mentorUsername || '—'}
+                        </td>
+                      )}
+                      {visibleCols.location && (
+                        <td style={{ padding: '14px 16px', fontSize: '12px', color: '#475569' }}>
+                          {student.district || '—'}, {student.state || 'Kerala'}
+                        </td>
+                      )}
+                      {visibleCols.completion && (
+                        <td style={{ padding: '14px 16px', fontSize: '12px', fontWeight: '700', color: comp.pct === 100 ? '#047857' : '#d97706' }}>
+                          {comp.pct}%
+                        </td>
+                      )}
+
+                      <td style={{ padding: '14px 16px' }}>
+                        <span style={{ background: '#dcfce7', color: '#15803d', padding: '4px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '700' }}>
+                          Active
+                        </span>
+                      </td>
+
+                      {!isRegNoEditMode && (
+                        <td style={{ padding: '14px 16px', textAlign: 'right' }} onClick={e => e.stopPropagation()}>
+                          <div style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleEditClick(student)}
+                              style={{ padding: '6px 12px', background: '#eef2ff', color: '#4f46e5', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
+                            >
+                              ✏️ Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedStudentRegNo(isExpanded ? null : student.regNo)}
+                              style={{ padding: '6px 12px', background: '#f1f5f9', color: '#334155', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
+                            >
+                              👁️ {isExpanded ? 'Hide' : 'View'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteClick(student.regNo)}
+                              style={{ padding: '6px 10px', background: 'transparent', color: '#e11d48', border: 'none', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
+                            >
+                              🗑️ Delete
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+
+                    {/* 🌟 EXPANDABLE STUDENT DETAILS ROW (Shown only when "View" or Row is clicked!) */}
+                    {isExpanded && (
+                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                        <td colSpan={12} style={{ padding: '18px 24px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                              <ProfileAvatar name={student.firstName} code={student.adNo} photoUrl={student.photoUrl} size={48} />
+                              <div>
+                                <div style={{ fontWeight: '800', fontSize: '15px', color: '#0f172a' }}>
+                                  {student.firstName} <span style={{ color: '#4f46e5' }}>(Ad.No: #{student.adNo} • Reg: {student.regNo})</span>
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#475569', marginTop: '4px' }}>
+                                  🧭 Mentor: <strong>{student.mentorUsername || 'Unassigned'}</strong> • 🏫 Class Teacher: <strong>{autoCT ? autoCT.fullName : 'Auto'}</strong> • Profile: <strong>{comp.pct}% Complete</strong>
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '3px' }}>
+                                  📱 Student: {student.whatsappNumber || student.mobileNumber || '—'} • 👨‍👩‍👦 Parent: {student.parentWhatsapp || student.parentMobile || '—'} • 📍 {student.district || '—'}, {student.state || 'Kerala'}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              <button type="button" onClick={() => setPortfolioModalStudent(student)} style={styles.buttonPrimary}>
+                                🏆 Open Portfolio &amp; Consultancy Logs
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openDirectWhatsApp(student.parentWhatsapp || student.parentMobile, `Assalamu Alaikum, official update regarding ${student.firstName} (#${student.adNo}):`)}
+                                style={styles.buttonSecondary}
+                              >
+                                💬 Parent WhatsApp
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
                     )}
-                  </tr>
+                  </React.Fragment>
                 );
               })}
             </tbody>
