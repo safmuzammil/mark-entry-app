@@ -735,6 +735,1212 @@ export function PortalNotificationBanner({
 }
 // ============================================================================
 // 🧭 9. MINIMALIST MENTORSHIP & OUTREACH TAB (Class Teacher & Mentor Live Feed + FN/AN Monthly Days)
+// 📊 4. STUDENT PROFILE COMPLETION RATE CALCULATOR & AUTO CLASS TEACHER HELPER
+// ============================================================================
+export function computeStudentProfileCompletion(student) {
+  if (!student) return { pct: 0, missing: [], isComplete: false };
+  const checks = [
+    { label: 'Photo', ok: Boolean(student.photoUrl) },
+    { label: 'Student Phone', ok: Boolean(student.mobileNumber || student.whatsappNumber) },
+    { label: 'Email', ok: Boolean(student.email && String(student.email).includes('@')) },
+    { label: 'Parent WhatsApp', ok: Boolean(student.parentWhatsapp || student.parentMobile) },
+    { label: 'District & State', ok: Boolean(student.district && student.state) },
+    { label: 'Class & Dept', ok: Boolean((student.classes || []).length > 0 && student.department) },
+    { label: 'Mentor', ok: Boolean(student.mentorUsername) },
+    { label: 'Skills', ok: Boolean(Array.isArray(student.skills) && student.skills.length > 0) }
+  ];
+  const completedCount = checks.filter(c => c.ok).length;
+  const pct = Math.round((completedCount / checks.length) * 100);
+  const missing = checks.filter(c => !c.ok).map(c => c.label);
+  return {
+    pct,
+    completedCount,
+    totalFields: checks.length,
+    missing,
+    isComplete: missing.length === 0
+  };
+}
+
+export function resolveClassTeacherForStudent(student, teachersList = []) {
+  const stClasses = Array.isArray(student?.classes) ? student.classes : [student?.studentClass].filter(Boolean);
+  for (const t of teachersList) {
+    const ctClasses = t.outpassPrivileges?.classTeacherOf || t.classTeacherOf || [];
+    if (ctClasses.some(c => stClasses.includes(c))) {
+      return t;
+    }
+  }
+  if (student?.classTeacherUsername) {
+    return teachersList.find(t => String(t.username || '').toLowerCase() === String(student.classTeacherUsername).toLowerCase()) || null;
+  }
+  return null;
+}
+
+export function checkSmartSubjectMatch(dbKey, expectedSub) {
+  const a = String(dbKey || '').trim().toUpperCase();
+  const b = String(expectedSub || '').trim().toUpperCase();
+  const isAUsul = a === 'U :FIQH' || a === 'U:FIQH' || a.includes('U :FIQH') || a.includes('U:FIQH');
+  const isBUsul = b === 'U :FIQH' || b === 'U:FIQH' || b.includes('U :FIQH') || b.includes('U:FIQH');
+
+  if (isAUsul || isBUsul) return isAUsul && isBUsul;
+  if (a === 'FIQH' || b === 'FIQH') return a === 'FIQH' && b === 'FIQH';
+  if (a === b) return true;
+  if ((a.includes('LOGIC') || a.includes('MANTIQ')) && (b.includes('LOGIC') || b.includes('MANTIQ'))) return true;
+  if ((a.includes('AQIDAH') || a.includes('AQEEDA')) && (b.includes('AQIDAH') || b.includes('AQEEDA'))) return true;
+  if ((a.includes('THAMADUN') || a.includes('THAMADAN')) && (b.includes('THAMADUN') || b.includes('THAMADAN'))) return true;
+  return false;
+}
+
+export function doesClassMatchAlias(studentClasses, targetClass, alias, grade) {
+  const norm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const stClassesNorm = (Array.isArray(studentClasses) ? studentClasses : [studentClasses])
+    .filter(Boolean)
+    .map(c => norm(c));
+
+  if (stClassesNorm.length === 0) return false;
+
+  const targetNorm = norm(targetClass);
+  const aliasNorm = norm(alias);
+  const aliasUpper = String(alias || '').toUpperCase();
+
+  const KNOWN_SPECIFIC_CLASSES = [
+    'QH1', 'AL1', 'ALC1', 'FC1',
+    'QH2', 'AL2', 'ALC2', 'FC2',
+    'QLA3', 'HFC3', 'QH3', 'AL3', 'FC3'
+  ];
+
+  const specificTarget = KNOWN_SPECIFIC_CLASSES.find(
+    cls => targetNorm === cls || targetNorm.includes(cls)
+  );
+  if (specificTarget) {
+    return stClassesNorm.some(sc =>
+      sc === specificTarget ||
+      (specificTarget === 'ALC2' && sc === 'AL2') ||
+      (specificTarget === 'AL2' && sc === 'ALC2') ||
+      (specificTarget === 'ALC1' && sc === 'AL1') ||
+      (specificTarget === 'AL1' && sc === 'ALC1')
+    );
+  }
+
+  const specificInAlias = KNOWN_SPECIFIC_CLASSES.filter(cls => aliasNorm.includes(cls));
+  if (specificInAlias.length > 0) {
+    return stClassesNorm.some(sc =>
+      specificInAlias.some(cls =>
+        sc === cls ||
+        (cls === 'ALC2' && sc === 'AL2') ||
+        (cls === 'AL2' && sc === 'ALC2') ||
+        (cls === 'ALC1' && sc === 'AL1') ||
+        (cls === 'AL1' && sc === 'ALC1')
+      )
+    );
+  }
+
+  let stGrade = '1';
+  if (stClassesNorm.some(c => c.includes('10') || c.includes('3'))) stGrade = '3';
+  else if (stClassesNorm.some(c => c.includes('9') || c.includes('2'))) stGrade = '2';
+
+  if (/\b(M10|U10)\b/.test(aliasUpper) || aliasUpper.includes('GRADE 3')) return stGrade === '3';
+  if (/\b(M9|U9)\b/.test(aliasUpper) || aliasUpper.includes('GRADE 2')) return stGrade === '2';
+  if (/\b(M8|U8)\b/.test(aliasUpper) || aliasUpper.includes('GRADE 1')) return stGrade === '1';
+
+  if (grade && (!targetNorm || targetNorm.includes('GRADE') || targetNorm === 'ALL')) {
+    return String(grade).trim() === stGrade;
+  }
+
+  return false;
+}
+
+// ============================================================================
+// 👤 5. REUSABLE AVATAR COMPONENT
+// ============================================================================
+export function ProfileAvatar({ name, code, photoUrl, size = 40, onClick }) {
+  const [step, setStep] = useState(photoUrl ? 0 : 1);
+  useEffect(() => { setStep(photoUrl ? 0 : 1); }, [photoUrl, code]);
+  const initial = (name || 'U').trim().charAt(0).toUpperCase();
+  const srcToTry = step === 0 ? photoUrl : step === 1 && code ? `/students/${code}.jpg` : null;
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        width: size,
+        height: size,
+        minWidth: size,
+        borderRadius: '50%',
+        background: '#4f46e5',
+        color: '#ffffff',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontWeight: '700',
+        fontSize: Math.round(size * 0.42),
+        overflow: 'hidden',
+        border: '1.5px solid #e0e7ff',
+        cursor: onClick ? 'pointer' : 'default'
+      }}
+    >
+      {srcToTry && step < 2 ? (
+        <img
+          src={srcToTry}
+          alt={name}
+          onError={() => setStep(prev => prev + 1)}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        />
+      ) : (
+        <span>{initial}</span>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// 📚 6. SINGLE-TEACHER PER SUBJECT SELECTOR
+// ============================================================================
+export function SubjectTeacherSelector({
+  selectedClasses = [],
+  adNo = '',
+  teachersList = [],
+  selectedEnrollmentKeys = [],
+  onChangeSelectedKeys
+}) {
+  const detectedGrades = Array.from(
+    new Set(
+      selectedClasses
+        .map(c => {
+          const match = String(c).match(/\d+/);
+          return match ? match[0] : null;
+        })
+        .filter(Boolean)
+    )
+  );
+  const targetGrade = detectedGrades[0] || '1';
+  const selectedClassesUpper = selectedClasses.map(c => String(c).trim().toUpperCase());
+  const isUrduStudent = String(adNo || '').trim().toUpperCase().startsWith('U');
+
+  const designatedClassTeacher = teachersList.find(t =>
+    (t.outpassPrivileges?.classTeacherOf || []).some(c => selectedClassesUpper.includes(String(c).toUpperCase()))
+  );
+
+  const subjectMappings = DEFAULT_SUBJECTS.map(subName => {
+    const subUpper = subName.toUpperCase();
+    const matchingOptions = [];
+
+    teachersList.forEach(teacher => {
+      (teacher.enrollments || []).forEach(env => {
+        const envSub = String(env.subject || '').trim();
+        const envAlias = String(env.alias || '').trim();
+        const isSubjectMatch = checkSmartSubjectMatch(
+          envAlias.toUpperCase().includes('U :FIQH') ? 'U :FIQH' : envSub,
+          subName
+        );
+
+        if (
+          isSubjectMatch &&
+          doesClassMatchAlias(selectedClasses, env.targetClass, env.alias, env.grade)
+        ) {
+          matchingOptions.push({
+            key: `${teacher.username}:::${env.id}`,
+            teacherUsername: teacher.username,
+            teacherName: teacher.fullName,
+            envId: env.id,
+            targetClass: env.targetClass || `Grade ${env.grade}`,
+            alias: env.alias || `${env.targetClass || `Grade ${env.grade}`} - ${env.subject}`,
+            langTag: env.langTag || 'General'
+          });
+        }
+      });
+    });
+
+    return {
+      subject: subName,
+      isHifz: subUpper === 'HIFZ',
+      options: matchingOptions
+    };
+  });
+
+  const handleSelectSingleTeacherForSubject = (subjectOptions, chosenKey) => {
+    const optionKeysForThisSubject = new Set(subjectOptions.map(o => o.key));
+    const alreadySelected = selectedEnrollmentKeys.includes(chosenKey);
+    const filteredKeys = selectedEnrollmentKeys.filter(k => !optionKeysForThisSubject.has(k));
+
+    if (alreadySelected) {
+      onChangeSelectedKeys(filteredKeys);
+    } else {
+      onChangeSelectedKeys([...filteredKeys, chosenKey]);
+    }
+  };
+
+  const handleAutoSelectBestSingleTeacherPerSubject = () => {
+    const autoKeys = [];
+    subjectMappings.forEach(item => {
+      if (item.options.length === 0) return;
+
+      const bestMatch =
+        item.options.find(o => {
+          const langLower = String(o.langTag || '').toLowerCase();
+          const exactCls = selectedClassesUpper.includes(String(o.targetClass || '').toUpperCase());
+          const langMatches = isUrduStudent
+            ? langLower.includes('urdu') && !langLower.includes('non')
+            : !langLower.includes('urdu') || langLower.includes('non');
+          return exactCls && langMatches;
+        }) ||
+        item.options.find(o => {
+          const langLower = String(o.langTag || '').toLowerCase();
+          return isUrduStudent
+            ? langLower.includes('urdu') && !langLower.includes('non')
+            : !langLower.includes('urdu') || langLower.includes('non');
+        }) ||
+        item.options[0];
+
+      if (bestMatch) autoKeys.push(bestMatch.key);
+    });
+    onChangeSelectedKeys(autoKeys);
+  };
+
+  return (
+    <div style={{ background: '#ffffff', padding: '18px', borderRadius: '12px', border: '1px solid #e2e8f0', marginTop: '12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
+        <div>
+          <h4 style={{ margin: 0, fontSize: '15px', color: '#0f172a', fontWeight: '800' }}>
+            📚 Assign Subject Teachers (Batch: Grade {targetGrade} • {selectedClasses.join(', ') || 'Select a Class above'})
+          </h4>
+          <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#475569', fontWeight: '500' }}>
+            Select <strong>one teacher per subject</strong> below.
+            {designatedClassTeacher && (
+              <span style={{ marginLeft: '8px', color: '#4f46e5', fontWeight: '700' }}>
+                • 🏫 Class Teacher &amp; Hifz: {designatedClassTeacher.fullName} (Auto-Assigned)
+              </span>
+            )}
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button type="button" onClick={handleAutoSelectBestSingleTeacherPerSubject} style={styles.buttonPrimary}>
+            ✓ Auto-Select 1 Teacher Per Subject
+          </button>
+          <button type="button" onClick={() => onChangeSelectedKeys([])} style={styles.buttonSecondary}>
+            Clear All
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(235px, 1fr))', gap: '10px' }}>
+        {subjectMappings.map((item) => (
+          <div key={item.subject} style={{ background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+            <div style={{ fontWeight: '800', fontSize: '12px', color: '#0f172a', marginBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
+              <span>📖 {item.subject}</span>
+              {item.isHifz && designatedClassTeacher && (
+                <span style={{ fontSize: '10px', color: '#047857' }}>🏫 Auto CT</span>
+              )}
+            </div>
+
+            {item.options.length === 0 ? (
+              <div style={{ fontSize: '11px', color: '#64748b' }}>
+                {item.isHifz && designatedClassTeacher ? `👨‍🏫 ${designatedClassTeacher.fullName} (Class Teacher)` : `No teacher assigned for Grade ${targetGrade}`}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                {item.options.map(opt => {
+                  const isChecked = selectedEnrollmentKeys.includes(opt.key);
+                  return (
+                    <label
+                      key={opt.key}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        handleSelectSingleTeacherForSubject(item.options, opt.key);
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        background: isChecked ? '#eef2ff' : '#ffffff',
+                        border: isChecked ? '1.5px solid #4f46e5' : '1px solid #e2e8f0'
+                      }}
+                    >
+                      <input type="radio" name={`subject_radio_${item.subject}`} checked={isChecked} readOnly style={{ accentColor: '#4f46e5' }} />
+                      <div>
+                        <div style={{ fontWeight: '700', color: '#0f172a' }}>👨‍🏫 {opt.teacherName}</div>
+                        <div style={{ color: '#64748b', fontSize: '10px' }}>{opt.alias} ({opt.langTag})</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export async function syncStudentToSelectedTeacherEnrollments(studentRegNo, selectedEnrollmentKeys = []) {
+  if (!studentRegNo) return;
+  const selectedSet = new Set(selectedEnrollmentKeys);
+
+  const teacherSnap = await getDocs(collection(db, 'teachers'));
+  const updates = [];
+
+  teacherSnap.forEach(d => {
+    const tData = d.data();
+    const tUser = tData.username || d.id;
+    let changed = false;
+
+    const updatedEnrollments = (tData.enrollments || []).map(env => {
+      const key = `${tUser}:::${env.id}`;
+      const curIds = Array.isArray(env.studentIds) ? env.studentIds : [];
+      const hasStudent = curIds.includes(studentRegNo);
+
+      if (selectedSet.has(key) && !hasStudent) {
+        changed = true;
+        return { ...env, studentIds: [...curIds, studentRegNo] };
+      } else if (!selectedSet.has(key) && hasStudent) {
+        changed = true;
+        return { ...env, studentIds: curIds.filter(id => id !== studentRegNo) };
+      }
+      return env;
+    });
+
+    if (changed) {
+      updates.push(setDoc(doc(db, 'teachers', tUser), { enrollments: updatedEnrollments }, { merge: true }));
+    }
+  });
+
+  if (updates.length > 0) await Promise.all(updates);
+}
+
+// ============================================================================
+// 🔑 7. TEACHER PRIVILEGE MODAL (Includes Weekend Leave Authority!)
+// ============================================================================
+export function TeacherPrivilegeModal({ teacher, onClose, onSaved }) {
+  const [priv, setPriv] = useState({
+    isPrincipal: false,
+    isNiicsCoordinator: false,
+    isMentor: false,
+    isOutreachCoordinator: false,
+    isAcademicCoordinator: false,
+    isOfficeSecretary: false,
+    classTeacherOf: [],
+    allowedCategories: ['Friday', 'Evening'],
+    canApproveWeekend: false,
+    canApproveOutreach: false,
+    canViewReports: false,
+    ...(teacher?.outpassPrivileges || {})
+  });
+  const [saving, setSaving] = useState(false);
+
+  if (!teacher) return null;
+
+  const normalizeCls = (str) => String(str || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const ctClasses = priv.classTeacherOf || [];
+      const updatedPriv = {
+        ...priv,
+        canApproveOutreach: Boolean(priv.isOutreachCoordinator || priv.canApproveOutreach || priv.isPrincipal),
+        canViewReports: Boolean(priv.isPrincipal || priv.isOfficeSecretary || priv.canViewReports)
+      };
+
+      let rawEnrollments = Array.isArray(teacher.enrollments) ? [...teacher.enrollments] : [];
+      const seenHifzClasses = new Set();
+      let updatedEnrollments = rawEnrollments.filter(e => {
+        const isSubHifz = String(e.subject || '').toUpperCase() === 'HIFZ' || String(e.alias || '').toUpperCase().includes('HIFZ');
+        if (!isSubHifz) return true;
+        const normKey = normalizeCls(e.targetClass || e.alias).replace('HIFZ', '');
+        if (normKey && seenHifzClasses.has(normKey)) return false;
+        if (normKey) seenHifzClasses.add(normKey);
+        return true;
+      });
+
+      ctClasses.forEach(clsName => {
+        const normCls = normalizeCls(clsName);
+        const gradeMatch = String(clsName).match(/\d+/);
+        const gradeNum = gradeMatch ? gradeMatch[0] : '1';
+        const hasHifzForClass = updatedEnrollments.some(e => {
+          const isSubHifz = String(e.subject || '').toUpperCase() === 'HIFZ' || String(e.alias || '').toUpperCase().includes('HIFZ');
+          return isSubHifz && (normalizeCls(e.targetClass) === normCls || normalizeCls(e.alias).includes(normCls));
+        });
+        if (!hasHifzForClass) {
+          updatedEnrollments.push({
+            id: `hifz_${normCls}`,
+            grade: gradeNum,
+            targetClass: clsName,
+            subject: 'Hifz',
+            alias: `${clsName} Hifz`,
+            langTag: '',
+            studentIds: []
+          });
+        }
+      });
+
+      const activeRolesList = ['Teacher'];
+      if (updatedPriv.isPrincipal) activeRolesList.push('Principal');
+      if (updatedPriv.isNiicsCoordinator) activeRolesList.push('NIICS Coordinator');
+      if (updatedPriv.isMentor) activeRolesList.push('Mentor');
+      if (ctClasses.length > 0) activeRolesList.push('Class Teacher');
+      if (updatedPriv.isAcademicCoordinator) activeRolesList.push('Academic Coordinator');
+      if (updatedPriv.isOutreachCoordinator) activeRolesList.push('Outreach Coordinator');
+      if (updatedPriv.isOfficeSecretary) activeRolesList.push('Office Secretary');
+
+      await setDoc(doc(db, 'teachers', teacher.username), {
+        roleCategory: updatedPriv.isPrincipal
+          ? 'Principal'
+          : ctClasses.length > 0
+          ? `Class Teacher (${ctClasses.join(', ')})`
+          : updatedPriv.isMentor
+          ? 'Mentor'
+          : (teacher.roleCategory || 'Teacher'),
+        roles: activeRolesList,
+        enrollments: updatedEnrollments,
+        outpassPrivileges: updatedPriv
+      }, { merge: true });
+
+      alert(`✅ Roles, Class Teacher Hifz Assignment & Privileges updated for ${teacher.fullName}!`);
+      if (onSaved) onSaved();
+      onClose();
+    } catch (err) {
+      alert("Error saving privileges: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '16px' }}>
+      <div style={{ background: '#ffffff', borderRadius: '16px', maxWidth: '660px', width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 40px rgba(15,23,42,0.2)', border: '1px solid #e2e8f0', color: '#0f172a' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: '11px', color: '#4f46e5', fontWeight: '800', textTransform: 'uppercase' }}>ROLE-BASED ACCESS &amp; LEAVE AUTHORITY</div>
+            <h3 style={{ margin: '2px 0 0', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
+              🔑 Configure Roles &amp; Privileges: {teacher.fullName} (@{teacher.username})
+            </h3>
+          </div>
+          <button onClick={onClose} style={styles.buttonSecondary}>✕</button>
+        </div>
+
+        <div style={{ padding: '22px 24px' }}>
+          <div style={{ fontSize: '12px', fontWeight: '800', color: '#475569', marginBottom: '10px', textTransform: 'uppercase' }}>
+            1. Assign Institutional Roles (Multi-Select)
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px', marginBottom: '18px' }}>
+            {[
+              { key: 'isMentor', title: '🧭 Academic Mentor', desc: 'Can be assigned mentees, log consultations & update mentee profiles' },
+              { key: 'isPrincipal', title: '👑 Principal Authority', desc: 'Universal approval for all leaves, Principal-locked students & Weekend leaves' },
+              { key: 'isNiicsCoordinator', title: '🎓 NIICS Coordinator (Urdu Principal)', desc: 'Acts as Principal for all Urdu students (Ad.No starting with U)' },
+              { key: 'isAcademicCoordinator', title: '📊 Academic Coordinator', desc: 'Unlocks Admin Mark Entry, Inspector & Academic Evaluation tabs' },
+              { key: 'isOutreachCoordinator', title: '🌍 Outreach Coordinator', desc: 'Unlocks Outreach Mentor-Mentee dialogues & Bulk Mentor Assignment' },
+              { key: 'isOfficeSecretary', title: '🏢 Office Secretary', desc: 'Unlocks full Out-Pass Management & Live Campus Dashboard' }
+            ].map(role => (
+              <label key={role.key} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px', borderRadius: '10px', background: priv[role.key] ? '#eef2ff' : '#f8fafc', border: `1.5px solid ${priv[role.key] ? '#4f46e5' : '#e2e8f0'}`, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(priv[role.key])}
+                  onChange={(e) => setPriv({ ...priv, [role.key]: e.target.checked })}
+                  style={{ marginTop: '2px', accentColor: '#4f46e5' }}
+                />
+                <div>
+                  <div style={{ fontWeight: '700', fontSize: '13px', color: '#0f172a' }}>{role.title}</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{role.desc}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+
+          <div style={{ marginBottom: '18px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <div style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>
+              2. 🏫 Designated Class Teacher Of (Auto-Assigns Class Students &amp; Hifz Mark Entry):
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {DEFAULT_CLASSES.map(cls => {
+                const active = (priv.classTeacherOf || []).includes(cls);
+                return (
+                  <button
+                    key={cls}
+                    type="button"
+                    onClick={() => {
+                      const cur = priv.classTeacherOf || [];
+                      const next = active ? cur.filter(c => c !== cls) : [...cur, cls];
+                      setPriv({ ...priv, classTeacherOf: next });
+                    }}
+                    style={{
+                      padding: '6px 14px', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer',
+                      border: active ? '1.5px solid #4f46e5' : '1px solid #cbd5e1',
+                      background: active ? '#4f46e5' : '#ffffff',
+                      color: active ? '#ffffff' : '#334155'
+                    }}
+                  >
+                    {active ? `✓ Class ${cls} (+Hifz)` : cls}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
+            <div style={{ background: '#f8fafc', padding: '10px 16px', fontWeight: '800', fontSize: '12px', color: '#475569', borderBottom: '1px solid #e2e8f0' }}>
+              3. Out-Pass Leave Category Permissions
+            </div>
+            {[
+              { id: 'Evening', label: '🌇 Evening Leaves (For Assigned Mentees & Class Students)' },
+              { id: 'Friday', label: '🕌 Friday Leave (Standard Friday Outing)' },
+              { id: 'General', label: '🏫 Class-Hour General & Medical Leaves (For Assigned Class)' },
+              { id: 'Official', label: '📋 Official / Department Work Leave' }
+            ].map(row => {
+              const allowed = (priv.allowedCategories || []).includes(row.id);
+              return (
+                <label key={row.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid #f1f5f9', alignItems: 'center', fontSize: '13px', fontWeight: '600', color: '#0f172a', cursor: 'pointer' }}>
+                  <span>{row.label}</span>
+                  <input
+                    type="checkbox"
+                    checked={allowed}
+                    onChange={(e) => {
+                      const cur = priv.allowedCategories || [];
+                      const next = e.target.checked ? [...cur, row.id] : cur.filter(x => x !== row.id);
+                      setPriv({ ...priv, allowedCategories: next });
+                    }}
+                  />
+                </label>
+              );
+            })}
+
+            <label style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: '#4f46e5', background: '#eef2ff', cursor: 'pointer' }}>
+              <span>🗓️ Weekend Leave Authority (Thu Eve ➔ Fri Eve / Sat)</span>
+              <input
+                type="checkbox"
+                checked={Boolean(priv.canApproveWeekend || priv.isPrincipal)}
+                onChange={(e) => setPriv({ ...priv, canApproveWeekend: e.target.checked })}
+                style={{ width: '16px', height: '16px', accentColor: '#4f46e5' }}
+              />
+            </label>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+            <button type="button" onClick={onClose} style={styles.buttonSecondary}>Cancel</button>
+            <button type="button" onClick={handleSave} disabled={saving} style={styles.buttonPrimary}>
+              {saving ? 'Saving...' : '💾 Save Roles & Privileges'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 🏆 8. STUDENT PORTFOLIO & CONSULTANCY MODAL (100% Full Features Restored!)
+// ============================================================================
+export function StudentPortfolioModal({
+  student,
+  canEditSkills = true,
+  canViewConfidential = true,
+  editorName = 'Faculty',
+  initialSection = 'log',
+  semesterTarget = 3,
+  onClose,
+  onSaved
+}) {
+  const [activeModalTab, setActiveModalTab] = useState(initialSection);
+  const [saving, setSaving] = useState(false);
+
+  const [formData, setFormData] = useState({
+    firstName: student?.firstName || '',
+    whatsappNumber: student?.whatsappNumber || student?.mobileNumber || '',
+    parentWhatsapp: student?.parentWhatsapp || student?.parentMobile || '',
+    email: student?.email || '',
+    state: student?.state || 'Kerala',
+    district: student?.district || '',
+    address: student?.address || '',
+    bloodGroup: student?.bloodGroup || '',
+    madhab: student?.madhab || 'SHAFI',
+    photoUrl: student?.photoUrl || ''
+  });
+
+  const [skills, setSkills] = useState(Array.isArray(student?.skills) ? student.skills : []);
+  const [newSkill, setNewSkill] = useState('');
+  const [achievements, setAchievements] = useState(Array.isArray(student?.achievements) ? student.achievements : []);
+  const [achTitle, setAchTitle] = useState('');
+  const [achCategory, setAchCategory] = useState('Academic');
+  const [achLevel, setAchLevel] = useState('Campus / Class Level');
+  const [achDate, setAchDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [achNotes, setAchNotes] = useState('');
+
+  const existingLogs = Array.isArray(student?.mentorLogs)
+    ? student.mentorLogs
+    : Array.isArray(student?.consultationLogs)
+      ? student.consultationLogs
+      : [];
+  const [mentorLogs, setMentorLogs] = useState(existingLogs);
+
+  const [sessionDate, setSessionDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [sessionType, setSessionType] = useState('1-on-1 Personal Sitting');
+  const [wellbeingStatus, setWellbeingStatus] = useState('Thriving / On Track');
+  const [discussedTopics, setDiscussedTopics] = useState(['CCE & Academic Progress']);
+  const [summaryNote, setSummaryNote] = useState('');
+  const [confidentialNote, setConfidentialNote] = useState('');
+  const [actionItem, setActionItem] = useState('');
+  const [nextFollowUpDate, setNextFollowUpDate] = useState('');
+
+  if (!student) return null;
+
+  const DISCUSSION_TOPICS = [
+    'CCE & Academic Progress', 'Hifz & Tilawah', 'Attendance & Punctuality',
+    'Language Fluency (Ar/En/Ur)', 'Sibaq & Co-Curricular',
+    'Hostel & Peer Adjustment', 'Personal / Family Wellbeing', 'Career & Higher Studies'
+  ];
+
+  const QUICK_SKILL_SUGGESTIONS = [
+    'Public Speaking', 'Arabic Oratory', 'English Oratory', 'Urdu Oratory',
+    'Academic Research', 'Calligraphy', 'Graphic Design', 'Web / Tech Skills',
+    'Leadership', 'Debate', 'Content Writing', 'Qiraat & Tajweed'
+  ];
+
+  const toggleTopic = (topic) => {
+    setDiscussedTopics(prev =>
+      prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic]
+    );
+  };
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const dataUrl = await compressImageFileToDataUrl(file, 320, 0.78);
+      setFormData(prev => ({ ...prev, photoUrl: dataUrl }));
+    } catch (err) {
+      alert('Could not process image: ' + err.message);
+    }
+  };
+
+  const saveUpdatedStudentToFirestore = async (patchObj, successMessage) => {
+    setSaving(true);
+    try {
+      const docId = String(student.regNo || student.id).toLowerCase().trim();
+      await setDoc(doc(db, 'students', docId), patchObj, { merge: true });
+      const updatedStudent = { ...student, ...patchObj };
+      if (onSaved) onSaved(updatedStudent);
+      if (successMessage) alert(successMessage);
+    } catch (err) {
+      alert('Failed to save to database: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAddConsultationLog = async (e) => {
+    e.preventDefault();
+    if (!summaryNote.trim() && !actionItem.trim()) {
+      return alert('Please enter a short summary or action plan for this sitting.');
+    }
+
+    const newLogEntry = {
+      id: `log_${Date.now()}`,
+      date: sessionDate,
+      type: sessionType,
+      wellbeingStatus,
+      topics: discussedTopics,
+      summary: summaryNote.trim(),
+      confidential: confidentialNote.trim(),
+      actionPlan: actionItem.trim(),
+      nextFollowUpDate: nextFollowUpDate || '',
+      loggedBy: editorName,
+      createdAt: new Date().toISOString()
+    };
+
+    const updatedLogs = [newLogEntry, ...mentorLogs];
+    setMentorLogs(updatedLogs);
+
+    await saveUpdatedStudentToFirestore(
+      {
+        mentorLogs: updatedLogs,
+        lastMentorMeetingDate: sessionDate,
+        latestWellbeingStatus: wellbeingStatus
+      },
+      '✅ Consultancy sitting logged successfully!'
+    );
+
+    setSummaryNote('');
+    setConfidentialNote('');
+    setActionItem('');
+    setNextFollowUpDate('');
+  };
+
+  const handleDeleteLog = async (logId) => {
+    if (!window.confirm('Delete this consultation record?')) return;
+    const updatedLogs = mentorLogs.filter(l => l.id !== logId);
+    setMentorLogs(updatedLogs);
+    await saveUpdatedStudentToFirestore({
+      mentorLogs: updatedLogs,
+      lastMentorMeetingDate: updatedLogs[0]?.date || ''
+    });
+  };
+
+  const handleAddSkill = async (skillToAdd) => {
+    const clean = String(skillToAdd || newSkill).trim();
+    if (!clean) return;
+    if (skills.some(s => s.toLowerCase() === clean.toLowerCase())) {
+      setNewSkill('');
+      return;
+    }
+    const updatedSkills = [...skills, clean];
+    setSkills(updatedSkills);
+    setNewSkill('');
+    await saveUpdatedStudentToFirestore({ skills: updatedSkills });
+  };
+
+  const handleRemoveSkill = async (skillToRemove) => {
+    const updatedSkills = skills.filter(s => s !== skillToRemove);
+    setSkills(updatedSkills);
+    await saveUpdatedStudentToFirestore({ skills: updatedSkills });
+  };
+
+  const handleAddAchievement = async (e) => {
+    e.preventDefault();
+    if (!achTitle.trim()) return alert('Please enter the achievement title.');
+    const newAch = {
+      id: `ach_${Date.now()}`,
+      title: achTitle.trim(),
+      category: achCategory,
+      level: achLevel,
+      date: achDate,
+      notes: achNotes.trim(),
+      addedBy: editorName
+    };
+    const updatedAch = [newAch, ...achievements];
+    setAchievements(updatedAch);
+    setAchTitle('');
+    setAchNotes('');
+    await saveUpdatedStudentToFirestore({ achievements: updatedAch }, '🏅 Achievement added to student portfolio!');
+  };
+
+  const handleRemoveAchievement = async (achId) => {
+    const updatedAch = achievements.filter(a => a.id !== achId);
+    setAchievements(updatedAch);
+    await saveUpdatedStudentToFirestore({ achievements: updatedAch });
+  };
+
+  const handleSaveProfileDetails = async (e) => {
+    e.preventDefault();
+    await saveUpdatedStudentToFirestore(
+      {
+        ...formData,
+        mobileNumber: formData.whatsappNumber,
+        parentMobile: formData.parentWhatsapp
+      },
+      '✅ Student contact & profile details updated!'
+    );
+  };
+
+  const sittingsCount = mentorLogs.length;
+  const targetMet = sittingsCount >= Number(semesterTarget || 1);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2200, padding: '14px' }}>
+      <div style={{ background: '#ffffff', borderRadius: '16px', maxWidth: '860px', width: '100%', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 48px rgba(15,23,42,0.2)', border: '1px solid #e2e8f0', color: '#0f172a' }}>
+
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', position: 'sticky', top: 0, background: '#ffffff', zIndex: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <ProfileAvatar name={formData.firstName} code={student.adNo} photoUrl={formData.photoUrl} size={48} />
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <h3 style={{ margin: 0, fontSize: '19px', fontWeight: '800', color: '#0f172a' }}>{formData.firstName}</h3>
+                <span style={{ background: '#eef2ff', color: '#4f46e5', padding: '3px 9px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' }}>
+                  Ad.No #{student.adNo}
+                </span>
+                <span style={{ background: targetMet ? '#dcfce7' : '#fef3c7', color: targetMet ? '#15803d' : '#92400e', padding: '3px 9px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' }}>
+                  🗣️ Sittings: {sittingsCount} / {semesterTarget} {targetMet ? '✅' : '⏳'}
+                </span>
+              </div>
+              <div style={{ fontSize: '12px', color: '#64748b', marginTop: '3px', fontWeight: '500' }}>
+                Reg: {student.regNo} • Class {(student.classes || []).join(', ')} ({student.department || 'GENERAL'}) • Mentor: {student.mentorName || student.mentorUsername || 'Unassigned'}
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} style={styles.buttonSecondary}>✕ Close</button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', background: '#f8fafc', padding: '10px 24px', borderBottom: '1px solid #e2e8f0', flexWrap: 'wrap' }}>
+          {[
+            { id: 'log', label: `📝 Consultancy Log (${mentorLogs.length})` },
+            { id: 'skills', label: `🏆 Skills (${skills.length}) & Achievements (${achievements.length})` },
+            { id: 'profile', label: '📱 Contact & Personal Profile' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveModalTab(tab.id)}
+              style={{
+                padding: '9px 16px',
+                borderRadius: '8px',
+                border: activeModalTab === tab.id ? '1px solid #4f46e5' : '1px solid transparent',
+                fontWeight: '700',
+                fontSize: '13px',
+                cursor: 'pointer',
+                background: activeModalTab === tab.id ? '#4f46e5' : 'transparent',
+                color: activeModalTab === tab.id ? '#ffffff' : '#475569'
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ padding: '24px' }}>
+          {activeModalTab === 'log' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <form onSubmit={handleAddConsultationLog} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '18px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+                  <h4 style={{ margin: 0, fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
+                    ➕ Record New Mentor-Mentee Consultancy Sitting
+                  </h4>
+                  <span style={{ fontSize: '12px', fontWeight: '700', color: '#4f46e5', background: '#eef2ff', padding: '4px 10px', borderRadius: '999px' }}>
+                    Logged by: {editorName}
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '12px' }}>
+                  <div>
+                    <label style={styles.label}>Sitting Date</label>
+                    <input type="date" value={sessionDate} onChange={e => setSessionDate(e.target.value)} required style={styles.input} />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Interaction Type</label>
+                    <select value={sessionType} onChange={e => setSessionType(e.target.value)} style={styles.input}>
+                      <option value="1-on-1 Personal Sitting">🗣️ 1-on-1 Personal Sitting</option>
+                      <option value="Academic & CCE Review">📊 Academic &amp; CCE Review</option>
+                      <option value="Tarbiyah & Spiritual Guidance">🕌 Tarbiyah &amp; Spiritual Guidance</option>
+                      <option value="Behavioral / Discipline Counseling">⚖️ Behavioral / Discipline Counseling</option>
+                      <option value="Career & Higher Studies">🎓 Career &amp; Higher Studies</option>
+                      <option value="Parent Phone Consultation">👨‍👩‍👦 Parent Phone Consultation</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={styles.label}>Student Status / Wellbeing</label>
+                    <select value={wellbeingStatus} onChange={e => setWellbeingStatus(e.target.value)} style={styles.input}>
+                      <option value="Thriving / On Track">🟢 Thriving / On Track</option>
+                      <option value="Needs Academic Support">🟡 Needs Academic Support</option>
+                      <option value="Personal / Health Concern">🟠 Personal / Health Concern</option>
+                      <option value="Urgent / Escalate to Outreach">🔴 Urgent / Escalate to Outreach</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '12px' }}>
+                  <label style={styles.label}>Topics Discussed in Sitting (Click to select)</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {DISCUSSION_TOPICS.map(topic => {
+                      const active = discussedTopics.includes(topic);
+                      return (
+                        <button
+                          key={topic}
+                          type="button"
+                          onClick={() => toggleTopic(topic)}
+                          style={{
+                            padding: '5px 11px',
+                            borderRadius: '999px',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            cursor: 'pointer',
+                            border: active ? '1.5px solid #4f46e5' : '1px solid #cbd5e1',
+                            background: active ? '#eef2ff' : '#ffffff',
+                            color: active ? '#4f46e5' : '#475569'
+                          }}
+                        >
+                          {active ? `✓ ${topic}` : `+ ${topic}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px', marginBottom: '12px' }}>
+                  <div>
+                    <label style={styles.label}>Consultation Summary &amp; Observations</label>
+                    <textarea
+                      rows={3}
+                      placeholder="Summarize how the student is progressing, challenges discussed, and advice given..."
+                      value={summaryNote}
+                      onChange={e => setSummaryNote(e.target.value)}
+                      style={{ ...styles.input, resize: 'vertical' }}
+                    />
+                  </div>
+                  {canViewConfidential && (
+                    <div>
+                      <label style={{ ...styles.label, color: '#b45309' }}>🔒 Confidential Faculty Note (Hidden from Student)</label>
+                      <textarea
+                        rows={3}
+                        placeholder="Private family/financial/behavioral notes for Mentor & Outreach Coordinator only..."
+                        value={confidentialNote}
+                        onChange={e => setConfidentialNote(e.target.value)}
+                        style={{ ...styles.input, resize: 'vertical', borderColor: '#fde68a', background: '#fffbeb' }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px', marginBottom: '14px' }}>
+                  <div>
+                    <label style={styles.label}>🎯 Next Action Plan / Target Given to Student</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Complete pending Fiqh Level 2 CCE work before next Friday..."
+                      value={actionItem}
+                      onChange={e => setActionItem(e.target.value)}
+                      style={styles.input}
+                    />
+                  </div>
+                  <div>
+                    <label style={styles.label}>📅 Next Follow-Up Date</label>
+                    <input
+                      type="date"
+                      value={nextFollowUpDate}
+                      onChange={e => setNextFollowUpDate(e.target.value)}
+                      style={styles.input}
+                    />
+                  </div>
+                </div>
+
+                <button type="submit" disabled={saving} style={{ ...styles.buttonPrimary, width: '100%' }}>
+                  {saving ? 'Saving Consultation...' : '💾 Save Consultation Sitting to Record'}
+                </button>
+              </form>
+
+              <div>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
+                  📜 Past Consultancy Sittings History ({mentorLogs.length})
+                </h4>
+                {mentorLogs.length === 0 ? (
+                  <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
+                    No mentor-mentee sittings have been logged for this student yet.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {mentorLogs.map((log, index) => {
+                      const isUrgent = String(log.wellbeingStatus || '').includes('Urgent');
+                      const isSupport = String(log.wellbeingStatus || '').includes('Support') || String(log.wellbeingStatus || '').includes('Concern');
+                      return (
+                        <div key={log.id || index} style={{ padding: '16px', borderRadius: '12px', border: isUrgent ? '1.5px solid #e11d48' : '1px solid #e2e8f0', background: isUrgent ? '#fff1f2' : '#ffffff' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <span style={{ background: '#0f172a', color: '#fff', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' }}>
+                                📅 {log.date || 'N/A'}
+                              </span>
+                              <span style={{ background: '#eef2ff', color: '#4f46e5', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' }}>
+                                {log.type || 'Sitting'}
+                              </span>
+                              <span style={{
+                                background: isUrgent ? '#ffe4e6' : isSupport ? '#fef3c7' : '#dcfce7',
+                                color: isUrgent ? '#be123c' : isSupport ? '#92400e' : '#15803d',
+                                padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700'
+                              }}>
+                                {log.wellbeingStatus || 'Logged'}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#475569', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <span>👨‍🏫 By <strong>{log.loggedBy || 'Mentor'}</strong></span>
+                              <button type="button" onClick={() => handleDeleteLog(log.id)} style={{ background: 'transparent', border: 'none', color: '#e11d48', cursor: 'pointer', fontWeight: '700', fontSize: '12px' }}>
+                                🗑️ Delete
+                              </button>
+                            </div>
+                          </div>
+
+                          {Array.isArray(log.topics) && log.topics.length > 0 && (
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                              {log.topics.map((t, idx) => (
+                                <span key={idx} style={{ background: '#f1f5f9', color: '#334155', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '600' }}>
+                                  #{t}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {log.summary && (
+                            <div style={{ fontSize: '13px', color: '#0f172a', fontWeight: '500', marginBottom: '6px', lineHeight: 1.5 }}>
+                              {log.summary}
+                            </div>
+                          )}
+
+                          {canViewConfidential && log.confidential && (
+                            <div style={{ fontSize: '12px', color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', padding: '8px 12px', borderRadius: '8px', marginTop: '6px', fontWeight: '600' }}>
+                              🔒 <strong>Confidential Note:</strong> {log.confidential}
+                            </div>
+                          )}
+
+                          {(log.actionPlan || log.nextFollowUpDate) && (
+                            <div style={{ marginTop: '8px', padding: '8px 12px', background: '#f8fafc', borderRadius: '8px', fontSize: '12px', color: '#4f46e5', fontWeight: '700', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                              {log.actionPlan && <span>🎯 Action Plan: {log.actionPlan}</span>}
+                              {log.nextFollowUpDate && <span>⏰ Next Follow-Up: {log.nextFollowUpDate}</span>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeModalTab === 'skills' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
+                  🌟 Student Skills &amp; Talents ({skills.length})
+                </h4>
+
+                {canEditSkills && (
+                  <>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                      <input
+                        type="text"
+                        placeholder="Type a custom skill (e.g. Urdu Poetry, Python, Qiraat)..."
+                        value={newSkill}
+                        onChange={e => setNewSkill(e.target.value)}
+                        style={{ ...styles.input, flex: '1 1 240px' }}
+                      />
+                      <button type="button" onClick={() => handleAddSkill(newSkill)} style={styles.buttonPrimary}>
+                        + Add Skill
+                      </button>
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                        ⚡ Quick 1-Click Skill Tags:
+                      </span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {QUICK_SKILL_SUGGESTIONS.map(sug => (
+                          <button
+                            key={sug}
+                            type="button"
+                            onClick={() => handleAddSkill(sug)}
+                            style={{ padding: '4px 10px', borderRadius: '999px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#475569', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}
+                          >
+                            + {sug}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {skills.length === 0 ? (
+                    <span style={{ fontSize: '12px', color: '#64748b' }}>No skills added yet.</span>
+                  ) : (
+                    skills.map((sk, i) => (
+                      <span key={i} style={{ background: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe', padding: '5px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        ✦ {sk}
+                        {canEditSkills && (
+                          <button type="button" onClick={() => handleRemoveSkill(sk)} style={{ background: 'transparent', border: 'none', color: '#e11d48', fontWeight: '800', cursor: 'pointer' }}>
+                            ✕
+                          </button>
+                        )}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
+                  🏅 Add New Achievement / Award / Sibaq Record
+                </h4>
+                {canEditSkills && (
+                  <form onSubmit={handleAddAchievement} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '10px', marginBottom: '16px' }}>
+                    <input type="text" placeholder="Award / Achievement Title..." value={achTitle} onChange={e => setAchTitle(e.target.value)} required style={styles.input} />
+                    <select value={achCategory} onChange={e => setAchCategory(e.target.value)} style={styles.input}>
+                      <option value="Academic">📚 Academic Excellence</option>
+                      <option value="Sibaq / Arts Fest">🎨 Sibaq / Arts Fest</option>
+                      <option value="Hifz & Quran">📖 Hifz &amp; Quran</option>
+                      <option value="Oratory & Debate">🎙️ Oratory &amp; Debate</option>
+                      <option value="Writing & Publication">✍️ Writing &amp; Publication</option>
+                      <option value="Sports & Leadership">🏆 Sports &amp; Leadership</option>
+                    </select>
+                    <select value={achLevel} onChange={e => setAchLevel(e.target.value)} style={styles.input}>
+                      <option value="Campus / Class Level">🏫 Campus / Class Level</option>
+                      <option value="DHIU Central / Sibaq">🎓 DHIU Central / Sibaq</option>
+                      <option value="State / National Level">🌍 State / National Level</option>
+                    </select>
+                    <input type="date" value={achDate} onChange={e => setAchDate(e.target.value)} style={styles.input} />
+                    <input type="text" placeholder="Short note / prize rank (e.g. 1st Prize A Grade)..." value={achNotes} onChange={e => setAchNotes(e.target.value)} style={{ ...styles.input, gridColumn: '1 / -1' }} />
+                    <button type="submit" disabled={saving} style={{ ...styles.buttonPrimary, gridColumn: '1 / -1' }}>
+                      🏅 Save Achievement to Student Record
+                    </button>
+                  </form>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {achievements.map((ach, i) => (
+                    <div key={ach.id || i} style={{ background: '#ffffff', padding: '12px 14px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                      <div>
+                        <div style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>🏅 {ach.title}</div>
+                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                          {ach.category} • {ach.level} • 📅 {ach.date} {ach.addedBy ? `• Verified by ${ach.addedBy}` : ''}
+                        </div>
+                        {ach.notes && <div style={{ fontSize: '12px', color: '#4f46e5', fontWeight: '600', marginTop: '3px' }}>{ach.notes}</div>}
+                      </div>
+                      {canEditSkills && (
+                        <button type="button" onClick={() => handleRemoveAchievement(ach.id)} style={styles.buttonDanger}>
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeModalTab === 'profile' && (
+            <form onSubmit={handleSaveProfileDetails} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <ProfileAvatar name={formData.firstName} code={student.adNo} photoUrl={formData.photoUrl} size={60} />
+                <div>
+                  <label style={styles.label}>Update Student Profile Photo</label>
+                  <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ fontSize: '13px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px' }}>
+                <div><label style={styles.label}>Student Full Name</label><input type="text" value={formData.firstName} onChange={e => setFormData({ ...formData, firstName: e.target.value })} style={styles.input} /></div>
+                <div><label style={styles.label}>Student WhatsApp / Mobile</label><input type="text" value={formData.whatsappNumber} onChange={e => setFormData({ ...formData, whatsappNumber: e.target.value })} style={styles.input} /></div>
+                <div><label style={styles.label}>Parent WhatsApp / Mobile</label><input type="text" value={formData.parentWhatsapp} onChange={e => setFormData({ ...formData, parentWhatsapp: e.target.value })} style={styles.input} /></div>
+                <div><label style={styles.label}>Email Address</label><input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} style={styles.input} /></div>
+                <div>
+                  <label style={styles.label}>State</label>
+                  <select value={formData.state} onChange={e => setFormData({ ...formData, state: e.target.value })} style={styles.input}>
+                    {INDIAN_STATES.map(st => <option key={st} value={st}>{st}</option>)}
+                  </select>
+                </div>
+                <div><label style={styles.label}>District</label><input type="text" value={formData.district} onChange={e => setFormData({ ...formData, district: e.target.value })} style={styles.input} /></div>
+                <div>
+                  <label style={styles.label}>Madhab</label>
+                  <select value={formData.madhab} onChange={e => setFormData({ ...formData, madhab: e.target.value })} style={styles.input}>
+                    <option value="SHAFI">SHAFI</option>
+                    <option value="HANAFI">HANAFI</option>
+                  </select>
+                </div>
+                <div><label style={styles.label}>Blood Group</label><input type="text" value={formData.bloodGroup} onChange={e => setFormData({ ...formData, bloodGroup: e.target.value })} placeholder="e.g. O+" style={styles.input} /></div>
+              </div>
+
+              <button type="submit" disabled={saving} style={styles.buttonPrimary}>
+                {saving ? 'Saving Profile...' : '💾 Save Student Contact & Profile'}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 🧭 9. MINIMALIST MENTORSHIP & OUTREACH TAB (100% Features Restored + Clean UI!)
+
+
 // ============================================================================
 export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAdmin = false, isOutreachView = false, onStudentUpdated }) {
   const [searchQuery, setSearchQuery] = useState('');
