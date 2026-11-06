@@ -17,6 +17,7 @@ import {
   ProfileAvatar,
   StudentPortfolioModal,
   MentorAndOutreachTab,
+  PortalNotificationBanner,
   doesClassMatchAlias
 } from './ErpExtensions';
 
@@ -125,13 +126,15 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
 
   const [allStudentsCache, setAllStudentsCache] = useState([]);
   const [allTeachersCache, setAllTeachersCache] = useState([]);
+  const [activeOutpassesCache, setActiveOutpassesCache] = useState([]);
 
   useEffect(() => {
-    async function fetchStudentsAndTeachers() {
+    async function fetchStudentsTeachersAndPasses() {
       try {
-        const [sSnap, tSnap] = await Promise.all([
+        const [sSnap, tSnap, opSnap] = await Promise.all([
           getDocs(collection(db, 'students')),
-          getDocs(collection(db, 'teachers'))
+          getDocs(collection(db, 'teachers')),
+          getDocs(collection(db, 'out_passes'))
         ]);
         const sData = [];
         sSnap.forEach((d) => sData.push({ id: d.id, ...d.data() }));
@@ -141,11 +144,21 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
         const tData = [];
         tSnap.forEach((d) => tData.push({ id: d.id, ...d.data() }));
         setAllTeachersCache(tData);
+
+        const opData = [];
+        opSnap.forEach((d) => {
+          const data = d.data();
+          const st = String(data.status || '').toUpperCase();
+          if (st === 'OUTSIDE' || st === 'APPROVED' || st === 'ARRIVED_AT_GATE') {
+            opData.push({ id: d.id, ...data });
+          }
+        });
+        setActiveOutpassesCache(opData);
       } catch (error) {
         console.error('Student fetch error:', error);
       }
     }
-    fetchStudentsAndTeachers();
+    fetchStudentsTeachersAndPasses();
   }, []);
 
   const myClassTeacherOf = React.useMemo(() => {
@@ -249,15 +262,41 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
     }).catch(() => {});
   }, []);
 
+  // 🌟 Live Campus & Medical Counts for Teacher's Designated Class and Assigned Mentees
+  const outsideAdSet = React.useMemo(() => {
+    return new Set(activeOutpassesCache.map(p => String(p.adNo || '').trim().toUpperCase()).filter(Boolean));
+  }, [activeOutpassesCache]);
+
+  const medicalAdSet = React.useMemo(() => {
+    return new Set(
+      activeOutpassesCache
+        .filter(p => String(p.leaveCategory || '').toLowerCase().includes('medical') || p.isOpenReturn)
+        .map(p => String(p.adNo || '').trim().toUpperCase())
+        .filter(Boolean)
+    );
+  }, [activeOutpassesCache]);
+
+  const myDesignatedClassStudents = React.useMemo(() => {
+    if (myClassTeacherOf.length === 0) return [];
+    return allStudentsCache.filter(s => (s.classes || []).some(c => myClassTeacherOf.includes(c)));
+  }, [allStudentsCache, myClassTeacherOf]);
+
+  const myClassOutCount = myDesignatedClassStudents.filter(s => outsideAdSet.has(String(s.adNo || '').trim().toUpperCase())).length;
+  const myClassMedCount = myDesignatedClassStudents.filter(s => medicalAdSet.has(String(s.adNo || '').trim().toUpperCase())).length;
+  const myClassInCount = Math.max(0, myDesignatedClassStudents.length - myClassOutCount);
+
   const myAssignedMentees = allStudentsCache.filter(
     s => String(s.mentorUsername || '').trim().toLowerCase() === myUsername
   );
+  const myMenteesOutCount = myAssignedMentees.filter(s => outsideAdSet.has(String(s.adNo || '').trim().toUpperCase())).length;
+  const myMenteesMedCount = myAssignedMentees.filter(s => medicalAdSet.has(String(s.adNo || '').trim().toUpperCase())).length;
+  const myMenteesInCount = Math.max(0, myAssignedMentees.length - myMenteesOutCount);
+
   const minSittingsReq = Number(mentorshipConfig.minConsultations) || 3;
   const menteesMetTargetCount = myAssignedMentees.filter(s => {
     const logs = Array.isArray(s.mentorLogs) ? s.mentorLogs : (s.consultationLogs || []);
     return logs.length >= minSittingsReq;
   }).length;
-  const menteesPendingTargetCount = myAssignedMentees.length - menteesMetTargetCount;
 
   const canEditStudentPortfolio = (st) => {
     if (!st) return false;
@@ -790,7 +829,7 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
         />
       )}
 
-      {/* 🌟 SHUHOOD LEFT SIDEBAR FOR TEACHER PORTAL */}
+      {/* 🌟 LEFT SIDEBAR FOR TEACHER PORTAL */}
       <aside
         className={`shuhood-teacher-sidebar ${mobileSidebarOpen ? 'open' : ''}`}
         style={{
@@ -810,11 +849,9 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
       >
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '4px 10px 18px', borderBottom: '1px solid #f1f5f9' }}>
-            <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: '#4f46e5', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '900', fontSize: '17px' }}>
-              ✦
-            </div>
+            <img src={DHIU_LOGO_URL} alt="DHIU" style={{ width: '38px', height: '38px', borderRadius: '10px', objectFit: 'contain', border: '1px solid #e2e8f0', padding: '2px' }} />
             <div>
-              <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', lineHeight: 1.2 }}>DHIU Degree Campus</div>
+              <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', lineHeight: 1.2 }}>DHIU Campus</div>
               <div style={{ fontSize: '10px', fontWeight: '800', color: '#4f46e5', letterSpacing: '0.6px', textTransform: 'uppercase', marginTop: '2px' }}>
                 🎓 FACULTY PORTAL
               </div>
@@ -874,9 +911,9 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
 
       {/* 🌟 MAIN TEACHER CONTENT AREA */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        {/* Clean Minimalist Top Bar */}
+        {/* Clean Minimalist Top Bar with Live Class & Mentee Campus/Medical Badges */}
         <header style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '14px 26px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <button
               type="button"
               className="shuhood-teacher-menu-btn"
@@ -885,20 +922,22 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
             >
               ☰
             </button>
-            <span style={{ background: '#f8fafc', color: '#4f46e5', border: '1px solid #e2e8f0', padding: '5px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
-              🛡️ INSTITUTIONAL PORTAL
-            </span>
+
             {myClassTeacherOf.length > 0 && (
-              <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '5px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '800' }}>
-                🏫 Class Teacher: {myClassTeacherOf.join(', ')}
+              <span
+                onClick={() => setActiveView('mentees')}
+                style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '5px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}
+              >
+                🏫 Class {myClassTeacherOf.join(', ')}: 🟢 {myClassInCount} In • 🟠 {myClassOutCount} Out {myClassMedCount > 0 ? `(🏥 ${myClassMedCount} Med)` : ''}
               </span>
             )}
+
             {myAssignedMentees.length > 0 && (
               <span
                 onClick={() => setActiveView('mentees')}
                 style={{ background: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe', padding: '5px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}
               >
-                🧭 Mentees: {menteesMetTargetCount}/{myAssignedMentees.length} Sittings Done
+                🧭 Mentees ({myAssignedMentees.length}): 🟢 {myMenteesInCount} In • 🟠 {myMenteesOutCount} Out {myMenteesMedCount > 0 ? `(🏥 ${myMenteesMedCount} Med)` : ''} • Sittings {menteesMetTargetCount}/{myAssignedMentees.length}
               </span>
             )}
           </div>
@@ -913,6 +952,19 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
         </header>
 
         <main style={{ padding: '26px', maxWidth: '1220px', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
+          {/* 🌟 TARGETED PORTAL NOTIFICATION CENTER FOR TEACHERS (Send & Receive) */}
+          <PortalNotificationBanner
+            viewerRole="teacher"
+            viewerId={loggedInTeacher?.username || ''}
+            canSendMessages={true}
+            senderName={loggedInTeacher?.fullName || 'Faculty'}
+            senderRole="teacher"
+            senderUsername={loggedInTeacher?.username || ''}
+            studentsList={allStudentsCache}
+            teachersList={allTeachersCache}
+            loggedInTeacher={loggedInTeacher}
+          />
+
           {adminBroadcast && (
             <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '12px 18px', borderRadius: '10px', marginBottom: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
               <div style={{ fontSize: '13px', color: '#92400e', fontWeight: '600' }}>
@@ -921,7 +973,7 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
             </div>
           )}
 
-          {/* 🌟 MINIMALIST 1-LINE WEEKLY REMINDER STRIP (Expands on Click!) */}
+          {/* MINIMALIST 1-LINE WEEKLY REMINDER STRIP (Expands on Click!) */}
           {weeklyReminder && reminderChecklist.length > 0 && activeView === 'marks' && (
             <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '14px 18px', marginBottom: '20px' }}>
               <div

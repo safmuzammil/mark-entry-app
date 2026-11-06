@@ -11,7 +11,8 @@ import {
   ProfileAvatar,
   openDirectWhatsApp,
   sendDirectEmailNotification,
-  resolveClassTeacherForStudent
+  resolveClassTeacherForStudent,
+  PortalNotificationBanner
 } from '../components/ErpExtensions';
 
 const styles = {
@@ -695,7 +696,7 @@ export default function StudentDashboard() {
           <div style={{ background: '#ffffff', padding: '38px 32px', borderRadius: '16px', boxShadow: '0 4px 20px rgba(15, 23, 42, 0.05)', border: '1px solid #e2e8f0' }}>
             <div style={{ textAlign: 'center', marginBottom: '28px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <img src={DHIU_LOGO_URL} alt="DHIU Logo" style={{ width: '68px', height: '68px', borderRadius: '50%', objectFit: 'contain', marginBottom: '12px' }} />
-              <h2 style={{ color: '#0f172a', margin: '0 0 6px 0', fontSize: '24px', fontWeight: '800' }}>DHIU DegreeCampus</h2>
+              <h2 style={{ color: '#0f172a', margin: '0 0 6px 0', fontSize: '24px', fontWeight: '800' }}>DHIU Campus</h2>
               <p style={{ color: '#64748b', fontSize: '14px', margin: 0, fontWeight: '500' }}>Sign in to view your marks, attendance &amp; portfolio</p>
             </div>
             <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
@@ -807,7 +808,7 @@ export default function StudentDashboard() {
         />
       )}
 
-      {/* 🌟 MINIMALIST LEFT SIDEBAR NAVIGATION FOR STUDENT PORTAL */}
+      {/* 🌟 LEFT SIDEBAR NAVIGATION FOR STUDENT PORTAL */}
       <aside
         className={`dhiu-student-sidebar no-print ${mobileSidebarOpen ? 'open' : ''}`}
         style={{
@@ -829,7 +830,7 @@ export default function StudentDashboard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '4px 10px 18px', borderBottom: '1px solid #f1f5f9' }}>
             <img src={DHIU_LOGO_URL} alt="DHIU" style={{ width: '38px', height: '38px', borderRadius: '10px', objectFit: 'contain', border: '1px solid #e2e8f0', padding: '2px' }} />
             <div>
-              <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', lineHeight: 1.2 }}>DHIU Degree Campus</div>
+              <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', lineHeight: 1.2 }}>DHIU Campus</div>
               <div style={{ fontSize: '10px', fontWeight: '800', color: '#4f46e5', letterSpacing: '0.6px', textTransform: 'uppercase', marginTop: '2px' }}>
                 👨‍🎓 STUDENT PORTAL
               </div>
@@ -896,7 +897,7 @@ export default function StudentDashboard() {
 
       {/* 🌟 MAIN STUDENT CONTENT AREA */}
       <div className="print-container" style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        {/* Clean Minimalist Top Bar (Hidden when printing) */}
+        {/* Clean Minimalist Top Bar */}
         <header className="no-print" style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '14px 26px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 90 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <button
@@ -946,22 +947,17 @@ export default function StudentDashboard() {
         <main className="print-container" style={{ padding: '26px', maxWidth: '1160px', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
           <div className="no-print"><InstallAppBanner /></div>
 
-          {/* Print-Only Header (Appears only when printing 1-Page A4 PDF!) */}
-          <div className="print-only-header print-header-card" style={{ display: 'none', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', padding: '12px 16px', border: '1px solid #94a3b8', borderRadius: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <img src={DHIU_LOGO_URL} alt="DHIU" style={{ width: '44px', height: '44px', objectFit: 'contain' }} />
-              <div>
-                <h1 style={{ margin: 0, fontSize: '16px', fontWeight: '800' }}>{loggedInStudent?.firstName} (Ad.No: #{loggedInStudent?.adNo} • Reg: {loggedInStudent?.regNo})</h1>
-                <div style={{ fontSize: '11px', color: '#334155', marginTop: '2px' }}>
-                  Class {(loggedInStudent?.classes || []).join(', ')} ({loggedInStudent?.department || 'GENERAL'}) • Mentor: {mentorTeacherObj?.fullName || '—'} • Class Teacher: {classTeacherObj?.fullName || '—'}
-                </div>
-              </div>
-            </div>
-          </div>
+          {/* 🌟 TARGETED PORTAL NOTIFICATION BANNER FOR STUDENTS */}
+          <PortalNotificationBanner
+            viewerRole="student"
+            viewerId={loggedInStudent?.regNo || ''}
+            viewerAdNo={loggedInStudent?.adNo || ''}
+            viewerClasses={loggedInStudent?.classes || []}
+            canSendMessages={false}
+          />
 
           <StudentWeeklyReminder reminder={activeReminder} studentMarks={rawStudentMarks} />
 
-          {/* Clean Page Title */}
           <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
             <div>
               <h1 style={{ margin: 0, fontSize: '23px', fontWeight: '800', color: '#0f172a' }}>{currentTabObj.label}</h1>
@@ -975,7 +971,7 @@ export default function StudentDashboard() {
           </div>
 
           {/* ============================================================
-              TAB 1: CCE & HIFZ MARK SHEET (Strictly 14 Academic Subjects)
+              TAB 1: CCE & HIFZ MARK SHEET
              ============================================================ */}
           {activeTab === 'marks' && (
             <>
@@ -1256,7 +1252,7 @@ export default function StudentDashboard() {
                       <div key={log.id || i} style={{ padding: '12px 16px', borderRadius: '10px', border: '1px solid #ffe4e6', background: '#fff1f2', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                         <div>
                           <div style={{ fontWeight: '800', color: '#be123c', fontSize: '14px' }}>
-                            -{log.count} Period(s) • "{log.reason}"
+                            -{log.count} Period(s) • &quot;{log.reason}&quot;
                           </div>
                         </div>
                         <div style={{ fontSize: '12px', color: '#881337', fontWeight: '600' }}>
@@ -1279,17 +1275,17 @@ export default function StudentDashboard() {
                 <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '16px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
                   <div>
                     <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Assigned Mentor Usthad</div>
-                    <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', marginTop: '4px' }}>
+                    <div style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', marginTop: '2px' }}>
                       {mentorTeacherObj?.fullName || loggedInStudent?.mentorName || loggedInStudent?.mentorUsername || 'Not Assigned'}
                     </div>
                   </div>
                   {mentorTeacherObj?.whatsappNumber && (
                     <button
                       type="button"
-                      onClick={() => openDirectWhatsApp(mentorTeacherObj.whatsappNumber, `Assalamu Alaikum Usthad, I am ${loggedInStudent.firstName} (#${loggedInStudent.adNo}). I would like to schedule my next mentorship sitting.`)}
-                      style={styles.buttonPrimary}
+                      onClick={() => openDirectWhatsApp(mentorTeacherObj.whatsappNumber, `Assalamu Alaikum Usthad, I am ${loggedInStudent.firstName} (#${loggedInStudent.adNo}).`)}
+                      style={styles.buttonSecondary}
                     >
-                      💬 Request Sitting
+                      💬 WhatsApp
                     </button>
                   )}
                 </div>
@@ -1381,7 +1377,7 @@ export default function StudentDashboard() {
                   <div>
                     <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Assigned Mentor</div>
                     <div style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', marginTop: '2px' }}>
-                      {mentorTeacherObj?.fullName || loggedInStudent?.mentorUsername || 'Not Assigned'}
+                      {mentorTeacherObj?.fullName || loggedInStudent?.mentorName || loggedInStudent?.mentorUsername || 'Not Assigned'}
                     </div>
                   </div>
                   {mentorTeacherObj?.whatsappNumber && (

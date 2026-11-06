@@ -1,0 +1,1717 @@
+'use client';
+import React, { useState } from 'react';
+import * as XLSX from 'xlsx';
+import { db } from '../../lib/firebase';
+import { doc, getDoc, getDocs, setDoc, collection, writeBatch } from 'firebase/firestore';
+import { DEFAULT_CLASSES, styles } from './erpConstants';
+import { CollapsibleCard, openDirectWhatsApp } from './ErpExtensions';
+import { REHEARSAL_SESSIONS } from './PeriodAttendanceManager';
+
+export default function PeriodAttendanceMinusAndClearance({
+  activeTab,
+  setActiveTab,
+  userRole,
+  loggedInUser,
+  activeTeacherObj,
+  localStudents,
+  localTeachers,
+  attendanceEnrollments,
+  getStudentsForEnrollment,
+  getStudentAttStat,
+  syncUpdatedStudentsState,
+  normalizeSubKey,
+  isAttendanceOnlyEnrollment,
+  isHifzEnrollment,
+  setSelectedTeacherUsername,
+  setAttEnrollmentId,
+  setAttDate,
+  setAttSession,
+  setClearancePrintStudent,
+  loading,
+  setLoading,
+  setStatusMsg
+}) {
+  // --- 1. MINUS ATTENDANCE STATE ---
+  const [minusSubTab, setMinusSubTab] = useState('add'); // 'add' | 'manage' | 'excel'
+  const [minusSearchQuery, setMinusSearchQuery] = useState('');
+  const [selectedMinusStudent, setSelectedMinusStudent] = useState(null);
+  const [selectedMinusStudentsList, setSelectedMinusStudentsList] = useState([]);
+  const [minusCount, setMinusCount] = useState(1);
+  const [minusReason, setMinusReason] = useState('');
+  const [editingMinusLog, setEditingMinusLog] = useState(null);
+  const [minusTableSearch, setMinusTableSearch] = useState('');
+  const [minusTeacherFilter, setMinusTeacherFilter] = useState('ALL');
+
+  // --- 2. PERIOD-BASED MULTI-STUDENT CLEARANCE & SHORTAGE STATE ---
+  const [clearAdNo, setClearAdNo] = useState('');
+  const [fetchedClearStudentsList, setFetchedClearStudentsList] = useState([]);
+  const [fetchedAbsentPeriodSessions, setFetchedAbsentPeriodSessions] = useState([]); // [{ sessionDocId, date, session, subject, classAlias, teacherName, absentStudentRegs }]
+  const [selectedClearSessionIds, setSelectedClearSessionIds] = useState([]);
+  const [fetchedAbsentSubjects, setFetchedAbsentSubjects] = useState([]);
+  const [showLegacySubjectFallback, setShowLegacySubjectFallback] = useState(false);
+  const [clearSelectedSubjects, setClearSelectedSubjects] = useState([]);
+  const [clearReason, setClearReason] = useState('official');
+  const [clearDateMode, setClearDateMode] = useState('single');
+  const [clearDate, setClearDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [clearStartDate, setClearStartDate] = useState('');
+  const [clearEndDate, setClearEndDate] = useState('');
+  const [fetchingClearance, setFetchingClearance] = useState(false);
+
+  const [deleteAllPassword, setDeleteAllPassword] = useState('');
+  const [deleteAllConfirmText, setDeleteAllConfirmText] = useState('');
+  const [shortageClassFilter, setShortageClassFilter] = useState('ALL');
+  const [importAuditReport, setImportAuditReport] = useState(null);
+
+  // Smart Teacher Ownership Matcher
+  const canUserModifyMinusLog = (logItem) => {
+    if (userRole === 'admin') return true;
+    const myUser = String(loggedInUser?.username || activeTeacherObj?.username || '').trim().toLowerCase();
+    const myFullName = String(loggedInUser?.fullName || activeTeacherObj?.fullName || '').trim().toLowerCase();
+    const issuerUser = String(logItem?.issuedByUsername || '').trim().toLowerCase();
+    const issuerName = String(logItem?.issuedBy || '').trim().toLowerCase();
+
+    if (myUser && issuerUser && myUser === issuerUser) return true;
+    if (myFullName && issuerName && (issuerName.includes(myFullName) || myFullName.includes(issuerName))) return true;
+
+    const stopWords = new Set(['muhammed', 'mohammed', 'mohd', 'abdul', 'abdu', 'sayyid', 'hudawi', 'baqavi', 'faisy', 'al', 'usthad', 'sir', 'admin', 'central', 'faculty', 'user']);
+    const myTokens = myFullName.split(/[\s._-]+/).filter(w => w.length >= 4 && !stopWords.has(w));
+    const issuerTokens = issuerName.split(/[\s._-]+/).filter(w => w.length >= 4 && !stopWords.has(w));
+
+    return myTokens.length > 0 && issuerTokens.some(t => myTokens.includes(t));
+  };
+
+  const lastMinusToken = minusSearchQuery.split(',').pop().trim().toLowerCase();
+  const matchingMinusStudents = lastMinusToken.length >= 1
+    ? localStudents.filter(s => {
+        const ad = String(s.adNo || '').toLowerCase();
+        const nm = String(s.firstName || '').toLowerCase();
+        const rg = String(s.regNo || '').toLowerCase();
+        return ad.includes(lastMinusToken) || nm.includes(lastMinusToken) || rg.includes(lastMinusToken);
+      }).slice(0, 10)
+    : [];
+
+  const handleAddCommaSeparatedMinusStudents = () => {
+    const tokens = minusSearchQuery.split(/[,;\n]+/).map(t => t.replace(/^#/, '').trim().toLowerCase()).filter(Boolean);
+    if (tokens.length === 0) return alert('Type one or more Admission Numbers or Student Names separated by commas.');
+
+    const newlyFound = [];
+    const unmatchedTokens = [];
+
+    tokens.forEach(tok => {
+      let match = localStudents.find(
+        s => String(s.adNo || '').trim().toLowerCase() === tok ||
+             String(s.regNo || '').trim().toLowerCase() === tok
+      );
+      if (!match) {
+        match = localStudents.find(s => String(s.firstName || '').trim().toLowerCase() === tok) ||
+                localStudents.find(s => String(s.firstName || '').trim().toLowerCase().includes(tok));
+      }
+      if (match) {
+        if (!newlyFound.some(x => x.regNo === match.regNo)) newlyFound.push(match);
+      } else {
+        unmatchedTokens.push(tok);
+      }
+    });
+
+    if (newlyFound.length === 0) {
+      return alert(`No matching students found for: ${unmatchedTokens.join(', ')}`);
+    }
+
+    setSelectedMinusStudentsList(prev => {
+      const map = new Map(prev.map(s => [s.regNo, s]));
+      newlyFound.forEach(s => map.set(s.regNo, s));
+      return Array.from(map.values());
+    });
+    setSelectedMinusStudent(newlyFound[0]);
+    setEditingMinusLog(null);
+    setMinusSearchQuery('');
+  };
+
+  const handleSaveMinus = async (e) => {
+    e.preventDefault();
+    if (!minusReason.trim()) return alert('Please enter a reason.');
+
+    const targetStudents = editingMinusLog
+      ? (selectedMinusStudent ? [selectedMinusStudent] : [])
+      : (selectedMinusStudentsList.length > 0 ? selectedMinusStudentsList : selectedMinusStudent ? [selectedMinusStudent] : []);
+
+    if (targetStudents.length === 0) return alert('Please select or add at least one student first.');
+
+    setLoading(true);
+    try {
+      if (editingMinusLog) {
+        const st = localStudents.find(s => s.regNo === selectedMinusStudent.regNo) || selectedMinusStudent;
+        const docId = String(st.id || st.regNo).toLowerCase().trim();
+        const curStat = JSON.parse(JSON.stringify(getStudentAttStat(st)));
+
+        if (!canUserModifyMinusLog(editingMinusLog)) {
+          setLoading(false);
+          return alert('⛔ Permission Denied: You can only edit minus entries that YOU issued.');
+        }
+
+        const updatedLogs = (curStat.minusLogs || []).map(l => {
+          if (l.id === editingMinusLog.id) {
+            return { ...l, count: Number(minusCount), reason: minusReason.trim(), editedAt: new Date().toISOString().split('T')[0] };
+          }
+          return l;
+        });
+
+        curStat.minusLogs = updatedLogs;
+        curStat.minusCount = updatedLogs.reduce((sum, item) => sum + (Number(item.count) || 0), 0);
+
+        await setDoc(doc(db, 'students', docId), { periodAttendance: curStat }, { merge: true });
+        const updatedSt = { ...st, periodAttendance: curStat };
+        setSelectedMinusStudent(updatedSt);
+        setSelectedMinusStudentsList(prev => prev.map(x => x.regNo === updatedSt.regNo ? updatedSt : x));
+        syncUpdatedStudentsState({ [st.regNo]: updatedSt });
+
+        setStatusMsg(`✅ Updated minus entry for ${st.firstName} to -${minusCount} period(s).`);
+        setEditingMinusLog(null); setMinusReason(''); setMinusCount(1);
+      } else {
+        const batch = writeBatch(db);
+        const updatedMap = {};
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        targetStudents.forEach((targetSt, idx) => {
+          const st = localStudents.find(s => s.regNo === targetSt.regNo) || targetSt;
+          const docId = String(st.id || st.regNo).toLowerCase().trim();
+          const curStat = JSON.parse(JSON.stringify(getStudentAttStat(st)));
+
+          const newLog = {
+            id: `minus_${Date.now()}_${idx}`,
+            date: todayStr,
+            count: Number(minusCount),
+            reason: minusReason.trim(),
+            issuedBy: loggedInUser?.fullName || activeTeacherObj?.fullName || 'Admin',
+            issuedByUsername: String(loggedInUser?.username || activeTeacherObj?.username || 'admin').toLowerCase()
+          };
+
+          const updatedLogs = [newLog, ...(curStat.minusLogs || [])];
+          curStat.minusLogs = updatedLogs;
+          curStat.minusCount = updatedLogs.reduce((sum, item) => sum + (Number(item.count) || 0), 0);
+
+          batch.set(doc(db, 'students', docId), { periodAttendance: curStat }, { merge: true });
+          updatedMap[st.regNo] = { ...st, periodAttendance: curStat };
+        });
+
+        await batch.commit();
+        syncUpdatedStudentsState(updatedMap);
+
+        const lastTarget = updatedMap[targetStudents[0].regNo];
+        if (lastTarget) setSelectedMinusStudent(lastTarget);
+        setSelectedMinusStudentsList(targetStudents.map(s => updatedMap[s.regNo] || s));
+
+        setStatusMsg(`✅ Deducted -${minusCount} period(s) from ${targetStudents.length} student(s)!`);
+        setMinusReason(''); setMinusCount(1);
+      }
+    } catch (error) {
+      setStatusMsg('❌ Error: ' + error.message);
+    } finally {
+      setLoading(false);
+      setTimeout(() => setStatusMsg(''), 6000);
+    }
+  };
+
+  const handleDeleteMinus = async (studentObj, logItem) => {
+    if (!canUserModifyMinusLog(logItem)) {
+      return alert('⛔ Permission Denied: You can only delete minus entries that YOU issued.');
+    }
+    if (!window.confirm(`Delete minus record (-${logItem.count}) and restore attendance to ${studentObj.firstName}?`)) return;
+    setLoading(true);
+    try {
+      const docId = String(studentObj.id || studentObj.regNo).toLowerCase().trim();
+      const curStat = JSON.parse(JSON.stringify(getStudentAttStat(studentObj)));
+
+      const updatedLogs = (curStat.minusLogs || []).filter(l => l.id !== logItem.id);
+      curStat.minusLogs = updatedLogs;
+      curStat.minusCount = updatedLogs.reduce((sum, item) => sum + (Number(item.count) || 0), 0);
+
+      await setDoc(doc(db, 'students', docId), { periodAttendance: curStat }, { merge: true });
+      const updatedSt = { ...studentObj, periodAttendance: curStat };
+      setSelectedMinusStudent(updatedSt);
+      syncUpdatedStudentsState({ [studentObj.regNo]: updatedSt });
+
+      if (editingMinusLog?.id === logItem.id) {
+        setEditingMinusLog(null); setMinusReason(''); setMinusCount(1);
+      }
+      setStatusMsg(`✅ Minus entry deleted and ${logItem.count} period(s) restored!`);
+    } catch (error) {
+      setStatusMsg('❌ Error: ' + error.message);
+    } finally {
+      setLoading(false);
+      setTimeout(() => setStatusMsg(''), 5000);
+    }
+  };
+
+  const allFlattenedMinusRecords = React.useMemo(() => {
+    const rows = [];
+    const myStudentRegs = new Set();
+    if (userRole !== 'admin') {
+      attendanceEnrollments.forEach(env => {
+        getStudentsForEnrollment(env).forEach(s => myStudentRegs.add(s.regNo));
+      });
+    }
+
+    localStudents.forEach(st => {
+      const stat = getStudentAttStat(st);
+      (stat.minusLogs || []).forEach(log => {
+        const isMine = canUserModifyMinusLog(log);
+        if (userRole !== 'admin') {
+          if (minusTeacherFilter === 'ALL_STUDENTS') {
+            if (!isMine && !myStudentRegs.has(st.regNo)) return;
+          } else {
+            if (!isMine) return;
+          }
+        } else if (minusTeacherFilter !== 'ALL' && String(log.issuedBy || '').toUpperCase() !== minusTeacherFilter.toUpperCase()) {
+          return;
+        }
+
+        if (minusTableSearch.trim()) {
+          const q = minusTableSearch.trim().toLowerCase();
+          const matchName = String(st.firstName || '').toLowerCase().includes(q);
+          const matchAd = String(st.adNo || '').toLowerCase().includes(q);
+          const matchReason = String(log.reason || '').toLowerCase().includes(q);
+          if (!matchName && !matchAd && !matchReason) return;
+        }
+        rows.push({ studentObj: st, rollNo: st.rollNo || 0, studentName: st.firstName, adNo: st.adNo, className: (st.classes || []).join(', '), isMine, log });
+      });
+    });
+    return rows.sort((a, b) => String(b.log.date || '').localeCompare(String(a.log.date || '')));
+  }, [localStudents, userRole, minusTeacherFilter, minusTableSearch, loggedInUser, activeTeacherObj]);
+
+  const handleExportMinusRecordsExcel = () => {
+    const data = allFlattenedMinusRecords.map(r => ({
+      'Roll No': r.rollNo, 'Student Name': r.studentName, 'Admission No': r.adNo,
+      'Class': r.className, 'Minus': -Math.abs(Number(r.log.count) || 0),
+      'Reason': r.log.reason || '—', 'Date': r.log.date || '—', 'Issued By': r.log.issuedBy || 'Admin'
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Minus_Attendance');
+    XLSX.writeFile(wb, `Minus_Attendance_Records_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const handleBulkMinusExcelUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      const batch = writeBatch(db);
+      const updatedMap = {};
+      let addedCount = 0;
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      rows.forEach((row, idx) => {
+        const rawAd = row['Adm. No.'] || row['Admission No'] || row.adNo || row.AdNo || row.admissionNumber;
+        const rawMinus = Math.abs(Number(row.Minus ?? row.minus ?? row.Count ?? row.count ?? 0));
+        if (!rawAd || !rawMinus) return;
+
+        const cleanAd = String(rawAd).trim().toUpperCase();
+        const st = localStudents.find(s => String(s.adNo || '').trim().toUpperCase() === cleanAd);
+        if (!st) return;
+
+        const baseSt = updatedMap[st.regNo] || st;
+        const curStat = JSON.parse(JSON.stringify(getStudentAttStat(baseSt)));
+        const newLog = {
+          id: `excel_minus_${Date.now()}_${idx}`,
+          date: row.Date || row.date || todayStr,
+          count: rawMinus,
+          reason: String(row.Reason || row.reason || 'Disciplinary Deduction').trim(),
+          issuedBy: row.By || row['Issued By'] || loggedInUser?.fullName || 'ADMIN USER',
+          issuedByUsername: String(loggedInUser?.username || 'admin').toLowerCase()
+        };
+        curStat.minusLogs = [newLog, ...(curStat.minusLogs || [])];
+        curStat.minusCount = curStat.minusLogs.reduce((sum, l) => sum + (Number(l.count) || 0), 0);
+
+        const docId = String(st.id || st.regNo).toLowerCase().trim();
+        batch.set(doc(db, 'students', docId), { periodAttendance: curStat }, { merge: true });
+        updatedMap[st.regNo] = { ...st, periodAttendance: curStat };
+        addedCount++;
+      });
+
+      if (addedCount > 0) {
+        await batch.commit();
+        syncUpdatedStudentsState(updatedMap);
+      }
+      setStatusMsg(`✅ Uploaded ${addedCount} minus record(s) from Excel!`);
+      setMinusSubTab('manage');
+    } catch (err) {
+      alert('Excel upload error: ' + err.message);
+    } finally {
+      setLoading(false);
+      e.target.value = null;
+    }
+  };
+
+  // =========================================================================
+  // 🌟 2. PERIOD-BASED MULTI-STUDENT CLEARANCE DESK (Fetches Exact Absent Periods!)
+  // =========================================================================
+  const toggleClearanceSessionId = (sessDocId) => {
+    setSelectedClearSessionIds(prev =>
+      prev.includes(sessDocId) ? prev.filter(id => id !== sessDocId) : [...prev, sessDocId]
+    );
+  };
+
+  const toggleClearanceSubject = (sub) => {
+    setClearSelectedSubjects(prev => prev.includes(sub) ? prev.filter(s => s !== sub) : [...prev, sub]);
+  };
+
+  const getDatesBetween = (startStr, endStr) => {
+    if (!startStr || !endStr) return [];
+    const dates = [];
+    const cur = new Date(startStr);
+    const end = new Date(endStr);
+    let safety = 0;
+    while (cur <= end && safety < 65) {
+      dates.push(cur.toISOString().split('T')[0]);
+      cur.setDate(cur.getDate() + 1);
+      safety++;
+    }
+    return dates;
+  };
+
+  const handleFetchStudentForClearance = async () => {
+    if (!clearAdNo.trim()) return alert('Please enter one or more Student Admission Numbers (e.g. 3551, U1107).');
+
+    const tokens = clearAdNo.split(/[,;\n]+/).map(t => t.replace(/^#/, '').trim().toUpperCase()).filter(Boolean);
+    const foundStudents = [];
+    const unmatched = [];
+
+    tokens.forEach(tok => {
+      const match = localStudents.find(
+        s => String(s.adNo || '').trim().toUpperCase() === tok ||
+             String(s.regNo || '').trim().toUpperCase() === tok
+      );
+      if (match) {
+        if (!foundStudents.some(x => x.regNo === match.regNo)) foundStudents.push(match);
+      } else {
+        unmatched.push(tok);
+      }
+    });
+
+    if (foundStudents.length === 0) {
+      setFetchedClearStudentsList([]);
+      setFetchedAbsentPeriodSessions([]);
+      setFetchedAbsentSubjects([]);
+      return alert(`No students found for: ${unmatched.join(', ')}`);
+    }
+
+    setFetchedClearStudentsList(foundStudents);
+    setSelectedClearSessionIds([]);
+    setClearSelectedSubjects([]);
+    setFetchingClearance(true);
+
+    try {
+      const targetDates = clearDateMode === 'single'
+        ? [clearDate]
+        : getDatesBetween(clearStartDate, clearEndDate);
+
+      const absentSessionItems = [];
+
+      for (const dStr of targetDates) {
+        if (!dStr) continue;
+        const idxSnap = await getDoc(doc(db, 'systemCache', `daySessionsIndex_${dStr}`));
+        if (!idxSnap.exists()) continue;
+
+        const sessList = idxSnap.data().sessions || [];
+        for (const item of sessList) {
+          const sSnap = await getDoc(doc(db, 'systemCache', item.sessionDocId));
+          if (!sSnap.exists()) continue;
+          const sData = sSnap.data();
+          const attMap = sData.attendanceMap || {};
+
+          // Check which of the fetched students were marked Absent ('A') in this exact period!
+          const absentStInThisPeriod = foundStudents.filter(st => {
+            const code = attMap[st.regNo] || attMap[st.id] || attMap[st.adNo];
+            return code === 'A';
+          });
+
+          if (absentStInThisPeriod.length > 0) {
+            absentSessionItems.push({
+              sessionDocId: item.sessionDocId,
+              date: dStr,
+              session: Number(sData.session || item.session || 1),
+              subject: normalizeSubKey(sData.subject || item.subject || ''),
+              classAlias: sData.classAlias || sData.subject || item.subject || '',
+              teacherName: sData.teacherName || 'Faculty',
+              absentStudentRegs: absentStInThisPeriod.map(x => x.regNo),
+              absentStudentNames: absentStInThisPeriod.map(x => `${x.firstName} (#${x.adNo})`).join(', ')
+            });
+          }
+        }
+      }
+
+      absentSessionItems.sort((a, b) => a.date.localeCompare(b.date) || a.session - b.session);
+      setFetchedAbsentPeriodSessions(absentSessionItems);
+      // Pre-select all found absent periods automatically for 1-click convenience!
+      setSelectedClearSessionIds(absentSessionItems.map(x => x.sessionDocId));
+
+      // Also check legacy subjectWise absentDates in case of older imported data without period numbers
+      const subSet = new Set();
+      foundStudents.forEach(st => {
+        const stat = getStudentAttStat(st);
+        const subWise = stat.subjectWise || {};
+        Object.entries(subWise).forEach(([subKey, sObj]) => {
+          const absDates = Array.isArray(sObj.absentDates) ? sObj.absentDates : [];
+          const hasAbsenceInScope = absDates.some(d =>
+            clearDateMode === 'single' ? d === clearDate : ((!clearStartDate || d >= clearStartDate) && (!clearEndDate || d <= clearEndDate))
+          );
+          if (hasAbsenceInScope) subSet.add(subKey);
+        });
+      });
+
+      const matchedLegacySubs = Array.from(subSet);
+      setFetchedAbsentSubjects(matchedLegacySubs);
+      setShowLegacySubjectFallback(absentSessionItems.length === 0 && matchedLegacySubs.length > 0);
+    } catch (err) {
+      console.error('Error fetching period sessions for clearance:', err);
+    } finally {
+      setFetchingClearance(false);
+    }
+  };
+
+  const handleSaveClearance = async (e) => {
+    e.preventDefault();
+    if (fetchedClearStudentsList.length === 0) return alert('Please fetch students first.');
+    if (selectedClearSessionIds.length === 0 && clearSelectedSubjects.length === 0) {
+      return alert('Please select at least one absent period (or legacy subject) to clear.');
+    }
+
+    setLoading(true);
+    try {
+      const batch = writeBatch(db);
+      const updatedMap = {};
+
+      // Clone student stats for batch update
+      const studentStatsDraft = {};
+      fetchedClearStudentsList.forEach(st => {
+        studentStatsDraft[st.regNo] = JSON.parse(JSON.stringify(getStudentAttStat(st)));
+        if (!studentStatsDraft[st.regNo].subjectWise) studentStatsDraft[st.regNo].subjectWise = {};
+      });
+
+      // 1. Apply Period-Specific Clearance (Updates both systemCache session & student stats!)
+      const selectedPeriodObjs = fetchedAbsentPeriodSessions.filter(p => selectedClearSessionIds.includes(p.sessionDocId));
+
+      for (const pItem of selectedPeriodObjs) {
+        const sRef = doc(db, 'systemCache', pItem.sessionDocId);
+        const sSnap = await getDoc(sRef);
+        const sData = sSnap.exists() ? sSnap.data() : null;
+        const attMap = sData?.attendanceMap ? { ...sData.attendanceMap } : {};
+
+        pItem.absentStudentRegs.forEach(regNo => {
+          const curStat = studentStatsDraft[regNo];
+          if (!curStat) return;
+
+          const subKey = normalizeSubKey(pItem.subject);
+          if (!curStat.subjectWise[subKey]) {
+            curStat.subjectWise[subKey] = { total: 1, present: 0, official: 0, medical: 0, permitted: 0, absentDates: [] };
+          }
+          const subObj = curStat.subjectWise[subKey];
+          if (!Array.isArray(subObj.absentDates)) subObj.absentDates = [];
+
+          // Remove one instance of this date from absentDates
+          const dateIdx = subObj.absentDates.indexOf(pItem.date);
+          if (dateIdx !== -1) subObj.absentDates.splice(dateIdx, 1);
+
+          if (clearReason === 'official') {
+            attMap[regNo] = 'O';
+            curStat.presentCount = Math.min(curStat.totalPeriods || 9999, (curStat.presentCount || 0) + 1);
+            curStat.officialCount = (curStat.officialCount || 0) + 1;
+            subObj.present = Math.min(subObj.total || 9999, (subObj.present || 0) + 1);
+            subObj.official = (subObj.official || 0) + 1;
+          } else if (clearReason === 'medical') {
+            attMap[regNo] = 'M';
+            curStat.medicalCount = (curStat.medicalCount || 0) + 1;
+            subObj.medical = (subObj.medical || 0) + 1;
+          } else {
+            attMap[regNo] = 'O';
+            curStat.presentCount = Math.min(curStat.totalPeriods || 9999, (curStat.presentCount || 0) + 1);
+            curStat.permittedCount = (curStat.permittedCount || 0) + 1;
+            subObj.present = Math.min(subObj.total || 9999, (subObj.present || 0) + 1);
+            subObj.permitted = (subObj.permitted || 0) + 1;
+          }
+        });
+
+        if (sData) {
+          batch.set(sRef, { attendanceMap: attMap, updatedAt: new Date().toISOString() }, { merge: true });
+        }
+      }
+
+      // 2. Apply Legacy Subject Fallback Clearance (If any legacy subject checkboxes were selected)
+      if (clearSelectedSubjects.length > 0) {
+        fetchedClearStudentsList.forEach(student => {
+          const curStat = studentStatsDraft[student.regNo];
+          clearSelectedSubjects.forEach(sub => {
+            const subKey = normalizeSubKey(sub);
+            if (!curStat.subjectWise[subKey]) {
+              curStat.subjectWise[subKey] = { total: 0, present: 0, official: 0, medical: 0, permitted: 0, absentDates: [] };
+            }
+            const subObj = curStat.subjectWise[subKey];
+            if (!Array.isArray(subObj.absentDates)) subObj.absentDates = [];
+
+            const matchingDates = subObj.absentDates.filter(d =>
+              clearDateMode === 'single' ? d === clearDate : (d >= clearStartDate && d <= clearEndDate)
+            );
+            const countToClear = Math.max(1, matchingDates.length);
+
+            if (clearReason === 'official') {
+              curStat.presentCount = Math.min(curStat.totalPeriods || 9999, (curStat.presentCount || 0) + countToClear);
+              curStat.officialCount = (curStat.officialCount || 0) + countToClear;
+              subObj.present = Math.min(subObj.total || 9999, (subObj.present || 0) + countToClear);
+              subObj.official = (subObj.official || 0) + countToClear;
+              subObj.absentDates = subObj.absentDates.filter(d => !matchingDates.includes(d));
+            } else if (clearReason === 'medical') {
+              curStat.medicalCount = (curStat.medicalCount || 0) + countToClear;
+              subObj.medical = (subObj.medical || 0) + countToClear;
+            } else {
+              curStat.permittedCount = (curStat.permittedCount || 0) + countToClear;
+              subObj.permitted = (subObj.permitted || 0) + countToClear;
+            }
+          });
+        });
+      }
+
+      // Commit updated student documents
+      fetchedClearStudentsList.forEach(student => {
+        const docId = String(student.id || student.regNo).toLowerCase().trim();
+        const finalStat = studentStatsDraft[student.regNo];
+        batch.set(doc(db, 'students', docId), { periodAttendance: finalStat }, { merge: true });
+        updatedMap[student.regNo] = { ...student, periodAttendance: finalStat };
+      });
+
+      await batch.commit();
+      syncUpdatedStudentsState(updatedMap);
+      setStatusMsg(`✅ Applied [${clearReason.toUpperCase()}] clearance for ${selectedPeriodObjs.length} period(s) across ${fetchedClearStudentsList.length} student(s)!`);
+      setFetchedAbsentPeriodSessions(prev => prev.filter(p => !selectedClearSessionIds.includes(p.sessionDocId)));
+      setSelectedClearSessionIds([]);
+      setClearSelectedSubjects([]);
+    } catch (err) {
+      setStatusMsg('❌ Error: ' + err.message);
+    } finally {
+      setLoading(false);
+      setTimeout(() => setStatusMsg(''), 6000);
+    }
+  };
+
+  const handleCompleteAttendanceDeleteAll = async () => {
+    if (deleteAllConfirmText.trim() !== 'DELETE ALL') return alert('Please type exact confirmation: DELETE ALL');
+    if (!deleteAllPassword.trim()) return alert('Please enter your admin account password.');
+    if (!window.confirm('🚨 CRITICAL WARNING: This will permanently reset period attendance records for all students. Proceed?')) return;
+
+    setLoading(true);
+    try {
+      const updatedMap = {};
+      for (let i = 0; i < localStudents.length; i += 400) {
+        const chunk = localStudents.slice(i, i + 400);
+        const batch = writeBatch(db);
+        chunk.forEach(st => {
+          const docId = String(st.id || st.regNo).toLowerCase().trim();
+          const emptyStat = {
+            totalPeriods: 0, presentCount: 0, officialCount: 0, medicalCount: 0,
+            permittedCount: 0, minusCount: 0, minusLogs: [], subjectWise: {},
+            updatedAt: new Date().toISOString()
+          };
+          batch.set(doc(db, 'students', docId), { periodAttendance: emptyStat }, { merge: true });
+          updatedMap[st.regNo] = { ...st, periodAttendance: emptyStat };
+        });
+        await batch.commit();
+      }
+      syncUpdatedStudentsState(updatedMap);
+      setDeleteAllPassword(''); setDeleteAllConfirmText('');
+      setStatusMsg('✅ All student period attendance records have been reset.');
+    } catch (err) {
+      alert('Error deleting attendance: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchRehearsalCreditsByRegAndDate = async () => {
+    const cacheSnap = await getDocs(collection(db, 'systemCache'));
+    const map = {};
+    cacheSnap.forEach(d => {
+      if (!d.id.startsWith('rehearsalSession_')) return;
+      const rData = d.data();
+      const rDate = rData.date;
+      const sessId = rData.sessionId;
+      const sCfg = REHEARSAL_SESSIONS.find(x => x.id === sessId);
+      const weight = Number(rData.weight || sCfg?.weight || 2);
+
+      (rData.presentRegNos || []).forEach(reg => {
+        if (!map[reg]) map[reg] = {};
+        if (!map[reg][rDate]) map[reg][rDate] = { sessionsDone: new Set(), weightEarned: 0 };
+        const entry = map[reg][rDate];
+        if (!entry.sessionsDone.has(sessId)) {
+          entry.sessionsDone.add(sessId);
+          entry.weightEarned += weight;
+        }
+      });
+    });
+    return map;
+  };
+
+  const applyDateBasedRehearsalCreditsToStat = (curStat, studentRehDatesMap) => {
+    if (!studentRehDatesMap || Object.keys(studentRehDatesMap).length === 0) return { stat: curStat, cleared: 0 };
+    const nextStat = JSON.parse(JSON.stringify(curStat));
+    if (!nextStat.subjectWise) nextStat.subjectWise = {};
+    if (!nextStat.appliedRehearsalDates) nextStat.appliedRehearsalDates = {};
+
+    let totalClearedForStudent = 0;
+    const subKeys = Object.keys(nextStat.subjectWise);
+
+    Object.keys(studentRehDatesMap).forEach(rehDateStr => {
+      const earnedWeight = studentRehDatesMap[rehDateStr].weightEarned || 0;
+      const alreadyAppliedOnDate = Number(nextStat.appliedRehearsalDates[rehDateStr] || 0);
+      let creditsToApply = Math.max(0, earnedWeight - alreadyAppliedOnDate);
+      if (creditsToApply <= 0) return;
+
+      let clearedOnThisDate = 0;
+      if (subKeys.length > 0) {
+        for (const sKey of subKeys) {
+          if (creditsToApply <= 0) break;
+          const sObj = nextStat.subjectWise[sKey];
+          if (!sObj || !Array.isArray(sObj.absentDates)) continue;
+          while (creditsToApply > 0 && sObj.absentDates.includes(rehDateStr)) {
+            const idx = sObj.absentDates.indexOf(rehDateStr);
+            sObj.absentDates.splice(idx, 1);
+            sObj.present = Math.min(sObj.total || 9999, (sObj.present || 0) + 1);
+            sObj.official = (sObj.official || 0) + 1;
+            nextStat.presentCount = Math.min(nextStat.totalPeriods || 9999, (nextStat.presentCount || 0) + 1);
+            nextStat.officialCount = (nextStat.officialCount || 0) + 1;
+            creditsToApply -= 1;
+            clearedOnThisDate += 1;
+            totalClearedForStudent += 1;
+          }
+        }
+      }
+      if (clearedOnThisDate > 0) {
+        nextStat.appliedRehearsalDates[rehDateStr] = alreadyAppliedOnDate + clearedOnThisDate;
+      }
+    });
+    return { stat: nextStat, cleared: totalClearedForStudent };
+  };
+
+  const handleAutoClearRehearsalAbsences = async () => {
+    if (fetchedClearStudentsList.length === 0) return alert('Please fetch students first.');
+    setLoading(true);
+    setStatusMsg('⏳ Checking Event Leader rehearsal attendance stamps by date...');
+    try {
+      const rehearsalCreditsMap = await fetchRehearsalCreditsByRegAndDate();
+      const batch = writeBatch(db);
+      const updatedMap = {};
+      let totalPeriodsCleared = 0;
+
+      fetchedClearStudentsList.forEach(st => {
+        const studentRehDates = rehearsalCreditsMap[st.regNo];
+        if (!studentRehDates) return;
+
+        const curStat = getStudentAttStat(st);
+        const { stat: nextStat, cleared } = applyDateBasedRehearsalCreditsToStat(curStat, studentRehDates);
+
+        if (cleared > 0) {
+          totalPeriodsCleared += cleared;
+          const docId = String(st.id || st.regNo).toLowerCase().trim();
+          batch.set(doc(db, 'students', docId), { periodAttendance: nextStat }, { merge: true });
+          updatedMap[st.regNo] = { ...st, periodAttendance: nextStat };
+        }
+      });
+
+      if (totalPeriodsCleared > 0) {
+        await batch.commit();
+        syncUpdatedStudentsState(updatedMap);
+        setStatusMsg(`🎉 Auto-cleared ${totalPeriodsCleared} absent period(s) using Event Leader rehearsal timestamps!`);
+        handleFetchStudentForClearance();
+      } else {
+        setStatusMsg('ℹ️ No matching absent dates found with rehearsal attendance.');
+      }
+    } catch (err) {
+      setStatusMsg('❌ Error: ' + err.message);
+    } finally {
+      setLoading(false);
+      setTimeout(() => setStatusMsg(''), 6000);
+    }
+  };
+
+  // =========================================================================
+  // 🌟 3. IMPORT OLD ATTENDANCE DATA (Supports Full Granular Date-by-Date Sessions!)
+  // =========================================================================
+  const handleImportOldShuhoodFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    setImportAuditReport(null);
+    setStatusMsg('⏳ Importing old attendance and minus history...');
+
+    try {
+      const ext = file.name.split('.').pop().toLowerCase();
+      const updatedMap = {};
+      let importedCount = 0;
+      const notFoundInNewApp = [];
+      const nameDiffWarnings = [];
+      const matchedNewRegs = new Set();
+
+      if (ext === 'json') {
+        const textContent = await file.text();
+        const jsonMap = JSON.parse(textContent);
+
+        // Determine students list (handles full granular export, legacy students map, or flat array)
+        let rawStudentsObj = jsonMap.students || jsonMap.attendance || jsonMap;
+        const entries = Array.isArray(rawStudentsObj)
+          ? rawStudentsObj
+          : Object.entries(rawStudentsObj)
+              .filter(([k]) => k !== 'sessions' && k !== 'dayIndexes' && k !== 'teachers' && k !== 'metadata' && k !== 'version' && k !== 'exportedAt')
+              .map(([k, v]) => ({ jsonKey: k, ...v }));
+
+        // 1. Batch Write Students & Period Attendance Summary
+        for (let i = 0; i < entries.length; i += 400) {
+          const chunk = entries.slice(i, i + 400);
+          const batch = writeBatch(db);
+
+          chunk.forEach(item => {
+            const rawAd = item.adNo || item.admissionNumber || item.admission_number || item.jsonKey || '';
+            const cleanAd = String(rawAd).trim().toUpperCase();
+            if (!cleanAd) return;
+
+            const st = localStudents.find(s =>
+              String(s.adNo || '').trim().toUpperCase() === cleanAd ||
+              String(s.regNo || '').trim().toUpperCase() === cleanAd ||
+              String(s.id || '').trim().toUpperCase() === cleanAd
+            );
+
+            if (!st) {
+              notFoundInNewApp.push({
+                adNo: cleanAd,
+                oldName: item.studentName || item.name || 'Unknown',
+                oldClass: item.className || item.class || '-',
+                totalPeriods: Number(item.totalPeriods) || 0,
+                presentCount: Number(item.presentCount) || 0,
+                minusCount: Number(item.minusCount) || 0
+              });
+              return;
+            }
+
+            matchedNewRegs.add(st.regNo);
+
+            let calcTotal = Number(item.totalPeriods) || 0;
+            let calcPresent = Number(item.presentCount) || 0;
+            const subjData = item.subjectWise || item.subjects || {};
+
+            if (calcTotal === 0 && Object.keys(subjData).length > 0) {
+              Object.values(subjData).forEach(subObj => {
+                calcTotal += Number(subObj.total || subObj.totalPeriods) || 0;
+                calcPresent += Number(subObj.present || subObj.presentCount) || 0;
+              });
+            }
+
+            const docId = String(st.id || st.regNo).toLowerCase().trim();
+            const periodAttendance = {
+              totalPeriods: calcTotal,
+              presentCount: calcPresent,
+              officialCount: Number(item.officialCount) || 0,
+              medicalCount: Number(item.medicalCount) || 0,
+              permittedCount: 0,
+              minusCount: Number(item.minusCount) || Number(item.totalMinusCount) || 0,
+              minusLogs: Array.isArray(item.minusLogs) ? item.minusLogs : [],
+              subjectWise: subjData,
+              appliedRehearsalDates: {},
+              updatedAt: new Date().toISOString()
+            };
+
+            batch.set(doc(db, 'students', docId), { periodAttendance }, { merge: true });
+            updatedMap[st.regNo] = { ...st, periodAttendance };
+            importedCount++;
+          });
+          await batch.commit();
+        }
+
+        // 2. Batch Write Granular Period Sessions (date by date, teacher by teacher, subject by subject)
+        let importedSessionsCount = 0;
+        const sessionsList = Array.isArray(jsonMap.sessions) ? jsonMap.sessions : [];
+        if (sessionsList.length > 0) {
+          setStatusMsg(`⏳ Saving ${sessionsList.length} date-by-date period sessions...`);
+          for (let i = 0; i < sessionsList.length; i += 400) {
+            const chunk = sessionsList.slice(i, i + 400);
+            const batch = writeBatch(db);
+
+            chunk.forEach(s => {
+              const safeAlias = String(s.classAlias || s.subject || 'Subject').trim();
+              const sessionDocId = s.sessionDocId || `periodSession_${s.date}_${safeAlias.replace(/[^a-zA-Z0-9]/g, '_')}_S${s.session || 1}`;
+
+              // Normalize attendanceMap to map any admission numbers to student regNo
+              const normalizedMap = {};
+              Object.entries(s.attendanceMap || {}).forEach(([adOrReg, status]) => {
+                normalizedMap[adOrReg] = status;
+                const matched = localStudents.find(st => 
+                  String(st.adNo || '').trim().toUpperCase() === String(adOrReg).trim().toUpperCase() ||
+                  String(st.regNo || '').trim().toUpperCase() === String(adOrReg).trim().toUpperCase()
+                );
+                if (matched) {
+                  normalizedMap[matched.regNo] = status;
+                }
+              });
+
+              batch.set(doc(db, 'systemCache', sessionDocId), {
+                date: s.date,
+                session: Number(s.session) || 1,
+                subject: s.subject,
+                classAlias: s.classAlias,
+                teacherUsername: String(s.teacherUsername || 'admin').toLowerCase().trim(),
+                teacherName: String(s.teacherName || 'Faculty').trim(),
+                attendanceMap: normalizedMap,
+                updatedAt: new Date().toISOString()
+              }, { merge: true });
+
+              importedSessionsCount++;
+            });
+            await batch.commit();
+          }
+        }
+
+        // 3. Batch Write Daily Sessions Indexes (daySessionsIndex_YYYY-MM-DD)
+        const dayIndexesObj = jsonMap.dayIndexes || {};
+        const dayDates = Object.keys(dayIndexesObj);
+        if (dayDates.length > 0) {
+          setStatusMsg(`⏳ Indexing ${dayDates.length} calendar dates...`);
+          for (let i = 0; i < dayDates.length; i += 400) {
+            const chunk = dayDates.slice(i, i + 400);
+            const batch = writeBatch(db);
+
+            chunk.forEach(dStr => {
+              batch.set(doc(db, 'systemCache', `daySessionsIndex_${dStr}`), {
+                date: dStr,
+                sessions: dayIndexesObj[dStr] || []
+              }, { merge: true });
+            });
+            await batch.commit();
+          }
+        }
+
+        // 4. Batch Write Teacher Enrollments & Allocations
+        const teachersList = Array.isArray(jsonMap.teachers) ? jsonMap.teachers : [];
+        let importedTeachersCount = 0;
+        if (teachersList.length > 0) {
+          setStatusMsg(`⏳ Linking ${teachersList.length} teacher subject allocations...`);
+          const batch = writeBatch(db);
+          teachersList.forEach(t => {
+            const safeUsername = String(t.username || '').toLowerCase().trim();
+            if (!safeUsername) return;
+            const existingT = localTeachers.find(x => x.username === safeUsername);
+            const mergedEnrollments = [...(existingT?.enrollments || [])];
+            (t.enrollments || []).forEach(env => {
+              if (!mergedEnrollments.some(e => e.id === env.id || e.alias === env.alias)) {
+                mergedEnrollments.push(env);
+              }
+            });
+            batch.set(doc(db, 'teachers', safeUsername), {
+              fullName: t.fullName || t.name,
+              username: safeUsername,
+              role: t.role || 'teacher',
+              enrollments: mergedEnrollments
+            }, { merge: true });
+            importedTeachersCount++;
+          });
+          await batch.commit();
+        }
+
+        const missingFromOldExport = localStudents
+          .filter(s => !matchedNewRegs.has(s.regNo))
+          .map(s => ({ adNo: s.adNo, name: s.firstName, className: (s.classes || []).join(', ') }));
+
+        setImportAuditReport({ importedCount, totalAutoCleared: 0, notFoundInNewApp, nameDiffWarnings, missingFromOldExport });
+        syncUpdatedStudentsState(updatedMap);
+        setStatusMsg(
+          `🎉 Successfully imported ${importedCount} students` +
+          (importedSessionsCount > 0 ? `, ${importedSessionsCount} period sessions across ${dayDates.length} dates` : '') +
+          (importedTeachersCount > 0 ? `, and ${importedTeachersCount} teachers` : '') +
+          '!'
+        );
+        return;
+      } else {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+        const batch = writeBatch(db);
+
+        rows.forEach(row => {
+          const rawAd = row.admissionNumber || row['Admission Number'] || row['Ad.No'] || row.AdNo || row['Adm No'];
+          if (!rawAd) return;
+          const cleanAd = String(rawAd).trim().toUpperCase();
+          const oldName = row.studentName || row['Student Name'] || row.name || 'Unknown';
+          const oldClass = row.className || row.Class || '-';
+          const totalP = Number(row.totalAttendanceCount ?? row.TotalPeriods ?? 0);
+          const presentP = Number(row.totalPresentCount ?? row.PresentPeriods ?? 0);
+          const minusC = Number(row.minusCount ?? row.MinusCount ?? 0);
+
+          const st = localStudents.find(s =>
+            String(s.adNo || '').trim().toUpperCase() === cleanAd ||
+            String(s.regNo || '').trim().toUpperCase() === cleanAd
+          );
+
+          if (!st) {
+            notFoundInNewApp.push({ adNo: cleanAd, oldName, oldClass, totalPeriods: totalP, presentCount: presentP, minusCount: minusC });
+            return;
+          }
+
+          matchedNewRegs.add(st.regNo);
+          const docId = String(st.id || st.regNo).toLowerCase().trim();
+          const cur = getStudentAttStat(st);
+          const periodAttendance = {
+            ...cur,
+            totalPeriods: totalP || cur.totalPeriods || 0,
+            presentCount: presentP || cur.presentCount || 0,
+            minusCount: minusC || cur.minusCount || 0,
+            updatedAt: new Date().toISOString()
+          };
+
+          batch.set(doc(db, 'students', docId), { periodAttendance }, { merge: true });
+          updatedMap[st.regNo] = { ...st, periodAttendance };
+          importedCount++;
+        });
+        await batch.commit();
+      }
+
+      const missingFromOldExport = localStudents
+        .filter(s => !matchedNewRegs.has(s.regNo))
+        .map(s => ({ adNo: s.adNo, name: s.firstName, className: (s.classes || []).join(', ') }));
+
+      setImportAuditReport({ importedCount, totalAutoCleared: 0, notFoundInNewApp, nameDiffWarnings, missingFromOldExport });
+      syncUpdatedStudentsState(updatedMap);
+      setStatusMsg(`🎉 Successfully imported semester attendance history and minus logs for ${importedCount} students!`);
+    } catch (err) {
+      setStatusMsg('❌ Import error: ' + err.message);
+    } finally {
+      setLoading(false);
+      e.target.value = null;
+    }
+  };
+
+  const handleSyncRehearsalCreditsToExistingRecords = async () => {
+    setLoading(true);
+    setStatusMsg('⏳ Syncing Event Leader rehearsal dates with student attendance records...');
+    try {
+      const rehearsalCreditsMap = await fetchRehearsalCreditsByRegAndDate();
+      const batch = writeBatch(db);
+      const updatedMap = {};
+      let totalCleared = 0;
+
+      localStudents.forEach(st => {
+        const stCredits = rehearsalCreditsMap[st.regNo];
+        if (!stCredits) return;
+
+        const curStat = getStudentAttStat(st);
+        const { stat: nextStat, cleared } = applyDateBasedRehearsalCreditsToStat(curStat, stCredits);
+
+        if (cleared > 0) {
+          totalCleared += cleared;
+          const docId = String(st.id || st.regNo).toLowerCase().trim();
+          batch.set(doc(db, 'students', docId), { periodAttendance: nextStat }, { merge: true });
+          updatedMap[st.regNo] = { ...st, periodAttendance: nextStat };
+        }
+      });
+
+      if (totalCleared > 0) {
+        await batch.commit();
+        syncUpdatedStudentsState(updatedMap);
+        setStatusMsg(`🎉 Successfully synced & auto-cleared ${totalCleared} rehearsal absent period(s)!`);
+      } else {
+        setStatusMsg('ℹ️ All rehearsal credits are already up to date.');
+      }
+    } catch (err) {
+      setStatusMsg('❌ Sync error: ' + err.message);
+    } finally {
+      setLoading(false);
+      setTimeout(() => setStatusMsg(''), 6000);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* ============================================================
+          VIEW B: MINUS ATTENDANCE
+         ============================================================ */}
+      {activeTab === 'minus_attendance' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', background: '#ffffff', padding: '16px 20px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
+                ⚖️ Disciplinary Minus Attendance
+              </h2>
+              <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
+                Deduct periods from student attendance for jamath missing, discipline, or misconduct.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {[
+                { id: 'add', label: '➕ Deduct Minus' },
+                { id: 'manage', label: '📋 View Minus History' },
+                { id: 'excel', label: '📊 Upload Excel' }
+              ].map(sub => (
+                <button
+                  key={sub.id}
+                  type="button"
+                  onClick={() => setMinusSubTab(sub.id)}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    fontWeight: '700',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    border: minusSubTab === sub.id ? '1px solid #4f46e5' : '1px solid #cbd5e1',
+                    background: minusSubTab === sub.id ? '#4f46e5' : '#ffffff',
+                    color: minusSubTab === sub.id ? '#ffffff' : '#334155'
+                  }}
+                >
+                  {sub.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {minusSubTab === 'add' && (
+            <div style={{ ...styles.card, maxWidth: '780px' }}>
+              <form onSubmit={handleSaveMinus} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ fontWeight: '800', fontSize: '15px', color: '#0f172a', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
+                  {editingMinusLog ? `✏️ Edit Minus Record (${selectedMinusStudent?.firstName})` : '➕ Deduct Minus Attendance (Single or Multi-Student)'}
+                </div>
+
+                {!editingMinusLog && (
+                  <div>
+                    <label style={styles.label}>Search &amp; Add Student(s) by Admission Number or Name</label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input
+                        type="text"
+                        value={minusSearchQuery}
+                        onChange={e => setMinusSearchQuery(e.target.value)}
+                        placeholder="Type comma-separated Ad.Nos (e.g. 3551, 3392, U1107)..."
+                        style={{ ...styles.input, flex: 1 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddCommaSeparatedMinusStudents}
+                        style={{ ...styles.buttonPrimary, whiteSpace: 'nowrap' }}
+                      >
+                        ➕ Add to List
+                      </button>
+                    </div>
+
+                    {matchingMinusStudents.length > 0 && (
+                      <div style={{ marginTop: '6px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {matchingMinusStudents.map(st => (
+                          <button
+                            key={st.regNo}
+                            type="button"
+                            onClick={() => {
+                              setSelectedMinusStudentsList(prev => prev.some(x => x.regNo === st.regNo) ? prev : [...prev, st]);
+                              setSelectedMinusStudent(st);
+                              setMinusSearchQuery('');
+                            }}
+                            style={{ padding: '4px 10px', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
+                          >
+                            + {st.firstName} (#{st.adNo})
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* SELECTED STUDENTS PILLS */}
+                {selectedMinusStudentsList.length > 0 && !editingMinusLog && (
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '14px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>
+                      Selected Students ({selectedMinusStudentsList.length}):
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                      {selectedMinusStudentsList.map(st => (
+                        <span key={st.regNo} style={{ background: '#eef2ff', color: '#4f46e5', padding: '5px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                          {st.firstName} (#{st.adNo})
+                          <button
+                            type="button"
+                            onClick={() => setSelectedMinusStudentsList(prev => prev.filter(x => x.regNo !== st.regNo))}
+                            style={{ background: 'none', border: 'none', color: '#ef4444', fontWeight: '900', cursor: 'pointer' }}
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+                  <div>
+                    <label style={styles.label}>Minus Periods</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={minusCount}
+                      onChange={e => setMinusCount(Math.max(1, parseInt(e.target.value) || 1))}
+                      style={styles.input}
+                    />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Reason for Deduction</label>
+                    <input
+                      type="text"
+                      value={minusReason}
+                      onChange={e => setMinusReason(e.target.value)}
+                      placeholder="e.g. Subh Jamath Missing 5/11/26..."
+                      style={styles.input}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+                  {editingMinusLog && (
+                    <button
+                      type="button"
+                      onClick={() => { setEditingMinusLog(null); setMinusReason(''); setMinusCount(1); }}
+                      style={styles.buttonSecondary}
+                    >
+                      Cancel Edit
+                    </button>
+                  )}
+                  <button type="submit" disabled={loading} style={styles.buttonDanger}>
+                    {editingMinusLog ? '💾 Update Minus Record' : `🚨 Deduct -${minusCount} Period(s)`}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {minusSubTab === 'excel' && (
+            <div style={{ ...styles.card, maxWidth: '680px' }}>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>
+                📊 Bulk Minus Excel Upload
+              </h3>
+              <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#64748b' }}>
+                Upload an Excel sheet (.xlsx, .xls) containing columns: <code>Admission No</code>, <code>Minus</code>, <code>Reason</code>, <code>Date</code>.
+              </p>
+              <input type="file" accept=".xlsx,.xls,.csv" onChange={handleBulkMinusExcelUpload} disabled={loading} style={styles.input} />
+            </div>
+          )}
+
+          {minusSubTab === 'manage' && (
+            <div style={{ ...styles.card, padding: 0, overflow: 'hidden' }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>
+                    📋 Minus History Register ({allFlattenedMinusRecords.length} records)
+                  </h3>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    value={minusTableSearch}
+                    onChange={e => setMinusTableSearch(e.target.value)}
+                    placeholder="Search student or reason..."
+                    style={{ ...styles.input, maxWidth: '200px', padding: '6px 12px', fontSize: '12px' }}
+                  />
+                  <button type="button" onClick={handleExportMinusRecordsExcel} style={styles.buttonPrimary}>
+                    ⬇️ Export Excel
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px 16px' }}>DATE</th>
+                      <th style={{ padding: '12px 16px' }}>STUDENT</th>
+                      <th style={{ padding: '12px 16px' }}>AD.NO</th>
+                      <th style={{ padding: '12px 16px' }}>CLASS</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'center' }}>MINUS</th>
+                      <th style={{ padding: '12px 16px' }}>REASON</th>
+                      <th style={{ padding: '12px 16px' }}>ISSUED BY</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allFlattenedMinusRecords.length === 0 ? (
+                      <tr>
+                        <td colSpan="8" style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
+                          No minus attendance records found.
+                        </td>
+                      </tr>
+                    ) : (
+                      allFlattenedMinusRecords.map(r => (
+                        <tr key={r.log.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '12px 16px', color: '#64748b' }}>{r.log.date || '—'}</td>
+                          <td style={{ padding: '12px 16px', fontWeight: '700', color: '#0f172a' }}>{r.studentName}</td>
+                          <td style={{ padding: '12px 16px', color: '#475569' }}>#{r.adNo}</td>
+                          <td style={{ padding: '12px 16px', fontWeight: '600', color: '#0f766e' }}>{r.className}</td>
+                          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                            <span style={{ background: '#ffe4e6', color: '#e11d48', padding: '3px 8px', borderRadius: '6px', fontWeight: '800', fontSize: '12px' }}>
+                              -{r.log.count}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 16px', color: '#334155' }}>{r.log.reason || 'Disciplinary Deduction'}</td>
+                          <td style={{ padding: '12px 16px', color: '#64748b' }}>{r.log.issuedBy || 'Admin'}</td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                            {r.isMine && (
+                              <div style={{ display: 'inline-flex', gap: '6px' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingMinusLog(r.log);
+                                    setSelectedMinusStudent(r.studentObj);
+                                    setMinusCount(r.log.count || 1);
+                                    setMinusReason(r.log.reason || '');
+                                    setMinusSubTab('add');
+                                  }}
+                                  style={{ padding: '4px 8px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
+                                >
+                                  ✏️ Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMinus(r.studentObj, r.log)}
+                                  style={{ padding: '4px 8px', background: '#fff1f2', border: '1px solid #fecdd3', color: '#e11d48', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
+                                >
+                                  🗑️ Delete
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ============================================================
+          VIEW C: ATTENDANCE CLEARANCE DESK (With Step 2 Absent Period Selector)
+         ============================================================ */}
+      {activeTab === 'clearance' && userRole === 'admin' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', maxWidth: '880px' }}>
+          <div style={styles.card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
+                  🎟️ Multi-Student Attendance Clearance Desk
+                </h3>
+                <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
+                  Clear absences for official duty, medical leave, or rehearsal performance.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveClearance} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* STEP 1: STUDENT ADMISSION NUMBER INPUT */}
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <label style={{ ...styles.label, fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>
+                  Step 1: Enter Admission Number(s) &amp; Date Scope
+                </label>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                  <input
+                    type="text"
+                    value={clearAdNo}
+                    onChange={e => setClearAdNo(e.target.value)}
+                    placeholder="Enter comma-separated Ad.Nos (e.g. 3551, 3392, U1107)..."
+                    style={{ ...styles.input, flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleFetchStudentForClearance}
+                    disabled={fetchingClearance}
+                    style={{ ...styles.buttonPrimary, whiteSpace: 'nowrap' }}
+                  >
+                    {fetchingClearance ? '⏳ Fetching...' : '🔍 Find Absences'}
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setClearDateMode('single')}
+                      style={{
+                        padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer',
+                        border: clearDateMode === 'single' ? '1px solid #4f46e5' : '1px solid #cbd5e1',
+                        background: clearDateMode === 'single' ? '#4f46e5' : '#ffffff',
+                        color: clearDateMode === 'single' ? '#ffffff' : '#334155'
+                      }}
+                    >
+                      Single Date
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setClearDateMode('range')}
+                      style={{
+                        padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer',
+                        border: clearDateMode === 'range' ? '1px solid #4f46e5' : '1px solid #cbd5e1',
+                        background: clearDateMode === 'range' ? '#4f46e5' : '#ffffff',
+                        color: clearDateMode === 'range' ? '#ffffff' : '#334155'
+                      }}
+                    >
+                      Date Range
+                    </button>
+                  </div>
+
+                  {clearDateMode === 'single' ? (
+                    <input
+                      type="date"
+                      value={clearDate}
+                      onChange={e => setClearDate(e.target.value)}
+                      style={{ ...styles.input, width: 'auto', padding: '6px 12px' }}
+                    />
+                  ) : (
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <input
+                        type="date"
+                        value={clearStartDate}
+                        onChange={e => setClearStartDate(e.target.value)}
+                        style={{ ...styles.input, width: 'auto', padding: '6px 10px' }}
+                      />
+                      <span style={{ fontSize: '12px', color: '#64748b' }}>to</span>
+                      <input
+                        type="date"
+                        value={clearEndDate}
+                        onChange={e => setClearEndDate(e.target.value)}
+                        style={{ ...styles.input, width: 'auto', padding: '6px 10px' }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* FETCHED STUDENTS CHIPS */}
+              {fetchedClearStudentsList.length > 0 && (
+                <div style={{ padding: '12px 14px', background: '#ecfdf5', borderRadius: '10px', border: '1px solid #a7f3d0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#065f46' }}>
+                    Found {fetchedClearStudentsList.length} Student(s):
+                    <span style={{ fontWeight: '600', marginLeft: '6px' }}>
+                      {fetchedClearStudentsList.map(s => `${s.firstName} (#${s.adNo})`).join(', ')}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAutoClearRehearsalAbsences}
+                    disabled={loading}
+                    style={{ ...styles.buttonPrimary, background: '#059669', padding: '6px 12px', fontSize: '12px' }}
+                  >
+                    🎭 Auto-Apply Rehearsal Credits
+                  </button>
+                </div>
+              )}
+
+              {/* 🌟 STEP 2: ABSENT PERIOD SELECTOR (QUERIES daySessionsIndex_{date} & SHOWS ONLY PERIODS WITH ABSENT STATUS) */}
+              {fetchedClearStudentsList.length > 0 && (
+                <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>
+                      Step 2: Select Specific Absent Period Session(s) to Clear
+                    </div>
+                    {fetchedAbsentPeriodSessions.length > 0 && (
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedClearSessionIds(fetchedAbsentPeriodSessions.map(x => x.sessionDocId))}
+                          style={{ padding: '4px 8px', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
+                        >
+                          Select All ({fetchedAbsentPeriodSessions.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedClearSessionIds([])}
+                          style={{ padding: '4px 8px', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
+                        >
+                          Deselect All
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {fetchingClearance ? (
+                    <div style={{ padding: '16px', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>
+                      ⏳ Scanning daySessionsIndex_{clearDateMode === 'single' ? clearDate : 'dates'} for exact absent periods...
+                    </div>
+                  ) : fetchedAbsentPeriodSessions.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {fetchedAbsentPeriodSessions.map(item => {
+                        const isSelected = selectedClearSessionIds.includes(item.sessionDocId);
+                        return (
+                          <div
+                            key={item.sessionDocId}
+                            onClick={() => toggleClearanceSessionId(item.sessionDocId)}
+                            style={{
+                              padding: '12px 14px',
+                              borderRadius: '10px',
+                              border: isSelected ? '2px solid #4f46e5' : '1px solid #cbd5e1',
+                              background: isSelected ? '#eef2ff' : '#ffffff',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              cursor: 'pointer',
+                              gap: '10px'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => {}}
+                                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                              />
+                              <div>
+                                <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '13px' }}>
+                                  📅 {item.date} • Period {item.session}: {item.subject} ({item.classAlias})
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                                  👨‍🏫 Faculty: <strong>{item.teacherName}</strong> • Absent Students: <span style={{ color: '#e11d48', fontWeight: '700' }}>{item.absentStudentNames}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <span style={{ background: isSelected ? '#4f46e5' : '#f1f5f9', color: isSelected ? '#ffffff' : '#475569', padding: '3px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: '800' }}>
+                              {isSelected ? '✓ To Clear' : 'Keep Absent'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div style={{ padding: '16px', background: '#ffffff', borderRadius: '8px', border: '1px dashed #cbd5e1', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+                      No period-session absences found for the selected date(s).
+                    </div>
+                  )}
+
+                  {/* LEGACY SUBJECT FALLBACK CHECKBOXES */}
+                  {showLegacySubjectFallback && fetchedAbsentSubjects.length > 0 && (
+                    <div style={{ marginTop: '12px', padding: '12px', background: '#fef3c7', borderRadius: '8px', border: '1px solid #fde68a' }}>
+                      <div style={{ fontSize: '12px', fontWeight: '800', color: '#92400e', marginBottom: '8px' }}>
+                        ⚠️ Legacy Data Found: Select subjects to clear by student profile absentDates:
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {fetchedAbsentSubjects.map(sub => (
+                          <label key={sub} style={{ padding: '6px 12px', borderRadius: '6px', background: '#ffffff', border: '1px solid #f59e0b', fontSize: '12px', fontWeight: '700', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            <input
+                              type="checkbox"
+                              checked={clearSelectedSubjects.includes(sub)}
+                              onChange={() => toggleClearanceSubject(sub)}
+                            />
+                            {sub}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* STEP 3: CLEARANCE ACTION & SAVE */}
+              {fetchedClearStudentsList.length > 0 && (
+                <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                  <div>
+                    <label style={styles.label}>Clearance Category</label>
+                    <select
+                      value={clearReason}
+                      onChange={e => setClearReason(e.target.value)}
+                      style={{ ...styles.input, width: 'auto', fontWeight: '700' }}
+                    >
+                      <option value="official">🏛️ Official Duty / Out-Pass (Status 'O')</option>
+                      <option value="medical">🏥 Medical Leave (Status 'M')</option>
+                      <option value="permitted">⭐ Permitted Exemption (Status 'O')</option>
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    {fetchedClearStudentsList.length === 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setClearancePrintStudent(fetchedClearStudentsList[0])}
+                        style={styles.buttonSecondary}
+                      >
+                        🖨️ Print Slip
+                      </button>
+                    )}
+                    <button type="submit" disabled={loading} style={styles.buttonPrimary}>
+                      💾 Save Attendance Clearance
+                    </button>
+                  </div>
+                </div>
+              )}
+            </form>
+          </div>
+
+          {/* DANGER ZONE: RESET ATTENDANCE */}
+          <div style={{ ...styles.card, border: '1px solid #fecdd3', background: '#fff1f2' }}>
+            <h4 style={{ margin: '0 0 6px 0', color: '#be123c', fontSize: '15px', fontWeight: '800' }}>
+              🚨 Danger Zone: Reset All Student Attendance Records
+            </h4>
+            <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#9f1239' }}>
+              Type <code>DELETE ALL</code> and enter your admin password to permanently reset student period attendance counters and minus logs.
+            </p>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={deleteAllConfirmText}
+                onChange={e => setDeleteAllConfirmText(e.target.value)}
+                placeholder="Type DELETE ALL..."
+                style={{ ...styles.input, maxWidth: '160px', borderColor: '#f43f5e' }}
+              />
+              <input
+                type="password"
+                value={deleteAllPassword}
+                onChange={e => setDeleteAllPassword(e.target.value)}
+                placeholder="Admin Password..."
+                style={{ ...styles.input, maxWidth: '160px', borderColor: '#f43f5e' }}
+              />
+              <button
+                type="button"
+                onClick={handleCompleteAttendanceDeleteAll}
+                disabled={loading}
+                style={{ ...styles.buttonDanger, padding: '8px 14px', fontSize: '12px' }}
+              >
+                Permanently Reset All Attendance
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          VIEW D: SHORTAGE ATTENDANCE DESK (< 85%)
+         ============================================================ */}
+      {activeTab === 'shortage' && (
+        <div style={styles.card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
+                🚨 Attendance Shortage Notice (&lt; 85% Net Attendance)
+              </h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
+                Students at risk of exam hall debarment due to low attendance and disciplinary deductions.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <select
+                value={shortageClassFilter}
+                onChange={e => setShortageClassFilter(e.target.value)}
+                style={{ ...styles.input, width: 'auto', fontWeight: '700' }}
+              >
+                <option value="ALL">All Classes</option>
+                {DEFAULT_CLASSES.map(c => <option key={c} value={c}>Class {c}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ background: '#fff1f2', borderBottom: '1px solid #fecdd3', color: '#be123c', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '12px 14px' }}>#</th>
+                  <th style={{ padding: '12px 14px' }}>STUDENT NAME</th>
+                  <th style={{ padding: '12px 14px' }}>AD.NO</th>
+                  <th style={{ padding: '12px 14px' }}>CLASS</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>TOTAL PERIODS</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>PRESENT</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>MINUS</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>NET %</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>ACTION</th>
+                </tr>
+              </thead>
+              <tbody>
+                {localStudents
+                  .filter(st => {
+                    const stCls = (st.classes || [])[0] || st.class || '';
+                    if (shortageClassFilter !== 'ALL' && !stCls.includes(shortageClassFilter)) return false;
+                    const stat = getStudentAttStat(st);
+                    const totP = Number(stat.totalPeriods) || 0;
+                    if (totP <= 0) return false;
+                    const presP = Number(stat.presentCount) || 0;
+                    const minusC = Number(stat.minusCount) || 0;
+                    const netPres = Math.max(0, presP - minusC);
+                    return ((netPres / totP) * 100) < 85;
+                  })
+                  .map((st, idx) => {
+                    const stat = getStudentAttStat(st);
+                    const totP = Number(stat.totalPeriods) || 0;
+                    const presP = Number(stat.presentCount) || 0;
+                    const minusC = Number(stat.minusCount) || 0;
+                    const netPres = Math.max(0, presP - minusC);
+                    const netPct = ((netPres / totP) * 100).toFixed(1);
+
+                    return (
+                      <tr key={st.regNo} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '12px 14px', color: '#64748b' }}>{idx + 1}</td>
+                        <td style={{ padding: '12px 14px', fontWeight: '700', color: '#0f172a' }}>{st.firstName}</td>
+                        <td style={{ padding: '12px 14px', color: '#475569' }}>#{st.adNo}</td>
+                        <td style={{ padding: '12px 14px', fontWeight: '700', color: '#0f766e' }}>{(st.classes || []).join(', ')}</td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>{totP}</td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center', color: '#047857' }}>{presP}</td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center', color: '#e11d48' }}>-{minusC}</td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                          <span style={{ background: '#ffe4e6', color: '#e11d48', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '12px' }}>
+                            {netPct}%
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            onClick={() => openDirectWhatsApp(
+                              st.parentWhatsapp || st.parentMobile,
+                              `Assalamu Alaikum, urgent notice regarding ${st.firstName} (#${st.adNo}): Current semester attendance is ${netPct}% (Below 85% requirement). Please contact the academic office.`
+                            )}
+                            style={{ padding: '5px 10px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
+                          >
+                            💬 WhatsApp Parent
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          VIEW E: OLD DATA IMPORTER (With Granular Session & Day Index Support)
+         ============================================================ */}
+      {activeTab === 'import_old' && userRole === 'admin' && (
+        <div style={{ ...styles.card, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div>
+            <h3 style={{ margin: '0 0 6px 0', fontSize: '18px', color: '#0f172a', fontWeight: '800' }}>
+              📂 Import Old Attendance Data (JSON or Excel)
+            </h3>
+            <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
+              Upload <code>shuhood_full_granular_export.json</code>, <code>shuhood_semester_export.json</code>, or an Excel/CSV sheet to import full date-by-date period sessions, teacher allocations, subject breakdowns, and minus logs.
+            </p>
+          </div>
+
+          <input type="file" accept=".json,.xlsx,.xls,.csv" onChange={handleImportOldShuhoodFile} disabled={loading} style={styles.input} />
+
+          <div style={{ padding: '14px 16px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '14px' }}>🔄 Sync Rehearsal Credits Anytime</div>
+              <div style={{ fontSize: '12px', color: '#64748b' }}>
+                Click to apply any Event Leader rehearsal sessions to already-imported student records by date.
+              </div>
+            </div>
+            <button type="button" onClick={handleSyncRehearsalCreditsToExistingRecords} disabled={loading} style={styles.buttonPrimary}>
+              🔄 Auto-Apply Rehearsal Credits
+            </button>
+          </div>
+
+          {importAuditReport && (
+            <div style={{ padding: '14px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', fontWeight: '700', fontSize: '13px' }}>
+              ✅ Matched &amp; Imported: <strong style={{ color: '#047857' }}>{importAuditReport.importedCount}</strong> • ❌ In Old App Only: <strong style={{ color: '#e11d48' }}>{importAuditReport.notFoundInNewApp.length}</strong> • 📋 In New App Only: <strong style={{ color: '#4f46e5' }}>{importAuditReport.missingFromOldExport.length}</strong>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

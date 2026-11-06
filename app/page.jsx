@@ -21,7 +21,11 @@ import NightAttendanceManager from './components/NightAttendanceManager';
 import OutPassPortal from './outpass/page';
 import PeriodAttendanceManager from './components/PeriodAttendanceManager';
 import { DHIU_LOGO_URL, styles } from './components/erpConstants';
-import { HighContrastStyles, MentorAndOutreachTab } from './components/ErpExtensions';
+import {
+  HighContrastStyles,
+  MentorAndOutreachTab,
+  PortalNotificationBanner
+} from './components/ErpExtensions';
 
 const ADMIN_AUTH_EMAILS = [
   'admin@school.com',
@@ -45,6 +49,7 @@ export default function UnifiedSchoolPortal() {
 
   const [adminTeachersList, setAdminTeachersList] = useState([]);
   const [adminStudentsList, setAdminStudentsList] = useState([]);
+  const [activeOutpassesList, setActiveOutpassesList] = useState([]);
   const [proxyTeacherUsername, setProxyTeacherUsername] = useState('');
 
   useEffect(() => {
@@ -83,8 +88,9 @@ export default function UnifiedSchoolPortal() {
     if (userRole === 'admin') {
       Promise.all([
         getDocs(collection(db, 'teachers')),
-        getDocs(collection(db, 'students'))
-      ]).then(([tSnap, sSnap]) => {
+        getDocs(collection(db, 'students')),
+        getDocs(collection(db, 'out_passes'))
+      ]).then(([tSnap, sSnap, opSnap]) => {
         const tList = [];
         tSnap.forEach(d => tList.push(d.data()));
         tList.sort((a, b) => (a.fullName || '').localeCompare(b.fullName || ''));
@@ -97,6 +103,16 @@ export default function UnifiedSchoolPortal() {
         sSnap.forEach(d => sList.push({ id: d.id, ...d.data() }));
         sList.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
         setAdminStudentsList(sList);
+
+        const opList = [];
+        opSnap.forEach(d => {
+          const data = d.data();
+          const st = String(data.status || '').toUpperCase();
+          if (st === 'OUTSIDE' || st === 'APPROVED' || st === 'ARRIVED_AT_GATE') {
+            opList.push({ id: d.id, ...data });
+          }
+        });
+        setActiveOutpassesList(opList);
       }).catch(err => console.error('Error loading admin data:', err));
     }
   }, [userRole]);
@@ -186,6 +202,34 @@ export default function UnifiedSchoolPortal() {
     const selectedProxyTeacher = adminTeachersList.find(t => t.username === proxyTeacherUsername);
     const totalEnrollmentsCount = adminTeachersList.reduce((acc, t) => acc + (Array.isArray(t.enrollments) ? t.enrollments.length : 0), 0);
 
+    // 🌟 Compute Real-Time Inside vs. Outside Campus Breakdown for Malayalam & Urdu (NIICS) Streams
+    const outsideAdNosSet = new Set();
+    const medicalAdNosSet = new Set();
+    activeOutpassesList.forEach(p => {
+      const ad = String(p.adNo || '').trim().toUpperCase();
+      if (ad) {
+        outsideAdNosSet.add(ad);
+        if (String(p.leaveCategory || '').toLowerCase().includes('medical') || p.isOpenReturn) {
+          medicalAdNosSet.add(ad);
+        }
+      }
+    });
+
+    const malayalamStudents = adminStudentsList.filter(s => !String(s.adNo || '').trim().toUpperCase().startsWith('U'));
+    const urduStudents = adminStudentsList.filter(s => String(s.adNo || '').trim().toUpperCase().startsWith('U'));
+
+    const malayalamOutsideCount = malayalamStudents.filter(s => outsideAdNosSet.has(String(s.adNo || '').trim().toUpperCase())).length;
+    const malayalamInsideCount = Math.max(0, malayalamStudents.length - malayalamOutsideCount);
+    const malayalamMedicalCount = malayalamStudents.filter(s => medicalAdNosSet.has(String(s.adNo || '').trim().toUpperCase())).length;
+
+    const urduOutsideCount = urduStudents.filter(s => outsideAdNosSet.has(String(s.adNo || '').trim().toUpperCase())).length;
+    const urduInsideCount = Math.max(0, urduStudents.length - urduOutsideCount);
+    const urduMedicalCount = urduStudents.filter(s => medicalAdNosSet.has(String(s.adNo || '').trim().toUpperCase())).length;
+
+    const totalOutsideCount = malayalamOutsideCount + urduOutsideCount;
+    const totalInsideCount = Math.max(0, adminStudentsList.length - totalOutsideCount);
+    const totalMedicalCount = malayalamMedicalCount + urduMedicalCount;
+
     const sidebarNavItems = [
       { id: 'dashboard', label: 'Dashboard', icon: '⊞', desc: 'Institutional overview & quick access' },
       { id: 'students', label: 'Students', icon: '👥', desc: 'Manage student profiles & subject mappings' },
@@ -231,7 +275,7 @@ export default function UnifiedSchoolPortal() {
           />
         )}
 
-        {/* 🌟 LEFT SIDEBAR NAVIGATION (Named "DHIU Degree Campus") */}
+        {/* 🌟 LEFT SIDEBAR NAVIGATION (Named "DHIU Campus") */}
         <aside
           className={`dhiu-sidebar ${mobileSidebarOpen ? 'open' : ''}`}
           style={{
@@ -257,7 +301,7 @@ export default function UnifiedSchoolPortal() {
             >
               <img src={DHIU_LOGO_URL} alt="DHIU" style={{ width: '40px', height: '40px', borderRadius: '10px', objectFit: 'contain', border: '1px solid #e2e8f0', padding: '2px' }} />
               <div>
-                <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', lineHeight: 1.2 }}>DHIU Degree Campus</div>
+                <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', lineHeight: 1.2 }}>DHIU Campus</div>
                 <div style={{ fontSize: '10px', fontWeight: '800', color: '#4f46e5', letterSpacing: '0.6px', textTransform: 'uppercase', marginTop: '2px' }}>
                   🛡️ ADMIN PORTAL
                 </div>
@@ -362,6 +406,18 @@ export default function UnifiedSchoolPortal() {
           <main style={{ padding: '28px', maxWidth: '1280px', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
             <InstallAppBanner />
 
+            {/* 🌟 TARGETED PORTAL NOTIFICATION CENTER FOR ADMIN */}
+            <PortalNotificationBanner
+              viewerRole="admin"
+              viewerId="admin"
+              canSendMessages={true}
+              senderName="Central Admin"
+              senderRole="admin"
+              senderUsername="admin"
+              studentsList={adminStudentsList}
+              teachersList={adminTeachersList}
+            />
+
             {activeAdminTab !== 'teachers' && activeAdminTab !== 'students' && (
               <div style={{ marginBottom: '22px' }}>
                 <h1 style={{ margin: 0, fontSize: '24px', fontWeight: '800', color: '#0f172a' }}>{currentTabObj.label}</h1>
@@ -371,35 +427,75 @@ export default function UnifiedSchoolPortal() {
 
             {activeAdminTab === 'dashboard' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-                  <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '14px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>TOTAL STUDENTS</span>
+                {/* 🌟 UPGRADED KPI STRIP WITH LIVE INSIDE vs. OUTSIDE CAMPUS FOR BOTH STREAMS */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(235px, 1fr))', gap: '16px' }}>
+                  <div
+                    onClick={() => setActiveAdminTab('outpass')}
+                    style={{ background: '#f8fafc', padding: '20px', borderRadius: '14px', border: '1px solid #e2e8f0', textAlign: 'center', cursor: 'pointer' }}
+                  >
+                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>TOTAL CAMPUS STRENGTH</span>
                     <div style={{ fontSize: '28px', fontWeight: '900', color: '#0f172a', marginTop: '6px' }}>{adminStudentsList.length}</div>
-                  </div>
-
-                  <div style={{ background: '#ecfdf5', padding: '20px', borderRadius: '14px', border: '1px solid #a7f3d0', textAlign: 'center' }}>
-                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857', textTransform: 'uppercase' }}>MALAYALAM STREAM</span>
-                    <div style={{ fontSize: '28px', fontWeight: '900', color: '#065f46', marginTop: '6px' }}>
-                      {adminStudentsList.filter(s => !String(s.adNo || '').toUpperCase().startsWith('U')).length}
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
+                      <span style={{ background: '#dcfce7', color: '#15803d', padding: '3px 9px', borderRadius: '999px', fontSize: '11px', fontWeight: '800' }}>
+                        🟢 {totalInsideCount} Inside
+                      </span>
+                      <span style={{ background: '#fef3c7', color: '#b45309', padding: '3px 9px', borderRadius: '999px', fontSize: '11px', fontWeight: '800' }}>
+                        🟠 {totalOutsideCount} Out {totalMedicalCount > 0 ? `(🏥 ${totalMedicalCount} Med)` : ''}
+                      </span>
                     </div>
                   </div>
 
-                  <div style={{ background: '#fff1f2', padding: '20px', borderRadius: '14px', border: '1px solid #fecdd3', textAlign: 'center' }}>
+                  <div
+                    onClick={() => setActiveAdminTab('outpass')}
+                    style={{ background: '#ecfdf5', padding: '20px', borderRadius: '14px', border: '1px solid #a7f3d0', textAlign: 'center', cursor: 'pointer' }}
+                  >
+                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857', textTransform: 'uppercase' }}>MALAYALAM (GENERAL) STREAM</span>
+                    <div style={{ fontSize: '28px', fontWeight: '900', color: '#065f46', marginTop: '6px' }}>
+                      {malayalamStudents.length}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
+                      <span style={{ background: '#ffffff', color: '#047857', border: '1px solid #a7f3d0', padding: '3px 9px', borderRadius: '999px', fontSize: '11px', fontWeight: '800' }}>
+                        🟢 {malayalamInsideCount} Inside
+                      </span>
+                      <span style={{ background: '#ffffff', color: '#d97706', border: '1px solid #fde68a', padding: '3px 9px', borderRadius: '999px', fontSize: '11px', fontWeight: '800' }}>
+                        🟠 {malayalamOutsideCount} Outside
+                      </span>
+                    </div>
+                  </div>
+
+                  <div
+                    onClick={() => setActiveAdminTab('outpass')}
+                    style={{ background: '#fff1f2', padding: '20px', borderRadius: '14px', border: '1px solid #fecdd3', textAlign: 'center', cursor: 'pointer' }}
+                  >
                     <span style={{ fontSize: '11px', fontWeight: '800', color: '#be123c', textTransform: 'uppercase' }}>URDU (NIICS) STREAM</span>
                     <div style={{ fontSize: '28px', fontWeight: '900', color: '#9f1239', marginTop: '6px' }}>
-                      {adminStudentsList.filter(s => String(s.adNo || '').toUpperCase().startsWith('U')).length}
+                      {urduStudents.length}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
+                      <span style={{ background: '#ffffff', color: '#047857', border: '1px solid #a7f3d0', padding: '3px 9px', borderRadius: '999px', fontSize: '11px', fontWeight: '800' }}>
+                        🟢 {urduInsideCount} Inside
+                      </span>
+                      <span style={{ background: '#ffffff', color: '#e11d48', border: '1px solid #fecdd3', padding: '3px 9px', borderRadius: '999px', fontSize: '11px', fontWeight: '800' }}>
+                        🟠 {urduOutsideCount} Outside
+                      </span>
                     </div>
                   </div>
 
-                  <div style={{ background: '#eff6ff', padding: '20px', borderRadius: '14px', border: '1px solid #bfdbfe', textAlign: 'center' }}>
+                  <div
+                    onClick={() => setActiveAdminTab('teachers')}
+                    style={{ background: '#eff6ff', padding: '20px', borderRadius: '14px', border: '1px solid #bfdbfe', textAlign: 'center', cursor: 'pointer' }}
+                  >
                     <span style={{ fontSize: '11px', fontWeight: '800', color: '#1d4ed8', textTransform: 'uppercase' }}>FACULTY &amp; COURSES</span>
                     <div style={{ fontSize: '28px', fontWeight: '900', color: '#1e40af', marginTop: '6px' }}>
                       {adminTeachersList.length} <span style={{ fontSize: '15px', fontWeight: '700', color: '#64748b' }}>({totalEnrollmentsCount} Batches)</span>
                     </div>
+                    <div style={{ marginTop: '10px', fontSize: '11px', fontWeight: '700', color: '#1d4ed8' }}>
+                      Active Subject Batches &amp; Mentors
+                    </div>
                   </div>
                 </div>
 
-                {/* 🌟 CLEAN MINIMALIST MODULE CARDS (Without "Open Module ->" text!) */}
+                {/* CLEAN MINIMALIST MODULE CARDS (Without "Open Module ->" text!) */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: '16px' }}>
                   {sidebarNavItems.filter(i => i.id !== 'dashboard').map(item => (
                     <div
@@ -529,7 +625,7 @@ export default function UnifiedSchoolPortal() {
         <div style={{ background: '#ffffff', padding: '38px 32px', borderRadius: '16px', boxShadow: '0 4px 20px rgba(15, 23, 42, 0.05)', border: '1px solid #e2e8f0' }}>
           <div style={{ textAlign: 'center', marginBottom: '28px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <img src={DHIU_LOGO_URL} alt="DHIU Logo" style={{ width: '68px', height: '68px', borderRadius: '50%', objectFit: 'contain', marginBottom: '12px' }} />
-            <h2 style={{ color: '#0f172a', margin: '0 0 6px 0', fontSize: '24px', fontWeight: '800' }}>DHIU Degree Campus ERP</h2>
+            <h2 style={{ color: '#0f172a', margin: '0 0 6px 0', fontSize: '24px', fontWeight: '800' }}>DHIU Campus ERP</h2>
             <p style={{ color: '#64748b', fontSize: '14px', margin: 0, fontWeight: '500' }}>Sign in as Student, Faculty, or Admin</p>
           </div>
 

@@ -6,7 +6,8 @@ import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc, getDocs, setDoc, deleteDoc, collection, writeBatch } from 'firebase/firestore';
 import { DEFAULT_CLASSES, DEFAULT_SUBJECTS, DHIU_LOGO_URL, styles, sortStudentsByDepartment } from './erpConstants';
 import { doesClassMatchAlias, openDirectWhatsApp, resolveClassTeacherForStudent, CollapsibleCard } from './ErpExtensions';
-import PeriodAttendanceReportsAndMinus from './PeriodAttendanceReportsAndMinus';
+import PeriodAttendanceReportsHub from './PeriodAttendanceReportsHub';
+import PeriodAttendanceMinusAndClearance from './PeriodAttendanceMinusAndClearance';
 
 export const isHifzEnrollment = (env) => {
   const subUp = String(env?.subject || '').trim().toUpperCase();
@@ -1662,9 +1663,35 @@ export default function PeriodAttendanceManager({
         </div>
       )}
 
-      {/* DELEGATE REPORTS HUB, MINUS ATTENDANCE, CLEARANCE, SHORTAGE & SHUHOOD IMPORT TO PART 2 COMPONENT */}
-      {['reports_hub', 'minus_attendance', 'clearance', 'shortage', 'import_old'].includes(activeTab) && !isEventLeaderUser && (
-        <PeriodAttendanceReportsAndMinus
+      {/* DELEGATE REPORTS HUB TO MODULAR COMPONENT */}
+      {activeTab === 'reports_hub' && !isEventLeaderUser && (
+        <PeriodAttendanceReportsHub
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          userRole={userRole}
+          loggedInUser={loggedInUser}
+          activeTeacherObj={activeTeacherObj}
+          localStudents={localStudents}
+          localTeachers={localTeachers}
+          attendanceEnrollments={attendanceEnrollments}
+          getStudentsForEnrollment={getStudentsForEnrollment}
+          getStudentAttStat={getStudentAttStat}
+          normalizeSubKey={normalizeSubKey}
+          isAttendanceOnlyEnrollment={isAttendanceOnlyEnrollment}
+          isHifzEnrollment={isHifzEnrollment}
+          setSelectedTeacherUsername={setSelectedTeacherUsername}
+          setAttEnrollmentId={setAttEnrollmentId}
+          setAttDate={setAttDate}
+          setAttSession={setAttSession}
+          loading={loading}
+          setLoading={setLoading}
+          setStatusMsg={setStatusMsg}
+        />
+      )}
+
+      {/* DELEGATE MINUS ATTENDANCE, CLEARANCE, SHORTAGE & SHUHOOD IMPORT TO MODULAR COMPONENT */}
+      {['minus_attendance', 'clearance', 'shortage', 'import_old'].includes(activeTab) && !isEventLeaderUser && (
+        <PeriodAttendanceMinusAndClearance
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           userRole={userRole}
