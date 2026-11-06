@@ -14,24 +14,25 @@ import {
 const QUICK_DESTINATIONS = Array.from(
   new Set([
     "Home",
-    "Chemmad Town",
-    "Hospital / Clinic",
-    "Bookplus / Stationery",
-    "Mosque (Jumu'ah)",
+    "Chemmad",
+    "Bookplus",
+    "Mampuram",
+    "Tirurangadi Hospital",
     "Bank / ATM",
     "Barber Shop",
+    "Medical Store",
     "Kozhikode",
     "Malappuram",
     ...(PRESET_DESTINATIONS || []),
   ])
 );
 
-const QUICK_REASONS = [
+const QUICK_PURPOSES = [
   "Monthly 3-Day Home Leave",
+  "Bookplus / Stationery",
   "Medical / Hospital Case",
   "Friday Jumu'ah / Outing",
-  "Bookplus / Stationery",
-  "Personal / Essential Purchase",
+  "Personal Purchase",
   "Department / Official Work",
   "Family Function / Visit",
   "Dental / Eye Checkup",
@@ -119,7 +120,12 @@ export default function OutpassTeacherDesk({
   handleTeacherVerifyArrival,
   handleCancelPass,
 }) {
+  // 🌟 Minimalist Popover Toggles so chips stay neatly tucked inside selector buttons!
   const [showHomeBatchTools, setShowHomeBatchTools] = useState(false);
+  const [openCategoryList, setOpenCategoryList] = useState(false);
+  const [openDestinationList, setOpenDestinationList] = useState(false);
+  const [openPurposeList, setOpenPurposeList] = useState(false);
+
   const showStudentSearchBox = isGroupMode ? true : !selectedStudent;
 
   const myActiveClasses = hasPrincipalPower
@@ -138,9 +144,32 @@ export default function OutpassTeacherDesk({
         p.status === "APPROVED")
   ).length;
 
+  const formatCategoryLabel = (cat) => {
+    if (cat === "Weekend_Thu_Sat") return "Weekend (Thu Eve – Sat)";
+    if (cat === "Monthly_Home") return "🏠 Monthly Home (3 Days)";
+    return cat || "General";
+  };
+
+  const handleSelectCategoryOption = (cat) => {
+    setLeaveCategory(cat);
+    if (cat === "Medical") {
+      setIsOpenReturn(true);
+      setActiveDurationChip("open");
+    } else if (cat === "Evening") {
+      applyUntilEvening();
+    } else if (cat === "Monthly_Home") {
+      setDestination("Home");
+      setPurpose("Monthly 3-Day Home Leave");
+      applyDaysDuration(3, "3d");
+    } else if (cat === "Weekend_Thu_Sat") {
+      applyDaysDuration(2, "2d");
+    }
+    setOpenCategoryList(false);
+  };
+
   return (
     <>
-      {/* 🏠 MINIMALIST COLLAPSIBLE MONTHLY 3-DAY HOME LEAVE BAR FOR CLASS TEACHERS */}
+      {/* 🏠 COLLAPSIBLE MONTHLY 3-DAY HOME LEAVE & 1-CLICK BULK RETURN MODULE FOR CLASS TEACHERS */}
       {((myPrivileges.classTeacherOf || []).length > 0 ||
         hasPrincipalPower ||
         myPrivileges.isNiicsCoordinator) && (
@@ -178,10 +207,10 @@ export default function OutpassTeacherDesk({
                   fontWeight: 800,
                 }}
               >
-                🏠 CLASS TEACHER BATCH TOOLS
+                🏠 CLASS TEACHER &amp; NIICS HOME LEAVE MODULE
               </span>
               <span style={{ fontSize: 14, fontWeight: 800, color: "#0f172a" }}>
-                Monthly 3-Day Home Leave Generator, Bulk Return &amp; Latecomers Report
+                Monthly 3-Day Home Leave Generator, Bulk Return &amp; Principal Report
               </span>
               {activeClassHomePassesCount > 0 && (
                 <span
@@ -216,7 +245,7 @@ export default function OutpassTeacherDesk({
               }}
             >
               <p style={{ margin: 0, fontSize: 12, color: "#64748b", fontWeight: 500 }}>
-                Load all Kerala students of your class for 3-Day Home Leave, verify returned students in one click, or copy the Principal report.
+                Load all Kerala students of your class for 3-Day Home Leave, verify all returned students in one click, or copy the Unpermitted Latecomers list for the Principal.
               </p>
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -255,7 +284,7 @@ export default function OutpassTeacherDesk({
                     cursor: "pointer",
                   }}
                 >
-                  🏠 1. Load Class Students (3-Day Home)
+                  🏠 1. Load Class Students (3-Day Home Leave)
                 </button>
 
                 {activeClassHomePassesCount > 0 && handleBulkVerifyClassReturn && (
@@ -273,7 +302,7 @@ export default function OutpassTeacherDesk({
                       cursor: "pointer",
                     }}
                   >
-                    ✅ 2. Bulk Mark Returned ({activeClassHomePassesCount})
+                    ✅ 2. Bulk Mark Returned ({activeClassHomePassesCount} Active)
                   </button>
                 )}
 
@@ -351,7 +380,7 @@ export default function OutpassTeacherDesk({
                     cursor: "pointer",
                   }}
                 >
-                  📋 3. Copy Latecomers Report
+                  📋 3. Copy Latecomers Report for Principal
                 </button>
               </div>
             </div>
@@ -383,8 +412,16 @@ export default function OutpassTeacherDesk({
             }}
           >
             <div>
-              <div style={{ fontSize: 10, fontWeight: 800, color: "#4f46e5", letterSpacing: "0.6px", textTransform: "uppercase" }}>
-                TEACHER LEAVE PERMISSION DESK
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 800,
+                  color: "#4f46e5",
+                  letterSpacing: "0.6px",
+                  textTransform: "uppercase",
+                }}
+              >
+                DEGREE SECTION • TEACHER LEAVE PERMISSION DESK
               </div>
               <h2 style={{ margin: "2px 0 0", fontSize: 18, fontWeight: 800, color: "#0f172a" }}>
                 Permit Student Out-Pass
@@ -409,39 +446,58 @@ export default function OutpassTeacherDesk({
                 cursor: "pointer",
               }}
             >
-              {isGroupMode ? "👥 Group Pass Mode (ON)" : "👤 Single Student (Switch to Group)"}
+              {isGroupMode
+                ? "👥 Group Out-Pass Mode (ON)"
+                : "👤 Single Student (Click for Group Pass)"}
             </button>
           </div>
 
           <div style={styles.slipBody}>
-            {/* Compact Authority Strip */}
+            {/* Authority Badges */}
             <div
               style={{
                 background: "#f8fafc",
                 border: "1px solid #e2e8f0",
-                padding: "8px 12px",
-                borderRadius: 8,
+                padding: "9px 12px",
+                borderRadius: 10,
                 marginBottom: 12,
                 fontSize: 11,
-                color: "#475569",
+                color: "#334155",
                 display: "flex",
                 flexWrap: "wrap",
                 gap: 6,
                 alignItems: "center",
               }}
             >
-              <strong>Authority:</strong>
-              <span>Friday (All) • Evening (Mentees)</span>
+              <strong>🔑 Authority:</strong>
+              <span style={styles.adNoBadge}>🕌 Friday (All)</span>
+              <span style={styles.adNoBadge}>🌇 Evening (Mentees)</span>
               {(myPrivileges.classTeacherOf || []).length > 0 && (
-                <span style={{ color: "#047857", fontWeight: 700 }}>
-                  • CT: {myPrivileges.classTeacherOf.join(", ")}
+                <span style={styles.insideStatusBadge}>
+                  🏫 CT: {myPrivileges.classTeacherOf.join(", ")}
                 </span>
               )}
               {myPrivileges.isNiicsCoordinator && (
-                <span style={{ color: "#b45309", fontWeight: 700 }}>• NIICS Coordinator</span>
+                <span style={{ ...styles.adNoBadge, background: "#fef3c7", color: "#92400e" }}>
+                  🎓 NIICS Coordinator
+                </span>
+              )}
+              {(hasPrincipalPower || myPrivileges.canApproveWeekend) && (
+                <span style={{ ...styles.adNoBadge, background: "#f3e8ff", color: "#6d28d9" }}>
+                  🗓️ Thu–Sat Weekend
+                </span>
+              )}
+              {(hasPrincipalPower ||
+                myPrivileges.canApproveOutreach ||
+                myPrivileges.isOutreachCoordinator) && (
+                <span style={{ ...styles.adNoBadge, background: "#ffedd5", color: "#c2410c" }}>
+                  🌍 Outreach
+                </span>
               )}
               {hasPrincipalPower && (
-                <span style={{ color: "#4f46e5", fontWeight: 700 }}>• Principal Override</span>
+                <span style={{ ...styles.adNoBadge, background: "#fef08a", color: "#854d0e" }}>
+                  👑 Principal Override
+                </span>
               )}
             </div>
 
@@ -466,15 +522,16 @@ export default function OutpassTeacherDesk({
                 checked={autoOpenParentWA}
                 onChange={(e) => setAutoOpenParentWA(e.target.checked)}
               />
-              💬 Auto-open Parent&apos;s WhatsApp chat when permitting Home Leave
+              💬 Automatically open Parent&apos;s WhatsApp chat when permitting Home Leave
             </label>
 
+            {/* 1. STUDENT SEARCH / SCAN */}
             <div style={{ marginBottom: 18 }}>
               <label style={styles.fieldLabel}>
                 1.{" "}
                 {isGroupMode
-                  ? `Select Multiple Students (${selectedGroupStudents.length} selected)`
-                  : "Select Student (Scan ID or Search Ad.No / Name)"}
+                  ? `Select Multiple Students for Group Out-Pass (${selectedGroupStudents.length} selected)`
+                  : "Select Student (Scan Barcode or Search Ad.No / Name)"}
               </label>
 
               {showStudentSearchBox && (
@@ -494,7 +551,7 @@ export default function OutpassTeacherDesk({
                           onClick={() => setSearchQuery("")}
                           style={styles.searchClearIconBtn}
                         >
-                          ✕
+                          ✕ Clear
                         </button>
                       )}
                     </div>
@@ -505,17 +562,7 @@ export default function OutpassTeacherDesk({
                         setScannerMode("teacher");
                         setScannerOpen(true);
                       }}
-                      style={{
-                        padding: "0 14px",
-                        background: "#ffffff",
-                        color: "#334155",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: 8,
-                        fontWeight: 700,
-                        fontSize: 12,
-                        cursor: "pointer",
-                        whiteSpace: "nowrap",
-                      }}
+                      style={styles.barcodeScanBtn}
                     >
                       📷 Scan ID
                     </button>
@@ -552,14 +599,14 @@ export default function OutpassTeacherDesk({
                                 name={st.name}
                                 adNo={st.adNo}
                                 photoUrl={st.photoUrl}
-                                size={36}
+                                size={38}
                               />
                               <div>
-                                <div style={{ fontWeight: 700, color: "#0f172a", fontSize: 13 }}>
+                                <div style={{ fontWeight: 700, color: "#0f172a", fontSize: 14 }}>
                                   {st.name}
                                 </div>
-                                <div style={{ fontSize: 11, color: "#64748b" }}>
-                                  Ad.No: <strong style={{ color: "#4f46e5" }}>#{st.adNo}</strong> • {st.department} • {st.district}
+                                <div style={{ fontSize: 12, color: "#475569" }}>
+                                  Ad.No: <strong style={{ color: "#4f46e5" }}>#{st.adNo}</strong> • {st.department} • {st.district}, {st.state}
                                 </div>
                               </div>
                             </div>
@@ -589,13 +636,13 @@ export default function OutpassTeacherDesk({
                   style={{
                     display: "flex",
                     flexWrap: "wrap",
-                    gap: 6,
-                    marginTop: 10,
+                    gap: 8,
+                    marginTop: 12,
                     background: "#f8fafc",
-                    padding: 10,
-                    borderRadius: 10,
+                    padding: 12,
+                    borderRadius: 12,
                     border: "1px solid #cbd5e1",
-                    maxHeight: 160,
+                    maxHeight: 180,
                     overflowY: "auto",
                   }}
                 >
@@ -605,7 +652,7 @@ export default function OutpassTeacherDesk({
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
-                        gap: 6,
+                        gap: 8,
                         background: "#ffffff",
                         border: "1px solid #cbd5e1",
                         padding: "5px 10px",
@@ -625,11 +672,14 @@ export default function OutpassTeacherDesk({
                           )
                         }
                         style={{
-                          background: "transparent",
-                          color: "#e11d48",
+                          background: "#fee2e2",
+                          color: "#dc2626",
                           border: "none",
+                          borderRadius: 999,
+                          width: 20,
+                          height: 20,
                           cursor: "pointer",
-                          fontWeight: 800,
+                          fontWeight: 900,
                         }}
                       >
                         ✕
@@ -650,57 +700,77 @@ export default function OutpassTeacherDesk({
                       flexWrap: "wrap",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                       <StudentAvatar
                         name={selectedStudent.name}
                         adNo={selectedStudent.adNo}
                         photoUrl={selectedStudent.photoUrl}
-                        size={48}
+                        size={56}
                         onClick={() => setZoomPhotoStudent(selectedStudent)}
                       />
                       <div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <span style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>
                             {selectedStudent.name}
                           </span>
                           <span style={styles.classPillActive}>
                             Class {selectedStudent.studentClass}
                           </span>
+                          <span style={styles.classPill}>{selectedStudent.department}</span>
                           <button
                             type="button"
                             onClick={() => setPortfolioModalStudent(selectedStudent)}
                             style={{
-                              padding: "3px 9px",
+                              padding: "3px 10px",
                               background: "#ffffff",
                               color: "#4f46e5",
                               border: "1px solid #c7d2fe",
-                              borderRadius: 6,
+                              borderRadius: 999,
                               fontSize: 11,
-                              fontWeight: 700,
+                              fontWeight: 800,
                               cursor: "pointer",
                             }}
                           >
-                            👁️ View Portfolio
+                            🏆 Portfolio &amp; Details
                           </button>
                         </div>
                         <div
                           style={{
-                            fontSize: 12,
-                            color: "#475569",
+                            fontSize: 13,
+                            color: "#334155",
                             marginTop: 4,
                             display: "flex",
-                            gap: 12,
+                            gap: 14,
                             flexWrap: "wrap",
                           }}
                         >
                           <span>
-                            Ad.No: <strong>#{selectedStudent.adNo}</strong>
+                            Ad.No:{" "}
+                            <strong style={{ color: "#4f46e5" }}>
+                              #{selectedStudent.adNo}
+                            </strong>
                           </span>
                           <span>
-                            Mentor: <strong>{selectedStudent.mentorUsername || "—"}</strong>
+                            👨‍🏫 Mentor:{" "}
+                            <strong>
+                              {selectedStudent.mentorUsername
+                                ? selectedStudent.mentorUsername
+                                : "—"}
+                            </strong>
                           </span>
                           <span>
-                            Outings this month: <strong>{getMonthlyOutCount(selectedStudent.adNo)}</strong>
+                            📍 {selectedStudent.district}, {selectedStudent.state}
+                          </span>
+                          <span style={styles.monthOutingsBadge}>
+                            📊 Outings this month:{" "}
+                            <strong>{getMonthlyOutCount(selectedStudent.adNo)}</strong>
                           </span>
                         </div>
                       </div>
@@ -720,141 +790,231 @@ export default function OutpassTeacherDesk({
                       <div style={styles.duplicateWarningBox}>
                         🚫 <strong>Disciplinary Block Active:</strong> Blocked categories:{" "}
                         <strong>{selectedStudent.blockedCategories.join(", ")}</strong>
-                        {selectedStudent.blockReason && ` — Reason: ${selectedStudent.blockReason}`}
+                        {selectedStudent.blockReason &&
+                          ` — Reason: ${selectedStudent.blockReason}`}
                       </div>
                     )}
 
                   {!activePermissionCheck.allowed && (
-                    <div style={styles.duplicateWarningBox}>{activePermissionCheck.reason}</div>
+                    <div style={styles.duplicateWarningBox}>
+                      {activePermissionCheck.reason}
+                    </div>
                   )}
                 </div>
               )}
             </div>
 
             <form onSubmit={handleIssuePass}>
-              {/* 2. LEAVE CATEGORY QUICK-SELECT PILLS */}
-              <div style={{ marginBottom: 18 }}>
-                <label style={styles.fieldLabel}>2. Select Leave Category</label>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {LEAVE_CATEGORIES.map((cat) => {
-                    const active = leaveCategory === cat;
-                    const labelText =
-                      cat === "Weekend_Thu_Sat"
-                        ? "Weekend (Thu–Sat)"
-                        : cat === "Monthly_Home"
-                        ? "Monthly Home (3d)"
-                        : cat;
-                    return (
-                      <button
-                        type="button"
-                        key={cat}
-                        onClick={() => {
-                          setLeaveCategory(cat);
-                          if (cat === "Medical") {
-                            setIsOpenReturn(true);
-                            setActiveDurationChip("open");
-                          } else if (cat === "Evening") {
-                            applyUntilEvening();
-                          } else if (cat === "Monthly_Home") {
-                            setDestination("Home");
-                            setPurpose("Monthly 3-Day Home Leave");
-                            applyDaysDuration(3, "3d");
-                          } else if (cat === "Weekend_Thu_Sat") {
-                            applyDaysDuration(2, "2d");
-                          }
-                        }}
-                        style={{
-                          padding: "7px 13px",
-                          borderRadius: "8px",
-                          fontSize: "12px",
-                          fontWeight: 700,
-                          cursor: "pointer",
-                          border: active ? "1px solid #4f46e5" : "1px solid #cbd5e1",
-                          background: active ? "#4f46e5" : "#ffffff",
-                          color: active ? "#ffffff" : "#334155",
-                        }}
-                      >
-                        {labelText}
-                      </button>
-                    );
-                  })}
-                </div>
+              {/* 🌟 2. LEAVE CATEGORY SELECTOR BUTTON (Opens list on click!) */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={styles.fieldLabel}>2. Leave Category</label>
+                <button
+                  type="button"
+                  onClick={() => setOpenCategoryList((prev) => !prev)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 14px",
+                    borderRadius: 8,
+                    border: openCategoryList ? "1.5px solid #4f46e5" : "1px solid #cbd5e1",
+                    background: "#ffffff",
+                    color: "#0f172a",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: "pointer",
+                  }}
+                >
+                  <span>🏷️ Selected: {formatCategoryLabel(leaveCategory)}</span>
+                  <span style={{ color: "#4f46e5", fontSize: 12 }}>
+                    {openCategoryList ? "▲ Close List" : "▼ Change Category"}
+                  </span>
+                </button>
+
+                {openCategoryList && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 6,
+                      marginTop: 8,
+                      padding: 12,
+                      background: "#f8fafc",
+                      borderRadius: 10,
+                      border: "1px solid #e2e8f0",
+                    }}
+                  >
+                    {LEAVE_CATEGORIES.map((cat) => {
+                      const active = leaveCategory === cat;
+                      return (
+                        <button
+                          type="button"
+                          key={cat}
+                          onClick={() => handleSelectCategoryOption(cat)}
+                          style={{
+                            padding: "7px 13px",
+                            borderRadius: 8,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            border: active ? "1px solid #4f46e5" : "1px solid #cbd5e1",
+                            background: active ? "#4f46e5" : "#ffffff",
+                            color: active ? "#ffffff" : "#334155",
+                          }}
+                        >
+                          {formatCategoryLabel(cat)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
-              {/* 🌟 3. DESTINATION QUICK-SELECT BUTTONS ABOVE INPUT */}
-              <div style={{ marginBottom: 18 }}>
-                <label style={styles.fieldLabel}>3. Destination (Click Quick-Select or Type)</label>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-                  {QUICK_DESTINATIONS.map((place) => {
-                    const active = destination === place;
-                    return (
-                      <button
-                        type="button"
-                        key={place}
-                        onClick={() => setDestination(place)}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: "8px",
-                          fontSize: "12px",
-                          fontWeight: 700,
-                          cursor: "pointer",
-                          border: active ? "1px solid #4f46e5" : "1px solid #e2e8f0",
-                          background: active ? "#4f46e5" : "#f8fafc",
-                          color: active ? "#ffffff" : "#475569",
-                        }}
-                      >
-                        📍 {place}
-                      </button>
-                    );
-                  })}
+              {/* 🌟 3. DESTINATION INPUT + POPOVER SELECTOR BUTTON */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={styles.fieldLabel}>3. Destination</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="text"
+                    placeholder="Type destination or click Choose List..."
+                    value={destination}
+                    onChange={(e) => setDestination(e.target.value)}
+                    style={{ ...styles.textInput, flex: 1 }}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setOpenDestinationList((prev) => !prev)}
+                    style={{
+                      padding: "0 14px",
+                      borderRadius: 8,
+                      border: openDestinationList ? "1.5px solid #4f46e5" : "1px solid #cbd5e1",
+                      background: openDestinationList ? "#eef2ff" : "#f8fafc",
+                      color: "#4f46e5",
+                      fontWeight: 700,
+                      fontSize: 12,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    📍 {openDestinationList ? "▲ Hide List" : "▼ Choose Place"}
+                  </button>
                 </div>
-                <input
-                  type="text"
-                  placeholder="Or type custom destination..."
-                  value={destination}
-                  onChange={(e) => setDestination(e.target.value)}
-                  style={styles.textInput}
-                  required
-                />
+
+                {openDestinationList && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 6,
+                      marginTop: 8,
+                      padding: 12,
+                      background: "#f8fafc",
+                      borderRadius: 10,
+                      border: "1px solid #e2e8f0",
+                    }}
+                  >
+                    {QUICK_DESTINATIONS.map((place) => {
+                      const active = destination === place;
+                      return (
+                        <button
+                          type="button"
+                          key={place}
+                          onClick={() => {
+                            setDestination(place);
+                            setOpenDestinationList(false);
+                          }}
+                          style={{
+                            padding: "6px 12px",
+                            borderRadius: 8,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            border: active ? "1px solid #4f46e5" : "1px solid #cbd5e1",
+                            background: active ? "#4f46e5" : "#ffffff",
+                            color: active ? "#ffffff" : "#334155",
+                          }}
+                        >
+                          📍 {place}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
-              {/* 🌟 4. PURPOSE / REASON QUICK-SELECT BUTTONS ABOVE INPUT */}
-              <div style={{ marginBottom: 18 }}>
-                <label style={styles.fieldLabel}>
-                  4. Purpose / Reason for Leave (Click Quick-Select or Type)
-                </label>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-                  {QUICK_REASONS.map((rsn) => {
-                    const active = purpose === rsn;
-                    return (
-                      <button
-                        type="button"
-                        key={rsn}
-                        onClick={() => setPurpose(rsn)}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: "8px",
-                          fontSize: "12px",
-                          fontWeight: 700,
-                          cursor: "pointer",
-                          border: active ? "1px solid #4f46e5" : "1px solid #e2e8f0",
-                          background: active ? "#4f46e5" : "#f8fafc",
-                          color: active ? "#ffffff" : "#475569",
-                        }}
-                      >
-                        ✓ {rsn}
-                      </button>
-                    );
-                  })}
+              {/* 🌟 4. PURPOSE / REASON INPUT + POPOVER SELECTOR BUTTON */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={styles.fieldLabel}>4. Purpose / Reason for Leave</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="text"
+                    placeholder="Type reason or click Choose Reason..."
+                    value={purpose}
+                    onChange={(e) => setPurpose(e.target.value)}
+                    style={{ ...styles.textInput, flex: 1 }}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setOpenPurposeList((prev) => !prev)}
+                    style={{
+                      padding: "0 14px",
+                      borderRadius: 8,
+                      border: openPurposeList ? "1.5px solid #4f46e5" : "1px solid #cbd5e1",
+                      background: openPurposeList ? "#eef2ff" : "#f8fafc",
+                      color: "#4f46e5",
+                      fontWeight: 700,
+                      fontSize: 12,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    📝 {openPurposeList ? "▲ Hide List" : "▼ Choose Reason"}
+                  </button>
                 </div>
-                <input
-                  type="text"
-                  placeholder="Or type custom reason..."
-                  value={purpose}
-                  onChange={(e) => setPurpose(e.target.value)}
-                  style={styles.textInput}
-                  required
-                />
+
+                {openPurposeList && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 6,
+                      marginTop: 8,
+                      padding: 12,
+                      background: "#f8fafc",
+                      borderRadius: 10,
+                      border: "1px solid #e2e8f0",
+                    }}
+                  >
+                    {QUICK_PURPOSES.map((rsn) => {
+                      const active = purpose === rsn;
+                      return (
+                        <button
+                          type="button"
+                          key={rsn}
+                          onClick={() => {
+                            setPurpose(rsn);
+                            setOpenPurposeList(false);
+                          }}
+                          style={{
+                            padding: "6px 12px",
+                            borderRadius: 8,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            border: active ? "1px solid #4f46e5" : "1px solid #cbd5e1",
+                            background: active ? "#4f46e5" : "#ffffff",
+                            color: active ? "#ffffff" : "#334155",
+                          }}
+                        >
+                          ✓ {rsn}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* 5. SCHEDULE & DURATION PRESETS */}
@@ -878,7 +1038,7 @@ export default function OutpassTeacherDesk({
                     { id: "2h", label: "⏱️ +2 Hrs", fn: () => applyHoursDuration(2, "2h") },
                     { id: "6pm", label: "🌇 Today 6:00 PM", fn: applyUntilEvening },
                     { id: "1d", label: "📅 +1 Day", fn: () => applyDaysDuration(1, "1d") },
-                    { id: "3d", label: "📅 +3 Days", fn: () => applyDaysDuration(3, "3d") },
+                    { id: "3d", label: "📅 +3 Days (Monthly Home)", fn: () => applyDaysDuration(3, "3d") },
                   ].map((d) => {
                     const active = activeDurationChip === d.id && !isOpenReturn;
                     return (
@@ -991,7 +1151,7 @@ export default function OutpassTeacherDesk({
                     </div>
                   )}
                 </div>
-                <span style={styles.verifiedAccountBadge}>✓ Verified</span>
+                <span style={styles.verifiedAccountBadge}>✓ Verified Teacher</span>
               </div>
 
               <button
@@ -1054,7 +1214,7 @@ export default function OutpassTeacherDesk({
             {[
               { id: "ALL", label: "All Mine", count: myPermittedPasses.length },
               { id: "OUTSIDE", label: "Active Out", count: myOutsideCount },
-              { id: "UNVERIFIED", label: "Verify Arrival", count: myUnverifiedCount },
+              { id: "UNVERIFIED", label: "⚠️ Verify Arrival", count: myUnverifiedCount },
               { id: "RETURNED", label: "Returned", count: myReturnedCount },
             ].map((tab) => {
               const active = teacherStatusFilter === tab.id;
@@ -1077,7 +1237,7 @@ export default function OutpassTeacherDesk({
           <div style={{ position: "relative", marginBottom: 14 }}>
             <input
               type="text"
-              placeholder="🔍 Filter students by name, Ad.No, or place..."
+              placeholder="Filter students by name, Ad.No, or place..."
               value={teacherSearch}
               onChange={(e) => setTeacherSearch(e.target.value)}
               style={styles.searchInputSmall}
@@ -1138,11 +1298,11 @@ export default function OutpassTeacherDesk({
                         />
                         <div>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                            <span style={{ fontWeight: 800, fontSize: 14, color: "#0f172a" }}>
+                            <span style={{ fontWeight: 800, fontSize: 15, color: "#0f172a" }}>
                               {p.studentName}
                             </span>
                             <span style={styles.adNoBadge}>#{p.adNo}</span>
-                            <span style={styles.classPill}>{p.studentClass}</span>
+                            <span style={styles.classPill}>{p.studentClass} (Degree)</span>
                             <span
                               style={{
                                 ...styles.classPill,
@@ -1159,7 +1319,7 @@ export default function OutpassTeacherDesk({
                           </div>
 
                           {p.extensionReason && (
-                            <div style={{ fontSize: 12, color: "#047857", fontWeight: 700, marginTop: 3 }}>
+                            <div style={{ fontSize: 12, color: "#047857", fontWeight: 800, marginTop: 3 }}>
                               ⏳ Permitted Extension: {p.extensionReason}
                             </div>
                           )}
@@ -1219,7 +1379,7 @@ export default function OutpassTeacherDesk({
                               onClick={() => setPortfolioModalStudent(stObj)}
                               style={styles.editPassBtn}
                             >
-                              👁️ View
+                              🏆 Portfolio
                             </button>
                           )}
                           <button

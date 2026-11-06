@@ -15,76 +15,78 @@ import {
 } from '../components/ErpExtensions';
 
 const styles = {
-  pageBackground: {
-    minHeight: '100vh',
-    backgroundColor: '#f1f5f9',
-    padding: '24px 14px',
-    fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
-    color: '#0f172a'
-  },
   card: {
     background: '#ffffff',
-    padding: '24px',
-    borderRadius: '18px',
-    boxShadow: '0 4px 20px rgba(15, 23, 42, 0.04)',
-    border: '1px solid #cbd5e1',
-    marginBottom: '22px'
+    padding: '22px',
+    borderRadius: '14px',
+    boxShadow: '0 1px 3px rgba(15, 23, 42, 0.03)',
+    border: '1px solid #e2e8f0',
+    marginBottom: '20px'
   },
   input: {
     width: '100%',
-    padding: '12px 16px',
-    borderRadius: '10px',
-    border: '1.5px solid #94a3b8',
+    padding: '10px 14px',
+    borderRadius: '8px',
+    border: '1px solid #cbd5e1',
     backgroundColor: '#ffffff',
     color: '#0f172a',
-    fontSize: '15px',
-    fontWeight: '600',
+    fontSize: '14px',
+    fontWeight: '500',
     outline: 'none',
     boxSizing: 'border-box'
   },
   label: {
     display: 'block',
-    fontSize: '12px',
-    fontWeight: '800',
-    color: '#0f172a',
-    marginBottom: '8px',
+    fontSize: '11px',
+    fontWeight: '700',
+    color: '#475569',
+    marginBottom: '6px',
     textTransform: 'uppercase',
     letterSpacing: '0.5px'
   },
   buttonPrimary: {
-    padding: '14px 24px',
-    background: 'linear-gradient(135deg, #00897b 0%, #0f766e 100%)',
+    padding: '11px 20px',
+    background: '#4f46e5',
     color: '#ffffff',
     border: 'none',
-    borderRadius: '12px',
-    fontWeight: '800',
+    borderRadius: '8px',
+    fontWeight: '700',
     cursor: 'pointer',
-    fontSize: '15px',
-    boxShadow: '0 4px 14px rgba(15, 118, 110, 0.25)'
+    fontSize: '14px'
+  },
+  buttonSecondary: {
+    padding: '9px 16px',
+    background: '#ffffff',
+    color: '#334155',
+    border: '1px solid #cbd5e1',
+    borderRadius: '8px',
+    fontWeight: '700',
+    cursor: 'pointer',
+    fontSize: '13px'
   },
   buttonDanger: {
-    padding: '10px 18px',
-    background: '#fef2f2',
-    color: '#dc2626',
-    border: '1px solid #fecaca',
-    borderRadius: '10px',
-    fontWeight: '800',
+    padding: '9px 16px',
+    background: '#fff1f2',
+    color: '#e11d48',
+    border: '1px solid #ffe4e6',
+    borderRadius: '8px',
+    fontWeight: '700',
     cursor: 'pointer',
     fontSize: '13px'
   },
   badge: {
     display: 'inline-block',
-    padding: '5px 10px',
-    borderRadius: '8px',
-    fontSize: '12px',
-    fontWeight: '800'
+    padding: '4px 10px',
+    borderRadius: '999px',
+    fontSize: '11px',
+    fontWeight: '700'
   },
   sectionTitle: {
-    margin: '0 0 18px 0',
-    fontSize: '18px',
+    margin: '0 0 16px 0',
+    fontSize: '17px',
     color: '#0f172a',
-    fontWeight: '900',
-    borderBottom: '2px solid #f1f5f9',
+    fontWeight: '800',
+    borderBottom: '1px solid #f1f5f9',
     paddingBottom: '12px'
   }
 };
@@ -106,24 +108,13 @@ const printStyles = `
       print-color-adjust: exact !important;
     }
     .no-print { display: none !important; }
+    .print-only-header { display: flex !important; }
     .print-container {
       padding: 0 !important;
       margin: 0 !important;
       max-width: 100% !important;
       background: #ffffff !important;
-    }
-    .print-header-card {
-      padding: 12px 16px !important;
-      margin-bottom: 8px !important;
-      background: #ffffff !important;
-      color: #0f172a !important;
-      border: 1px solid #94a3b8 !important;
-      border-radius: 8px !important;
-    }
-    .print-header-card h1 {
-      font-size: 16px !important;
-      color: #0f172a !important;
-      margin-bottom: 3px !important;
+      display: block !important;
     }
     .print-kpi-grid {
       display: grid !important;
@@ -276,6 +267,7 @@ const getEnrollmentMatchScore = (student, env, targetSubjectName) => {
 };
 
 function StudentWeeklyReminder({ reminder, studentMarks }) {
+  const [expanded, setExpanded] = useState(false);
   if (!reminder || !reminder.active) return null;
   let configs = reminder.targetConfigs;
   if (!configs && reminder.targetSubjects) {
@@ -308,37 +300,45 @@ function StudentWeeklyReminder({ reminder, studentMarks }) {
   };
 
   return (
-    <div className="no-print" style={{ background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)', border: '1.5px solid #f59e0b', padding: '18px 20px', borderRadius: '16px', marginBottom: '20px', boxShadow: '0 4px 15px rgba(245, 158, 11, 0.08)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-        <span style={{ fontSize: '26px', background: '#ffffff', width: '44px', height: '44px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #fcd34d' }}>📢</span>
-        <div>
-          <span style={{ background: '#d97706', color: '#ffffff', padding: '3px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: '900', textTransform: 'uppercase' }}>
-            {reminder.weekName || 'Current Week'} Academic Target
+    <div className="no-print" style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '14px 18px', borderRadius: '12px', marginBottom: '20px' }}>
+      <div
+        onClick={() => setExpanded(!expanded)}
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', flexWrap: 'wrap', gap: '10px' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <span style={{ background: '#eef2ff', color: '#4f46e5', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
+            📢 {reminder.weekName || 'Current Week'} Target
           </span>
-          <h4 style={{ margin: '5px 0 0 0', color: '#78350f', fontSize: '15px', fontWeight: '800' }}>
-            {reminder.message || 'Please complete and submit your assigned CCE works in these subjects:'}
-          </h4>
+          <span style={{ fontSize: '13px', fontWeight: '700', color: '#0f172a' }}>
+            {reminder.message || 'Complete and submit your assigned CCE works'}
+          </span>
         </div>
+        <span style={{ fontSize: '12px', fontWeight: '700', color: '#4f46e5' }}>
+          {expanded ? '▲ Hide Subjects' : '▼ View Target Subjects'}
+        </span>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px' }}>
-        {Object.keys(configs).map(sub => {
-          const rawLvls = Array.isArray(configs[sub]) ? configs[sub] : [configs[sub]];
-          if (rawLvls.length === 0) return null;
-          return (
-            <div key={sub} style={{ background: '#ffffff', border: '1px solid #fcd34d', padding: '7px 12px', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: '800', color: '#0f172a', fontSize: '13px' }}>{sub}:</span>
-              {rawLvls.map((lvl, i) => {
-                const isDone = hasMarkForSubjectLevel(sub, String(lvl));
-                return (
-                  <span key={i} style={{ background: isDone ? '#dcfce7' : '#fef2f2', color: isDone ? '#166534' : '#dc2626', border: `1px solid ${isDone ? '#86efac' : '#fecaca'}`, padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
-                    {isDone ? '✅' : '⏳'} {formatLevelTag(lvl)}
-                  </span>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
+
+      {expanded && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
+          {Object.keys(configs).map(sub => {
+            const rawLvls = Array.isArray(configs[sub]) ? configs[sub] : [configs[sub]];
+            if (rawLvls.length === 0) return null;
+            return (
+              <div key={sub} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: '700', color: '#0f172a', fontSize: '12px' }}>{sub}:</span>
+                {rawLvls.map((lvl, i) => {
+                  const isDone = hasMarkForSubjectLevel(sub, String(lvl));
+                  return (
+                    <span key={i} style={{ background: isDone ? '#ecfdf5' : '#fff1f2', color: isDone ? '#047857' : '#e11d48', padding: '2px 7px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>
+                      {isDone ? '✓' : '⏳'} {formatLevelTag(lvl)}
+                    </span>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -352,6 +352,7 @@ export default function StudentDashboard() {
   const [authChecking, setAuthChecking] = useState(true);
   const [loggedInStudent, setLoggedInStudent] = useState(null);
   const [activeTab, setActiveTab] = useState('marks'); // 'marks' | 'attendance' | 'mentorship' | 'portfolio' | 'faculty'
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -369,7 +370,7 @@ export default function StudentDashboard() {
     guidelinesNote: ''
   });
 
-  const [studentAttScope, setStudentAttScope] = useState('total'); // 'total' | 'monthly' | 'daily'
+  const [studentAttScope, setStudentAttScope] = useState('total');
   const [studentAttMonth, setStudentAttMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [studentAttDate, setStudentAttDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [attendanceData, setAttendanceData] = useState({
@@ -666,20 +667,20 @@ export default function StudentDashboard() {
   };
 
   const renderMarkCell = (mark, gradingStarted) => {
-    if (mark !== '-') return <span style={{ color: '#2563eb', fontWeight: '800', fontSize: '15px' }}>{mark}</span>;
+    if (mark !== '-') return <span style={{ color: '#4f46e5', fontWeight: '700', fontSize: '14px' }}>{mark}</span>;
     if (gradingStarted) {
       return (
-        <span style={{ background: '#fef2f2', color: '#dc2626', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', border: '1px solid #fecaca' }}>
-          ⚠️ Pending
+        <span style={{ background: '#fff1f2', color: '#e11d48', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>
+          Pending
         </span>
       );
     }
-    return <span style={{ color: '#cbd5e1', fontWeight: '600' }}>-</span>;
+    return <span style={{ color: '#cbd5e1', fontWeight: '500' }}>-</span>;
   };
 
   if (authChecking) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', fontWeight: '800', color: '#0f766e' }}>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', fontWeight: '700', color: '#4f46e5' }}>
         Loading Student Portal...
       </div>
     );
@@ -687,17 +688,17 @@ export default function StudentDashboard() {
 
   if (!authenticated) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9', fontFamily: 'Inter, system-ui, sans-serif', padding: '16px' }}>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', fontFamily: 'Inter, system-ui, sans-serif', padding: '16px' }}>
         <HighContrastStyles />
-        <div style={{ width: '100%', maxWidth: '430px' }}>
+        <div style={{ width: '100%', maxWidth: '420px' }}>
           <InstallAppBanner />
-          <div style={{ background: '#ffffff', padding: '40px 32px', borderRadius: '22px', boxShadow: '0 12px 34px rgba(15, 23, 42, 0.08)', border: '1px solid #cbd5e1' }}>
+          <div style={{ background: '#ffffff', padding: '38px 32px', borderRadius: '16px', boxShadow: '0 4px 20px rgba(15, 23, 42, 0.05)', border: '1px solid #e2e8f0' }}>
             <div style={{ textAlign: 'center', marginBottom: '28px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <img src={DHIU_LOGO_URL} alt="DHIU Logo" style={{ width: '74px', height: '74px', borderRadius: '50%', objectFit: 'contain', marginBottom: '12px' }} />
-              <h2 style={{ color: '#0f172a', margin: '0 0 6px 0', fontSize: '26px', fontWeight: '900' }}>Student Portal</h2>
-              <p style={{ color: '#475569', fontSize: '14px', margin: 0, fontWeight: '600' }}>Sign in to view your CCE marks, attendance &amp; achievements</p>
+              <img src={DHIU_LOGO_URL} alt="DHIU Logo" style={{ width: '68px', height: '68px', borderRadius: '50%', objectFit: 'contain', marginBottom: '12px' }} />
+              <h2 style={{ color: '#0f172a', margin: '0 0 6px 0', fontSize: '24px', fontWeight: '800' }}>DHIU DegreeCampus</h2>
+              <p style={{ color: '#64748b', fontSize: '14px', margin: 0, fontWeight: '500' }}>Sign in to view your marks, attendance &amp; portfolio</p>
             </div>
-            <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
               <div>
                 <label style={styles.label}>Registration Number (Reg.No)</label>
                 <input type="text" value={regNo} onChange={(e) => setRegNo(e.target.value)} placeholder="e.g. 726007" required style={styles.input} />
@@ -706,15 +707,15 @@ export default function StudentDashboard() {
                 <label style={styles.label}>Admission Number (Ad.No)</label>
                 <div style={{ position: 'relative', width: '100%' }}>
                   <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="e.g. U1278" required style={{ ...styles.input, paddingRight: '65px' }} />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#0f766e', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}>
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#4f46e5', fontWeight: '700', cursor: 'pointer', fontSize: '13px' }}>
                     {showPassword ? "Hide" : "Show"}
                   </button>
                 </div>
               </div>
               <button type="submit" disabled={isLoading} style={styles.buttonPrimary}>
-                {isLoading ? 'Authenticating...' : 'Login to Student Portal'}
+                {isLoading ? 'Authenticating...' : 'Sign In'}
               </button>
-              {errorMsg && <p style={{ color: '#dc2626', fontSize: '14px', textAlign: 'center', margin: 0, fontWeight: '700', background: '#fef2f2', padding: '12px', borderRadius: '10px', border: '1px solid #fecaca' }}>{errorMsg}</p>}
+              {errorMsg && <p style={{ color: '#e11d48', fontSize: '13px', textAlign: 'center', margin: 0, fontWeight: '700', background: '#fff1f2', padding: '12px', borderRadius: '8px', border: '1px solid #ffe4e6' }}>{errorMsg}</p>}
             </form>
           </div>
         </div>
@@ -764,879 +765,691 @@ export default function StudentDashboard() {
 
   const allAttendanceSubjectsForStudent = [...regularAttendanceSubjects, ...extraNonMarkSubjects];
 
+  const studentNavItems = [
+    { id: 'marks', label: 'CCE & Hifz Marks', icon: '📊', desc: 'Curriculum performance & class rank' },
+    { id: 'attendance', label: 'Period Attendance', icon: '📅', desc: `Semester attendance (${attendancePct}%) & minus log` },
+    { id: 'mentorship', label: 'My Mentorship', icon: '🧭', desc: `Consultancy sittings (${completedSittings}/${minReqSittings}) & action plan` },
+    { id: 'portfolio', label: 'Skills & Awards', icon: '🏆', desc: 'Verified talents & Sibaq achievements' },
+    { id: 'faculty', label: 'My Usthads', icon: '👨‍🏫', desc: 'Mentor, Class Teacher & 14 subject faculty' }
+  ];
+
+  const currentTabObj = studentNavItems.find(x => x.id === activeTab) || studentNavItems[0];
+
   return (
-    <div className="print-container" style={styles.pageBackground}>
+    <div className="print-container" style={{ minHeight: '100vh', display: 'flex', backgroundColor: '#f8fafc', fontFamily: 'Inter, system-ui, -apple-system, sans-serif', color: '#0f172a' }}>
       <HighContrastStyles />
       <style dangerouslySetInnerHTML={{ __html: printStyles }} />
-      <div className="print-container" style={{ maxWidth: '1160px', margin: '0 auto' }}>
-        <div className="no-print"><InstallAppBanner /></div>
+      <style>{`
+        @media (max-width: 960px) {
+          .dhiu-student-sidebar {
+            position: fixed !important;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            z-index: 1200;
+            transform: translateX(-100%);
+            transition: transform 0.25s ease;
+          }
+          .dhiu-student-sidebar.open {
+            transform: translateX(0);
+          }
+          .dhiu-student-menu-btn {
+            display: inline-flex !important;
+          }
+        }
+      `}</style>
 
-        <StudentWeeklyReminder reminder={activeReminder} studentMarks={rawStudentMarks} />
-
-        {/* 🌟 REDESIGNED EXECUTIVE HERO PROFILE CARD */}
+      {mobileSidebarOpen && (
         <div
-          className="print-header-card"
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '20px',
-            background: 'linear-gradient(135deg, #0f172a 0%, #134e4a 100%)',
-            color: '#ffffff',
-            padding: '24px 26px',
-            borderRadius: '20px',
-            boxShadow: '0 10px 28px rgba(15, 23, 42, 0.14)',
-            flexWrap: 'wrap',
-            gap: '18px'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-            <img src={DHIU_LOGO_URL} alt="DHIU Logo" style={{ width: '54px', height: '54px', borderRadius: '50%', objectFit: 'contain', backgroundColor: '#ffffff', padding: '2px' }} />
-            <ProfileAvatar name={loggedInStudent?.firstName} code={loggedInStudent?.adNo} photoUrl={loggedInStudent?.photoUrl} size={60} />
+          className="no-print"
+          onClick={() => setMobileSidebarOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.4)', zIndex: 1150 }}
+        />
+      )}
 
+      {/* 🌟 MINIMALIST LEFT SIDEBAR NAVIGATION FOR STUDENT PORTAL */}
+      <aside
+        className={`dhiu-student-sidebar no-print ${mobileSidebarOpen ? 'open' : ''}`}
+        style={{
+          width: '250px',
+          minWidth: '250px',
+          backgroundColor: '#ffffff',
+          borderRight: '1px solid #e2e8f0',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          position: 'sticky',
+          top: 0,
+          height: '100vh',
+          padding: '20px 14px',
+          boxSizing: 'border-box'
+        }}
+      >
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '4px 10px 18px', borderBottom: '1px solid #f1f5f9' }}>
+            <img src={DHIU_LOGO_URL} alt="DHIU" style={{ width: '38px', height: '38px', borderRadius: '10px', objectFit: 'contain', border: '1px solid #e2e8f0', padding: '2px' }} />
             <div>
-              <h1 style={{ margin: '0 0 8px 0', fontSize: '23px', color: '#ffffff', fontWeight: '900', letterSpacing: '-0.3px' }}>
-                {loggedInStudent?.firstName}
-              </h1>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={{ ...styles.badge, background: 'rgba(255,255,255,0.14)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.22)' }}>
-                  Reg: {loggedInStudent?.regNo}
-                </span>
-                <span style={{ ...styles.badge, background: '#0d9488', color: '#ffffff' }}>
-                  Ad.No: #{loggedInStudent?.adNo}
-                </span>
-                <span style={{ ...styles.badge, background: '#0284c7', color: '#ffffff' }}>
-                  {loggedInStudent?.department || 'GENERAL'}
-                </span>
-                {loggedInStudent?.classes?.map((cls, i) => (
-                  <span key={i} style={{ ...styles.badge, background: '#7c3aed', color: '#ffffff' }}>
-                    Class {cls}
-                  </span>
-                ))}
-                <span style={{
-                  ...styles.badge,
-                  background: metMentorTarget ? '#dcfce7' : '#fef3c7',
-                  color: metMentorTarget ? '#166534' : '#92400e'
-                }}>
-                  🧭 Sittings: {completedSittings}/{minReqSittings} {metMentorTarget ? '✅' : '⏳'}
-                </span>
-                {attendanceData.totalPeriods > 0 && (
-                  <span style={{
-                    ...styles.badge,
-                    background: isShortage ? '#fee2e2' : '#dcfce7',
-                    color: isShortage ? '#991b1b' : '#166534'
-                  }}>
-                    📅 Net Att: {attendancePct}% {attendanceData.minusCount > 0 ? `(-${attendanceData.minusCount})` : ''}
-                  </span>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '10px', fontSize: '13px', color: '#cbd5e1', fontWeight: '700' }}>
-                <span>🧭 Mentor: <strong style={{ color: '#5eead4' }}>{mentorTeacherObj?.fullName || loggedInStudent?.mentorName || loggedInStudent?.mentorUsername || 'Assigned Faculty'}</strong></span>
-                <span>🏫 Class Teacher: <strong style={{ color: '#93c5fd' }}>{classTeacherObj?.fullName || loggedInStudent?.classTeacherUsername || 'Class Faculty'}</strong></span>
+              <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', lineHeight: 1.2 }}>DHIU Degree Campus</div>
+              <div style={{ fontSize: '10px', fontWeight: '800', color: '#4f46e5', letterSpacing: '0.6px', textTransform: 'uppercase', marginTop: '2px' }}>
+                👨‍🎓 STUDENT PORTAL
               </div>
             </div>
           </div>
 
-          <div className="no-print" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-            <button
-              onClick={handlePrintSinglePagePDF}
-              style={{ padding: '10px 18px', background: '#ffffff', color: '#0f766e', border: 'none', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '13px', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}
-            >
-              🖨️ Print 1-Page PDF Mark Sheet
-            </button>
-            <button onClick={handleLogout} style={{ ...styles.buttonDanger, background: '#fee2e2', border: 'none' }}>
-              Logout
-            </button>
+          <div style={{ fontSize: '11px', fontWeight: '800', color: '#94a3b8', letterSpacing: '0.8px', padding: '16px 12px 8px', textTransform: 'uppercase' }}>
+            NAVIGATION
           </div>
-        </div>
 
-        {/* 🌟 MOBILE-SCROLLABLE 5-TAB PILL NAVIGATION BAR */}
-        <div className="no-print" style={{ background: '#ffffff', padding: '10px 14px', borderRadius: '16px', border: '1px solid #cbd5e1', marginBottom: '22px', overflowX: 'auto', boxShadow: '0 2px 10px rgba(15, 23, 42, 0.03)' }}>
-          <div style={{ display: 'flex', gap: '8px', minWidth: 'max-content' }}>
-            {[
-              { id: 'marks', label: '📊 CCE & Hifz Mark Sheet' },
-              { id: 'attendance', label: `📅 Attendance & Minus (${attendanceData.totalPeriods > 0 ? `${attendancePct}%` : 'View'})` },
-              { id: 'mentorship', label: `🧭 My Mentorship (${completedSittings}/${minReqSittings})` },
-              { id: 'portfolio', label: `🏆 Skills & Achievements (${studentSkills.length + studentAchievements.length})` },
-              { id: 'faculty', label: '👨‍🏫 My Mentor & Subject Usthads' }
-            ].map(tab => {
-              const active = activeTab === tab.id;
+          <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {studentNavItems.map(item => {
+              const isActive = activeTab === item.id;
               return (
                 <button
-                  key={tab.id}
+                  key={item.id}
                   type="button"
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => {
+                    setActiveTab(item.id);
+                    setMobileSidebarOpen(false);
+                  }}
                   style={{
-                    padding: '10px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    width: '100%',
+                    padding: '11px 14px',
                     borderRadius: '10px',
-                    border: 'none',
-                    fontWeight: '800',
-                    fontSize: '13px',
+                    border: isActive ? '1.5px solid #1e1b4b' : '1.5px solid transparent',
+                    backgroundColor: isActive ? '#4f46e5' : 'transparent',
+                    color: isActive ? '#ffffff' : '#475569',
+                    fontWeight: isActive ? '700' : '600',
+                    fontSize: '14px',
+                    textAlign: 'left',
                     cursor: 'pointer',
-                    background: active ? 'linear-gradient(135deg, #00897b 0%, #0f766e 100%)' : '#f8fafc',
-                    color: active ? '#ffffff' : '#334155',
-                    boxShadow: active ? '0 4px 12px rgba(15, 118, 110, 0.25)' : 'none',
-                    transition: 'all 0.2s ease'
+                    transition: 'all 0.15s ease'
                   }}
                 >
-                  {tab.label}
+                  <span style={{ fontSize: '16px' }}>{item.icon}</span>
+                  <span>{item.label}</span>
                 </button>
               );
             })}
-          </div>
+          </nav>
         </div>
 
-        {/* ============================================================
-            TAB 1: CCE & HIFZ MARK SHEET (Strictly 14 Academic Subjects)
-           ============================================================ */}
-        {activeTab === 'marks' && (
-          <>
-            <div className="print-kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '22px' }}>
-              <div className="print-kpi-card" style={{ background: '#ffffff', padding: '20px', borderRadius: '16px', border: '1px solid #cbd5e1', textAlign: 'center', boxShadow: '0 2px 10px rgba(15,23,42,0.03)' }}>
-                <h4 style={{ margin: '0 0 6px 0', color: '#64748b', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>Total Aggregate</h4>
-                <div className="print-kpi-val" style={{ fontSize: '28px', fontWeight: '900', color: '#0f172a' }}>
-                  {overallStats.total1400} <span style={{ fontSize: '15px', color: '#64748b', fontWeight: '700' }}>/ 1400</span>
-                </div>
-              </div>
+        <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <button
+            type="button"
+            onClick={handlePrintSinglePagePDF}
+            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '8px', background: '#f8fafc', color: '#334155', border: '1px solid #e2e8f0', fontSize: '13px', fontWeight: '700', cursor: 'pointer', width: '100%', textAlign: 'left' }}
+          >
+            <span>🖨️</span> Print 1-Page Mark Sheet
+          </button>
+          <button
+            type="button"
+            onClick={handleLogout}
+            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '8px', background: '#fff1f2', color: '#e11d48', border: '1px solid #ffe4e6', fontSize: '13px', fontWeight: '700', cursor: 'pointer', width: '100%', textAlign: 'left' }}
+          >
+            <span>🚪</span> Sign Out
+          </button>
+        </div>
+      </aside>
 
-              <div className="print-kpi-card" style={{ background: '#ffffff', padding: '20px', borderRadius: '16px', border: '1px solid #cbd5e1', textAlign: 'center', boxShadow: '0 2px 10px rgba(15,23,42,0.03)' }}>
-                <h4 style={{ margin: '0 0 6px 0', color: '#64748b', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>Total Sem Score</h4>
-                <div className="print-kpi-val" style={{ fontSize: '28px', fontWeight: '900', color: '#0f172a' }}>
-                  {overallStats.total490} <span style={{ fontSize: '15px', color: '#64748b', fontWeight: '700' }}>/ 490</span>
-                </div>
-              </div>
+      {/* 🌟 MAIN STUDENT CONTENT AREA */}
+      <div className="print-container" style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        {/* Clean Minimalist Top Bar (Hidden when printing) */}
+        <header className="no-print" style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '14px 26px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 90 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="dhiu-student-menu-btn"
+              onClick={() => setMobileSidebarOpen(true)}
+              style={{ display: 'none', padding: '8px 12px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '16px' }}
+            >
+              ☰
+            </button>
+            <span style={{ background: '#f8fafc', color: '#4f46e5', border: '1px solid #e2e8f0', padding: '5px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '800' }}>
+              Ad.No: #{loggedInStudent?.adNo} • Reg: {loggedInStudent?.regNo}
+            </span>
+            <span style={{ background: '#f8fafc', color: '#334155', border: '1px solid #e2e8f0', padding: '5px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '700' }}>
+              Class {(loggedInStudent?.classes || []).join(', ')} • {loggedInStudent?.department || 'GENERAL'}
+            </span>
+            {attendanceData.totalPeriods > 0 && (
+              <span
+                onClick={() => setActiveTab('attendance')}
+                style={{
+                  background: isShortage ? '#fff1f2' : '#ecfdf5',
+                  color: isShortage ? '#e11d48' : '#047857',
+                  border: `1px solid ${isShortage ? '#fecdd3' : '#a7f3d0'}`,
+                  padding: '5px 12px',
+                  borderRadius: '999px',
+                  fontSize: '11px',
+                  fontWeight: '800',
+                  cursor: 'pointer'
+                }}
+              >
+                📅 Att: {attendancePct}%
+              </span>
+            )}
+          </div>
 
-              <div className="print-kpi-card" style={{ background: '#ffffff', padding: '20px', borderRadius: '16px', border: '1px solid #cbd5e1', textAlign: 'center', boxShadow: '0 2px 10px rgba(15,23,42,0.03)' }}>
-                <h4 style={{ margin: '0 0 6px 0', color: '#64748b', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>Class Rank</h4>
-                <div className="print-kpi-val" style={{ fontSize: '28px', fontWeight: '900', color: '#2563eb' }}>
-                  {overallStats.rank !== '-' ? `#${overallStats.rank}` : '-'}
-                  {overallStats.totalPeers !== '-' && (
-                    <span style={{ fontSize: '14px', color: '#64748b', fontWeight: '700' }}> / {overallStats.totalPeers}</span>
-                  )}
-                </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <ProfileAvatar name={loggedInStudent?.firstName} code={loggedInStudent?.adNo} photoUrl={loggedInStudent?.photoUrl} size={36} />
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>{loggedInStudent?.firstName}</div>
+              <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>
+                Mentor: {mentorTeacherObj?.fullName || loggedInStudent?.mentorUsername || 'Assigned'}
               </div>
+            </div>
+          </div>
+        </header>
 
-              <div className="print-kpi-card" style={{ background: '#ffffff', padding: '20px', borderRadius: '16px', border: '1px solid #cbd5e1', textAlign: 'center', boxShadow: '0 2px 10px rgba(15,23,42,0.03)' }}>
-                <h4 style={{ margin: '0 0 6px 0', color: '#64748b', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>Current Status (%)</h4>
-                <div className="print-kpi-val" style={{ fontSize: '28px', fontWeight: '900', color: '#059669' }}>
-                  {overallStats.overallStatus}
+        <main className="print-container" style={{ padding: '26px', maxWidth: '1160px', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
+          <div className="no-print"><InstallAppBanner /></div>
+
+          {/* Print-Only Header (Appears only when printing 1-Page A4 PDF!) */}
+          <div className="print-only-header print-header-card" style={{ display: 'none', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', padding: '12px 16px', border: '1px solid #94a3b8', borderRadius: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <img src={DHIU_LOGO_URL} alt="DHIU" style={{ width: '44px', height: '44px', objectFit: 'contain' }} />
+              <div>
+                <h1 style={{ margin: 0, fontSize: '16px', fontWeight: '800' }}>{loggedInStudent?.firstName} (Ad.No: #{loggedInStudent?.adNo} • Reg: {loggedInStudent?.regNo})</h1>
+                <div style={{ fontSize: '11px', color: '#334155', marginTop: '2px' }}>
+                  Class {(loggedInStudent?.classes || []).join(', ')} ({loggedInStudent?.department || 'GENERAL'}) • Mentor: {mentorTeacherObj?.fullName || '—'} • Class Teacher: {classTeacherObj?.fullName || '—'}
                 </div>
               </div>
             </div>
+          </div>
 
-            <div className="print-table-card" style={styles.card}>
-              <h3 style={styles.sectionTitle}>📊 Curriculum &amp; Detailed Performance Breakdown</h3>
+          <StudentWeeklyReminder reminder={activeReminder} studentMarks={rawStudentMarks} />
 
-              {isLoadingMarks ? (
-                <p style={{ textAlign: 'center', color: '#64748b', padding: '30px', fontWeight: '700' }}>Loading your academic records...</p>
-              ) : (
-                <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '14px' }}>
-                  <table className="print-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '14px', minWidth: '820px' }}>
+          {/* Clean Page Title */}
+          <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: '23px', fontWeight: '800', color: '#0f172a' }}>{currentTabObj.label}</h1>
+              <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b', fontWeight: '500' }}>{currentTabObj.desc}</p>
+            </div>
+            {activeTab === 'marks' && (
+              <button onClick={handlePrintSinglePagePDF} style={styles.buttonSecondary}>
+                🖨️ Print 1-Page PDF Mark Sheet
+              </button>
+            )}
+          </div>
+
+          {/* ============================================================
+              TAB 1: CCE & HIFZ MARK SHEET (Strictly 14 Academic Subjects)
+             ============================================================ */}
+          {activeTab === 'marks' && (
+            <>
+              <div className="print-kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '20px' }}>
+                <div className="print-kpi-card" style={{ background: '#f8fafc', padding: '18px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                  <h4 style={{ margin: '0 0 6px 0', color: '#64748b', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>Total Aggregate</h4>
+                  <div className="print-kpi-val" style={{ fontSize: '26px', fontWeight: '900', color: '#0f172a' }}>
+                    {overallStats.total1400} <span style={{ fontSize: '14px', color: '#64748b', fontWeight: '600' }}>/ 1400</span>
+                  </div>
+                </div>
+
+                <div className="print-kpi-card" style={{ background: '#f8fafc', padding: '18px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                  <h4 style={{ margin: '0 0 6px 0', color: '#64748b', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>Total Sem Score</h4>
+                  <div className="print-kpi-val" style={{ fontSize: '26px', fontWeight: '900', color: '#0f172a' }}>
+                    {overallStats.total490} <span style={{ fontSize: '14px', color: '#64748b', fontWeight: '600' }}>/ 490</span>
+                  </div>
+                </div>
+
+                <div className="print-kpi-card" style={{ background: '#eef2ff', padding: '18px', borderRadius: '12px', border: '1px solid #c7d2fe', textAlign: 'center' }}>
+                  <h4 style={{ margin: '0 0 6px 0', color: '#4338ca', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>Class Rank</h4>
+                  <div className="print-kpi-val" style={{ fontSize: '26px', fontWeight: '900', color: '#4f46e5' }}>
+                    {overallStats.rank !== '-' ? `#${overallStats.rank}` : '-'}
+                    {overallStats.totalPeers !== '-' && (
+                      <span style={{ fontSize: '14px', color: '#64748b', fontWeight: '600' }}> / {overallStats.totalPeers}</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="print-kpi-card" style={{ background: '#ecfdf5', padding: '18px', borderRadius: '12px', border: '1px solid #a7f3d0', textAlign: 'center' }}>
+                  <h4 style={{ margin: '0 0 6px 0', color: '#047857', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>Current Status (%)</h4>
+                  <div className="print-kpi-val" style={{ fontSize: '26px', fontWeight: '900', color: '#065f46' }}>
+                    {overallStats.overallStatus}
+                  </div>
+                </div>
+              </div>
+
+              <div className="print-table-card" style={{ ...styles.card, padding: 0, overflow: 'hidden' }}>
+                {isLoadingMarks ? (
+                  <p style={{ textAlign: 'center', color: '#64748b', padding: '30px', fontWeight: '600' }}>Loading your academic records...</p>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="print-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '13px', minWidth: '800px' }}>
+                      <thead>
+                        <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+                          <th style={{ padding: '14px 16px', textAlign: 'left' }}>SUBJECT &amp; ASSIGNED USTHAD</th>
+                          <th style={{ padding: '14px 16px' }}>L1 (15)</th>
+                          <th style={{ padding: '14px 16px' }}>L2 (20)</th>
+                          <th style={{ padding: '14px 16px' }}>L3 (25)</th>
+                          <th style={{ padding: '14px 16px' }}>L4 (40)</th>
+                          <th style={{ padding: '14px 16px', borderLeft: '1px solid #e2e8f0' }}>TOTAL (100)</th>
+                          <th style={{ padding: '14px 16px' }}>SCALED (30)</th>
+                          <th style={{ padding: '14px 16px' }}>STATUS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {subjectAggregates.map((data, idx) => (
+                          <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', background: '#ffffff' }}>
+                            <td style={{ padding: '13px 16px', textAlign: 'left' }}>
+                              <div style={{ fontWeight: '700', color: '#0f172a', fontSize: '14px' }}>{data.subject}</div>
+                              {data.teacherName && (
+                                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '500', marginTop: '2px' }}>
+                                  {data.teacherName}
+                                </div>
+                              )}
+                            </td>
+
+                            {data.isHifz ? (
+                              <>
+                                <td colSpan="2" style={{ padding: '13px 16px' }}>
+                                  <span style={{ fontSize: '10px', color: '#64748b', display: 'block' }}>Part 1 (/50)</span>
+                                  {renderMarkCell(data.assessments?.['50_1'], data.levelGradingStarted?.['50_1'])}
+                                </td>
+                                <td colSpan="2" style={{ padding: '13px 16px' }}>
+                                  <span style={{ fontSize: '10px', color: '#64748b', display: 'block' }}>Part 2 (/50)</span>
+                                  {renderMarkCell(data.assessments?.['50_2'], data.levelGradingStarted?.['50_2'])}
+                                </td>
+                              </>
+                            ) : data.isSpecialization ? (
+                              <td colSpan="4" style={{ padding: '13px 16px' }}>
+                                <span style={{ fontSize: '10px', color: '#64748b', display: 'block' }}>Direct Score (/30)</span>
+                                {renderMarkCell(data.assessments?.['30'], data.levelGradingStarted?.['30'])}
+                              </td>
+                            ) : (
+                              <>
+                                <td style={{ padding: '13px 16px' }}>{renderMarkCell(data.assessments?.['15'], data.levelGradingStarted?.['15'])}</td>
+                                <td style={{ padding: '13px 16px' }}>{renderMarkCell(data.assessments?.['20'], data.levelGradingStarted?.['20'])}</td>
+                                <td style={{ padding: '13px 16px' }}>{renderMarkCell(data.assessments?.['25'], data.levelGradingStarted?.['25'])}</td>
+                                <td style={{ padding: '13px 16px' }}>{renderMarkCell(data.assessments?.['40'], data.levelGradingStarted?.['40'])}</td>
+                              </>
+                            )}
+
+                            <td style={{ padding: '13px 16px', fontWeight: '700', color: '#4f46e5', borderLeft: '1px solid #f1f5f9' }}>{data.total100}</td>
+                            <td style={{ padding: '13px 16px', fontWeight: '700', color: '#047857' }}>{data.semScore}</td>
+                            <td style={{ padding: '13px 16px' }}>
+                              <span style={{
+                                ...styles.badge,
+                                background: data.status === '-' ? '#f8fafc' : parseFloat(data.status) >= 40 ? '#dcfce7' : '#fff1f2',
+                                color: data.status === '-' ? '#64748b' : parseFloat(data.status) >= 40 ? '#15803d' : '#e11d48'
+                              }}>
+                                {data.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* ============================================================
+              TAB 2: PERIOD ATTENDANCE, SUBJECT BREAKDOWN & MINUS LOGS
+             ============================================================ */}
+          {activeTab === 'attendance' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '14px' }}>
+                <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b' }}>TOTAL PERIODS</span>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>{attendanceData.totalPeriods}</div>
+                </div>
+                <div style={{ background: '#ecfdf5', padding: '16px', borderRadius: '12px', border: '1px solid #a7f3d0', textAlign: 'center' }}>
+                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857' }}>GROSS PRESENT</span>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#065f46', marginTop: '4px' }}>{attendanceData.presentCount}</div>
+                </div>
+                <div style={{ background: '#fff1f2', padding: '16px', borderRadius: '12px', border: '1px solid #fecdd3', textAlign: 'center' }}>
+                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#be123c' }}>MINUS DEDUCTIONS</span>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#e11d48', marginTop: '4px' }}>-{attendanceData.minusCount}</div>
+                </div>
+                <div style={{ background: '#eef2ff', padding: '16px', borderRadius: '12px', border: '1px solid #c7d2fe', textAlign: 'center' }}>
+                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#4338ca' }}>FINAL NET %</span>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: isShortage ? '#e11d48' : '#4f46e5', marginTop: '4px' }}>{attendancePct}%</div>
+                </div>
+              </div>
+
+              <div style={styles.card}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {[
+                      { id: 'total', label: 'Total Semester View' },
+                      { id: 'monthly', label: 'Check by Month' },
+                      { id: 'daily', label: 'Check Specific Date' }
+                    ].map(tab => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setStudentAttScope(tab.id)}
+                        style={{
+                          padding: '7px 14px',
+                          borderRadius: '8px',
+                          border: studentAttScope === tab.id ? '1px solid #4f46e5' : '1px solid #e2e8f0',
+                          fontWeight: '700',
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                          background: studentAttScope === tab.id ? '#4f46e5' : '#f8fafc',
+                          color: studentAttScope === tab.id ? '#ffffff' : '#475569'
+                        }}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {studentAttScope === 'monthly' && (
+                    <input type="month" value={studentAttMonth} onChange={e => setStudentAttMonth(e.target.value)} style={{ ...styles.input, width: '170px', padding: '7px 10px' }} />
+                  )}
+                  {studentAttScope === 'daily' && (
+                    <input type="date" value={studentAttDate} onChange={e => setStudentAttDate(e.target.value)} style={{ ...styles.input, width: '170px', padding: '7px 10px' }} />
+                  )}
+                </div>
+
+                {studentAttScope === 'daily' && (() => {
+                  const absOnDay = [];
+                  Object.entries(attendanceData.subjectWise || {}).forEach(([subKey, sObj]) => {
+                    const count = (sObj.absentDates || []).filter(d => d === studentAttDate).length;
+                    if (count > 0) absOnDay.push({ subKey, count });
+                  });
+                  const minusOnDay = (attendanceData.minusLogs || []).filter(l => l.date === studentAttDate);
+
+                  return (
+                    <div style={{ marginBottom: '16px', background: '#f8fafc', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ fontWeight: '700', fontSize: '13px', color: '#0f172a', marginBottom: '4px' }}>
+                        📅 Attendance Summary for {studentAttDate}:
+                      </div>
+                      {absOnDay.length === 0 ? (
+                        <div style={{ color: '#047857', fontWeight: '600', fontSize: '13px' }}>
+                          ✓ Zero recorded subject absences on {studentAttDate}.
+                        </div>
+                      ) : (
+                        <div style={{ color: '#e11d48', fontWeight: '600', fontSize: '13px' }}>
+                          Absent in: {absOnDay.map(x => `${x.subKey} (${x.count})`).join(', ')}
+                        </div>
+                      )}
+                      {minusOnDay.length > 0 && (
+                        <div style={{ color: '#be123c', fontWeight: '600', fontSize: '12px', marginTop: '4px' }}>
+                          Minus Deducted: {minusOnDay.map(m => `-${m.count} (${m.reason})`).join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '13px', minWidth: '660px' }}>
                     <thead>
-                      <tr style={{ background: '#0f172a', color: '#ffffff' }}>
-                        <th style={{ padding: '14px 16px', color: '#ffffff', fontWeight: '800', textAlign: 'left' }}>Subject &amp; Assigned Usthad</th>
-                        <th style={{ padding: '14px 16px', color: '#ffffff', fontWeight: '800' }}>L1 (15)</th>
-                        <th style={{ padding: '14px 16px', color: '#ffffff', fontWeight: '800' }}>L2 (20)</th>
-                        <th style={{ padding: '14px 16px', color: '#ffffff', fontWeight: '800' }}>L3 (25)</th>
-                        <th style={{ padding: '14px 16px', color: '#ffffff', fontWeight: '800' }}>L4 (40)</th>
-                        <th style={{ padding: '14px 16px', color: '#93c5fd', fontWeight: '800', borderLeft: '1px solid #334155' }}>Total (100)</th>
-                        <th style={{ padding: '14px 16px', color: '#6ee7b7', fontWeight: '800' }}>Scaled (30)</th>
-                        <th style={{ padding: '14px 16px', color: '#ffffff', fontWeight: '800' }}>Status</th>
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+                        <th style={{ padding: '12px 16px', textAlign: 'left' }}>SUBJECT &amp; USTHAD</th>
+                        <th style={{ padding: '12px 16px' }}>TOTAL</th>
+                        <th style={{ padding: '12px 16px' }}>PRESENT</th>
+                        <th style={{ padding: '12px 16px' }}>ABSENT</th>
+                        <th style={{ padding: '12px 16px' }}>SUBJECT %</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'left' }}>ABSENT DATES</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {subjectAggregates.map((data, idx) => (
-                        <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                          <td style={{ padding: '14px 16px', textAlign: 'left' }}>
-                            <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '15px' }}>{data.subject}</div>
-                            {data.teacherName && (
-                              <div style={{ fontSize: '12px', color: '#0f766e', fontWeight: '700', marginTop: '2px' }}>
-                                👨‍🏫 {data.teacherName}
-                              </div>
-                            )}
-                          </td>
+                      {allAttendanceSubjectsForStudent.map((item, idx) => {
+                        const normSub = item.subject.toUpperCase().replace(/\./g, '');
+                        const matchKey = Object.keys(attendanceData.subjectWise || {}).find(k => {
+                          const kUp = k.toUpperCase().replace(/\./g, '');
+                          if (normSub.includes('U :FIQH') || normSub.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH') || kUp.includes('USUL');
+                          if (normSub === 'FIQH') return kUp === 'FIQH' && !kUp.includes('U :FIQH');
+                          if (normSub === 'LOGIC') return kUp === 'LOGIC' || kUp === 'MANTIQ';
+                          return kUp === normSub || kUp.includes(normSub);
+                        });
 
-                          {data.isHifz ? (
-                            <>
-                              <td colSpan="2" style={{ padding: '14px 16px' }}>
-                                <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '700', display: 'block', marginBottom: '2px' }}>Part 1 (/50)</span>
-                                {renderMarkCell(data.assessments?.['50_1'], data.levelGradingStarted?.['50_1'])}
-                              </td>
-                              <td colSpan="2" style={{ padding: '14px 16px' }}>
-                                <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '700', display: 'block', marginBottom: '2px' }}>Part 2 (/50)</span>
-                                {renderMarkCell(data.assessments?.['50_2'], data.levelGradingStarted?.['50_2'])}
-                              </td>
-                            </>
-                          ) : data.isSpecialization ? (
-                            <td colSpan="4" style={{ padding: '14px 16px' }}>
-                              <span style={{ fontSize: '11px', color: '#0f766e', fontWeight: '800', display: 'block', marginBottom: '2px' }}>Direct Specialization Score (/30)</span>
-                              {renderMarkCell(data.assessments?.['30'], data.levelGradingStarted?.['30'])}
+                        const sData = matchKey ? attendanceData.subjectWise[matchKey] : { total: 0, present: 0, absentDates: [] };
+                        const total = Number(sData.total) || 0;
+                        const rawAbsDates = Array.isArray(sData.absentDates) ? sData.absentDates : [];
+                        const scopedAbsDates = studentAttScope === 'monthly'
+                          ? rawAbsDates.filter(d => String(d).startsWith(studentAttMonth))
+                          : rawAbsDates;
+
+                        const present = studentAttScope === 'monthly'
+                          ? Math.max(0, total - scopedAbsDates.length)
+                          : (Number(sData.present) || 0);
+                        const absent = Math.max(0, total - present);
+                        const pct = total > 0 ? ((present / total) * 100).toFixed(1) : null;
+
+                        return (
+                          <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', background: '#ffffff' }}>
+                            <td style={{ padding: '12px 16px', textAlign: 'left' }}>
+                              <div style={{ fontWeight: '700', color: '#0f172a' }}>{item.subject}</div>
+                              {item.teacherName && <div style={{ fontSize: '11px', color: '#64748b' }}>{item.teacherName}</div>}
                             </td>
-                          ) : (
-                            <>
-                              <td style={{ padding: '14px 16px' }}>{renderMarkCell(data.assessments?.['15'], data.levelGradingStarted?.['15'])}</td>
-                              <td style={{ padding: '14px 16px' }}>{renderMarkCell(data.assessments?.['20'], data.levelGradingStarted?.['20'])}</td>
-                              <td style={{ padding: '14px 16px' }}>{renderMarkCell(data.assessments?.['25'], data.levelGradingStarted?.['25'])}</td>
-                              <td style={{ padding: '14px 16px' }}>{renderMarkCell(data.assessments?.['40'], data.levelGradingStarted?.['40'])}</td>
-                            </>
-                          )}
-
-                          <td style={{ padding: '14px 16px', fontWeight: '800', color: '#1e40af', borderLeft: '1px solid #e2e8f0' }}>{data.total100}</td>
-                          <td style={{ padding: '14px 16px', fontWeight: '800', color: '#047857' }}>{data.semScore}</td>
-                          <td style={{ padding: '14px 16px' }}>
-                            <span style={{
-                              ...styles.badge,
-                              background: data.status === '-' ? '#f1f5f9' : parseFloat(data.status) >= 40 ? '#ecfdf5' : '#fef2f2',
-                              color: data.status === '-' ? '#64748b' : parseFloat(data.status) >= 40 ? '#047857' : '#dc2626'
-                            }}>
-                              {data.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                            <td style={{ padding: '12px 16px' }}>{total > 0 ? total : '-'}</td>
+                            <td style={{ padding: '12px 16px', fontWeight: '700', color: '#047857' }}>{total > 0 ? present : '-'}</td>
+                            <td style={{ padding: '12px 16px', fontWeight: '700', color: absent > 0 ? '#e11d48' : '#64748b' }}>{total > 0 ? absent : '-'}</td>
+                            <td style={{ padding: '12px 16px', fontWeight: '700', color: pct !== null && Number(pct) < 85 ? '#e11d48' : '#4f46e5' }}>
+                              {pct !== null ? `${pct}%` : '-'}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', color: '#e11d48' }}>
+                              {scopedAbsDates.length > 0 ? scopedAbsDates.slice(0, 8).join(', ') : <span style={{ color: '#94a3b8' }}>—</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
-              )}
-            </div>
-          </>
-        )}
+              </div>
 
-        {/* ============================================================
-            TAB 2: PERIOD ATTENDANCE, SUBJECT BREAKDOWN & MINUS LOGS
-           ============================================================ */}
-        {activeTab === 'attendance' && (
-          <div style={styles.card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px', borderBottom: '2px solid #f1f5f9', paddingBottom: '14px' }}>
-              <div>
-                <h3 style={{ margin: '0 0 6px 0', fontSize: '20px', color: '#0f172a', fontWeight: '900' }}>
-                  📅 My Semester Period Attendance &amp; Minus Log
-                </h3>
-                <p style={{ margin: 0, fontSize: '13px', color: '#64748b', fontWeight: '600' }}>
-                  Minimum required attendance is <strong>85%</strong>. Minus deductions are subtracted from your overall present periods.
-                </p>
-              </div>
-              <span style={{
-                padding: '8px 16px',
-                borderRadius: '999px',
-                fontSize: '14px',
-                fontWeight: '900',
-                background: isShortage ? '#fef2f2' : '#dcfce7',
-                color: isShortage ? '#dc2626' : '#166534',
-                border: `2px solid ${isShortage ? '#fecaca' : '#86efac'}`
-              }}>
-                {attendancePct}% Net Attendance {isShortage ? '⚠️ (Below 85% Shortage)' : '✅'}
-              </span>
-            </div>
-
-            {/* 5 KPI COUNTER CARDS */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '14px', marginBottom: '20px' }}>
-              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '14px', border: '1px solid #cbd5e1', textAlign: 'center' }}>
-                <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b' }}>TOTAL PERIODS</span>
-                <div style={{ fontSize: '26px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>{attendanceData.totalPeriods}</div>
-              </div>
-              <div style={{ background: '#ecfdf5', padding: '16px', borderRadius: '14px', border: '1px solid #a7f3d0', textAlign: 'center' }}>
-                <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857' }}>GROSS PRESENT</span>
-                <div style={{ fontSize: '26px', fontWeight: '900', color: '#059669', marginTop: '4px' }}>{attendanceData.presentCount}</div>
-              </div>
-              <div style={{ background: '#fee2e2', padding: '16px', borderRadius: '14px', border: '1px solid #fecaca', textAlign: 'center' }}>
-                <span style={{ fontSize: '11px', fontWeight: '800', color: '#991b1b' }}>MINUS DEDUCTIONS</span>
-                <div style={{ fontSize: '26px', fontWeight: '900', color: '#dc2626', marginTop: '4px' }}>-{attendanceData.minusCount}</div>
-              </div>
-              <div style={{ background: '#eff6ff', padding: '16px', borderRadius: '14px', border: '1px solid #bfdbfe', textAlign: 'center' }}>
-                <span style={{ fontSize: '11px', fontWeight: '800', color: '#1e40af' }}>NET ATTENDED</span>
-                <div style={{ fontSize: '26px', fontWeight: '900', color: '#2563eb', marginTop: '4px' }}>{netPresent}</div>
-              </div>
-              <div style={{ background: '#fffbeb', padding: '16px', borderRadius: '14px', border: '1px solid #fde68a', textAlign: 'center' }}>
-                <span style={{ fontSize: '11px', fontWeight: '800', color: '#92400e' }}>OFFICIAL / MEDICAL</span>
-                <div style={{ fontSize: '16px', fontWeight: '900', color: '#b45309', marginTop: '8px' }}>
-                  Off: {officialPct}% • Med: {medicalPct}%
-                </div>
-              </div>
-            </div>
-
-            {/* GROSS % (WITHOUT MINUS) VS NET % (MINUS AFFECTED) COMPARISON BAR */}
-            {(() => {
-              const grossPctVal = attendanceData.totalPeriods > 0
-                ? ((attendanceData.presentCount / attendanceData.totalPeriods) * 100).toFixed(2)
-                : '0.00';
-              const netPctVal = attendanceData.totalPeriods > 0
-                ? ((netPresent / attendanceData.totalPeriods) * 100).toFixed(2)
-                : '0.00';
-              const minusImpactPct = (Number(grossPctVal) - Number(netPctVal)).toFixed(2);
-
-              return (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px', marginBottom: '22px', background: '#f8fafc', padding: '16px', borderRadius: '14px', border: '1px solid #cbd5e1' }}>
-                  <div style={{ background: '#ffffff', padding: '14px 16px', borderRadius: '12px', border: '1.5px solid #10b981' }}>
-                    <div style={{ fontSize: '11px', fontWeight: '900', color: '#047857', textTransform: 'uppercase' }}>
-                      ✅ Attendance % (Without Minus)
-                    </div>
-                    <div style={{ fontSize: '24px', fontWeight: '900', color: '#059669', marginTop: '4px' }}>
-                      {grossPctVal}%
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
-                      Based on {attendanceData.presentCount} / {attendanceData.totalPeriods} periods
-                    </div>
+              <CollapsibleCard
+                title="Disciplinary Minus Attendance Records"
+                subtitle="Click to view detailed reasons, dates, and issuing Usthads"
+                badgeText={`${attendanceData.minusLogs.length} Record(s)`}
+                icon="⚠️"
+                accentColor="#4f46e5"
+                defaultOpen={attendanceData.minusLogs.length > 0}
+              >
+                {attendanceData.minusLogs.length === 0 ? (
+                  <div style={{ padding: '16px', background: '#f8fafc', borderRadius: '10px', textAlign: 'center', color: '#047857', fontWeight: '700' }}>
+                    Alhamdulillah! You have 0 minus attendance deductions this semester.
                   </div>
-
-                  <div style={{ background: '#ffffff', padding: '14px 16px', borderRadius: '12px', border: '1.5px solid #f43f5e' }}>
-                    <div style={{ fontSize: '11px', fontWeight: '900', color: '#be123c', textTransform: 'uppercase' }}>
-                      ⚠️ Minus Impact on Overall %
-                    </div>
-                    <div style={{ fontSize: '24px', fontWeight: '900', color: '#e11d48', marginTop: '4px' }}>
-                      -{minusImpactPct}% ({attendanceData.minusCount} Minus)
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
-                      across {attendanceData.minusLogs.length} disciplinary log(s)
-                    </div>
-                  </div>
-
-                  <div style={{ background: '#ffffff', padding: '14px 16px', borderRadius: '12px', border: `2px solid ${isShortage ? '#dc2626' : '#2563eb'}` }}>
-                    <div style={{ fontSize: '11px', fontWeight: '900', color: isShortage ? '#dc2626' : '#1d4ed8', textTransform: 'uppercase' }}>
-                      🎯 Final Net Attendance % (Minus Affected)
-                    </div>
-                    <div style={{ fontSize: '24px', fontWeight: '900', color: isShortage ? '#dc2626' : '#1d4ed8', marginTop: '4px' }}>
-                      {netPctVal}%
-                    </div>
-                    <div style={{ fontSize: '12px', color: isShortage ? '#dc2626' : '#047857', fontWeight: '800' }}>
-                      {isShortage ? '⚠️ Below 85% Required Threshold' : '✅ Meets 85% Requirement'}
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* STUDENT DAY / MONTH / TOTAL ATTENDANCE INSPECTOR */}
-            <div style={{ marginBottom: '22px', padding: '16px', background: '#f0fdfa', borderRadius: '14px', border: '1.5px solid #0d9488' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {[
-                    { id: 'total', label: '📈 Total Semester View' },
-                    { id: 'monthly', label: '🗓️ Check by Month' },
-                    { id: 'daily', label: '📅 Check Specific Date' }
-                  ].map(tab => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => setStudentAttScope(tab.id)}
-                      style={{
-                        padding: '8px 14px',
-                        borderRadius: '8px',
-                        border: 'none',
-                        fontWeight: '800',
-                        fontSize: '12px',
-                        cursor: 'pointer',
-                        background: studentAttScope === tab.id ? '#0f766e' : '#ffffff',
-                        color: studentAttScope === tab.id ? '#ffffff' : '#0f172a'
-                      }}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-
-                {studentAttScope === 'monthly' && (
-                  <input type="month" value={studentAttMonth} onChange={e => setStudentAttMonth(e.target.value)} style={{ ...styles.input, width: '180px', padding: '8px 12px' }} />
-                )}
-                {studentAttScope === 'daily' && (
-                  <input type="date" value={studentAttDate} onChange={e => setStudentAttDate(e.target.value)} style={{ ...styles.input, width: '180px', padding: '8px 12px' }} />
-                )}
-              </div>
-
-              {studentAttScope === 'daily' && (() => {
-                const absOnDay = [];
-                Object.entries(attendanceData.subjectWise || {}).forEach(([subKey, sObj]) => {
-                  const count = (sObj.absentDates || []).filter(d => d === studentAttDate).length;
-                  if (count > 0) absOnDay.push({ subKey, count });
-                });
-                const minusOnDay = (attendanceData.minusLogs || []).filter(l => l.date === studentAttDate);
-
-                return (
-                  <div style={{ marginTop: '14px', background: '#ffffff', padding: '14px 16px', borderRadius: '10px', border: '1px solid #99f6e4' }}>
-                    <div style={{ fontWeight: '900', fontSize: '14px', color: '#0f172a', marginBottom: '8px' }}>
-                      📅 Attendance Summary for {studentAttDate}:
-                    </div>
-                    {absOnDay.length === 0 ? (
-                      <div style={{ color: '#047857', fontWeight: '800', fontSize: '13px' }}>
-                        ✅ Zero recorded subject absences on {studentAttDate}!
-                      </div>
-                    ) : (
-                      <div style={{ color: '#dc2626', fontWeight: '800', fontSize: '13px' }}>
-                        ❌ Recorded Absent in: {absOnDay.map(x => `${x.subKey} (${x.count} period)`).join(', ')}
-                      </div>
-                    )}
-                    {minusOnDay.length > 0 && (
-                      <div style={{ color: '#991b1b', fontWeight: '800', fontSize: '13px', marginTop: '6px' }}>
-                        ⚠️ Minus Deducted on {studentAttDate}: {minusOnDay.map(m => `-${m.count} (${m.reason} • By ${m.issuedBy})`).join(', ')}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
-
-            {/* SLIDING DRAWER: MONTH-BY-MONTH ABSENCE & MINUS SUMMARY CARDS */}
-            {(() => {
-              const monthMap = {};
-              Object.entries(attendanceData.subjectWise || {}).forEach(([subName, sObj]) => {
-                (sObj.absentDates || []).forEach(dStr => {
-                  const mKey = String(dStr || '').slice(0, 7);
-                  if (!mKey) return;
-                  if (!monthMap[mKey]) monthMap[mKey] = { absentPeriods: 0, minusPoints: 0, subjects: new Set() };
-                  monthMap[mKey].absentPeriods += 1;
-                  monthMap[mKey].subjects.add(subName);
-                });
-              });
-              (attendanceData.minusLogs || []).forEach(log => {
-                const mKey = String(log.date || '').slice(0, 7);
-                if (!mKey) return;
-                if (!monthMap[mKey]) monthMap[mKey] = { absentPeriods: 0, minusPoints: 0, subjects: new Set() };
-                monthMap[mKey].minusPoints += Number(log.count) || 0;
-              });
-              const monthsSorted = Object.keys(monthMap).sort().reverse();
-              if (monthsSorted.length === 0) return null;
-
-              return (
-                <CollapsibleCard
-                  title="Month-Wise Absence & Minus Summary"
-                  subtitle="Click to view your monthly class absences and minus deductions"
-                  badgeText={`${monthsSorted.length} Month(s)`}
-                  icon="📆"
-                  accentColor="#0284c7"
-                  defaultOpen={true}
-                >
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px' }}>
-                    {monthsSorted.map(mKey => {
-                      const info = monthMap[mKey];
-                      return (
-                        <div key={mKey} style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid #cbd5e1', background: '#f8fafc' }}>
-                          <div style={{ fontWeight: '900', fontSize: '15px', color: '#0f172a', marginBottom: '6px' }}>
-                            🗓️ Month: {mKey}
-                          </div>
-                          <div style={{ fontSize: '13px', fontWeight: '700', color: '#dc2626' }}>
-                            ❌ Class Absences: <strong>{info.absentPeriods} Period(s)</strong>
-                          </div>
-                          <div style={{ fontSize: '13px', fontWeight: '700', color: '#991b1b', marginTop: '2px' }}>
-                            ⚠️ Minus Deducted: <strong>-{info.minusPoints} Point(s)</strong>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </CollapsibleCard>
-              );
-            })()}
-
-            {/* SUBJECT-WISE ATTENDANCE TABLE */}
-            <h4 style={{ margin: '8px 0 12px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
-              📖 Subject-Wise Attendance Breakdown {studentAttScope === 'monthly' ? `(${studentAttMonth})` : ''}
-            </h4>
-            <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '14px', marginBottom: '22px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '14px', minWidth: '680px' }}>
-                <thead style={{ background: '#0f172a', color: '#ffffff' }}>
-                  <tr>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', color: '#ffffff' }}>Subject &amp; Usthad</th>
-                    <th style={{ padding: '12px 16px', color: '#ffffff' }}>Total Periods</th>
-                    <th style={{ padding: '12px 16px', color: '#ffffff' }}>Present</th>
-                    <th style={{ padding: '12px 16px', color: '#ffffff' }}>Absent</th>
-                    <th style={{ padding: '12px 16px', color: '#ffffff' }}>Subject %</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', color: '#ffffff' }}>Recorded Absent Dates</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {allAttendanceSubjectsForStudent.map((item, idx) => {
-                    const normSub = item.subject.toUpperCase().replace(/\./g, '');
-                    const matchKey = Object.keys(attendanceData.subjectWise || {}).find(k => {
-                      const kUp = k.toUpperCase().replace(/\./g, '');
-                      if (normSub.includes('U :FIQH') || normSub.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH') || kUp.includes('USUL');
-                      if (normSub === 'FIQH') return kUp === 'FIQH' && !kUp.includes('U :FIQH');
-                      if (normSub === 'LOGIC') return kUp === 'LOGIC' || kUp === 'MANTIQ';
-                      return kUp === normSub || kUp.includes(normSub);
-                    });
-
-                    const sData = matchKey ? attendanceData.subjectWise[matchKey] : { total: 0, present: 0, absentDates: [] };
-                    const total = Number(sData.total) || 0;
-                    const rawAbsDates = Array.isArray(sData.absentDates) ? sData.absentDates : [];
-                    const scopedAbsDates = studentAttScope === 'monthly'
-                      ? rawAbsDates.filter(d => String(d).startsWith(studentAttMonth))
-                      : rawAbsDates;
-
-                    const present = studentAttScope === 'monthly'
-                      ? Math.max(0, total - scopedAbsDates.length)
-                      : (Number(sData.present) || 0);
-                    const absent = Math.max(0, total - present);
-                    const pct = total > 0 ? ((present / total) * 100).toFixed(1) : null;
-
-                    return (
-                      <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                        <td style={{ padding: '12px 16px', textAlign: 'left' }}>
-                          <div style={{ fontWeight: '800', color: '#0f172a' }}>
-                            {item.subject}
-                            {item.isAttendanceOnly && (
-                              <span style={{ marginLeft: '6px', background: '#fef3c7', color: '#b45309', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '800' }}>
-                                Period Only
-                              </span>
-                            )}
-                          </div>
-                          {item.teacherName && <div style={{ fontSize: '11px', color: '#0f766e', fontWeight: '700' }}>👨‍🏫 {item.teacherName}</div>}
-                        </td>
-                        <td style={{ padding: '12px 16px', fontWeight: '700' }}>{total > 0 ? total : '-'}</td>
-                        <td style={{ padding: '12px 16px', fontWeight: '800', color: '#047857' }}>{total > 0 ? present : '-'}</td>
-                        <td style={{ padding: '12px 16px', fontWeight: '800', color: absent > 0 ? '#dc2626' : '#64748b' }}>{total > 0 ? absent : '-'}</td>
-                        <td style={{ padding: '12px 16px', fontWeight: '900', color: pct !== null && Number(pct) < 85 ? '#dc2626' : '#1e40af' }}>
-                          {pct !== null ? `${pct}%` : '-'}
-                        </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', color: '#dc2626', fontWeight: '700' }}>
-                          {scopedAbsDates.length > 0 ? scopedAbsDates.slice(0, 8).join(', ') : <span style={{ color: '#94a3b8' }}>None</span>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* SLIDING DRAWER: MINUS ATTENDANCE LOGS */}
-            <CollapsibleCard
-              title="My Disciplinary Minus Attendance Records"
-              subtitle="Click to view detailed reasons, dates, and issuing Usthads for minus deductions"
-              badgeText={`${attendanceData.minusLogs.length} Record(s)`}
-              icon="⚠️"
-              accentColor="#dc2626"
-              defaultOpen={attendanceData.minusLogs.length > 0}
-            >
-              {attendanceData.minusLogs.length === 0 ? (
-                <div style={{ padding: '20px', background: '#f0fdfa', borderRadius: '12px', border: '1px dashed #0d9488', textAlign: 'center', color: '#0f766e', fontWeight: '800' }}>
-                  Alhamdulillah! You have 0 minus attendance deductions this semester.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {attendanceData.minusLogs.map((log, i) => (
-                    <div key={log.id || i} style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid #fecaca', background: '#fef2f2', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                      <div>
-                        <div style={{ fontWeight: '900', color: '#991b1b', fontSize: '15px' }}>
-                          -{log.count} Period(s) Deducted
-                        </div>
-                        <div style={{ fontSize: '14px', color: '#dc2626', fontWeight: '700', marginTop: '3px' }}>
-                          Reason: <strong>"{log.reason}"</strong>
-                        </div>
-                      </div>
-                      <div style={{ fontSize: '12px', color: '#7f1d1d', fontWeight: '700', textAlign: 'right' }}>
-                        <div>📅 Date: {log.date}</div>
-                        <div>👨‍🏫 Issued by: <strong>{log.issuedBy || 'Faculty'}</strong></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CollapsibleCard>
-          </div>
-        )}
-
-        {/* ============================================================
-            TAB 3: MENTORSHIP TAB
-           ============================================================ */}
-        {activeTab === 'mentorship' && (
-          <div style={styles.card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px', borderBottom: '2px solid #f1f5f9', paddingBottom: '14px' }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '900', color: '#0f172a' }}>
-                  🧭 My Mentorship &amp; Consultancy Progress ({mentorshipConfig.semesterName})
-                </h3>
-                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#475569', fontWeight: '600' }}>
-                  You are required to complete at least <strong>{minReqSittings} consultancy sittings</strong> with your Assigned Mentor this semester.
-                </p>
-              </div>
-              <span style={{
-                background: metMentorTarget ? '#dcfce7' : '#fef3c7',
-                color: metMentorTarget ? '#166534' : '#92400e',
-                padding: '8px 16px',
-                borderRadius: '999px',
-                fontSize: '14px',
-                fontWeight: '900',
-                border: `1.5px solid ${metMentorTarget ? '#22c55e' : '#f59e0b'}`
-              }}>
-                {metMentorTarget
-                  ? `✅ Target Achieved (${completedSittings}/${minReqSittings} Sittings)`
-                  : `⏳ ${Math.max(0, minReqSittings - completedSittings)} More Sitting(s) Needed (${completedSittings}/${minReqSittings})`}
-              </span>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-              <div style={{ background: '#f0fdfa', border: '2px solid #0d9488', padding: '18px', borderRadius: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-                <div>
-                  <div style={{ fontSize: '11px', fontWeight: '900', color: '#0f766e', textTransform: 'uppercase' }}>🧭 My Assigned Mentor Usthad</div>
-                  <div style={{ fontSize: '18px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>
-                    {mentorTeacherObj?.fullName || loggedInStudent?.mentorName || loggedInStudent?.mentorUsername || 'Not Assigned Yet'}
-                  </div>
-                  {mentorshipConfig.targetDeadline && (
-                    <div style={{ fontSize: '12px', color: '#047857', fontWeight: '700', marginTop: '4px' }}>
-                      📅 Semester Target Deadline: {mentorshipConfig.targetDeadline}
-                    </div>
-                  )}
-                </div>
-                {mentorTeacherObj?.whatsappNumber && (
-                  <button
-                    type="button"
-                    onClick={() => openDirectWhatsApp(mentorTeacherObj.whatsappNumber, `Assalamu Alaikum Usthad, I am ${loggedInStudent.firstName} (#${loggedInStudent.adNo}). I would like to schedule my next mentorship sitting.`)}
-                    style={{ padding: '10px 14px', background: '#0d9488', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                  >
-                    💬 Request Sitting on WA
-                  </button>
-                )}
-              </div>
-
-              <div style={{ background: '#fffbeb', border: '2px solid #f59e0b', padding: '18px', borderRadius: '14px' }}>
-                <div style={{ fontSize: '11px', fontWeight: '900', color: '#b45309', textTransform: 'uppercase' }}>🎯 Current Action Plan &amp; Next Sitting</div>
-                {latestSitting?.actionPlan ? (
-                  <>
-                    <div style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', marginTop: '6px' }}>
-                      "{latestSitting.actionPlan}"
-                    </div>
-                    {latestSitting.nextFollowUpDate && (
-                      <div style={{ fontSize: '12px', color: '#92400e', fontWeight: '800', marginTop: '6px' }}>
-                        ⏰ Next Scheduled Sitting: {latestSitting.nextFollowUpDate}
-                      </div>
-                    )}
-                  </>
                 ) : (
-                  <div style={{ fontSize: '13px', color: '#78350f', fontWeight: '600', marginTop: '6px' }}>
-                    Meet with your Mentor Usthad to receive your personalized academic and skill action plan.
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {attendanceData.minusLogs.map((log, i) => (
+                      <div key={log.id || i} style={{ padding: '12px 16px', borderRadius: '10px', border: '1px solid #ffe4e6', background: '#fff1f2', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                        <div>
+                          <div style={{ fontWeight: '800', color: '#be123c', fontSize: '14px' }}>
+                            -{log.count} Period(s) • "{log.reason}"
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#881337', fontWeight: '600' }}>
+                          {log.date} • By {log.issuedBy || 'Faculty'}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
-              </div>
+              </CollapsibleCard>
             </div>
+          )}
 
-            <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
-              📜 My Recorded Mentorship Sittings ({studentMentorLogs.length})
-            </h4>
-            {studentMentorLogs.length === 0 ? (
-              <div style={{ padding: '28px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>
-                No mentorship sittings have been logged yet. Please meet your Mentor Usthad to complete your {minReqSittings} required sittings.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {studentMentorLogs.map((log, i) => (
-                  <div key={log.id || i} style={{ padding: '16px', borderRadius: '12px', border: '1px solid #cbd5e1', background: '#f8fafc' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <span style={{ background: '#0f172a', color: '#ffffff', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
-                          📅 {log.date}
-                        </span>
-                        <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
-                          {log.type || 'Mentorship Sitting'}
-                        </span>
-                      </div>
-                      <span style={{ fontSize: '12px', color: '#475569', fontWeight: '700' }}>
-                        👨‍🏫 Mentor: <strong>{log.loggedBy || 'Faculty'}</strong>
-                      </span>
+          {/* ============================================================
+              TAB 3: MENTORSHIP TAB
+             ============================================================ */}
+          {activeTab === 'mentorship' && (
+            <div style={styles.card}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '22px' }}>
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '16px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                  <div>
+                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Assigned Mentor Usthad</div>
+                    <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', marginTop: '4px' }}>
+                      {mentorTeacherObj?.fullName || loggedInStudent?.mentorName || loggedInStudent?.mentorUsername || 'Not Assigned'}
                     </div>
-
-                    {Array.isArray(log.topics) && log.topics.length > 0 && (
-                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                        {log.topics.map((t, idx) => (
-                          <span key={idx} style={{ background: '#ffffff', border: '1px solid #cbd5e1', color: '#334155', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '700' }}>
-                            ✓ {t}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {log.summary && (
-                      <div style={{ fontSize: '14px', color: '#0f172a', fontWeight: '600', marginBottom: '6px' }}>
-                        {log.summary}
-                      </div>
-                    )}
-
-                    {(log.actionPlan || log.nextFollowUpDate) && (
-                      <div style={{ marginTop: '8px', padding: '8px 12px', background: '#f0fdfa', borderRadius: '8px', fontSize: '12px', color: '#0f766e', fontWeight: '800', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                        {log.actionPlan && <span>🎯 Action Plan: {log.actionPlan}</span>}
-                        {log.nextFollowUpDate && <span>⏰ Follow-Up Date: {log.nextFollowUpDate}</span>}
-                      </div>
-                    )}
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ============================================================
-            TAB 4: SKILLS & ACHIEVEMENTS PORTFOLIO
-           ============================================================ */}
-        {activeTab === 'portfolio' && (
-          <div style={styles.card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '18px', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px' }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '19px', fontWeight: '900', color: '#0f172a' }}>
-                  🏆 My Verified Skills &amp; Achievements Portfolio
-                </h3>
-                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#475569', fontWeight: '600' }}>
-                  Verified and maintained by your Assigned Mentor and Class Teacher.
-                </p>
-              </div>
-              <span style={{ background: '#f0fdfa', color: '#0f766e', border: '1px solid #99f6e4', padding: '6px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: '800' }}>
-                🔒 Official Faculty Record
-              </span>
-            </div>
-
-            <div style={{ marginBottom: '26px' }}>
-              <h4 style={{ margin: '0 0 12px', fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
-                🌟 Recognized Skills &amp; Talents ({studentSkills.length})
-              </h4>
-              {studentSkills.length === 0 ? (
-                <div style={{ padding: '20px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1', color: '#64748b', fontSize: '14px', fontWeight: '600' }}>
-                  No skills have been added to your portfolio yet. Contact your Mentor or Class Teacher to update your recognized talents.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                  {studentSkills.map((sk, idx) => (
-                    <span key={idx} style={{ background: '#f0fdfa', color: '#0f766e', border: '1.5px solid #0d9488', padding: '8px 16px', borderRadius: '999px', fontSize: '13px', fontWeight: '800' }}>
-                      ✦ {sk}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <h4 style={{ margin: '0 0 12px', fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
-                🏅 Achievements, Awards &amp; Sibaq Log ({studentAchievements.length})
-              </h4>
-              {studentAchievements.length === 0 ? (
-                <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1', color: '#64748b', fontSize: '14px', fontWeight: '600' }}>
-                  No achievements or awards recorded yet.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {studentAchievements.map((ach, i) => (
-                    <div key={ach.id || i} style={{ padding: '16px', borderRadius: '12px', border: '1px solid #cbd5e1', background: '#f8fafc' }}>
-                      <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '15px' }}>🏅 {ach.title}</div>
-                      <div style={{ fontSize: '12px', color: '#334155', marginTop: '6px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', fontWeight: '700' }}>
-                        <span style={{ background: '#fef3c7', color: '#92400e', padding: '3px 8px', borderRadius: '6px', fontWeight: '800' }}>{ach.category}</span>
-                        <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '3px 8px', borderRadius: '6px', fontWeight: '800' }}>{ach.level}</span>
-                        <span>📅 {ach.date}</span>
-                        {ach.addedBy && <span>• Verified by <strong>{ach.addedBy}</strong></span>}
-                      </div>
-                      {ach.notes && <div style={{ fontSize: '13px', color: '#1e293b', marginTop: '6px', fontWeight: '600' }}>{ach.notes}</div>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ============================================================
-            TAB 5: MENTOR, CLASS TEACHER & 14 SUBJECT USTHADS
-           ============================================================ */}
-        {activeTab === 'faculty' && (
-          <div style={styles.card}>
-            <h3 style={styles.sectionTitle}>👨‍🏫 My Academic Mentor, Class Teacher &amp; Subject Faculty</h3>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-              <div style={{ background: '#f0fdfa', border: '2px solid #0d9488', padding: '18px', borderRadius: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-                <div>
-                  <div style={{ fontSize: '11px', fontWeight: '900', color: '#0f766e', textTransform: 'uppercase' }}>🧭 Assigned Mentor</div>
-                  <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', marginTop: '4px' }}>
-                    {mentorTeacherObj?.fullName || loggedInStudent?.mentorUsername || 'Not Assigned'}
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#334155', fontWeight: '600', marginTop: '2px' }}>
-                    Personal guidance, portfolio &amp; academic mentorship
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                   {mentorTeacherObj?.whatsappNumber && (
                     <button
                       type="button"
-                      onClick={() => openDirectWhatsApp(mentorTeacherObj.whatsappNumber, `Assalamu Alaikum Usthad, I am ${loggedInStudent.firstName} (Ad.No #${loggedInStudent.adNo}, Class ${(loggedInStudent.classes || []).join(', ')}).`)}
-                      style={{ padding: '8px 12px', background: '#16a34a', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                      onClick={() => openDirectWhatsApp(mentorTeacherObj.whatsappNumber, `Assalamu Alaikum Usthad, I am ${loggedInStudent.firstName} (#${loggedInStudent.adNo}). I would like to schedule my next mentorship sitting.`)}
+                      style={styles.buttonPrimary}
+                    >
+                      💬 Request Sitting
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '16px', borderRadius: '12px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Current Action Plan</div>
+                  <div style={{ fontSize: '14px', fontWeight: '700', color: '#0f172a', marginTop: '6px' }}>
+                    {latestSitting?.actionPlan ? `"${latestSitting.actionPlan}"` : 'Meet with your Mentor Usthad to receive your semester action plan.'}
+                  </div>
+                </div>
+              </div>
+
+              <h4 style={styles.sectionTitle}>Recorded Mentorship Sittings ({studentMentorLogs.length})</h4>
+              {studentMentorLogs.length === 0 ? (
+                <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '10px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
+                  No mentorship sittings have been logged yet.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {studentMentorLogs.map((log, i) => (
+                    <div key={log.id || i} style={{ padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0', background: '#ffffff' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <span style={{ fontWeight: '700', fontSize: '13px', color: '#0f172a' }}>
+                          📅 {log.date} • {log.type || 'Sitting'}
+                        </span>
+                        <span style={{ fontSize: '12px', color: '#64748b' }}>By {log.loggedBy || 'Mentor'}</span>
+                      </div>
+                      {log.summary && <div style={{ fontSize: '13px', color: '#334155' }}>{log.summary}</div>}
+                      {log.actionPlan && <div style={{ fontSize: '12px', color: '#4f46e5', fontWeight: '600', marginTop: '4px' }}>Action Plan: {log.actionPlan}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ============================================================
+              TAB 4: SKILLS & ACHIEVEMENTS PORTFOLIO
+             ============================================================ */}
+          {activeTab === 'portfolio' && (
+            <div style={styles.card}>
+              <div style={{ marginBottom: '24px' }}>
+                <h4 style={styles.sectionTitle}>Recognized Skills &amp; Talents ({studentSkills.length})</h4>
+                {studentSkills.length === 0 ? (
+                  <div style={{ padding: '18px', background: '#f8fafc', borderRadius: '10px', color: '#64748b', fontSize: '13px' }}>
+                    No skills added yet. Contact your Mentor or Class Teacher to update your portfolio.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {studentSkills.map((sk, idx) => (
+                      <span key={idx} style={{ background: '#eef2ff', color: '#4f46e5', padding: '6px 14px', borderRadius: '999px', fontSize: '12px', fontWeight: '700' }}>
+                        ✦ {sk}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <h4 style={styles.sectionTitle}>Achievements, Awards &amp; Sibaq Log ({studentAchievements.length})</h4>
+                {studentAchievements.length === 0 ? (
+                  <div style={{ padding: '18px', background: '#f8fafc', borderRadius: '10px', color: '#64748b', fontSize: '13px' }}>
+                    No achievements recorded yet.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {studentAchievements.map((ach, i) => (
+                      <div key={ach.id || i} style={{ padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                        <div style={{ fontWeight: '700', color: '#0f172a', fontSize: '14px' }}>🏅 {ach.title}</div>
+                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                          {ach.category} • {ach.level} • {ach.date}
+                        </div>
+                        {ach.notes && <div style={{ fontSize: '13px', color: '#334155', marginTop: '4px' }}>{ach.notes}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ============================================================
+              TAB 5: MENTOR, CLASS TEACHER & 14 SUBJECT USTHADS
+             ============================================================ */}
+          {activeTab === 'faculty' && (
+            <div style={styles.card}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px', marginBottom: '22px' }}>
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '16px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Assigned Mentor</div>
+                    <div style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', marginTop: '2px' }}>
+                      {mentorTeacherObj?.fullName || loggedInStudent?.mentorUsername || 'Not Assigned'}
+                    </div>
+                  </div>
+                  {mentorTeacherObj?.whatsappNumber && (
+                    <button
+                      type="button"
+                      onClick={() => openDirectWhatsApp(mentorTeacherObj.whatsappNumber, `Assalamu Alaikum Usthad, I am ${loggedInStudent.firstName} (#${loggedInStudent.adNo}).`)}
+                      style={styles.buttonSecondary}
                     >
                       💬 WhatsApp
                     </button>
                   )}
-                  {mentorTeacherObj?.email && (
-                    <button
-                      type="button"
-                      onClick={() => sendDirectEmailNotification('/api/sheets', mentorTeacherObj.email, `Student Inquiry: ${loggedInStudent.firstName} (#${loggedInStudent.adNo})`, `Assalamu Alaikum Usthad ${mentorTeacherObj.fullName},\n\n`)}
-                      style={{ padding: '8px 12px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
-                    >
-                      ✉️ Email
-                    </button>
-                  )}
                 </div>
-              </div>
 
-              <div style={{ background: '#eff6ff', border: '2px solid #3b82f6', padding: '18px', borderRadius: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-                <div>
-                  <div style={{ fontSize: '11px', fontWeight: '900', color: '#1d4ed8', textTransform: 'uppercase' }}>🏫 Class Teacher</div>
-                  <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', marginTop: '4px' }}>
-                    {classTeacherObj?.fullName || loggedInStudent?.classTeacherUsername || 'Class Faculty'}
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '16px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Class Teacher</div>
+                    <div style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', marginTop: '2px' }}>
+                      {classTeacherObj?.fullName || loggedInStudent?.classTeacherUsername || 'Class Faculty'}
+                    </div>
                   </div>
-                  <div style={{ fontSize: '12px', color: '#334155', fontWeight: '600', marginTop: '2px' }}>
-                    Class {(loggedInStudent?.classes || []).join(', ')} coordinator &amp; Hifz instructor
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                   {classTeacherObj?.whatsappNumber && (
                     <button
                       type="button"
-                      onClick={() => openDirectWhatsApp(classTeacherObj.whatsappNumber, `Assalamu Alaikum Usthad, I am ${loggedInStudent.firstName} (Ad.No #${loggedInStudent.adNo}, Class ${(loggedInStudent.classes || []).join(', ')}).`)}
-                      style={{ padding: '8px 12px', background: '#2563eb', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                      onClick={() => openDirectWhatsApp(classTeacherObj.whatsappNumber, `Assalamu Alaikum Usthad, I am ${loggedInStudent.firstName} (#${loggedInStudent.adNo}).`)}
+                      style={styles.buttonSecondary}
                     >
                       💬 WhatsApp
                     </button>
                   )}
-                  {classTeacherObj?.email && (
-                    <button
-                      type="button"
-                      onClick={() => sendDirectEmailNotification('/api/sheets', classTeacherObj.email, `Student Inquiry: ${loggedInStudent.firstName} (#${loggedInStudent.adNo})`, `Assalamu Alaikum Usthad ${classTeacherObj.fullName},\n\n`)}
-                      style={{ padding: '8px 12px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
-                    >
-                      ✉️ Email
-                    </button>
-                  )}
                 </div>
               </div>
-            </div>
 
-            <h4 style={{ margin: '0 0 12px', fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
-              📚 My 14 Subject Usthads
-            </h4>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
-              {subjectAggregates.map((item, idx) => (
-                <div key={idx} className="erp-card-hover" style={{ padding: '14px', borderRadius: '12px', border: '1px solid #cbd5e1', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
-                  <div>
-                    <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '14px' }}>📖 {item.subject}</div>
-                    <div style={{ fontSize: '12px', color: '#0f766e', fontWeight: '700', marginTop: '3px' }}>
-                      👨‍🏫 {item.teacherName || 'Faculty Assigned by Dept'}
+              <h4 style={styles.sectionTitle}>My 14 Subject Usthads</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '12px' }}>
+                {subjectAggregates.map((item, idx) => (
+                  <div key={idx} style={{ padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0', background: '#ffffff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                    <div>
+                      <div style={{ fontWeight: '700', color: '#0f172a', fontSize: '14px' }}>{item.subject}</div>
+                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                        {item.teacherName || 'Assigned Faculty'}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      {item.teacherPhone && (
+                        <button
+                          type="button"
+                          onClick={() => openDirectWhatsApp(item.teacherPhone, `Assalamu Alaikum Usthad, I am ${loggedInStudent.firstName} (#${loggedInStudent.adNo}) regarding ${item.subject}:`)}
+                          style={{ padding: '6px 10px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight: '700', fontSize: '11px', cursor: 'pointer' }}
+                        >
+                          💬 WA
+                        </button>
+                      )}
+                      {item.teacherEmail && (
+                        <button
+                          type="button"
+                          onClick={() => sendDirectEmailNotification('/api/sheets', item.teacherEmail, `Question regarding ${item.subject}`, `Assalamu Alaikum Usthad,\n\n`)}
+                          style={{ padding: '6px 10px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight: '700', fontSize: '11px', cursor: 'pointer' }}
+                        >
+                          ✉️ Mail
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    {item.teacherPhone && (
-                      <button
-                        type="button"
-                        onClick={() => openDirectWhatsApp(item.teacherPhone, `Assalamu Alaikum Usthad, I am ${loggedInStudent.firstName} (#${loggedInStudent.adNo}) regarding ${item.subject} CCE work:`)}
-                        style={{ padding: '6px 10px', background: '#dcfce7', color: '#166534', border: '1px solid #86efac', borderRadius: '8px', fontWeight: '800', fontSize: '11px', cursor: 'pointer' }}
-                      >
-                        💬 WA
-                      </button>
-                    )}
-                    {item.teacherEmail && (
-                      <button
-                        type="button"
-                        onClick={() => sendDirectEmailNotification('/api/sheets', item.teacherEmail, `Question regarding ${item.subject}: ${loggedInStudent.firstName} (#${loggedInStudent.adNo})`, `Assalamu Alaikum Usthad,\n\n`)}
-                        style={{ padding: '6px 10px', background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: '8px', fontWeight: '800', fontSize: '11px', cursor: 'pointer' }}
-                      >
-                        ✉️ Mail
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </main>
       </div>
     </div>
   );

@@ -814,7 +814,7 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
               ✦
             </div>
             <div>
-              <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', lineHeight: 1.2 }}>Shuhood</div>
+              <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', lineHeight: 1.2 }}>DHIU Degree Campus</div>
               <div style={{ fontSize: '10px', fontWeight: '800', color: '#4f46e5', letterSpacing: '0.6px', textTransform: 'uppercase', marginTop: '2px' }}>
                 🎓 FACULTY PORTAL
               </div>

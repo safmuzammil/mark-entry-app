@@ -206,7 +206,7 @@ export default function UnifiedSchoolPortal() {
         <HighContrastStyles />
         <style>{`
           @media (max-width: 960px) {
-            .shuhood-sidebar {
+            .dhiu-sidebar {
               position: fixed !important;
               top: 0;
               left: 0;
@@ -215,16 +215,15 @@ export default function UnifiedSchoolPortal() {
               transform: translateX(-100%);
               transition: transform 0.25s ease;
             }
-            .shuhood-sidebar.open {
+            .dhiu-sidebar.open {
               transform: translateX(0);
             }
-            .shuhood-mobile-menu-btn {
+            .dhiu-mobile-menu-btn {
               display: inline-flex !important;
             }
           }
         `}</style>
 
-        {/* Mobile Overlay */}
         {mobileSidebarOpen && (
           <div
             onClick={() => setMobileSidebarOpen(false)}
@@ -232,9 +231,9 @@ export default function UnifiedSchoolPortal() {
           />
         )}
 
-        {/* 🌟 SHUHOOD LEFT SIDEBAR NAVIGATION (Matches Screenshot 1) */}
+        {/* 🌟 LEFT SIDEBAR NAVIGATION (Named "DHIU Degree Campus") */}
         <aside
-          className={`shuhood-sidebar ${mobileSidebarOpen ? 'open' : ''}`}
+          className={`dhiu-sidebar ${mobileSidebarOpen ? 'open' : ''}`}
           style={{
             width: '255px',
             minWidth: '255px',
@@ -252,16 +251,13 @@ export default function UnifiedSchoolPortal() {
           }}
         >
           <div>
-            {/* Brand Logo Header */}
             <div
               onClick={() => { setActiveAdminTab('dashboard'); setMobileSidebarOpen(false); }}
               style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '4px 10px 20px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
             >
-              <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#4f46e5', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '900', fontSize: '18px', flexShrink: 0 }}>
-                ✦
-              </div>
+              <img src={DHIU_LOGO_URL} alt="DHIU" style={{ width: '40px', height: '40px', borderRadius: '10px', objectFit: 'contain', border: '1px solid #e2e8f0', padding: '2px' }} />
               <div>
-                <div style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', lineHeight: 1.2 }}>Shuhood</div>
+                <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', lineHeight: 1.2 }}>DHIU Degree Campus</div>
                 <div style={{ fontSize: '10px', fontWeight: '800', color: '#4f46e5', letterSpacing: '0.6px', textTransform: 'uppercase', marginTop: '2px' }}>
                   🛡️ ADMIN PORTAL
                 </div>
@@ -272,7 +268,6 @@ export default function UnifiedSchoolPortal() {
               NAVIGATION
             </div>
 
-            {/* Sidebar Links */}
             <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {sidebarNavItems.map(item => {
                 const isActive = activeAdminTab === item.id;
@@ -309,7 +304,6 @@ export default function UnifiedSchoolPortal() {
             </nav>
           </div>
 
-          {/* Bottom Gate Kiosk & Logout */}
           <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <Link
               href="/outpass"
@@ -329,19 +323,18 @@ export default function UnifiedSchoolPortal() {
 
         {/* 🌟 MAIN CONTENT AREA */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          {/* TOP INSTITUTIONAL BAR (Matches Screenshot 1) */}
           <header style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '14px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 90 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <button
                 type="button"
-                className="shuhood-mobile-menu-btn"
+                className="dhiu-mobile-menu-btn"
                 onClick={() => setMobileSidebarOpen(true)}
                 style={{ display: 'none', padding: '8px 12px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '16px' }}
               >
                 ☰
               </button>
               <span style={{ background: '#f8fafc', color: '#4f46e5', border: '1px solid #e2e8f0', padding: '6px 14px', borderRadius: '999px', fontSize: '11px', fontWeight: '800', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-                🛡️ INSTITUTIONAL PORTAL
+                🛡️ DEGREE SECTION ERP
               </span>
             </div>
 
@@ -366,11 +359,9 @@ export default function UnifiedSchoolPortal() {
             </div>
           </header>
 
-          {/* PAGE BODY */}
           <main style={{ padding: '28px', maxWidth: '1280px', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
             <InstallAppBanner />
 
-            {/* Clean Page Title Header */}
             {activeAdminTab !== 'teachers' && activeAdminTab !== 'students' && (
               <div style={{ marginBottom: '22px' }}>
                 <h1 style={{ margin: 0, fontSize: '24px', fontWeight: '800', color: '#0f172a' }}>{currentTabObj.label}</h1>
@@ -380,7 +371,6 @@ export default function UnifiedSchoolPortal() {
 
             {activeAdminTab === 'dashboard' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
-                {/* MINIMALIST KPI ROW (Matches Marks Auditor Style in Screenshot 3) */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
                   <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '14px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
                     <span style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>TOTAL STUDENTS</span>
@@ -409,7 +399,7 @@ export default function UnifiedSchoolPortal() {
                   </div>
                 </div>
 
-                {/* CLEAN MINIMALIST WHITE MODULE CARDS */}
+                {/* 🌟 CLEAN MINIMALIST MODULE CARDS (Without "Open Module ->" text!) */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: '16px' }}>
                   {sidebarNavItems.filter(i => i.id !== 'dashboard').map(item => (
                     <div
@@ -422,24 +412,18 @@ export default function UnifiedSchoolPortal() {
                         border: '1px solid #e2e8f0',
                         cursor: 'pointer',
                         display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between',
+                        alignItems: 'center',
                         gap: '14px',
                         boxShadow: '0 1px 3px rgba(15, 23, 42, 0.03)',
                         transition: 'border-color 0.15s ease, transform 0.15s ease'
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div style={{ width: '42px', height: '42px', borderRadius: '10px', background: '#eef2ff', color: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', flexShrink: 0 }}>
-                          {item.icon}
-                        </div>
-                        <div>
-                          <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>{item.label}</h3>
-                          <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b', fontWeight: '500' }}>{item.desc}</p>
-                        </div>
+                      <div style={{ width: '44px', height: '44px', borderRadius: '10px', background: '#eef2ff', color: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', flexShrink: 0 }}>
+                        {item.icon}
                       </div>
-                      <div style={{ fontSize: '12px', fontWeight: '700', color: '#4f46e5', textAlign: 'right' }}>
-                        Open Module ➔
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>{item.label}</h3>
+                        <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b', fontWeight: '500', lineHeight: 1.4 }}>{item.desc}</p>
                       </div>
                     </div>
                   ))}
@@ -545,7 +529,7 @@ export default function UnifiedSchoolPortal() {
         <div style={{ background: '#ffffff', padding: '38px 32px', borderRadius: '16px', boxShadow: '0 4px 20px rgba(15, 23, 42, 0.05)', border: '1px solid #e2e8f0' }}>
           <div style={{ textAlign: 'center', marginBottom: '28px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <img src={DHIU_LOGO_URL} alt="DHIU Logo" style={{ width: '68px', height: '68px', borderRadius: '50%', objectFit: 'contain', marginBottom: '12px' }} />
-            <h2 style={{ color: '#0f172a', margin: '0 0 6px 0', fontSize: '24px', fontWeight: '800' }}>Shuhood Portal</h2>
+            <h2 style={{ color: '#0f172a', margin: '0 0 6px 0', fontSize: '24px', fontWeight: '800' }}>DHIU Degree Campus ERP</h2>
             <p style={{ color: '#64748b', fontSize: '14px', margin: 0, fontWeight: '500' }}>Sign in as Student, Faculty, or Admin</p>
           </div>
 
