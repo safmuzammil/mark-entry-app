@@ -5,7 +5,7 @@ import { doc, setDoc, getDoc, getDocs, collection } from 'firebase/firestore';
 import {
   DEFAULT_SUBJECTS, CCE_LEVELS, HIFZ_LEVELS, styles
 } from './erpConstants';
-import { openWhatsAppGroupAndCopy } from './ErpExtensions';
+import {CollapsibleCard, openWhatsAppGroupAndCopy } from './ErpExtensions';
 
 export default function ReminderManager() {
   const [weekName, setWeekName] = useState('Week 3');
