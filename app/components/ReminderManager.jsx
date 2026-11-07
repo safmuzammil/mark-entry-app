@@ -235,12 +235,16 @@ export default function ReminderManager() {
   };
 
   const completedCount = trackerData.filter(r => r.missingCount === 0).length;
+  const notStartedCount = trackerData.filter(r => r.enteredCount === 0 && r.totalEnrolled > 0).length;
+  const partiallyCount = trackerData.filter(r => r.enteredCount > 0 && r.missingCount > 0).length;
   const pendingCount = trackerData.length - completedCount;
   const completionPct = trackerData.length > 0 ? Math.round((completedCount / trackerData.length) * 100) : 0;
 
   const filteredTrackerRows = trackerData.filter(row => {
     if (statusFilter === 'Pending' && row.missingCount === 0) return false;
     if (statusFilter === 'Completed' && row.missingCount > 0) return false;
+    if (statusFilter === 'NotStarted' && (row.enteredCount > 0 || row.totalEnrolled === 0)) return false;
+    if (statusFilter === 'Partially' && (row.enteredCount === 0 || row.missingCount === 0)) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       if (!row.teacherName?.toLowerCase().includes(q) && !row.subject?.toLowerCase().includes(q)) return false;
@@ -461,7 +465,7 @@ export default function ReminderManager() {
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ ...styles.input, maxWidth: '280px', padding: '7px 12px', fontSize: '13px' }}
           />
-          <div style={{ display: 'flex', gap: '6px' }}>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
             {[
               { id: 'All', label: `All (${trackerData.length})` },
               { id: 'NotStarted', label: `🔴 Not Started (${notStartedCount})` },
@@ -469,7 +473,7 @@ export default function ReminderManager() {
               { id: 'Completed', label: `🟢 Fully Marked (${completedCount})` }
             ].map(f => (
               <button
-                key={f}
+                key={f.id}
                 type="button"
                 onClick={() => setStatusFilter(f.id)}
                 style={{
@@ -483,7 +487,7 @@ export default function ReminderManager() {
                   border: '1px solid #e2e8f0'
                 }}
               >
-                {f}
+                {f.label}
               </button>
             ))}
           </div>

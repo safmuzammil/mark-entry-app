@@ -811,6 +811,7 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
     { id: 'mentees', label: 'Mentorship & Class', icon: '👥', onClick: () => handleSelectTeacherView('mentees') },
     { id: 'outpass', label: loggedInTeacher?.outpassPrivileges?.isOfficeSecretary ? 'Office Out-Pass' : 'Out-Pass Desk', icon: '🪪', onClick: () => handleSelectTeacherView('outpass') },
     { id: 'attendance', label: 'Night Attendance', icon: '🌙', onClick: () => handleSelectTeacherView('attendance') },
+    { id: 'reminders', label: 'Weekly Reminders', icon: '🔔', onClick: () => handleSelectTeacherView('reminders') },
     ...((loggedInTeacher?.outpassPrivileges?.isOutreachCoordinator || loggedInTeacher?.outpassPrivileges?.isPrincipal || loggedInTeacher?.outpassPrivileges?.isNiicsCoordinator)
       ? [{ id: 'outreach_dept', label: 'Outreach Tracker', icon: '🌍', onClick: () => setActiveView('outreach_dept') }]
       : []),
@@ -1056,7 +1057,74 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
             </div>
           )}
 
-          {activeView === 'settings' ? (
+          {activeView === 'reminders' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '22px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
+                      🔔 Academic Mark Entry Target Tracker
+                    </h2>
+                    <div style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>
+                      {weeklyReminder?.weekName || 'Current Week'}: {weeklyReminder?.message || 'Please complete mark entry targets'}
+                    </div>
+                  </div>
+                  <span style={{
+                    padding: '6px 14px',
+                    borderRadius: '999px',
+                    fontWeight: '800',
+                    fontSize: '12px',
+                    background: pendingTasksCount === 0 ? '#ecfdf5' : '#fff1f2',
+                    color: pendingTasksCount === 0 ? '#047857' : '#e11d48'
+                  }}>
+                    {pendingTasksCount === 0 ? '✅ All Targets Completed!' : `⏳ ${pendingTasksCount} Target(s) Incomplete`}
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '14px', marginTop: '16px' }}>
+                  {reminderChecklist.length === 0 ? (
+                    <div style={{ padding: '30px', textAlign: 'center', color: '#64748b', background: '#f8fafc', borderRadius: '10px', border: '1px dashed #cbd5e1', width: '100%' }}>
+                      No specific mark entry targets assigned to your subject batches for this week.
+                    </div>
+                  ) : (
+                    reminderChecklist.map((item, idx) => {
+                      const isDone = item.missing === 0;
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            padding: '16px',
+                            borderRadius: '12px',
+                            border: `1.5px solid ${isDone ? '#a7f3d0' : '#fecdd3'}`,
+                            background: isDone ? '#f0fdf4' : '#fff1f2',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '8px'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div style={{ fontWeight: '800', fontSize: '15px', color: '#0f172a' }}>{item.alias}</div>
+                            <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', background: isDone ? '#10b981' : '#f43f5e', color: '#ffffff' }}>
+                              {isDone ? 'COMPLETED' : 'PENDING'}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#475569' }}>
+                            Target Level: <strong>{item.targetLevel}</strong>
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#475569' }}>
+                            Entered: <strong>{item.entered}</strong> / {item.total} students ({item.missing} missing)
+                          </div>
+                          <div style={{ width: '100%', height: '6px', borderRadius: '999px', background: '#e2e8f0', overflow: 'hidden', marginTop: '4px' }}>
+                            <div style={{ width: `${item.total > 0 ? (item.entered / item.total) * 100 : 100}%`, height: '100%', background: isDone ? '#10b981' : '#f59e0b' }} />
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : activeView === 'settings' ? (
             <TeacherPasswordSettings />
           ) : activeView === 'period_attendance' ? (
             <PeriodAttendanceManager

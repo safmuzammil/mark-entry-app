@@ -118,25 +118,11 @@ export default function PeriodAttendanceReportsHub({
     fetchFnAnMonthData();
   }, [activeTab, repScope, repMonth]);
 
-  useEffect(() => {
-    if (isPureSubjectTeacher && repScope === 'fn_an_monthly') {
-      setRepScope('total');
-    }
-  }, [isPureSubjectTeacher, repScope]);
-
-  useEffect(() => {
-    if (isClassTeacher && repScope === 'fn_an_monthly') {
-      if (repClass === 'ALL' || !myCtClasses.includes(repClass)) {
-        if (myCtClasses.length > 0) setRepClass(myCtClasses[0]);
-      }
-    }
-  }, [isClassTeacher, repScope, myCtClasses, repClass]);
-
   const teacherAllowedClassesSet = new Set();
   const teacherAllowedStudentRegs = new Set();
   const subjectColsSet = new Set();
 
-    const myCtClasses = React.useMemo(() => {
+  const myCtClasses = React.useMemo(() => {
     const set = new Set();
     const addClean = (val) => {
       if (!val) return;
@@ -169,6 +155,20 @@ export default function PeriodAttendanceReportsHub({
 
   const isClassTeacher = userRole !== 'admin' && myCtClasses.length > 0;
   const isPureSubjectTeacher = userRole !== 'admin' && myCtClasses.length === 0;
+
+  useEffect(() => {
+    if (isPureSubjectTeacher && repScope === 'fn_an_monthly') {
+      setRepScope('total');
+    }
+  }, [isPureSubjectTeacher, repScope]);
+
+  useEffect(() => {
+    if (isClassTeacher && repScope === 'fn_an_monthly') {
+      if (repClass === 'ALL' || !myCtClasses.includes(repClass)) {
+        if (myCtClasses.length > 0) setRepClass(myCtClasses[0]);
+      }
+    }
+  }, [isClassTeacher, repScope, myCtClasses, repClass]);
 
   myCtClasses.forEach(c => teacherAllowedClassesSet.add(c));
 
