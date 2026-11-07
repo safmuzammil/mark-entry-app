@@ -919,10 +919,48 @@ export default function OutPassPortal({
       processSecurityGateScan(code);
       return;
     }
+
+    playBeep(false);
+    if (scannerMode === "teacher") {
+      const found = students.find(
+        (s) =>
+          s.adNo.toLowerCase() === code.toLowerCase() ||
+          s.regNo.toLowerCase() === code.toLowerCase()
+      );
+      if (found) {
+        if (isGroupMode) {
+          if (!selectedGroupStudents.some((x) => x.adNo === found.adNo)) {
+            setSelectedGroupStudents((prev) => [...prev, found]);
+          }
+        } else {
+          setSelectedStudent(found);
+        }
+        setSearchQuery("");
+      } else {
+        setSearchQuery(code);
+        alert(`Scanned ID "${code}", but no matching Ad.No was found.`);
+      }
+    } else if (scannerMode === "return") {
+      const activePass = passes.find(
+        (p) =>
+          String(p.adNo).toLowerCase() === code.toLowerCase() &&
+          (p.status === "OUTSIDE" || p.status === "ARRIVED_AT_GATE")
+      );
+      if (activePass) {
+        handleTeacherVerifyArrival(activePass);
+        alert(
+          `✅ Verified return of ${activePass.studentName} (#${activePass.adNo})!`
+        );
+      } else {
+        alert(`No active pass found for scanned ID: ${code}`);
+      }
+    }
+  };
+
   const handleUndoGateVerification = async (passToUndo) => {
     if (!passToUndo || !passToUndo.id) return;
     const confirmMsg = `Are you sure you want to undo the gate verification for ${passToUndo.studentName || 'student'} (#${passToUndo.adNo})?`;
-    if (!window.confirm(confirmMsg)) return;
+    if (typeof window !== "undefined" && !window.confirm(confirmMsg)) return;
 
     try {
       const prevStatus = passToUndo.status;
@@ -968,43 +1006,6 @@ export default function OutPassPortal({
     } catch (err) {
       console.error("Undo error:", err);
       alert("Error undoing verification: " + err.message);
-    }
-  };
-
-    playBeep(false);
-    if (scannerMode === "teacher") {
-      const found = students.find(
-        (s) =>
-          s.adNo.toLowerCase() === code.toLowerCase() ||
-          s.regNo.toLowerCase() === code.toLowerCase()
-      );
-      if (found) {
-        if (isGroupMode) {
-          if (!selectedGroupStudents.some((x) => x.adNo === found.adNo)) {
-            setSelectedGroupStudents((prev) => [...prev, found]);
-          }
-        } else {
-          setSelectedStudent(found);
-        }
-        setSearchQuery("");
-      } else {
-        setSearchQuery(code);
-        alert(`Scanned ID "${code}", but no matching Ad.No was found.`);
-      }
-    } else if (scannerMode === "return") {
-      const activePass = passes.find(
-        (p) =>
-          String(p.adNo).toLowerCase() === code.toLowerCase() &&
-          (p.status === "OUTSIDE" || p.status === "ARRIVED_AT_GATE")
-      );
-      if (activePass) {
-        handleTeacherVerifyArrival(activePass);
-        alert(
-          `✅ Verified return of ${activePass.studentName} (#${activePass.adNo})!`
-        );
-      } else {
-        alert(`No active pass found for scanned ID: ${code}`);
-      }
     }
   };
 

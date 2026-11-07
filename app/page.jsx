@@ -34,6 +34,50 @@ const ADMIN_AUTH_EMAILS = [
   'dhdegreeclearance@gmail.com'
 ];
 
+class PortalErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("Portal tab crashed:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '32px', background: '#ffffff', borderRadius: '14px', border: '1px solid #fecdd3', textAlign: 'center', margin: '20px auto', maxWidth: '600px' }}>
+          <div style={{ fontSize: '38px', marginBottom: '8px' }}>🛡️</div>
+          <h3 style={{ margin: '0 0 8px', color: '#991b1b', fontSize: '18px', fontWeight: '800' }}>
+            {this.props.tabLabel || 'Portal Component'} Recovery Mode
+          </h3>
+          <p style={{ color: '#475569', fontSize: '14px', lineHeight: 1.6 }}>
+            {this.state.error?.message || 'An error occurred while loading this tab.'}
+          </p>
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '16px' }}>
+            <button
+              type="button"
+              onClick={() => this.setState({ hasError: false, error: null })}
+              style={{ padding: '10px 20px', background: '#0f766e', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer' }}
+            >
+              🔄 Reload Tab
+            </button>
+            <Link
+              href="/outpass"
+              style={{ padding: '10px 20px', background: '#f1f5f9', color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '800', textDecoration: 'none' }}
+            >
+              Open Standalone Kiosk
+            </Link>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function UnifiedSchoolPortal() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -613,24 +657,28 @@ export default function UnifiedSchoolPortal() {
             {activeAdminTab === 'reminders' && <ReminderManager />}
 
             {activeAdminTab === 'gate_security' && (
-              <OutPassPortal
-                key="gate_security_kiosk"
-                embeddedMode={true}
-                isAdminProp={true}
-                initialTab="security"
-                preloadedStudents={adminStudentsList}
-                preloadedTeachers={adminTeachersList}
-              />
+              <PortalErrorBoundary tabLabel="Gate Security Kiosk">
+                <OutPassPortal
+                  key="gate_security_kiosk"
+                  embeddedMode={true}
+                  isAdminProp={true}
+                  initialTab="security"
+                  preloadedStudents={adminStudentsList}
+                  preloadedTeachers={adminTeachersList}
+                />
+              </PortalErrorBoundary>
             )}
 
             {activeAdminTab === 'outpass' && (
-              <OutPassPortal
-                key="outpass_portal"
-                embeddedMode={true}
-                isAdminProp={true}
-                preloadedStudents={adminStudentsList}
-                preloadedTeachers={adminTeachersList}
-              />
+              <PortalErrorBoundary tabLabel="Out-Pass Portal">
+                <OutPassPortal
+                  key="outpass_portal"
+                  embeddedMode={true}
+                  isAdminProp={true}
+                  preloadedStudents={adminStudentsList}
+                  preloadedTeachers={adminTeachersList}
+                />
+              </PortalErrorBoundary>
             )}
 
             {activeAdminTab === 'attendance' && (
@@ -721,6 +769,27 @@ export default function UnifiedSchoolPortal() {
               {isLoading ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
+
+          <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid #f1f5f9', textAlign: 'center' }}>
+            <Link
+              href="/outpass"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '9px 16px',
+                background: '#f0fdfa',
+                color: '#0f766e',
+                borderRadius: '8px',
+                border: '1px solid #99f6e4',
+                fontSize: '13px',
+                fontWeight: '800',
+                textDecoration: 'none'
+              }}
+            >
+              <span>🛡️</span> Security Gate Kiosk (PIN Access)
+            </Link>
+          </div>
         </div>
       </div>
     </div>

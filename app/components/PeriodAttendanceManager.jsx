@@ -249,7 +249,14 @@ export default function PeriodAttendanceManager({
         if (rehSnap.exists()) {
           setRehearsalPresentMapForDate(rehSnap.data().periodPresentRegs || {});
         } else {
-          setRehearsalPresentMapForDate({});
+          let localRehStamp = null;
+          if (typeof window !== 'undefined') {
+            try {
+              const str = localStorage.getItem('dhiu_reh_stamp_' + attDate);
+              if (str) localRehStamp = JSON.parse(str);
+            } catch (_) {}
+          }
+          setRehearsalPresentMapForDate(localRehStamp?.periodPresentRegs || {});
         }
       } catch (e) {
         console.error('Error syncing out_passes:', e);
@@ -630,6 +637,8 @@ export default function PeriodAttendanceManager({
           date: attDate,
           session: Number(attSession) || 1,
           subject: subKey,
+          enrollmentId: env.id,
+          targetClass: env.targetClass || '',
           classAlias: safeAlias,
           isAttendanceOnly: Boolean(isAttendanceOnlyEnrollment(env)),
           teacherUsername: safeTeacherUsername,
@@ -638,12 +647,23 @@ export default function PeriodAttendanceManager({
           updatedAt: new Date().toISOString()
         }, { merge: true });
 
+        const sessionMeta = {
+          sessionDocId,
+          session: Number(attSession) || 1,
+          subject: subKey,
+          enrollmentId: env.id,
+          targetClass: env.targetClass || '',
+          classAlias: safeAlias,
+          teacherUsername: safeTeacherUsername,
+          teacherName: safeTeacherName
+        };
+
         const dayIndexRef = doc(db, 'systemCache', `daySessionsIndex_${attDate}`);
         const dayIndexSnap = await getDoc(dayIndexRef);
         const existingSessionsList = dayIndexSnap.exists() ? (dayIndexSnap.data().sessions || []) : [];
         const updatedSessionsList = [
           ...existingSessionsList.filter(x => x.sessionDocId !== sessionDocId),
-          { sessionDocId, session: Number(attSession) || 1, subject: subKey }
+          sessionMeta
         ];
         await setDoc(dayIndexRef, { date: attDate, sessions: updatedSessionsList }, { merge: true });
       } catch (cacheErr) {
@@ -651,6 +671,17 @@ export default function PeriodAttendanceManager({
       }
 
       syncUpdatedStudentsState(updatedStudentsByReg);
+
+      const sessionMeta = {
+        sessionDocId,
+        session: Number(attSession) || 1,
+        subject: subKey,
+        enrollmentId: env.id,
+        targetClass: env.targetClass || '',
+        classAlias: safeAlias,
+        teacherUsername: safeTeacherUsername,
+        teacherName: safeTeacherName
+      };
 
       const recordedAbs = Object.keys(newAttendanceMap)
         .filter(k => newAttendanceMap[k] === 'A' || newAttendanceMap[k] === 'M')
@@ -661,6 +692,8 @@ export default function PeriodAttendanceManager({
         date: attDate,
         session: Number(attSession) || 1,
         subject: subKey,
+        enrollmentId: env.id,
+        targetClass: env.targetClass || '',
         classAlias: safeAlias,
         isAttendanceOnly: Boolean(isAttendanceOnlyEnrollment(env)),
         teacherUsername: safeTeacherUsername,
@@ -672,7 +705,7 @@ export default function PeriodAttendanceManager({
       // Update today's recorded list in state
       setTodayRecordedSessions(prev => {
         const filtered = prev.filter(x => x.sessionDocId !== sessionDocId);
-        return [...filtered, { sessionDocId, session: Number(attSession) || 1, subject: subKey }];
+        return [...filtered, sessionMeta];
       });
 
       const presentTotal = Object.values(newAttendanceMap).filter(v => v === 'P' || v === 'O').length;
@@ -800,35 +833,132 @@ export default function PeriodAttendanceManager({
     setLoading(true);
     setStatusMsg('');
     try {
-      const batch = writeBatch(db);
       const rehDocId = `rehearsalSession_${rehDate}_${activeLeaderObj.username}_${rehSessionId}`;
-      batch.set(doc(db, 'systemCache', rehDocId), {
-        date: rehDate,
-        sessionId: rehSessionId,
-        sessionLabel: sessionConfig.label,
-        coveredPeriods,
-        weight: sessionConfig.weight,
-        leaderUsername: activeLeaderObj.username,
-        leaderName: activeLeaderObj.fullName || 'Event Leader',
-        presentRegNos: presentRegs,
-        absentRegNos: rehAbsentRegNos,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
 
-      const stampRef = doc(db, 'systemCache', `rehearsalStamp_${rehDate}`);
-      const stampSnap = await getDoc(stampRef);
-      const existingPeriodPresent = stampSnap.exists() ? (stampSnap.data().periodPresentRegs || {}) : {};
-      coveredPeriods.forEach(pNum => {
-        const prevList = Array.isArray(existingPeriodPresent[String(pNum)]) ? existingPeriodPresent[String(pNum)] : [];
-        const filteredPrev = prevList.filter(r => !rehAbsentRegNos.includes(r));
-        existingPeriodPresent[String(pNum)] = Array.from(new Set([...filteredPrev, ...presentRegs]));
+      // 1. Compute in-memory periodAttendance updates for all assigned students
+      const updatedStudentsByReg = {};
+      leaderStudentsSorted.forEach(st => {
+        const reg = String(st.regNo || st.id || '').trim();
+        const docId = String(st.id || st.regNo || '').trim();
+        if (!reg || !docId) return;
+
+        const isAbsent = rehAbsentRegNos.includes(reg);
+        const curStat = JSON.parse(JSON.stringify(getStudentAttStat(st)));
+
+        if (!curStat.subjectWise) curStat.subjectWise = {};
+        const subKey = 'REHEARSAL';
+        if (!curStat.subjectWise[subKey]) {
+          curStat.subjectWise[subKey] = {
+            total: 0,
+            present: 0,
+            official: 0,
+            medical: 0,
+            absentDates: [],
+            teacherName: activeLeaderObj.fullName || 'Event Leader',
+            isAttendanceOnly: true
+          };
+        }
+        const subObj = curStat.subjectWise[subKey];
+        subObj.teacherName = activeLeaderObj.fullName || 'Event Leader';
+        subObj.isAttendanceOnly = true;
+        if (!Array.isArray(subObj.absentDates)) subObj.absentDates = [];
+
+        const pCount = coveredPeriods.length;
+        curStat.totalPeriods = (Number(curStat.totalPeriods) || 0) + pCount;
+        subObj.total = (Number(subObj.total) || 0) + pCount;
+
+        if (!isAbsent) {
+          curStat.presentCount = (Number(curStat.presentCount) || 0) + pCount;
+          curStat.officialCount = (Number(curStat.officialCount) || 0) + pCount;
+          subObj.present = (Number(subObj.present) || 0) + pCount;
+          subObj.official = (Number(subObj.official) || 0) + pCount;
+          subObj.absentDates = subObj.absentDates.filter(d => d !== rehDate);
+        } else {
+          if (!subObj.absentDates.includes(rehDate)) subObj.absentDates.push(rehDate);
+        }
+
+        curStat.updatedAt = new Date().toISOString();
+        const updatedObj = { ...st, periodAttendance: curStat };
+        updatedStudentsByReg[reg] = updatedObj;
+        if (reg.toLowerCase() !== reg) updatedStudentsByReg[reg.toLowerCase()] = updatedObj;
+        if (reg.toUpperCase() !== reg) updatedStudentsByReg[reg.toUpperCase()] = updatedObj;
+        if (st.id) updatedStudentsByReg[st.id] = updatedObj;
       });
-      batch.set(stampRef, { date: rehDate, periodPresentRegs: existingPeriodPresent, updatedAt: new Date().toISOString() }, { merge: true });
 
-      await batch.commit();
+      // 2. Immediately sync in-memory React state so the register and cards reflect it instantly
+      syncUpdatedStudentsState(updatedStudentsByReg);
 
-      // 🌟 Write standard period session docs & day index so monthly FN/AN registers immediately see rehearsal presence
+      // 3. Update in-memory rehearsalPresentMapForDate
+      setRehearsalPresentMapForDate(prev => {
+        const next = { ...prev };
+        coveredPeriods.forEach(pNum => {
+          const prevList = Array.isArray(next[String(pNum)]) ? next[String(pNum)] : [];
+          const filtered = prevList.filter(r => !rehAbsentRegNos.includes(r));
+          next[String(pNum)] = Array.from(new Set([...filtered, ...presentRegs]));
+        });
+        return next;
+      });
+
+      // 4. Update existingRehDoc state
+      setExistingRehDoc({ date: rehDate, sessionId: rehSessionId, sessionLabel: sessionConfig.label, coveredPeriods, presentRegNos: presentRegs, absentRegNos: rehAbsentRegNos });
+
+      // 5. Save locally in localStorage for 100% offline-first reliability
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('dhiu_reh_' + rehDocId, JSON.stringify({
+            date: rehDate,
+            sessionId: rehSessionId,
+            sessionLabel: sessionConfig.label,
+            coveredPeriods,
+            presentRegNos: presentRegs,
+            absentRegNos: rehAbsentRegNos,
+            updatedAt: new Date().toISOString()
+          }));
+
+          const localStampStr = localStorage.getItem('dhiu_reh_stamp_' + rehDate);
+          const localStampData = localStampStr ? JSON.parse(localStampStr) : {};
+          const localStampPresent = localStampData.periodPresentRegs || {};
+          coveredPeriods.forEach(pNum => {
+            const prevList = Array.isArray(localStampPresent[String(pNum)]) ? localStampPresent[String(pNum)] : [];
+            const filtered = prevList.filter(r => !rehAbsentRegNos.includes(r));
+            localStampPresent[String(pNum)] = Array.from(new Set([...filtered, ...presentRegs]));
+          });
+          localStorage.setItem('dhiu_reh_stamp_' + rehDate, JSON.stringify({
+            date: rehDate,
+            periodPresentRegs: localStampPresent,
+            updatedAt: new Date().toISOString()
+          }));
+        } catch (_) {}
+      }
+
+      // 6. Sync to Firestore in the background
       try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'systemCache', rehDocId), {
+          date: rehDate,
+          sessionId: rehSessionId,
+          sessionLabel: sessionConfig.label,
+          coveredPeriods,
+          weight: sessionConfig.weight,
+          leaderUsername: activeLeaderObj.username,
+          leaderName: activeLeaderObj.fullName || 'Event Leader',
+          presentRegNos: presentRegs,
+          absentRegNos: rehAbsentRegNos,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+
+        const stampRef = doc(db, 'systemCache', `rehearsalStamp_${rehDate}`);
+        const stampSnap = await getDoc(stampRef);
+        const existingPeriodPresent = stampSnap.exists() ? (stampSnap.data().periodPresentRegs || {}) : {};
+        coveredPeriods.forEach(pNum => {
+          const prevList = Array.isArray(existingPeriodPresent[String(pNum)]) ? existingPeriodPresent[String(pNum)] : [];
+          const filteredPrev = prevList.filter(r => !rehAbsentRegNos.includes(r));
+          existingPeriodPresent[String(pNum)] = Array.from(new Set([...filteredPrev, ...presentRegs]));
+        });
+        batch.set(stampRef, { date: rehDate, periodPresentRegs: existingPeriodPresent, updatedAt: new Date().toISOString() }, { merge: true });
+
+        await batch.commit();
+
         const rehAttendanceMap = {};
         leaderStudentsSorted.forEach(st => {
           const reg = String(st.regNo || st.id || '').trim();
@@ -859,115 +989,38 @@ export default function PeriodAttendanceManager({
         const newEntries = coveredPeriods.map(pNum => ({
           sessionDocId: `periodSession_${rehDate}_Rehearsal_${rehSessionId}_S${pNum}`,
           session: Number(pNum),
-          subject: `REHEARSAL_${rehSessionId.toUpperCase()}`
+          subject: `REHEARSAL_${rehSessionId.toUpperCase()}`,
+          classAlias: `Rehearsal - ${sessionConfig.label || 'Event'}`
         }));
         const filteredList = existingList.filter(x => !newEntries.some(n => n.sessionDocId === x.sessionDocId));
         await setDoc(dayIndexRef, { date: rehDate, sessions: [...filteredList, ...newEntries] }, { merge: true });
-      } catch (cacheErr) {
-        console.warn('Rehearsal period session cache note:', cacheErr);
-      }
 
-      // 🌟 Batch update student periodAttendance in Firestore
-      const updatedStudentsByReg = {};
-      try {
+        // Update students in Firestore
         for (let i = 0; i < leaderStudentsSorted.length; i += 400) {
           const chunk = leaderStudentsSorted.slice(i, i + 400);
           const stBatch = writeBatch(db);
-
           chunk.forEach(st => {
             const reg = String(st.regNo || st.id || '').trim();
             const docId = String(st.id || st.regNo || '').trim();
             if (!reg || !docId) return;
-
-            const isAbsent = rehAbsentRegNos.includes(reg);
-            const stRef = doc(db, 'students', docId);
-            const curStat = JSON.parse(JSON.stringify(getStudentAttStat(st)));
-
-            if (!curStat.subjectWise) curStat.subjectWise = {};
-            const subKey = 'REHEARSAL';
-            if (!curStat.subjectWise[subKey]) {
-              curStat.subjectWise[subKey] = {
-                total: 0,
-                present: 0,
-                official: 0,
-                medical: 0,
-                absentDates: [],
-                teacherName: activeLeaderObj.fullName || 'Event Leader',
-                isAttendanceOnly: true
-              };
+            const up = updatedStudentsByReg[reg] || updatedStudentsByReg[docId];
+            if (up && up.periodAttendance) {
+              stBatch.set(doc(db, 'students', docId), { periodAttendance: up.periodAttendance }, { merge: true });
             }
-            const subObj = curStat.subjectWise[subKey];
-            subObj.teacherName = activeLeaderObj.fullName || 'Event Leader';
-            subObj.isAttendanceOnly = true;
-            if (!Array.isArray(subObj.absentDates)) subObj.absentDates = [];
-
-            const pCount = coveredPeriods.length;
-            curStat.totalPeriods = (Number(curStat.totalPeriods) || 0) + pCount;
-            subObj.total = (Number(subObj.total) || 0) + pCount;
-
-            if (!isAbsent) {
-              curStat.presentCount = (Number(curStat.presentCount) || 0) + pCount;
-              curStat.officialCount = (Number(curStat.officialCount) || 0) + pCount;
-              subObj.present = (Number(subObj.present) || 0) + pCount;
-              subObj.official = (Number(subObj.official) || 0) + pCount;
-              subObj.absentDates = subObj.absentDates.filter(d => d !== rehDate);
-            } else {
-              if (!subObj.absentDates.includes(rehDate)) subObj.absentDates.push(rehDate);
-            }
-
-            curStat.updatedAt = new Date().toISOString();
-            stBatch.set(stRef, { periodAttendance: curStat }, { merge: true });
-            const updatedObj = { ...st, periodAttendance: curStat };
-            updatedStudentsByReg[reg] = updatedObj;
-            if (reg.toLowerCase() !== reg) updatedStudentsByReg[reg.toLowerCase()] = updatedObj;
-            if (reg.toUpperCase() !== reg) updatedStudentsByReg[reg.toUpperCase()] = updatedObj;
-            if (st.id) updatedStudentsByReg[st.id] = updatedObj;
           });
-
           await stBatch.commit();
         }
-        syncUpdatedStudentsState(updatedStudentsByReg);
-      } catch (stErr) {
-        console.warn('Rehearsal student periodAttendance update note:', stErr);
+      } catch (cloudErr) {
+        console.warn('Rehearsal Firestore background sync note (local device cache active):', cloudErr);
       }
 
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem('dhiu_reh_' + rehDocId, JSON.stringify({
-            date: rehDate,
-            sessionId: rehSessionId,
-            sessionLabel: sessionConfig.label,
-            coveredPeriods,
-            presentRegNos: presentRegs,
-            absentRegNos: rehAbsentRegNos,
-            updatedAt: new Date().toISOString()
-          }));
-        } catch (_) {}
-      }
-
-      setExistingRehDoc({ presentRegNos: presentRegs, absentRegNos: rehAbsentRegNos });
       setStatusMsg(`✅ Rehearsal Attendance Recorded to Period Register (${presentRegs.length} Present, ${rehAbsentRegNos.length} Absent)!`);
     } catch (err) {
-      const isPermissionErr = String(err.message || '').toLowerCase().includes('permission') || String(err.code || '').includes('permission');
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem('dhiu_reh_' + rehDocId, JSON.stringify({
-            date: rehDate,
-            sessionId: rehSessionId,
-            sessionLabel: sessionConfig.label,
-            coveredPeriods,
-            presentRegNos: presentRegs,
-            absentRegNos: rehAbsentRegNos,
-            updatedAt: new Date().toISOString()
-          }));
-        } catch (_) {}
-      }
-      setExistingRehDoc({ presentRegNos: presentRegs, absentRegNos: rehAbsentRegNos });
-      if (isPermissionErr) {
-        setStatusMsg('⚠️ Firestore Rule Restriction: Event leader accounts require write permission for "systemCache" and "students". Rehearsal attendance has been saved locally on this device. Please deploy firestore.rules to Firebase Console to sync centrally across all devices.');
-      } else {
-        setStatusMsg('❌ Error saving rehearsal attendance: ' + err.message);
-      }
+      console.error('Error saving rehearsal attendance:', err);
+      setStatusMsg('❌ Error saving rehearsal attendance: ' + err.message);
+    } finally {
+      setLoading(false);
+      setTimeout(() => setStatusMsg(''), 6000);
     } finally {
       setLoading(false);
       setTimeout(() => setStatusMsg(''), 6000);
@@ -1424,10 +1477,23 @@ export default function PeriodAttendanceManager({
                     {/* Recorded Periods Status for Today */}
                     {(() => {
                       const subKey = normalizeSubKey(isAttendanceOnlyEnrollment(env) ? (env.alias || env.subject) : env.subject);
-                      const safeAliasKey = String(env.alias || env.subject || '').replace(/[^a-zA-Z0-9]/g, '_');
-                      const recordedSessions = todayRecordedSessions.filter(s =>
-                        s.subject === subKey || s.sessionDocId?.includes(safeAliasKey)
-                      );
+                      const envUniqueKey = String(env.id || env.targetClass || '').replace(/[^a-zA-Z0-9]/g, '_');
+                      const classUpper = String(env.targetClass || env.alias?.split(' ').pop() || '').toUpperCase();
+                      const aliasUpper = String(env.alias || '').toUpperCase();
+
+                      const recordedSessions = todayRecordedSessions.filter(s => {
+                        if (s.enrollmentId && s.enrollmentId === env.id) return true;
+                        if (envUniqueKey && s.sessionDocId?.includes(envUniqueKey)) return true;
+                        if (classUpper && (s.sessionDocId?.toUpperCase().includes(classUpper) || String(s.classAlias || '').toUpperCase().includes(classUpper) || String(s.targetClass || '').toUpperCase() === classUpper)) {
+                          if (s.subject === subKey || (aliasUpper && String(s.classAlias || s.sessionDocId || '').toUpperCase().includes(aliasUpper))) {
+                            return true;
+                          }
+                        }
+                        if (!s.enrollmentId && !s.targetClass && aliasUpper && String(s.classAlias || s.sessionDocId || '').toUpperCase().includes(aliasUpper)) {
+                          return true;
+                        }
+                        return false;
+                      });
 
                       return (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
@@ -1465,18 +1531,14 @@ export default function PeriodAttendanceManager({
                             type="button"
                             onClick={() => {
                               setAttEnrollmentId(env.id);
-                              if (recordedSessions.length > 0) {
-                                setAttSession(String(recordedSessions[0].session));
-                              } else {
-                                setAttSession('');
-                                setExistingSessionDoc(null);
-                              }
+                              setAttSession('');
+                              setExistingSessionDoc(null);
                               setActiveTab('mark_sheet');
                             }}
                             style={{
                               width: '100%',
                               padding: '11px',
-                              background: recordedSessions.length > 0 ? '#10b981' : '#4f46e5',
+                              background: recordedSessions.length > 0 ? '#059669' : '#4f46e5',
                               color: '#ffffff',
                               border: 'none',
                               borderRadius: '8px',
@@ -1489,7 +1551,7 @@ export default function PeriodAttendanceManager({
                               gap: '6px'
                             }}
                           >
-                            <span>{recordedSessions.length > 0 ? '✏️ Edit / Mark Attendance' : 'Mark Attendance'}</span>
+                            <span>{recordedSessions.length > 0 ? '➕ Mark / Edit Another Period' : 'Mark Attendance'}</span>
                           </button>
                         </div>
                       );

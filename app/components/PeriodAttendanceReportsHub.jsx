@@ -929,32 +929,62 @@ export default function PeriodAttendanceReportsHub({
       ) : (
         /* VIEW A-2: STANDARD PERIOD & SUBJECT MATRIX */
         <>
-          {repScope === 'daily' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ fontWeight: '800', fontSize: '14px', color: '#0f172a' }}>
-                📅 Recorded Period Sessions on {repDate} ({dailySessionsCache.length} Sessions Found)
-              </div>
-              {loadingReport ? (
-                <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>Loading sessions for {repDate}...</div>
-              ) : dailySessionsCache.length === 0 ? (
-                <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
-                  No period sessions recorded for {repDate} yet.
+          {repScope === 'daily' && (() => {
+            const currentUname = String(loggedInUser?.username || activeTeacherObj?.username || '').toLowerCase().trim();
+            const currentFullName = String(loggedInUser?.fullName || activeTeacherObj?.fullName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const teacherEnvs = Array.isArray(activeTeacherObj?.enrollments) ? activeTeacherObj.enrollments : (loggedInUser?.enrollments || []);
+
+            const filteredDailySessions = dailySessionsCache.filter(sess => {
+              if (userRole === 'admin') return true;
+
+              const sessUname = String(sess.teacherUsername || '').toLowerCase().trim();
+              if (currentUname && sessUname && (currentUname === sessUname || sessUname.includes(currentUname) || currentUname.includes(sessUname))) {
+                return true;
+              }
+
+              const sessTeacherName = String(sess.teacherName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (currentFullName && sessTeacherName && (currentFullName.includes(sessTeacherName) || sessTeacherName.includes(currentFullName))) {
+                return true;
+              }
+
+              const matchesEnv = teacherEnvs.some(e => {
+                if (sess.enrollmentId && sess.enrollmentId === e.id) return true;
+                const eSub = normalizeSubKey(e.subject);
+                const sSub = normalizeSubKey(sess.subject);
+                if (eSub && sSub && eSub === sSub) return true;
+                const eAlias = String(e.alias || e.subject || '').toUpperCase();
+                const sAlias = String(sess.classAlias || sess.subject || '').toUpperCase();
+                if (eAlias && sAlias && (eAlias.includes(sAlias) || sAlias.includes(eAlias))) return true;
+                return false;
+              });
+              if (matchesEnv) return true;
+
+              if (isClassTeacher && myCtClasses.some(c => String(sess.classAlias || '').toUpperCase().includes(c) || String(sess.targetClass || '').toUpperCase() === c)) {
+                return true;
+              }
+
+              return false;
+            });
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ fontWeight: '800', fontSize: '14px', color: '#0f172a' }}>
+                  📅 Recorded Period Sessions on {repDate} ({filteredDailySessions.length} Sessions Found)
                 </div>
-              ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: '12px' }}>
-                  {dailySessionsCache
-                    .filter(s => {
-                      if (userRole === 'admin') return true;
-                      if (s.teacherUsername === (loggedInUser?.username || activeTeacherObj?.username)) return true;
-                      if (isClassTeacher && myCtClasses.some(c => String(s.classAlias || '').toUpperCase().includes(c))) return true;
-                      return false;
-                    })
-                    .map(sess => {
+                {loadingReport ? (
+                  <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>Loading sessions for {repDate}...</div>
+                ) : filteredDailySessions.length === 0 ? (
+                  <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
+                    No period sessions recorded for {repDate} yet.
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: '12px' }}>
+                    {filteredDailySessions.map(sess => {
                       const mapVals = Object.values(sess.attendanceMap || {});
                       const presC = mapVals.filter(v => v === 'P' || v === 'O').length;
                       const absC = mapVals.length - presC;
                       return (
-                        <div key={sess.id} style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                        <div key={sess.id} style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#ffffff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
                           <div>
                             <span style={{ background: '#4f46e5', color: '#ffffff', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
                               Period {sess.session}
@@ -966,7 +996,7 @@ export default function PeriodAttendanceReportsHub({
                               👨‍🏫 {sess.teacherName} • Pres: {presC} / Abs: {absC}
                             </div>
                           </div>
-                          {(userRole === 'admin' || sess.teacherUsername === loggedInUser?.username) && (
+                          {(userRole === 'admin' || currentUname === String(sess.teacherUsername || '').toLowerCase().trim() || currentFullName.includes(String(sess.teacherName || '').toLowerCase().replace(/[^a-z0-9]/g, '')) || teacherEnvs.some(e => e.id === sess.enrollmentId || normalizeSubKey(e.subject) === normalizeSubKey(sess.subject))) && (
                             <button
                               type="button"
                               onClick={() => {
@@ -975,7 +1005,7 @@ export default function PeriodAttendanceReportsHub({
                                 }
                                 const tObj = localTeachers.find(t => t.username === sess.teacherUsername) || activeTeacherObj;
                                 const matchEnv = (tObj?.enrollments || []).find(
-                                  e => (e.alias || e.subject) === sess.classAlias || normalizeSubKey(e.subject) === sess.subject
+                                  e => (sess.enrollmentId && e.id === sess.enrollmentId) || (e.alias || e.subject) === sess.classAlias || normalizeSubKey(e.subject) === sess.subject
                                 );
                                 if (matchEnv) setAttEnrollmentId(matchEnv.id);
                                 setAttDate(repDate);
@@ -990,10 +1020,11 @@ export default function PeriodAttendanceReportsHub({
                         </div>
                       );
                     })}
-                </div>
-              )}
-            </div>
-          )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', minWidth: '880px' }}>

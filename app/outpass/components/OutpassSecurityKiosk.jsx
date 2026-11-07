@@ -26,10 +26,11 @@ export default function OutpassSecurityKiosk({
   const [kioskListSearch, setKioskListSearch] = useState("");
   const [kioskFilterMode, setKioskFilterMode] = useState("ALL");
 
-  const waitingExitCount = passes.filter((p) => p.status === "APPROVED").length;
-  const currentlyOutCount = passes.filter((p) => p.status === "OUTSIDE").length;
+  const safePasses = Array.isArray(passes) ? passes : [];
+  const waitingExitCount = safePasses.filter((p) => p.status === "APPROVED").length;
+  const currentlyOutCount = safePasses.filter((p) => p.status === "OUTSIDE").length;
 
-  const activeGatePasses = passes.filter((p) => {
+  const activeGatePasses = safePasses.filter((p) => {
     if (kioskFilterMode === "RECENT_ACTIONS") {
       if (p.status !== "ARRIVED_AT_GATE" && !p.actualDepartureTime && p.status !== "OUTSIDE") return false;
     } else {
@@ -407,6 +408,29 @@ export default function OutpassSecurityKiosk({
                       </button>
                     </div>
                   )}
+
+                  {/* ↩️ 1-TAP UNDO GATE VERIFICATION (FOR ACCIDENTAL SCAN) */}
+                  {gateScanResult.pass && handleUndoGateVerification && (
+                    <div style={{ marginTop: 10 }}>
+                      <button
+                        type="button"
+                        onClick={() => handleUndoGateVerification(gateScanResult.pass)}
+                        style={{
+                          width: "100%",
+                          padding: "9px",
+                          background: "#fff1f2",
+                          color: "#e11d48",
+                          border: "1px solid #fecdd3",
+                          borderRadius: 8,
+                          fontWeight: 800,
+                          fontSize: 13,
+                          cursor: "pointer",
+                        }}
+                      >
+                        ↩️ Undo This Gate Verification (Mistaken Scan)
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -624,6 +648,27 @@ export default function OutpassSecurityKiosk({
                       ? "🚪 Record Gate Exit"
                       : "🏁 Record Gate Return"}
                   </button>
+
+                  {p.status === "OUTSIDE" && handleUndoGateVerification && (
+                    <button
+                      type="button"
+                      title="Undo Gate Exit (Revert to Ready to Exit)"
+                      onClick={() => handleUndoGateVerification(p)}
+                      style={{
+                        padding: "7px 10px",
+                        background: "#fff1f2",
+                        color: "#e11d48",
+                        border: "1px solid #fecdd3",
+                        borderRadius: 8,
+                        fontSize: 12,
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      ↩️ Undo
+                    </button>
+                  )}
                 </div>
               </div>
             ))
