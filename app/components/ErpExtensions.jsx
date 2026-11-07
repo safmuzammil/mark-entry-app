@@ -1,4 +1,5 @@
 'use client';
+import * as XLSX from 'xlsx';
 import React, { useState, useEffect } from 'react';
 import { doc, setDoc, getDoc, getDocs, collection } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
@@ -1981,6 +1982,10 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
   const [fnAnMonthSessionsCache, setFnAnMonthSessionsCache] = useState([]);
   const [selectedMonthForFnAn, setSelectedMonthForFnAn] = useState(() => new Date().toISOString().slice(0, 7));
   const [classTeacherFnAnFilter, setClassTeacherFnAnFilter] = useState('ALL'); // 'ALL' | 'ABSENT_GT_5' | 'PRESENT_ALL'
+  const [classTeacherSubView, setClassTeacherSubView] = useState('daily_register'); // 'daily_register' | 'monthly_summary' | 'full_month_matrix'
+  const [selectedRegisterDate, setSelectedRegisterDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [registerVerificationStatus, setRegisterVerificationStatus] = useState(null);
+  const [isVerifyingRegister, setIsVerifyingRegister] = useState(false);
 
   const [semesterTargetConfig, setSemesterTargetConfig] = useState({
     semesterName: 'Current Semester',
@@ -2234,6 +2239,126 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
     return true;
   });
 
+  // 🌟 Available working dates in the selected month for this class
+  const classWorkingDatesInMonth = React.useMemo(() => {
+    const datesSet = new Set();
+    fnAnMonthSessionsCache.forEach(sess => {
+      if (sess.date && String(sess.date).startsWith(selectedMonthForFnAn)) {
+        datesSet.add(sess.date);
+      }
+    });
+    return Array.from(datesSet).sort();
+  }, [fnAnMonthSessionsCache, selectedMonthForFnAn]);
+
+  // Load verification status when selectedRegisterDate changes
+  useEffect(() => {
+    if (!myClassTeacherOf || myClassTeacherOf.length === 0 || !selectedRegisterDate) return;
+    const docId = `classRegisterVerification_${myClassTeacherOf[0]}_${selectedRegisterDate}`;
+    getDoc(doc(db, 'systemCache', docId))
+      .then(snap => {
+        if (snap.exists()) setRegisterVerificationStatus(snap.data());
+        else setRegisterVerificationStatus(null);
+      })
+      .catch(() => setRegisterVerificationStatus(null));
+  }, [myClassTeacherOf, selectedRegisterDate]);
+
+  // Handle Class Teacher Verifying & Signing the Register
+  const handleVerifyDailyRegister = async () => {
+    if (!myClassTeacherOf || myClassTeacherOf.length === 0) return;
+    setIsVerifyingRegister(true);
+    try {
+      const docId = `classRegisterVerification_${myClassTeacherOf[0]}_${selectedRegisterDate}`;
+      const verificationRecord = {
+        classAlias: myClassTeacherOf[0],
+        date: selectedRegisterDate,
+        verifiedBy: loggedInTeacher?.fullName || loggedInTeacher?.username || 'Class Teacher',
+        verifiedByUsername: loggedInTeacher?.username || '',
+        verifiedAt: new Date().toISOString(),
+        studentCount: classStudentsList.length
+      };
+      await setDoc(doc(db, 'systemCache', docId), verificationRecord, { merge: true });
+      setRegisterVerificationStatus(verificationRecord);
+      alert(`✅ Attendance Register for ${selectedRegisterDate} has been officially verified and signed by ${verificationRecord.verifiedBy}!`);
+    } catch (err) {
+      alert('Error verifying register: ' + err.message);
+    } finally {
+      setIsVerifyingRegister(false);
+    }
+  };
+
+  // Export Full Month Working Day Register Matrix to Excel
+  const handleExportClassRegisterExcel = () => {
+    if (classStudentsList.length === 0) return alert('No students in class to export.');
+    try {
+      const headers = ['Roll No', 'Admission No', 'Student Name', 'Department'];
+      classWorkingDatesInMonth.forEach(d => {
+        headers.push(`${d} (FN)`);
+        headers.push(`${d} (AN)`);
+        headers.push(`${d} (Day)`);
+      });
+      headers.push('Working Days Held', 'Days Present', 'Days Absent', 'Attendance %');
+
+      const rows = classStudentsList.map((st, idx) => {
+        const row = [
+          st.rollNo || idx + 1,
+          st.adNo || '-',
+          st.firstName,
+          st.department || 'GENERAL'
+        ];
+
+        let wDays = 0;
+        let dPres = 0;
+
+        classWorkingDatesInMonth.forEach(dStr => {
+          const daySessions = fnAnMonthSessionsCache.filter(s => s.date === dStr);
+          const fnSess = daySessions.filter(s => Number(s.session) <= 6);
+          const anSess = daySessions.filter(s => Number(s.session) > 6);
+
+          const hasFn = fnSess.length > 0;
+          const hasAn = anSess.length > 0;
+
+          const isFnPres = hasFn ? fnSess.some(s => {
+            const val = (s.attendanceMap || {})[st.regNo] || (s.attendanceMap || {})[st.adNo];
+            return val === 'P' || val === 'O';
+          }) : false;
+
+          const isAnPres = hasAn ? anSess.some(s => {
+            const val = (s.attendanceMap || {})[st.regNo] || (s.attendanceMap || {})[st.adNo];
+            return val === 'P' || val === 'O';
+          }) : false;
+
+          let dayCredit = 0;
+          if (hasFn && hasAn) {
+            wDays += 1;
+            dayCredit = (isFnPres ? 0.5 : 0) + (isAnPres ? 0.5 : 0);
+            dPres += dayCredit;
+          } else if (hasFn || hasAn) {
+            wDays += 0.5;
+            dayCredit = (hasFn && isFnPres) || (hasAn && isAnPres) ? 0.5 : 0;
+            dPres += dayCredit;
+          }
+
+          row.push(hasFn ? (isFnPres ? 'P' : 'A') : '-');
+          row.push(hasAn ? (isAnPres ? 'P' : 'A') : '-');
+          row.push(dayCredit.toFixed(1));
+        });
+
+        const dAbs = Math.max(0, wDays - dPres);
+        const pct = wDays > 0 ? ((dPres / wDays) * 100).toFixed(1) + '%' : '100.0%';
+
+        row.push(wDays, dPres, dAbs, pct);
+        return row;
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Class Attendance Register');
+      XLSX.writeFile(wb, `Attendance_Register_Class_${myClassTeacherOf.join('_')}_${selectedMonthForFnAn}.xlsx`);
+    } catch (e) {
+      alert('Error exporting register: ' + e.message);
+    }
+  };
+
   const usthadAuditRows = teachers.map(t => {
     const tUserLower = String(t.username || '').toLowerCase();
     const tMentees = students.filter(s => String(s.mentorUsername || '').toLowerCase() === tUserLower);
@@ -2483,32 +2608,270 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
             )}
           </div>
 
-          {/* FN / AN Monthly Summary Table with Filter Pills */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
-            <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>
-              🌤️ Monthly Day Summary (Forenoon + Afternoon Sessions)
-            </div>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          {/* 🌟 CLASS TEACHER ATTENDANCE REGISTER SUB-TABS */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '2px solid #e2e8f0', paddingBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {[
-                { id: 'ALL', label: `All Students (${classFnAnRows.length})` },
-                { id: 'ABSENT_GT_5', label: `🚨 Absent ≥ 5 Days (${classAbsentGt5Count})` }
-              ].map(p => (
+                { id: 'daily_register', label: '📋 Working Day Register (FN & AN)', icon: '📅' },
+                { id: 'monthly_summary', label: '🌤️ Monthly Day Summary', icon: '📊' },
+                { id: 'full_month_matrix', label: '📑 Full Month Matrix Grid', icon: '🗂️' }
+              ].map(tb => (
                 <button
-                  key={p.id}
+                  key={tb.id}
                   type="button"
-                  onClick={() => setClassTeacherFnAnFilter(p.id)}
+                  onClick={() => setClassTeacherSubView(tb.id)}
                   style={{
-                    padding: '5px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer',
-                    border: classTeacherFnAnFilter === p.id ? '1px solid #4f46e5' : '1px solid #cbd5e1',
-                    background: classTeacherFnAnFilter === p.id ? '#4f46e5' : '#ffffff',
-                    color: classTeacherFnAnFilter === p.id ? '#ffffff' : '#334155'
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    fontWeight: '800',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    border: classTeacherSubView === tb.id ? '2px solid #4f46e5' : '1px solid #cbd5e1',
+                    background: classTeacherSubView === tb.id ? '#eef2ff' : '#ffffff',
+                    color: classTeacherSubView === tb.id ? '#4f46e5' : '#475569',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
                   }}
                 >
-                  {p.label}
+                  <span>{tb.icon}</span> {tb.label}
                 </button>
               ))}
             </div>
+
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={handleExportClassRegisterExcel}
+                style={{ ...styles.buttonSecondary, padding: '7px 12px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <span>📥</span> Export Register to Excel
+              </button>
+            </div>
           </div>
+
+          {/* VIEW 1: DAILY WORKING DAY REGISTER (FORENOON & AFTERNOON ROLL CALL) */}
+          {classTeacherSubView === 'daily_register' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ background: '#f8fafc', padding: '14px 18px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>
+                    Select Working Date:
+                  </span>
+                  <input
+                    type="date"
+                    value={selectedRegisterDate}
+                    onChange={e => setSelectedRegisterDate(e.target.value)}
+                    style={{ ...styles.input, width: '160px', padding: '6px 10px', fontSize: '12px', fontWeight: '700' }}
+                  />
+                  {classWorkingDatesInMonth.length > 0 && (
+                    <select
+                      value={selectedRegisterDate}
+                      onChange={e => setSelectedRegisterDate(e.target.value)}
+                      style={{ ...styles.input, width: 'auto', padding: '6px 10px', fontSize: '12px', fontWeight: '600' }}
+                    >
+                      <option value="">-- Jump to Working Date ({classWorkingDatesInMonth.length}) --</option>
+                      {classWorkingDatesInMonth.map(d => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {registerVerificationStatus ? (
+                    <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '6px 12px', borderRadius: '8px', fontSize: '11px', fontWeight: '800' }}>
+                      ✓ Verified &amp; Signed by {registerVerificationStatus.verifiedBy} on {new Date(registerVerificationStatus.verifiedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleVerifyDailyRegister}
+                      disabled={isVerifyingRegister}
+                      style={{ ...styles.buttonPrimary, background: '#059669', padding: '7px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <span>✍️</span> {isVerifyingRegister ? 'Signing...' : `Verify & Sign Register (${selectedRegisterDate})`}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    style={{ ...styles.buttonSecondary, padding: '7px 12px', fontSize: '12px' }}
+                  >
+                    🖨️ Print Day Sheet
+                  </button>
+                </div>
+              </div>
+
+              {/* Working Day Register Table */}
+              <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left', minWidth: '780px' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '10px', fontWeight: '800', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '10px 12px', width: '40px' }}>#</th>
+                      <th style={{ padding: '10px 12px' }}>Student Name</th>
+                      <th style={{ padding: '10px 12px' }}>Ad.No</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>
+                        🌅 FORENOON (Periods 1–6)
+                        <div style={{ fontSize: '9px', fontWeight: '600', color: '#64748b' }}>Present in any = Present</div>
+                      </th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>
+                        🌇 AFTERNOON (Periods 7–9)
+                        <div style={{ fontSize: '9px', fontWeight: '600', color: '#64748b' }}>Present in any = Present</div>
+                      </th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>Day Result</th>
+                      <th style={{ padding: '10px 12px' }}>Period Breakdown Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const daySessions = fnAnMonthSessionsCache.filter(s => s.date === selectedRegisterDate);
+                      const fnSess = daySessions.filter(s => Number(s.session) <= 6).sort((a,b) => a.session - b.session);
+                      const anSess = daySessions.filter(s => Number(s.session) > 6).sort((a,b) => a.session - b.session);
+
+                      if (daySessions.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={7} style={{ padding: '30px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+                              No period attendance sessions recorded on <strong>{selectedRegisterDate}</strong> for this class yet.
+                            </td>
+                          </tr>
+                        );
+                      }
+
+                      return classStudentsList.map((st, idx) => {
+                        const reg = st.regNo;
+                        const ad = String(st.adNo || '').trim().toUpperCase();
+
+                        const fnDetails = fnSess.map(s => {
+                          const val = (s.attendanceMap || {})[reg] || (s.attendanceMap || {})[st.id] || (s.attendanceMap || {})[ad] || 'A';
+                          return { session: s.session, subject: s.subject || s.classAlias, status: val };
+                        });
+
+                        const anDetails = anSess.map(s => {
+                          const val = (s.attendanceMap || {})[reg] || (s.attendanceMap || {})[st.id] || (s.attendanceMap || {})[ad] || 'A';
+                          return { session: s.session, subject: s.subject || s.classAlias, status: val };
+                        });
+
+                        const isFnPres = fnSess.length > 0 ? fnDetails.some(p => p.status === 'P' || p.status === 'O') : null;
+                        const isAnPres = anSess.length > 0 ? anDetails.some(p => p.status === 'P' || p.status === 'O') : null;
+
+                        const isFullPres = isFnPres && isAnPres;
+                        const isHalfPres = (isFnPres && !isAnPres) || (!isFnPres && isAnPres);
+
+                        return (
+                          <tr key={st.regNo} style={{ borderBottom: '1px solid #f1f5f9', background: !isFnPres && !isAnPres ? '#fff1f2' : '#ffffff' }}>
+                            <td style={{ padding: '10px 12px', color: '#64748b', fontWeight: '700' }}>{st.rollNo || idx + 1}</td>
+                            <td style={{ padding: '10px 12px', fontWeight: '700', color: '#0f172a' }}>{st.firstName}</td>
+                            <td style={{ padding: '10px 12px', color: '#475569', fontWeight: '600' }}>#{st.adNo}</td>
+
+                            {/* FN Status */}
+                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                              {fnSess.length === 0 ? (
+                                <span style={{ color: '#94a3b8' }}>— No FN —</span>
+                              ) : isFnPres ? (
+                                <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
+                                  🟢 FN PRESENT (0.5d)
+                                </span>
+                              ) : (
+                                <span style={{ background: '#fff1f2', color: '#be123c', border: '1px solid #fecdd3', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
+                                  🔴 FN ABSENT (0.0d)
+                                </span>
+                              )}
+                            </td>
+
+                            {/* AN Status */}
+                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                              {anSess.length === 0 ? (
+                                <span style={{ color: '#94a3b8' }}>— No AN —</span>
+                              ) : isAnPres ? (
+                                <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
+                                  🟢 AN PRESENT (0.5d)
+                                </span>
+                              ) : (
+                                <span style={{ background: '#fff1f2', color: '#be123c', border: '1px solid #fecdd3', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
+                                  🔴 AN ABSENT (0.0d)
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Day Result */}
+                            <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '800' }}>
+                              {isFullPres ? (
+                                <span style={{ color: '#047857', background: '#dcfce7', padding: '3px 8px', borderRadius: '6px' }}>
+                                  1.0d Full
+                                </span>
+                              ) : isHalfPres ? (
+                                <span style={{ color: '#d97706', background: '#fef3c7', padding: '3px 8px', borderRadius: '6px' }}>
+                                  0.5d Half
+                                </span>
+                              ) : (
+                                <span style={{ color: '#e11d48', background: '#fee2e2', padding: '3px 8px', borderRadius: '6px' }}>
+                                  0.0d Absent
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Period Breakdown */}
+                            <td style={{ padding: '10px 12px', fontSize: '11px' }}>
+                              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                {[...fnDetails, ...anDetails].map((p, pIdx) => (
+                                  <span
+                                    key={pIdx}
+                                    style={{
+                                      padding: '1px 5px',
+                                      borderRadius: '4px',
+                                      fontSize: '10px',
+                                      fontWeight: '700',
+                                      background: p.status === 'P' || p.status === 'O' ? '#ecfdf5' : '#fee2e2',
+                                      color: p.status === 'P' || p.status === 'O' ? '#047857' : '#be123c',
+                                      border: p.status === 'P' || p.status === 'O' ? '1px solid #a7f3d0' : '1px solid #fecdd3'
+                                    }}
+                                  >
+                                    P{p.session}:{p.status}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* VIEW 2: MONTHLY SUMMARY TABLE WITH FILTERS */}
+          {classTeacherSubView === 'monthly_summary' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>
+                  🌤️ Monthly Day Summary (Forenoon + Afternoon Sessions)
+                </div>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {[
+                    { id: 'ALL', label: `All Students (${classFnAnRows.length})` },
+                    { id: 'ABSENT_GT_5', label: `🚨 Absent ≥ 5 Days (${classAbsentGt5Count})` }
+                  ].map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setClassTeacherFnAnFilter(p.id)}
+                      style={{
+                        padding: '5px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer',
+                        border: classTeacherFnAnFilter === p.id ? '1px solid #4f46e5' : '1px solid #cbd5e1',
+                        background: classTeacherFnAnFilter === p.id ? '#4f46e5' : '#ffffff',
+                        color: classTeacherFnAnFilter === p.id ? '#ffffff' : '#334155'
+                      }}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
 
           <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left', minWidth: '750px' }}>
@@ -2557,6 +2920,100 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
               </tbody>
             </table>
           </div>
+            </div>
+          )}
+
+          {/* VIEW 3: FULL MONTH ATTENDANCE MATRIX GRID */}
+          {classTeacherSubView === 'full_month_matrix' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
+                Displaying all working days in {selectedMonthForFnAn}. Each column displays Forenoon (FN) and Afternoon (AN) status.
+              </div>
+              <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'center', minWidth: '920px' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontWeight: '800' }}>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', position: 'sticky', left: 0, background: '#f8fafc', zIndex: 2 }}>Student</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'left' }}>Ad.No</th>
+                      {classWorkingDatesInMonth.map(dStr => (
+                        <th key={dStr} style={{ padding: '6px 8px', borderLeft: '1px solid #e2e8f0' }}>
+                          <div>{dStr.slice(8)}</div>
+                          <div style={{ fontSize: '9px', color: '#64748b' }}>FN | AN</div>
+                        </th>
+                      ))}
+                      <th style={{ padding: '8px 10px', background: '#ecfdf5', color: '#047857' }}>Pres</th>
+                      <th style={{ padding: '8px 10px', background: '#fff1f2', color: '#be123c' }}>Abs</th>
+                      <th style={{ padding: '8px 10px' }}>Att %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {classStudentsList.map((st, idx) => {
+                      let wDays = 0;
+                      let dPres = 0;
+
+                      return (
+                        <tr key={st.regNo} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '8px 10px', textAlign: 'left', fontWeight: '700', color: '#0f172a', position: 'sticky', left: 0, background: '#ffffff', zIndex: 1 }}>
+                            {st.firstName}
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'left', color: '#64748b' }}>#{st.adNo}</td>
+
+                          {classWorkingDatesInMonth.map(dStr => {
+                            const daySessions = fnAnMonthSessionsCache.filter(s => s.date === dStr);
+                            const fnSess = daySessions.filter(s => Number(s.session) <= 6);
+                            const anSess = daySessions.filter(s => Number(s.session) > 6);
+
+                            const hasFn = fnSess.length > 0;
+                            const hasAn = anSess.length > 0;
+
+                            const isFnPres = hasFn ? fnSess.some(s => {
+                              const val = (s.attendanceMap || {})[st.regNo] || (s.attendanceMap || {})[st.adNo];
+                              return val === 'P' || val === 'O';
+                            }) : false;
+
+                            const isAnPres = hasAn ? anSess.some(s => {
+                              const val = (s.attendanceMap || {})[st.regNo] || (s.attendanceMap || {})[st.adNo];
+                              return val === 'P' || val === 'O';
+                            }) : false;
+
+                            if (hasFn && hasAn) {
+                              wDays += 1;
+                              dPres += (isFnPres ? 0.5 : 0) + (isAnPres ? 0.5 : 0);
+                            } else if (hasFn || hasAn) {
+                              wDays += 0.5;
+                              dPres += (hasFn && isFnPres) || (hasAn && isAnPres) ? 0.5 : 0;
+                            }
+
+                            return (
+                              <td key={dStr} style={{ padding: '6px 4px', borderLeft: '1px solid #f1f5f9' }}>
+                                <span style={{ color: isFnPres ? '#059669' : '#e11d48', fontWeight: '800' }}>
+                                  {hasFn ? (isFnPres ? 'P' : 'A') : '-'}
+                                </span>
+                                <span style={{ color: '#cbd5e1', margin: '0 2px' }}>|</span>
+                                <span style={{ color: isAnPres ? '#059669' : '#e11d48', fontWeight: '800' }}>
+                                  {hasAn ? (isAnPres ? 'P' : 'A') : '-'}
+                                </span>
+                              </td>
+                            );
+                          })}
+
+                          <td style={{ padding: '8px 10px', fontWeight: '800', color: '#047857', background: '#f0fdf4' }}>
+                            {dPres}d
+                          </td>
+                          <td style={{ padding: '8px 10px', fontWeight: '800', color: '#e11d48', background: '#fef2f2' }}>
+                            {Math.max(0, wDays - dPres)}d
+                          </td>
+                          <td style={{ padding: '8px 10px', fontWeight: '800' }}>
+                            {wDays > 0 ? ((dPres / wDays) * 100).toFixed(1) + '%' : '100%'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -1,4 +1,5 @@
 'use client';
+import AiAssistantChat from './components/AiAssistantChat';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -83,6 +84,28 @@ export default function UnifiedSchoolPortal() {
     });
     return () => unsubscribe();
   }, [router]);
+
+  // Security: Auto-logout after 2 hours of inactivity
+  useEffect(() => {
+    if (!userRole) return;
+    let timer;
+    const resetTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        alert('🔒 Security Notice: Your session has expired due to 2 hours of inactivity. Please sign in again.');
+        await signOut(auth);
+      }, 2 * 60 * 60 * 1000);
+    };
+
+    const events = ['mousemove', 'keydown', 'scroll', 'touchstart'];
+    events.forEach(evt => window.addEventListener(evt, resetTimer, { passive: true }));
+    resetTimer();
+
+    return () => {
+      clearTimeout(timer);
+      events.forEach(evt => window.removeEventListener(evt, resetTimer));
+    };
+  }, [userRole]);
 
   useEffect(() => {
     if (userRole === 'admin') {
@@ -603,6 +626,7 @@ export default function UnifiedSchoolPortal() {
               </div>
             )}
           </main>
+          <AiAssistantChat userRole="admin" userName="Administrator" />
         </div>
       </div>
     );

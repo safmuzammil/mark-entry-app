@@ -56,6 +56,9 @@ export default function PeriodAttendanceMinusAndClearance({
   const [clearStartDate, setClearStartDate] = useState('');
   const [clearEndDate, setClearEndDate] = useState('');
   const [fetchingClearance, setFetchingClearance] = useState(false);
+  const [clearanceRemarks, setClearanceRemarks] = useState('');
+  const [issuedClearanceCerts, setIssuedClearanceCerts] = useState([]);
+  const [activeCertToPrint, setActiveCertToPrint] = useState(null);
 
   const [deleteAllPassword, setDeleteAllPassword] = useState('');
   const [deleteAllConfirmText, setDeleteAllConfirmText] = useState('');
@@ -582,12 +585,101 @@ export default function PeriodAttendanceMinusAndClearance({
         updatedMap[student.regNo] = { ...student, periodAttendance: finalStat };
       });
 
+      // Generate and store Official Clearance Certificates for all cleared students
+      const newCerts = [];
+      const nowIso = new Date().toISOString();
+      const targetDates = clearDateMode === 'single' ? [clearDate] : getDatesBetween(clearStartDate, clearEndDate);
+
+      // Read current portal notifications so we can append clearance notifications
+      let existingNotifs = [];
+      try {
+        const notifSnap = await getDoc(doc(db, 'systemCache', 'portalNotifications'));
+        if (notifSnap.exists() && Array.isArray(notifSnap.data().items)) {
+          existingNotifs = notifSnap.data().items;
+        }
+      } catch (ne) {
+        console.warn('Could not read existing portal notifications:', ne);
+      }
+
+      const newNotifItems = [];
+
+      fetchedClearStudentsList.forEach(student => {
+        const certNumber = `DHIU/CLR/${new Date().getFullYear()}/${student.adNo || student.regNo}/${Math.floor(1000 + Math.random() * 9000)}`;
+        const certDocId = `cert_${Date.now()}_${student.regNo}`;
+        const certObj = {
+          id: certDocId,
+          certNumber,
+          regNo: student.regNo,
+          adNo: student.adNo,
+          studentName: student.firstName,
+          classes: student.classes || [],
+          department: student.department || 'GENERAL',
+          dateMode: clearDateMode,
+          dates: targetDates,
+          reason: clearReason, // 'official' | 'medical' | 'permitted'
+          remarks: clearanceRemarks || `Official attendance clearance granted by ${loggedInUser?.fullName || 'Attendance Clearance Desk'}`,
+          clearedSessions: selectedPeriodObjs.map(p => ({
+            sessionDocId: p.sessionDocId,
+            date: p.date,
+            session: p.session,
+            subject: p.subject,
+            teacherName: p.teacherName
+          })),
+          clearedLegacySubjects: clearSelectedSubjects,
+          clearedBy: loggedInUser?.fullName || loggedInUser?.username || 'Attendance Clearance Desk',
+          clearedByRole: userRole,
+          issuedAt: nowIso,
+          status: 'ISSUED', // 'ISSUED' | 'CONFIRMED'
+          studentConfirmedAt: null
+        };
+
+        newCerts.push(certObj);
+
+        // Store in clearance_certificates collection
+        batch.set(doc(db, 'clearance_certificates', certDocId), certObj);
+
+        // Append to student's periodAttendance stat
+        const curStat = studentStatsDraft[student.regNo];
+        if (curStat) {
+          curStat.clearanceCertificates = [
+            certObj,
+            ...(Array.isArray(curStat.clearanceCertificates) ? curStat.clearanceCertificates : []).slice(0, 15)
+          ];
+        }
+
+        // Add targeted portal notification item for student
+        newNotifItems.push({
+          id: `notif_clr_${Date.now()}_${student.regNo}`,
+          createdAt: nowIso,
+          senderName: 'Attendance Clearance Desk',
+          senderRole: 'admin',
+          senderUsername: loggedInUser?.username || 'admin',
+          title: `🎟️ Attendance Clearance Certificate Issued (#${certNumber})`,
+          body: `Your attendance clearance for ${targetDates.join(', ')} (${clearReason.toUpperCase()}) has been approved. Please view and confirm your certificate in your Student Portal.`,
+          priority: 'HIGH',
+          targetType: 'SPECIFIC_STUDENTS',
+          targetValues: [student.regNo, student.adNo],
+          certificateId: certDocId,
+          active: true
+        });
+      });
+
+      // Update portalNotifications cache
+      if (newNotifItems.length > 0) {
+        batch.set(doc(db, 'systemCache', 'portalNotifications'), {
+          items: [...newNotifItems, ...existingNotifs].slice(0, 100),
+          updatedAt: nowIso
+        }, { merge: true });
+      }
+
       await batch.commit();
       syncUpdatedStudentsState(updatedMap);
-      setStatusMsg(`✅ Applied [${clearReason.toUpperCase()}] clearance for ${selectedPeriodObjs.length} period(s) across ${fetchedClearStudentsList.length} student(s)!`);
+      setIssuedClearanceCerts(newCerts);
+      setStatusMsg(`✅ Applied [${clearReason.toUpperCase()}] clearance & issued ${newCerts.length} Official Certificate(s) directly to Student Portal!`);
       setFetchedAbsentPeriodSessions(prev => prev.filter(p => !selectedClearSessionIds.includes(p.sessionDocId)));
       setSelectedClearSessionIds([]);
       setClearSelectedSubjects([]);
+      setClearanceRemarks('');
     } catch (err) {
       setStatusMsg('❌ Error: ' + err.message);
     } finally {
@@ -1525,6 +1617,17 @@ export default function PeriodAttendanceMinusAndClearance({
                     </select>
                   </div>
 
+                  <div>
+                    <label style={styles.label}>Authority Remarks (Appears on Student Certificate)</label>
+                    <input
+                      type="text"
+                      value={clearanceRemarks}
+                      onChange={e => setClearanceRemarks(e.target.value)}
+                      placeholder="e.g. Cleared as per Vice Chancellor / Principal Order or Outpass Approval..."
+                      style={{ ...styles.input, maxWidth: '480px' }}
+                    />
+                  </div>
+
                   <div style={{ display: 'flex', gap: '10px' }}>
                     {fetchedClearStudentsList.length === 1 && (
                       <button
@@ -1543,6 +1646,146 @@ export default function PeriodAttendanceMinusAndClearance({
               )}
             </form>
           </div>
+
+          
+          {/* 🌟 ISSUED OFFICIAL CLEARANCE CERTIFICATE MODAL */}
+          {(issuedClearanceCerts.length > 0 || activeCertToPrint) && (() => {
+            const cert = activeCertToPrint || issuedClearanceCerts[0];
+            if (!cert) return null;
+            const certStudent = fetchedClearStudentsList.find(s => s.regNo === cert.regNo) || { firstName: cert.studentName, adNo: cert.adNo, classes: cert.classes, parentWhatsapp: '' };
+            const studentPhone = certStudent.parentWhatsapp || certStudent.parentMobile || certStudent.mobileNumber || '';
+            const wpText = encodeURIComponent(
+              `🏛️ *DARUL HUDA ISLAMIC UNIVERSITY*\n*OFFICIAL ATTENDANCE CLEARANCE CERTIFICATE*\n\n` +
+              `Certificate No: *${cert.certNumber}*\n` +
+              `Student: *${cert.studentName}* (#${cert.adNo})\n` +
+              `Cleared Dates: ${(cert.dates || []).join(', ')}\n` +
+              `Reason: *${(cert.reason || '').toUpperCase()}*\n` +
+              `Cleared Sessions: ${(cert.clearedSessions || []).length} period(s)\n` +
+              `Approved By: ${cert.clearedBy}\n\n` +
+              `_This clearance certificate has been issued and delivered to your DHIU Student Portal. Please login to confirm receipt._`
+            );
+            const wpUrl = studentPhone ? `https://wa.me/${studentPhone.replace(/[^0-9]/g, '')}?text=${wpText}` : `https://api.whatsapp.com/send?text=${wpText}`;
+
+            return (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
+                <div style={{ background: '#ffffff', borderRadius: '16px', maxWidth: '640px', width: '100%', maxHeight: '92vh', overflowY: 'auto', padding: '28px', border: '2px solid #4f46e5', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+                  
+                  {/* Certificate Header */}
+                  <div style={{ textAlign: 'center', borderBottom: '2px solid #e2e8f0', paddingBottom: '16px', marginBottom: '18px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '800', letterSpacing: '1px', color: '#4f46e5', textTransform: 'uppercase' }}>
+                      Darul Huda Islamic University • Academic &amp; Attendance Desk
+                    </div>
+                    <h2 style={{ margin: '4px 0 2px', fontSize: '20px', fontWeight: '900', color: '#0f172a' }}>
+                      🎟️ ATTENDANCE CLEARANCE CERTIFICATE
+                    </h2>
+                    <div style={{ fontSize: '12px', fontWeight: '700', color: '#64748b' }}>
+                      Certificate ID: <span style={{ color: '#0f172a' }}>{cert.certNumber}</span>
+                    </div>
+                  </div>
+
+                  {/* Student & Clearance Details */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px', background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+                    <div>
+                      <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700' }}>STUDENT NAME &amp; AD.NO</div>
+                      <div style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
+                        {cert.studentName} <span style={{ color: '#4f46e5' }}>(#{cert.adNo})</span>
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#475569', marginTop: '2px' }}>
+                        Class: <strong>{(cert.classes || []).join(', ')}</strong> • Dept: {cert.department}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700' }}>CLEARANCE CATEGORY</div>
+                      <div style={{ fontSize: '14px', fontWeight: '800', color: cert.reason === 'medical' ? '#0284c7' : '#059669', textTransform: 'uppercase' }}>
+                        {cert.reason === 'official' ? '🏛️ Official Duty / Outpass' : cert.reason === 'medical' ? '🏥 Medical Leave' : '⭐ Permitted Exemption'}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                        Issued On: {new Date(cert.issuedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Cleared Period Sessions Breakdown */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>
+                      Cleared Period Sessions ({(cert.clearedSessions || []).length}):
+                    </div>
+                    {(cert.clearedSessions || []).length > 0 ? (
+                      <div style={{ maxHeight: '160px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'left' }}>
+                          <thead style={{ background: '#f1f5f9', color: '#475569', fontWeight: '700' }}>
+                            <tr>
+                              <th style={{ padding: '6px 10px' }}>Date</th>
+                              <th style={{ padding: '6px 10px' }}>Period</th>
+                              <th style={{ padding: '6px 10px' }}>Subject</th>
+                              <th style={{ padding: '6px 10px' }}>Faculty</th>
+                              <th style={{ padding: '6px 10px' }}>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {cert.clearedSessions.map((s, idx) => (
+                              <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '6px 10px', fontWeight: '600' }}>{s.date}</td>
+                                <td style={{ padding: '6px 10px', fontWeight: '700', color: '#4f46e5' }}>Period {s.session}</td>
+                                <td style={{ padding: '6px 10px' }}>{s.subject}</td>
+                                <td style={{ padding: '6px 10px', color: '#64748b' }}>{s.teacherName}</td>
+                                <td style={{ padding: '6px 10px', fontWeight: '700', color: '#059669' }}>✓ Cleared</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '8px', fontSize: '12px', color: '#64748b' }}>
+                        Dates Cleared: {(cert.dates || []).join(', ')} • Subjects: {(cert.clearedLegacySubjects || []).join(', ')}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Remarks & Issuer Sign */}
+                  <div style={{ padding: '12px 14px', background: '#ecfdf5', borderRadius: '10px', border: '1px solid #a7f3d0', marginBottom: '18px', fontSize: '12px', color: '#065f46' }}>
+                    <strong>Authority Note:</strong> {cert.remarks}
+                    <div style={{ marginTop: '4px', fontSize: '11px', color: '#047857' }}>
+                      Approved by: <strong>{cert.clearedBy}</strong> • Digital Verification Seal: <strong>{cert.certNumber.slice(-8)}</strong>
+                    </div>
+                  </div>
+
+                  <div style={{ padding: '10px', background: '#eff6ff', borderRadius: '8px', border: '1px dashed #bfdbfe', marginBottom: '20px', fontSize: '12px', color: '#1e40af', textAlign: 'center' }}>
+                    📲 <strong>Delivered to Student Portal!</strong> Student will see an in-app confirmation banner and can acknowledge receipt under their Attendance tab.
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <a
+                      href={wpUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ ...styles.buttonPrimary, background: '#25D366', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <span>💬</span> Share Slip on WhatsApp
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      style={{ ...styles.buttonSecondary, display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <span>🖨️</span> Print Certificate
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIssuedClearanceCerts([]);
+                        setActiveCertToPrint(null);
+                      }}
+                      style={{ ...styles.buttonPrimary, background: '#0f172a' }}
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* DANGER ZONE: RESET ATTENDANCE */}
           <div style={{ ...styles.card, border: '1px solid #fecdd3', background: '#fff1f2' }}>

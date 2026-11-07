@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db } from '../../lib/firebase';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, getDocs, collection } from 'firebase/firestore';
+import { doc, getDoc, getDocs, setDoc, collection, query, where } from 'firebase/firestore';
 import InstallAppBanner from '../components/InstallAppBanner';
 import { DHIU_LOGO_URL, DEFAULT_SUBJECTS, CCE_LEVELS } from '../components/erpConstants';
 import {
@@ -392,6 +392,10 @@ export default function StudentDashboard() {
     overallStatus: '-'
   });
 
+  const [clearanceCerts, setClearanceCerts] = useState([]);
+  const [selectedCertToView, setSelectedCertToView] = useState(null);
+  const [acknowledgingCertId, setAcknowledgingCertId] = useState('');
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (user && user.email && user.email.endsWith('@student.school.com')) {
@@ -448,6 +452,25 @@ export default function StudentDashboard() {
     setPassword('');
   };
 
+  const handleAcknowledgeCert = async (certId) => {
+    setAcknowledgingCertId(certId);
+    try {
+      const nowIso = new Date().toISOString();
+      await setDoc(doc(db, 'clearance_certificates', certId), {
+        status: 'CONFIRMED',
+        studentConfirmedAt: nowIso
+      }, { merge: true });
+
+      setClearanceCerts(prev =>
+        prev.map(c => c.id === certId ? { ...c, status: 'CONFIRMED', studentConfirmedAt: nowIso } : c)
+      );
+    } catch (err) {
+      alert('Error acknowledging certificate: ' + err.message);
+    } finally {
+      setAcknowledgingCertId('');
+    }
+  };
+
   const handlePrintSinglePagePDF = () => {
     if (activeTab !== 'marks') {
       setActiveTab('marks');
@@ -489,6 +512,20 @@ export default function StudentDashboard() {
         minusLogs: Array.isArray(ad.minusLogs) ? ad.minusLogs : [],
         subjectWise: ad.subjectWise || {}
       });
+
+      const localCerts = Array.isArray(ad.clearanceCertificates) ? ad.clearanceCertificates : [];
+      setClearanceCerts(localCerts);
+
+      try {
+        getDocs(query(collection(db, 'clearance_certificates'), where('regNo', '==', studentRegNo)))
+          .then(snap => {
+            const fetched = [];
+            snap.forEach(d => fetched.push({ id: d.id, ...d.data() }));
+            if (fetched.length > 0) {
+              setClearanceCerts(fetched.sort((a, b) => (b.issuedAt || '').localeCompare(a.issuedAt || '')));
+            }
+          }).catch(() => {});
+      } catch (ce) {}
 
       let liveTeachers = [];
       try {
@@ -1233,6 +1270,178 @@ export default function StudentDashboard() {
                   </table>
                 </div>
               </div>
+
+              {/* 🌟 OFFICIAL ATTENDANCE CLEARANCE SLIPS & CERTIFICATES */}
+              <CollapsibleCard
+                title="Official Attendance Clearance Certificates &amp; Slips"
+                subtitle="Review approved clearances, acknowledge receipt, and download certificates"
+                badgeText={`${clearanceCerts.length} Certificate(s)`}
+                icon="🎟️"
+                accentColor="#059669"
+                defaultOpen={clearanceCerts.length > 0}
+              >
+                {clearanceCerts.length === 0 ? (
+                  <div style={{ padding: '16px', background: '#f8fafc', borderRadius: '10px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+                    No attendance clearance certificates issued yet.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {clearanceCerts.map(cert => {
+                      const isConfirmed = cert.status === 'CONFIRMED' || Boolean(cert.studentConfirmedAt);
+                      const isAcknowledging = acknowledgingCertId === cert.id;
+
+                      return (
+                        <div
+                          key={cert.id}
+                          style={{
+                            background: isConfirmed ? '#f8fafc' : '#fffbeb',
+                            borderRadius: '12px',
+                            border: isConfirmed ? '1px solid #cbd5e1' : '2px solid #f59e0b',
+                            padding: '16px 18px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: '14px'
+                          }}
+                        >
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: '800', color: '#0f172a', fontSize: '14px' }}>
+                                🎟️ {cert.certNumber || cert.id}
+                              </span>
+                              <span
+                                style={{
+                                  background: isConfirmed ? '#ecfdf5' : '#fef3c7',
+                                  color: isConfirmed ? '#047857' : '#92400e',
+                                  border: isConfirmed ? '1px solid #a7f3d0' : '1px solid #fde68a',
+                                  padding: '2px 8px',
+                                  borderRadius: '999px',
+                                  fontSize: '11px',
+                                  fontWeight: '800'
+                                }}
+                              >
+                                {isConfirmed ? '✓ CONFIRMED BY YOU' : '🟡 ACTION NEEDED: PENDING YOUR CONFIRMATION'}
+                              </span>
+                            </div>
+
+                            <div style={{ fontSize: '12px', color: '#475569', marginTop: '4px' }}>
+                              Cleared Dates: <strong>{(cert.dates || []).join(', ')}</strong> • Category: <strong style={{ textTransform: 'capitalize' }}>{cert.reason}</strong>
+                            </div>
+
+                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                              Issued By: <strong>{cert.clearedBy}</strong> ({cert.clearedByRole}) on {new Date(cert.issuedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              {cert.remarks && <span> • Note: &ldquo;{cert.remarks}&rdquo;</span>}
+                            </div>
+
+                            {isConfirmed && cert.studentConfirmedAt && (
+                              <div style={{ fontSize: '11px', color: '#047857', marginTop: '3px', fontWeight: '700' }}>
+                                ✓ You acknowledged and confirmed receipt on {new Date(cert.studentConfirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </div>
+                            )}
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            {!isConfirmed && (
+                              <button
+                                type="button"
+                                onClick={() => handleAcknowledgeCert(cert.id)}
+                                disabled={isAcknowledging}
+                                style={{
+                                  padding: '8px 14px',
+                                  background: '#059669',
+                                  color: '#ffffff',
+                                  border: 'none',
+                                  borderRadius: '8px',
+                                  fontWeight: '800',
+                                  fontSize: '12px',
+                                  cursor: isAcknowledging ? 'not-allowed' : 'pointer',
+                                  boxShadow: '0 2px 4px rgba(5,150,105,0.2)'
+                                }}
+                              >
+                                {isAcknowledging ? 'Confirming...' : '✅ Acknowledge & Confirm Receipt'}
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => setSelectedCertToView(cert)}
+                              style={{
+                                padding: '8px 14px',
+                                background: '#ffffff',
+                                color: '#4f46e5',
+                                border: '1px solid #c7d2fe',
+                                borderRadius: '8px',
+                                fontWeight: '800',
+                                fontSize: '12px',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              🖨️ View &amp; Print Certificate
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CollapsibleCard>
+
+              {/* STUDENT OFFICIAL CERTIFICATE MODAL */}
+              {selectedCertToView && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
+                  <div style={{ background: '#ffffff', borderRadius: '16px', maxWidth: '640px', width: '100%', maxHeight: '92vh', overflowY: 'auto', padding: '28px', border: '2px solid #059669', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+                    <div style={{ textAlign: 'center', borderBottom: '2px solid #e2e8f0', paddingBottom: '16px', marginBottom: '18px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: '800', letterSpacing: '1px', color: '#059669', textTransform: 'uppercase' }}>
+                        Darul Huda Islamic University • Student Records Desk
+                      </div>
+                      <h2 style={{ margin: '4px 0 2px', fontSize: '20px', fontWeight: '900', color: '#0f172a' }}>
+                        🎟️ OFFICIAL ATTENDANCE CLEARANCE CERTIFICATE
+                      </h2>
+                      <div style={{ fontSize: '12px', fontWeight: '700', color: '#64748b' }}>
+                        Verification Number: <span style={{ color: '#0f172a' }}>{selectedCertToView.certNumber}</span>
+                      </div>
+                    </div>
+
+                    <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+                      <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700' }}>STUDENT</div>
+                      <div style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
+                        {selectedCertToView.studentName} <span style={{ color: '#4f46e5' }}>(#{selectedCertToView.adNo})</span>
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#475569', marginTop: '2px' }}>
+                        Class: <strong>{(selectedCertToView.classes || []).join(', ')}</strong> • Dept: {selectedCertToView.department}
+                      </div>
+                      <div style={{ marginTop: '8px', fontSize: '13px', color: '#059669', fontWeight: '800', textTransform: 'uppercase' }}>
+                        Category: {selectedCertToView.reason} • Cleared Dates: {(selectedCertToView.dates || []).join(', ')}
+                      </div>
+                    </div>
+
+                    <div style={{ padding: '12px 14px', background: '#ecfdf5', borderRadius: '10px', border: '1px solid #a7f3d0', marginBottom: '18px', fontSize: '12px', color: '#065f46' }}>
+                      <strong>Authority Remark:</strong> {selectedCertToView.remarks}
+                      <div style={{ marginTop: '4px', fontSize: '11px', color: '#047857' }}>
+                        Issued by: <strong>{selectedCertToView.clearedBy}</strong> • Status: <strong>{selectedCertToView.status}</strong>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        onClick={() => window.print()}
+                        style={styles.buttonPrimary}
+                      >
+                        🖨️ Print Certificate
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCertToView(null)}
+                        style={styles.buttonSecondary}
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <CollapsibleCard
                 title="Disciplinary Minus Attendance Records"
