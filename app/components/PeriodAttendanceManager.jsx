@@ -92,7 +92,7 @@ export default function PeriodAttendanceManager({
 
   // --- 2. EVENT / ARTS FEST REHEARSAL LEADER STATE ---
   const [rehDate, setRehDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [rehSessionId, setRehSessionId] = useState('FN1');
+  const [rehSessionId, setRehSessionId] = useState('');
   const [rehSelectedLeaderUsername, setRehSelectedLeaderUsername] = useState(loggedInUser?.username || '');
   const [rehAbsentRegNos, setRehAbsentRegNos] = useState([]);
   const [existingRehDoc, setExistingRehDoc] = useState(null);
@@ -679,6 +679,9 @@ export default function PeriodAttendanceManager({
 
   const handleSaveRehearsalAttendance = async (e) => {
     e.preventDefault();
+    if (!rehSessionId) {
+      return alert('⚠️ Mandatory Step: Please select a Rehearsal Sitting before saving attendance.');
+    }
     if (!activeLeaderObj || leaderStudentsSorted.length === 0) {
       return alert('No active students assigned for this date.');
     }
@@ -1539,16 +1542,33 @@ export default function PeriodAttendanceManager({
               <input type="date" value={rehDate} onChange={e => setRehDate(e.target.value)} style={styles.input} />
             </div>
             <div>
-              <label style={styles.label}>Select Rehearsal Sitting</label>
-              <select value={rehSessionId} onChange={e => setRehSessionId(e.target.value)} style={styles.input}>
+              <label style={{ ...styles.label, color: !rehSessionId ? '#e11d48' : '#475569' }}>
+                Select Rehearsal Sitting *Mandatory
+              </label>
+              <select
+                value={rehSessionId}
+                onChange={e => setRehSessionId(e.target.value)}
+                required
+                style={{
+                  ...styles.input,
+                  border: !rehSessionId ? '1.5px solid #e11d48' : '1.5px solid #10b981',
+                  background: !rehSessionId ? '#fff1f2' : '#ffffff',
+                  fontWeight: '700'
+                }}
+              >
+                <option value="">-- ⚠️ Mandatory: Select Rehearsal Sitting --</option>
                 {REHEARSAL_SESSIONS.map(s => (
-                  <option key={s.id} value={s.id}>{s.label}</option>
+                  <option key={s.id} value={s.id}>{s.label} ({s.time})</option>
                 ))}
               </select>
             </div>
           </div>
 
-          {leaderStudentsSorted.length === 0 ? (
+          {!rehSessionId ? (
+            <div style={{ padding: '32px 24px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '12px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '14px' }}>
+              👆 Please select a Rehearsal Sitting from the dropdown above to load the roll-call sheet.
+            </div>
+          ) : leaderStudentsSorted.length === 0 ? (
             <div style={{ padding: '32px', background: '#f8fafc', borderRadius: '12px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
               No active students found for {rehDate}.
             </div>

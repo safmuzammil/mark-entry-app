@@ -294,6 +294,33 @@ export default function PeriodAttendanceMinusAndClearance({
     XLSX.writeFile(wb, `Minus_Attendance_Records_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
+  const handleDownloadBulkMinusTemplate = () => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const sampleRows = [
+      {
+        'Admission No': 'U1115',
+        'Student Name': 'FARHAN AKHTAR (Sample)',
+        'Date': todayStr,
+        'Minus': 1,
+        'Reason': 'Late arrival to class',
+        'Teacher': loggedInUser?.fullName || 'Teacher Name'
+      },
+      {
+        'Admission No': '3529',
+        'Student Name': 'Muhammed Shahid C (Sample)',
+        'Date': todayStr,
+        'Minus': 1,
+        'Reason': 'Classroom disturbance',
+        'Teacher': loggedInUser?.fullName || 'Teacher Name'
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(sampleRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Bulk Minus Template');
+    XLSX.writeFile(wb, `Bulk_Minus_Attendance_Template.xlsx`);
+  };
+
   const handleBulkMinusExcelUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -308,9 +335,9 @@ export default function PeriodAttendanceMinusAndClearance({
       const todayStr = new Date().toISOString().split('T')[0];
 
       rows.forEach((row, idx) => {
-        const rawAd = row['Adm. No.'] || row['Admission No'] || row.adNo || row.AdNo || row.admissionNumber;
-        const rawMinus = Math.abs(Number(row.Minus ?? row.minus ?? row.Count ?? row.count ?? 0));
-        if (!rawAd || !rawMinus) return;
+        const rawAd = row['Admission No'] || row['Admission Number'] || row['Adm. No.'] || row['Ad.No'] || row['Ad Number'] || row['adNo'] || row['AdNo'] || row.admissionNumber;
+        const rawMinus = Math.abs(Number(row.Minus ?? row.minus ?? row.Count ?? row.count ?? 1));
+        if (!rawAd) return;
 
         const cleanAd = String(rawAd).trim().toUpperCase();
         const st = localStudents.find(s => String(s.adNo || '').trim().toUpperCase() === cleanAd);
@@ -323,8 +350,8 @@ export default function PeriodAttendanceMinusAndClearance({
           date: row.Date || row.date || todayStr,
           count: rawMinus,
           reason: String(row.Reason || row.reason || 'Disciplinary Deduction').trim(),
-          issuedBy: row.By || row['Issued By'] || loggedInUser?.fullName || 'ADMIN USER',
-          issuedByUsername: String(loggedInUser?.username || 'admin').toLowerCase()
+          issuedBy: row.Teacher || row.teacher || row['Teacher Name'] || row.By || row['Issued By'] || loggedInUser?.fullName || 'ADMIN USER',
+          issuedByUsername: String(row['Teacher Username'] || row.teacherUsername || loggedInUser?.username || 'admin').toLowerCase()
         };
         curStat.minusLogs = [newLog, ...(curStat.minusLogs || [])];
         curStat.minusCount = curStat.minusLogs.reduce((sum, l) => sum + (Number(l.count) || 0), 0);
@@ -1278,13 +1305,39 @@ export default function PeriodAttendanceMinusAndClearance({
 
           {minusSubTab === 'excel' && (
             <div style={{ ...styles.card, maxWidth: '680px' }}>
-              <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>
-                📊 Bulk Minus Excel Upload
-              </h3>
-              <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#64748b' }}>
-                Upload an Excel sheet (.xlsx, .xls) containing columns: <code>Admission No</code>, <code>Minus</code>, <code>Reason</code>, <code>Date</code>.
-              </p>
-              <input type="file" accept=".xlsx,.xls,.csv" onChange={handleBulkMinusExcelUpload} disabled={loading} style={styles.input} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '12px' }}>
+                <div>
+                  <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>
+                    📊 Bulk Minus Excel Upload
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
+                    Upload an Excel sheet (.xlsx, .xls, .csv) with columns: <code>Admission No</code>, <code>Date</code>, <code>Reason</code>, <code>Teacher</code>, <code>Minus</code>.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDownloadBulkMinusTemplate}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: '1.5px solid #4f46e5',
+                    background: '#eef2ff',
+                    color: '#4f46e5',
+                    fontSize: '13px',
+                    fontWeight: '800',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span>⬇️</span> Download Excel Template (.xlsx)
+                </button>
+              </div>
+
+              <div style={{ marginTop: '14px' }}>
+                <input type="file" accept=".xlsx,.xls,.csv" onChange={handleBulkMinusExcelUpload} disabled={loading} style={styles.input} />
+              </div>
             </div>
           )}
 
