@@ -1021,9 +1021,6 @@ export default function PeriodAttendanceManager({
     } finally {
       setLoading(false);
       setTimeout(() => setStatusMsg(''), 6000);
-    } finally {
-      setLoading(false);
-      setTimeout(() => setStatusMsg(''), 6000);
     }
   };
 
