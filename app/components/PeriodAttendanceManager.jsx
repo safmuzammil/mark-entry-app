@@ -89,6 +89,61 @@ export default function PeriodAttendanceManager({
   const [absentRegNos, setAbsentRegNos] = useState([]);
   const [existingSessionDoc, setExistingSessionDoc] = useState(null);
   const [rehearsalPresentMapForDate, setRehearsalPresentMapForDate] = useState({});
+  const [todayRecordedSessions, setTodayRecordedSessions] = useState([]);
+
+  // 🌟 Load today's recorded sessions index for visual indicators & direct edit access
+  useEffect(() => {
+    async function loadTodayIndex() {
+      if (!attDate) return;
+      try {
+        const snap = await getDoc(doc(db, 'systemCache', `daySessionsIndex_${attDate}`));
+        if (snap.exists()) {
+          setTodayRecordedSessions(snap.data().sessions || []);
+        } else {
+          setTodayRecordedSessions([]);
+        }
+      } catch (e) {
+        setTodayRecordedSessions([]);
+      }
+    }
+    loadTodayIndex();
+  }, [attDate]);
+
+  // 🌟 Self-heal: If localStudents or localTeachers is empty (e.g. event leader portal initial load), fetch from Firestore
+  useEffect(() => {
+    async function ensureStudentsAndLeaderDoc() {
+      if (localStudents.length === 0) {
+        try {
+          const sSnap = await getDocs(collection(db, 'students'));
+          const sData = [];
+          sSnap.forEach(d => sData.push({ id: d.id, ...d.data() }));
+          sData.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
+          if (sData.length > 0) {
+            setLocalStudents(sData);
+            if (onStudentsUpdated) onStudentsUpdated(sData);
+          }
+        } catch (err) {
+          console.warn('Student fetch fallback error:', err);
+        }
+      }
+
+      if (isEventLeaderUser && loggedInUser?.username) {
+        try {
+          const freshSnap = await getDoc(doc(db, 'teachers', loggedInUser.username));
+          if (freshSnap.exists()) {
+            const freshData = { id: freshSnap.id, ...freshSnap.data() };
+            setLocalTeachers(prev => {
+              const updated = prev.filter(t => t.username !== loggedInUser.username);
+              return [...updated, freshData];
+            });
+          }
+        } catch (e) {
+          console.warn('Leader doc refresh note:', e);
+        }
+      }
+    }
+    ensureStudentsAndLeaderDoc();
+  }, [isEventLeaderUser, loggedInUser?.username, localStudents.length]);
 
   // --- 2. EVENT / ARTS FEST REHEARSAL LEADER STATE ---
   const [rehDate, setRehDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -596,7 +651,7 @@ export default function PeriodAttendanceManager({
       }
 
       syncUpdatedStudentsState(updatedStudentsByReg);
-      // Retain last recorded position so teacher can inspect and edit without resetting to all present
+
       const recordedAbs = Object.keys(newAttendanceMap)
         .filter(k => newAttendanceMap[k] === 'A' || newAttendanceMap[k] === 'M')
         .map(k => String(k).trim());
@@ -613,8 +668,21 @@ export default function PeriodAttendanceManager({
         attendanceMap: newAttendanceMap,
         updatedAt: new Date().toISOString()
       });
+
+      // Update today's recorded list in state
+      setTodayRecordedSessions(prev => {
+        const filtered = prev.filter(x => x.sessionDocId !== sessionDocId);
+        return [...filtered, { sessionDocId, session: Number(attSession) || 1, subject: subKey }];
+      });
+
       const presentTotal = Object.values(newAttendanceMap).filter(v => v === 'P' || v === 'O').length;
-      setStatusMsg(`✅ Period ${attSession} Attendance (${safeAlias}) Saved! (${presentTotal} Present, ${classStudents.length - presentTotal} Absent)`);
+
+      // 🌟 Return to Subject Cards Dashboard so teacher sees immediate confirmation that it has been recorded
+      setActiveTab('cards');
+      setStatusMsg(`✅ Period ${attSession} Attendance (${safeAlias}) Successfully Recorded! (${presentTotal} Present, ${classStudents.length - presentTotal} Absent)`);
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     } catch (error) {
       console.error('Save attendance error:', error);
       alert('Error saving attendance: ' + error.message);
@@ -633,24 +701,45 @@ export default function PeriodAttendanceManager({
     : (localTeachers.find(t => t.username === rehSelectedLeaderUsername && t.isEventLeader) || localTeachers.find(t => t.isEventLeader));
 
   const leaderAssignedStudentIds = React.useMemo(() => {
-    const firstEnv = (activeLeaderObj?.enrollments || [])[0];
-    return Array.isArray(firstEnv?.studentIds) ? firstEnv.studentIds : (activeLeaderObj?.assignedStudentIds || []);
+    const ids = new Set();
+    const envs = Array.isArray(activeLeaderObj?.enrollments) ? activeLeaderObj.enrollments : [];
+    envs.forEach(e => {
+      if (Array.isArray(e?.studentIds)) {
+        e.studentIds.forEach(id => { if (id) ids.add(String(id).trim()); });
+      }
+    });
+    if (Array.isArray(activeLeaderObj?.assignedStudentIds)) {
+      activeLeaderObj.assignedStudentIds.forEach(id => { if (id) ids.add(String(id).trim()); });
+    }
+    return Array.from(ids);
   }, [activeLeaderObj]);
 
   const leaderStudentDeadlinesMap = React.useMemo(() => {
-    const firstEnv = (activeLeaderObj?.enrollments || [])[0];
-    return firstEnv?.studentDeadlines || activeLeaderObj?.studentDeadlines || {};
+    const deadlines = { ...(activeLeaderObj?.studentDeadlines || {}) };
+    const envs = Array.isArray(activeLeaderObj?.enrollments) ? activeLeaderObj.enrollments : [];
+    envs.forEach(e => {
+      if (e?.studentDeadlines && typeof e.studentDeadlines === 'object') {
+        Object.assign(deadlines, e.studentDeadlines);
+      }
+    });
+    return deadlines;
   }, [activeLeaderObj]);
 
   const leaderStudentsSorted = React.useMemo(() => {
     const savedUpper = leaderAssignedStudentIds.map(id => String(id).trim().toUpperCase());
     const matched = localStudents.filter(st => {
-      const isAssigned =
-        savedUpper.includes(String(st.regNo || '').trim().toUpperCase()) ||
-        savedUpper.includes(String(st.adNo || '').trim().toUpperCase());
+      const sReg = String(st.regNo || '').trim().toUpperCase();
+      const sAd = String(st.adNo || '').trim().toUpperCase();
+      const sId = String(st.id || '').trim().toUpperCase();
+      const isAssigned = (sReg && savedUpper.includes(sReg)) ||
+                         (sAd && savedUpper.includes(sAd)) ||
+                         (sId && savedUpper.includes(sId));
       if (!isAssigned) return false;
-      const deadline = leaderStudentDeadlinesMap[st.regNo] || st.rehearsalDeadline || '';
-      if (deadline && rehDate > deadline) return false;
+      const dl = leaderStudentDeadlinesMap[sReg] ||
+                 (sAd && leaderStudentDeadlinesMap[sAd]) ||
+                 (sId && leaderStudentDeadlinesMap[sId]) ||
+                 st.rehearsalDeadline || '';
+      if (dl && rehDate > dl) return false;
       return true;
     });
     return sortStudentsForEventLeader(matched);
@@ -1281,18 +1370,79 @@ export default function PeriodAttendanceManager({
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAttEnrollmentId(env.id);
-                        setAttSession('');
-                        setExistingSessionDoc(null);
-                        setActiveTab('mark_sheet');
-                      }}
-                      style={{ width: '100%', padding: '11px', background: '#4f46e5', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}
-                    >
-                      Mark Attendance
-                    </button>
+                    {/* Recorded Periods Status for Today */}
+                    {(() => {
+                      const subKey = normalizeSubKey(isAttendanceOnlyEnrollment(env) ? (env.alias || env.subject) : env.subject);
+                      const safeAliasKey = String(env.alias || env.subject || '').replace(/[^a-zA-Z0-9]/g, '_');
+                      const recordedSessions = todayRecordedSessions.filter(s =>
+                        s.subject === subKey || s.sessionDocId?.includes(safeAliasKey)
+                      );
+
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+                          {recordedSessions.length > 0 && (
+                            <div style={{ background: '#ecfdf5', padding: '6px 10px', borderRadius: '8px', border: '1px solid #a7f3d0', fontSize: '11px', fontWeight: '700', color: '#065f46', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                              <span>✓ Recorded on {attDate}:</span>
+                              {recordedSessions.map(r => (
+                                <button
+                                  key={r.session}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setAttEnrollmentId(env.id);
+                                    setAttSession(String(r.session));
+                                    setActiveTab('mark_sheet');
+                                  }}
+                                  style={{
+                                    padding: '2px 7px',
+                                    borderRadius: '5px',
+                                    background: '#10b981',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    fontWeight: '800',
+                                    fontSize: '10px',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Period {r.session} (Edit)
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAttEnrollmentId(env.id);
+                              if (recordedSessions.length > 0) {
+                                setAttSession(String(recordedSessions[0].session));
+                              } else {
+                                setAttSession('');
+                                setExistingSessionDoc(null);
+                              }
+                              setActiveTab('mark_sheet');
+                            }}
+                            style={{
+                              width: '100%',
+                              padding: '11px',
+                              background: recordedSessions.length > 0 ? '#10b981' : '#4f46e5',
+                              color: '#ffffff',
+                              border: 'none',
+                              borderRadius: '8px',
+                              fontWeight: '700',
+                              fontSize: '13px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '6px'
+                            }}
+                          >
+                            <span>{recordedSessions.length > 0 ? '✏️ Edit / Mark Attendance' : 'Mark Attendance'}</span>
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
