@@ -60,6 +60,19 @@ export default function PeriodAttendanceMinusAndClearance({
   const [issuedClearanceCerts, setIssuedClearanceCerts] = useState([]);
   const [activeCertToPrint, setActiveCertToPrint] = useState(null);
 
+  // --- 2b. CLEARANCE INSPECTION & ATTENDANCE CORRECTION STATE ---
+  const [clearanceSubTab, setClearanceSubTab] = useState('issue'); // 'issue' | 'inspect'
+  const [inspectAdNo, setInspectAdNo] = useState('3606');
+  const [inspectStudent, setInspectStudent] = useState(null);
+  const [inspectDateStart, setInspectDateStart] = useState('2026-10-15');
+  const [inspectDateEnd, setInspectDateEnd] = useState(() => new Date().toISOString().split('T')[0]);
+  const [inspectFilterStatus, setInspectFilterStatus] = useState('ALL'); // 'ALL' | 'CLEARED' | 'ABSENT'
+  const [inspectSessionsList, setInspectSessionsList] = useState([]);
+  const [selectedInspectSessionIds, setSelectedInspectSessionIds] = useState([]);
+  const [fetchingInspect, setFetchingInspect] = useState(false);
+  const [editingCertRemarksId, setEditingCertRemarksId] = useState(null);
+  const [editedRemarksText, setEditedRemarksText] = useState('');
+
   const [deleteAllPassword, setDeleteAllPassword] = useState('');
   const [deleteAllConfirmText, setDeleteAllConfirmText] = useState('');
   const [shortageClassFilter, setShortageClassFilter] = useState('ALL');
@@ -893,6 +906,256 @@ export default function PeriodAttendanceMinusAndClearance({
     } finally {
       setLoading(false);
       setTimeout(() => setStatusMsg(''), 6000);
+    }
+  };
+
+  // 🌟 2b. CLEARANCE & ATTENDANCE INSPECTOR & CORRECTION HANDLERS
+  const handleLoadInspectStudent = async (targetInput, customStart, customEnd) => {
+    const rawInput = String(targetInput !== undefined ? targetInput : inspectAdNo).trim();
+    if (!rawInput) return alert('Please enter a student Admission Number (e.g. 3606, U1115).');
+
+    const cleanTok = rawInput.replace(/^#/, '').toLowerCase().trim();
+    let match = localStudents.find(
+      s => String(s.adNo || '').trim().toLowerCase() === cleanTok ||
+           String(s.regNo || '').trim().toLowerCase() === cleanTok
+    );
+    if (!match && !cleanTok.startsWith('u')) {
+      match = localStudents.find(s => String(s.adNo || '').trim().toLowerCase() === 'u' + cleanTok);
+    }
+    if (!match) {
+      match = localStudents.find(s => String(s.firstName || '').trim().toLowerCase().includes(cleanTok));
+    }
+
+    if (!match) {
+      setInspectStudent(null);
+      setInspectSessionsList([]);
+      return alert(`Student #${cleanTok.toUpperCase()} not found in student database.`);
+    }
+
+    setInspectStudent(match);
+    setSelectedInspectSessionIds([]);
+    setFetchingInspect(true);
+
+    try {
+      const sDate = customStart !== undefined ? customStart : (inspectDateStart || '2026-08-30');
+      const eDate = customEnd !== undefined ? customEnd : (inspectDateEnd || new Date().toISOString().split('T')[0]);
+      const datesToLoad = getDatesBetween(sDate, eDate);
+
+      const studentClass = String(match.className || (Array.isArray(match.classes) ? match.classes[0] : '') || '').trim().toUpperCase();
+      const studentStat = getStudentAttStat(match);
+      const studentSubs = studentStat?.subjectWise || {};
+
+      const foundSessions = [];
+
+      for (const dStr of datesToLoad) {
+        if (!dStr) continue;
+        const idxSnap = await getDoc(doc(db, 'systemCache', `daySessionsIndex_${dStr}`));
+        if (!idxSnap.exists()) continue;
+
+        const sessList = idxSnap.data().sessions || [];
+        for (const item of sessList) {
+          const itemClass = String(item.classAlias || '').trim().toUpperCase();
+          const subKey = normalizeSubKey(item.subject);
+          const takesSubject = !!studentSubs[subKey];
+          const classMatches = !studentClass || !itemClass || itemClass === studentClass || itemClass.includes(studentClass) || studentClass.includes(itemClass);
+
+          if (!classMatches && !takesSubject) continue;
+
+          const sSnap = await getDoc(doc(db, 'systemCache', item.sessionDocId));
+          if (!sSnap.exists()) continue;
+          const sData = sSnap.data();
+          const attMap = sData.attendanceMap || {};
+
+          const status = attMap[match.regNo] || attMap[match.id] || attMap[match.adNo];
+          if (status) {
+            foundSessions.push({
+              sessionDocId: item.sessionDocId,
+              date: dStr,
+              session: Number(sData.session || item.session || 1),
+              subject: subKey || item.subject || '',
+              classAlias: sData.classAlias || item.classAlias || '',
+              teacherName: sData.teacherName || item.teacherName || 'Faculty',
+              currentStatus: status
+            });
+          }
+        }
+      }
+
+      foundSessions.sort((a, b) => b.date.localeCompare(a.date) || a.session - b.session);
+      setInspectSessionsList(foundSessions);
+    } catch (err) {
+      console.error('Error fetching student sessions for inspection:', err);
+      alert('Error loading sessions: ' + err.message);
+    } finally {
+      setFetchingInspect(false);
+    }
+  };
+
+  const handleUpdateSessionStatus = async (targetSessionDocIds, newStatus) => {
+    if (!inspectStudent) return;
+    if (!targetSessionDocIds || targetSessionDocIds.length === 0) {
+      return alert('Please select at least one session to update.');
+    }
+
+    const actionLabel = newStatus === 'A' ? 'REVERT TO ABSENT (A)' : newStatus === 'O' ? 'SET TO OFFICIAL CLEARANCE (O)' : newStatus === 'M' ? 'SET TO MEDICAL LEAVE (M)' : 'SET TO PRESENT (P)';
+    if (!window.confirm(`Are you sure you want to ${actionLabel} for ${targetSessionDocIds.length} session(s)?`)) return;
+
+    setLoading(true);
+    try {
+      const batch = writeBatch(db);
+      const curStat = JSON.parse(JSON.stringify(getStudentAttStat(inspectStudent)));
+      if (!curStat.subjectWise) curStat.subjectWise = {};
+
+      const updatedSessions = [...inspectSessionsList];
+
+      for (const sessDocId of targetSessionDocIds) {
+        const sessItem = updatedSessions.find(s => s.sessionDocId === sessDocId);
+        if (!sessItem) continue;
+
+        const prevStatus = sessItem.currentStatus;
+        if (prevStatus === newStatus) continue;
+
+        const subKey = normalizeSubKey(sessItem.subject);
+        if (!curStat.subjectWise[subKey]) {
+          curStat.subjectWise[subKey] = { total: 1, present: 0, official: 0, medical: 0, permitted: 0, absentDates: [] };
+        }
+        const subObj = curStat.subjectWise[subKey];
+        if (!Array.isArray(subObj.absentDates)) subObj.absentDates = [];
+
+        // 1. Remove previous status impact
+        if (prevStatus === 'P') {
+          curStat.presentCount = Math.max(0, (curStat.presentCount || 0) - 1);
+          subObj.present = Math.max(0, (subObj.present || 0) - 1);
+        } else if (prevStatus === 'O') {
+          curStat.presentCount = Math.max(0, (curStat.presentCount || 0) - 1);
+          curStat.officialCount = Math.max(0, (curStat.officialCount || 0) - 1);
+          subObj.present = Math.max(0, (subObj.present || 0) - 1);
+          subObj.official = Math.max(0, (subObj.official || 0) - 1);
+        } else if (prevStatus === 'M') {
+          curStat.medicalCount = Math.max(0, (curStat.medicalCount || 0) - 1);
+          subObj.medical = Math.max(0, (subObj.medical || 0) - 1);
+        } else if (prevStatus === 'A') {
+          const idx = subObj.absentDates.indexOf(sessItem.date);
+          if (idx !== -1) subObj.absentDates.splice(idx, 1);
+        }
+
+        // 2. Apply new status impact
+        if (newStatus === 'A') {
+          if (!subObj.absentDates.includes(sessItem.date)) {
+            subObj.absentDates.push(sessItem.date);
+          }
+        } else if (newStatus === 'P') {
+          curStat.presentCount = Math.min(curStat.totalPeriods || 9999, (curStat.presentCount || 0) + 1);
+          subObj.present = Math.min(subObj.total || 9999, (subObj.present || 0) + 1);
+          const idx = subObj.absentDates.indexOf(sessItem.date);
+          if (idx !== -1) subObj.absentDates.splice(idx, 1);
+        } else if (newStatus === 'O') {
+          curStat.presentCount = Math.min(curStat.totalPeriods || 9999, (curStat.presentCount || 0) + 1);
+          curStat.officialCount = (curStat.officialCount || 0) + 1;
+          subObj.present = Math.min(subObj.total || 9999, (subObj.present || 0) + 1);
+          subObj.official = (subObj.official || 0) + 1;
+          const idx = subObj.absentDates.indexOf(sessItem.date);
+          if (idx !== -1) subObj.absentDates.splice(idx, 1);
+        } else if (newStatus === 'M') {
+          curStat.medicalCount = (curStat.medicalCount || 0) + 1;
+          subObj.medical = (subObj.medical || 0) + 1;
+          const idx = subObj.absentDates.indexOf(sessItem.date);
+          if (idx !== -1) subObj.absentDates.splice(idx, 1);
+        }
+
+        // 3. Update session doc in systemCache
+        const sRef = doc(db, 'systemCache', sessDocId);
+        const sSnap = await getDoc(sRef);
+        if (sSnap.exists()) {
+          const attMap = { ...(sSnap.data().attendanceMap || {}) };
+          attMap[inspectStudent.regNo] = newStatus;
+          if (inspectStudent.adNo) attMap[inspectStudent.adNo] = newStatus;
+          batch.set(sRef, { attendanceMap: attMap, updatedAt: new Date().toISOString() }, { merge: true });
+        }
+
+        sessItem.currentStatus = newStatus;
+      }
+
+      // 4. Update student document
+      const docId = String(inspectStudent.id || inspectStudent.regNo || '').trim();
+      batch.set(doc(db, 'students', docId), { periodAttendance: curStat }, { merge: true });
+
+      await batch.commit();
+
+      const updatedSt = { ...inspectStudent, periodAttendance: curStat };
+      setInspectStudent(updatedSt);
+      setInspectSessionsList(updatedSessions);
+      syncUpdatedStudentsState({ [inspectStudent.regNo]: updatedSt });
+      setSelectedInspectSessionIds([]);
+      setStatusMsg(`✅ Successfully updated ${targetSessionDocIds.length} session(s) to [${newStatus}]!`);
+    } catch (err) {
+      console.error('Error updating session status:', err);
+      alert('Failed to update session status: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRevokeCertificate = async (cert) => {
+    if (!window.confirm(`Revoke/Delete Clearance Certificate #${cert.certNumber}?`)) return;
+    setLoading(true);
+    try {
+      const batch = writeBatch(db);
+      if (cert.id) {
+        batch.delete(doc(db, 'clearance_certificates', cert.id));
+      }
+      const curStat = JSON.parse(JSON.stringify(getStudentAttStat(inspectStudent)));
+      curStat.clearanceCertificates = (curStat.clearanceCertificates || []).filter(
+        c => c.id !== cert.id && c.certNumber !== cert.certNumber
+      );
+      const docId = String(inspectStudent.id || inspectStudent.regNo || '').trim();
+      batch.set(doc(db, 'students', docId), { periodAttendance: curStat }, { merge: true });
+
+      await batch.commit();
+
+      const updatedSt = { ...inspectStudent, periodAttendance: curStat };
+      setInspectStudent(updatedSt);
+      syncUpdatedStudentsState({ [inspectStudent.regNo]: updatedSt });
+      setStatusMsg(`✅ Certificate #${cert.certNumber} revoked successfully.`);
+    } catch (err) {
+      console.error('Error revoking certificate:', err);
+      alert('Failed to revoke certificate: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveCertRemarks = async (cert) => {
+    if (!editedRemarksText.trim()) return alert('Remarks cannot be empty.');
+    setLoading(true);
+    try {
+      const batch = writeBatch(db);
+      if (cert.id) {
+        batch.set(doc(db, 'clearance_certificates', cert.id), { remarks: editedRemarksText }, { merge: true });
+      }
+      const curStat = JSON.parse(JSON.stringify(getStudentAttStat(inspectStudent)));
+      curStat.clearanceCertificates = (curStat.clearanceCertificates || []).map(c => {
+        if (c.id === cert.id || c.certNumber === cert.certNumber) {
+          return { ...c, remarks: editedRemarksText };
+        }
+        return c;
+      });
+      const docId = String(inspectStudent.id || inspectStudent.regNo || '').trim();
+      batch.set(doc(db, 'students', docId), { periodAttendance: curStat }, { merge: true });
+
+      await batch.commit();
+
+      const updatedSt = { ...inspectStudent, periodAttendance: curStat };
+      setInspectStudent(updatedSt);
+      syncUpdatedStudentsState({ [inspectStudent.regNo]: updatedSt });
+      setEditingCertRemarksId(null);
+      setEditedRemarksText('');
+      setStatusMsg('✅ Updated certificate remarks.');
+    } catch (err) {
+      console.error('Error saving remarks:', err);
+      alert('Failed to save remarks: ' + err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1797,6 +2060,42 @@ export default function PeriodAttendanceMinusAndClearance({
               </div>
             </div>
 
+            {/* SUB-TABS: ISSUE CLEARANCE vs INSPECT & EDIT CLEARANCES */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', background: '#f1f5f9', padding: '4px', borderRadius: '10px', width: 'fit-content' }}>
+              <button
+                type="button"
+                onClick={() => setClearanceSubTab('issue')}
+                style={{
+                  padding: '8px 16px', borderRadius: '8px', fontWeight: '800', fontSize: '13px', cursor: 'pointer', border: 'none',
+                  background: clearanceSubTab === 'issue' ? '#4f46e5' : 'transparent',
+                  color: clearanceSubTab === 'issue' ? '#ffffff' : '#64748b',
+                  boxShadow: clearanceSubTab === 'issue' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                🎟️ Issue New Clearance
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setClearanceSubTab('inspect');
+                  if (!inspectStudent && inspectAdNo) {
+                    handleLoadInspectStudent(inspectAdNo);
+                  }
+                }}
+                style={{
+                  padding: '8px 16px', borderRadius: '8px', fontWeight: '800', fontSize: '13px', cursor: 'pointer', border: 'none',
+                  background: clearanceSubTab === 'inspect' ? '#4f46e5' : 'transparent',
+                  color: clearanceSubTab === 'inspect' ? '#ffffff' : '#64748b',
+                  boxShadow: clearanceSubTab === 'inspect' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                🔍 Inspect &amp; Edit Clearances
+              </button>
+            </div>
+
+            {clearanceSubTab === 'issue' && (
             <form onSubmit={handleSaveClearance} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {/* STEP 1: STUDENT ADMISSION NUMBER INPUT */}
               <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
@@ -2043,6 +2342,527 @@ export default function PeriodAttendanceMinusAndClearance({
                 </div>
               )}
             </form>
+            )}
+
+            {clearanceSubTab === 'inspect' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Search & Date Filter Bar */}
+                <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  <label style={{ ...styles.label, fontSize: '13px', fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>
+                    Student Admission Number to Inspect &amp; Correct:
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                    <input
+                      type="text"
+                      value={inspectAdNo}
+                      onChange={e => setInspectAdNo(e.target.value)}
+                      placeholder="Enter student Admission Number (e.g. 3606, U1115)..."
+                      style={{ ...styles.input, flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleLoadInspectStudent(inspectAdNo)}
+                      disabled={fetchingInspect}
+                      style={{ ...styles.buttonPrimary, whiteSpace: 'nowrap' }}
+                    >
+                      {fetchingInspect ? '⏳ Loading Sessions...' : '🔍 Inspect Student'}
+                    </button>
+                  </div>
+
+                  {/* Quick Student Pill */}
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
+                    <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>Quick Select:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInspectAdNo('3606');
+                        handleLoadInspectStudent('3606');
+                      }}
+                      style={{
+                        padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700',
+                        background: '#e0e7ff', color: '#4338ca', border: '1px solid #c7d2fe', cursor: 'pointer'
+                      }}
+                    >
+                      👤 Muhammed Swalih CK (#3606)
+                    </button>
+                  </div>
+
+                  {/* Date Scope Controls */}
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
+                    <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '700' }}>Date Range:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const s = '2026-10-24';
+                        const e = new Date().toISOString().split('T')[0];
+                        setInspectDateStart(s);
+                        setInspectDateEnd(e);
+                        if (inspectStudent) handleLoadInspectStudent(inspectAdNo, s, e);
+                      }}
+                      style={{
+                        padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700',
+                        background: inspectDateStart === '2026-10-24' ? '#4f46e5' : '#ffffff',
+                        color: inspectDateStart === '2026-10-24' ? '#ffffff' : '#334155',
+                        border: '1px solid #cbd5e1', cursor: 'pointer'
+                      }}
+                    >
+                      ⚡ Recent 15 Days (2026-10-24 to Today)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const s = '2026-08-30';
+                        const e = new Date().toISOString().split('T')[0];
+                        setInspectDateStart(s);
+                        setInspectDateEnd(e);
+                        if (inspectStudent) handleLoadInspectStudent(inspectAdNo, s, e);
+                      }}
+                      style={{
+                        padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700',
+                        background: inspectDateStart === '2026-08-30' ? '#4f46e5' : '#ffffff',
+                        color: inspectDateStart === '2026-08-30' ? '#ffffff' : '#334155',
+                        border: '1px solid #cbd5e1', cursor: 'pointer'
+                      }}
+                    >
+                      📅 Full Semester (2026-08-30 to Today)
+                    </button>
+
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginLeft: 'auto' }}>
+                      <input
+                        type="date"
+                        value={inspectDateStart}
+                        onChange={e => setInspectDateStart(e.target.value)}
+                        style={{ ...styles.input, padding: '4px 8px', fontSize: '12px', width: '135px' }}
+                      />
+                      <span style={{ fontSize: '12px', color: '#64748b' }}>to</span>
+                      <input
+                        type="date"
+                        value={inspectDateEnd}
+                        onChange={e => setInspectDateEnd(e.target.value)}
+                        style={{ ...styles.input, padding: '4px 8px', fontSize: '12px', width: '135px' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleLoadInspectStudent(inspectAdNo, inspectDateStart, inspectDateEnd)}
+                        disabled={fetchingInspect}
+                        style={{ padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', background: '#0f172a', color: '#ffffff', border: 'none', cursor: 'pointer' }}
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Loading State */}
+                {fetchingInspect && (
+                  <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '14px', fontWeight: '700' }}>
+                    ⏳ Inspecting calendar dates &amp; period session registers... Please wait.
+                  </div>
+                )}
+
+                {/* Inspect Student Profile & Stats */}
+                {inspectStudent && !fetchingInspect && (() => {
+                  const stat = getStudentAttStat(inspectStudent);
+                  const total = stat.totalPeriods || 0;
+                  const pres = stat.presentCount || 0;
+                  const off = stat.officialCount || 0;
+                  const med = stat.medicalCount || 0;
+                  const perm = stat.permittedCount || 0;
+                  const abs = Math.max(0, total - pres);
+                  const minus = stat.minusCount || 0;
+                  const grossPct = total > 0 ? ((pres / total) * 100).toFixed(1) : '100.0';
+                  const netPct = total > 0 ? (Math.max(0, pres - minus) / total * 100).toFixed(1) : '100.0';
+                  const certs = (stat.clearanceCertificates || []).length > 0
+                    ? stat.clearanceCertificates
+                    : (issuedClearanceCerts.filter(c => c.regNo === inspectStudent.regNo));
+
+                  const filteredSessions = inspectSessionsList.filter(s => {
+                    if (inspectFilterStatus === 'CLEARED') return s.currentStatus === 'P' || s.currentStatus === 'O' || s.currentStatus === 'M';
+                    if (inspectFilterStatus === 'ABSENT') return s.currentStatus === 'A';
+                    return true;
+                  });
+
+                  const clearedCount = inspectSessionsList.filter(s => s.currentStatus === 'P' || s.currentStatus === 'O' || s.currentStatus === 'M').length;
+                  const absentCount = inspectSessionsList.filter(s => s.currentStatus === 'A').length;
+
+                  return (
+                    <>
+                      {/* Student Profile & Live Metric Banner */}
+                      <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #cbd5e1', padding: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
+                                👤 {inspectStudent.firstName}
+                              </h3>
+                              <span style={{ background: '#e0e7ff', color: '#4338ca', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
+                                Class: {inspectStudent.className || (Array.isArray(inspectStudent.classes) ? inspectStudent.classes[0] : 'AL2')}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                              Admission No: <strong style={{ color: '#0f172a' }}>#{inspectStudent.adNo}</strong> • Reg No: <strong style={{ color: '#0f172a' }}>{inspectStudent.regNo}</strong> • Roll: <strong style={{ color: '#0f172a' }}>{inspectStudent.rollNumber || inspectStudent.rollNo || '-'}</strong>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>NET ATTENDANCE</div>
+                              <div style={{ fontSize: '20px', fontWeight: '900', color: Number(netPct) < 85 ? '#dc2626' : '#16a34a' }}>
+                                {netPct}%
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Metric Counter Badges */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '8px' }}>
+                          <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                            <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700' }}>TOTAL PERIODS</div>
+                            <div style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>{total}</div>
+                          </div>
+                          <div style={{ background: '#f0fdf4', padding: '10px', borderRadius: '8px', border: '1px solid #bbf7d0', textAlign: 'center' }}>
+                            <div style={{ fontSize: '11px', color: '#166534', fontWeight: '700' }}>PRESENT (P)</div>
+                            <div style={{ fontSize: '18px', fontWeight: '800', color: '#16a34a' }}>{pres}</div>
+                          </div>
+                          <div style={{ background: '#ecfdf5', padding: '10px', borderRadius: '8px', border: '1px solid #a7f3d0', textAlign: 'center' }}>
+                            <div style={{ fontSize: '11px', color: '#065f46', fontWeight: '700' }}>OFFICIAL (O)</div>
+                            <div style={{ fontSize: '18px', fontWeight: '800', color: '#059669' }}>{off}</div>
+                          </div>
+                          <div style={{ background: '#f0f9ff', padding: '10px', borderRadius: '8px', border: '1px solid #bae6fd', textAlign: 'center' }}>
+                            <div style={{ fontSize: '11px', color: '#075985', fontWeight: '700' }}>MEDICAL (M)</div>
+                            <div style={{ fontSize: '18px', fontWeight: '800', color: '#0284c7' }}>{med}</div>
+                          </div>
+                          <div style={{ background: '#fef2f2', padding: '10px', borderRadius: '8px', border: '1px solid #fecaca', textAlign: 'center' }}>
+                            <div style={{ fontSize: '11px', color: '#991b1b', fontWeight: '700' }}>ABSENT (A)</div>
+                            <div style={{ fontSize: '18px', fontWeight: '800', color: '#dc2626' }}>{abs}</div>
+                          </div>
+                          <div style={{ background: '#fffbeb', padding: '10px', borderRadius: '8px', border: '1px solid #fde68a', textAlign: 'center' }}>
+                            <div style={{ fontSize: '11px', color: '#92400e', fontWeight: '700' }}>MINUS DEDUCTION</div>
+                            <div style={{ fontSize: '18px', fontWeight: '800', color: '#d97706' }}>-{minus}</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Official Clearance Certificates (If Any) */}
+                      {certs.length > 0 && (
+                        <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #cbd5e1', padding: '16px' }}>
+                          <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', fontWeight: '800', color: '#0f172a' }}>
+                            🎟️ Issued Official Clearance Certificates ({certs.length})
+                          </h4>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {certs.map(c => (
+                              <div key={c.id || c.certNumber} style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <strong style={{ fontSize: '13px', color: '#4f46e5' }}>{c.certNumber}</strong>
+                                    <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: c.reason === 'medical' ? '#e0f2fe' : '#dcfce7', color: c.reason === 'medical' ? '#075985' : '#166534', fontWeight: '800', textTransform: 'uppercase' }}>
+                                      {c.reason}
+                                    </span>
+                                  </div>
+                                  <div style={{ fontSize: '12px', color: '#475569', marginTop: '2px' }}>
+                                    Dates: {(c.dates || []).join(', ') || 'Scope date'} • Approved By: {c.clearedBy || 'Admin'}
+                                  </div>
+                                  <div style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic', marginTop: '2px' }}>
+                                    Remarks: &ldquo;{c.remarks || 'No remarks'}&rdquo;
+                                  </div>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveCertToPrint(c)}
+                                    style={{ padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', background: '#4f46e5', color: '#ffffff', border: 'none', cursor: 'pointer' }}
+                                  >
+                                    🖨️ View / Print
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newRemark = prompt('Edit clearance remarks:', c.remarks || '');
+                                      if (newRemark !== null) {
+                                        setEditedRemarksText(newRemark);
+                                        handleSaveCertRemarks(c);
+                                      }
+                                    }}
+                                    style={{ padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', cursor: 'pointer' }}
+                                  >
+                                    ✏️ Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRevokeCertificate(c)}
+                                    style={{ padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', cursor: 'pointer' }}
+                                  >
+                                    🗑️ Revoke
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Interactive Session Status Timeline & Correction Desk */}
+                      <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #cbd5e1', padding: '16px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+                          <div>
+                            <h4 style={{ margin: 0, fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
+                              📋 Recorded Period Sessions ({filteredSessions.length})
+                            </h4>
+                            <div style={{ fontSize: '12px', color: '#64748b' }}>
+                              Review or modify individual period sessions. Select sessions below to perform bulk actions.
+                            </div>
+                          </div>
+
+                          {/* Filter Pills */}
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              type="button"
+                              onClick={() => setInspectFilterStatus('ALL')}
+                              style={{
+                                padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer',
+                                background: inspectFilterStatus === 'ALL' ? '#0f172a' : '#f1f5f9',
+                                color: inspectFilterStatus === 'ALL' ? '#ffffff' : '#64748b',
+                                border: 'none'
+                              }}
+                            >
+                              All ({inspectSessionsList.length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setInspectFilterStatus('CLEARED')}
+                              style={{
+                                padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer',
+                                background: inspectFilterStatus === 'CLEARED' ? '#16a34a' : '#f1f5f9',
+                                color: inspectFilterStatus === 'CLEARED' ? '#ffffff' : '#64748b',
+                                border: 'none'
+                              }}
+                            >
+                              Cleared / Present ({clearedCount})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setInspectFilterStatus('ABSENT')}
+                              style={{
+                                padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer',
+                                background: inspectFilterStatus === 'ABSENT' ? '#dc2626' : '#f1f5f9',
+                                color: inspectFilterStatus === 'ABSENT' ? '#ffffff' : '#64748b',
+                                border: 'none'
+                              }}
+                            >
+                              Absent ({absentCount})
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Bulk Action Controls */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '700', color: '#0f172a', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={filteredSessions.length > 0 && selectedInspectSessionIds.length === filteredSessions.length}
+                              onChange={e => {
+                                if (e.target.checked) {
+                                  setSelectedInspectSessionIds(filteredSessions.map(s => s.sessionDocId));
+                                } else {
+                                  setSelectedInspectSessionIds([]);
+                                }
+                              }}
+                              style={{ width: '16px', height: '16px' }}
+                            />
+                            Select All Filtered ({selectedInspectSessionIds.length} selected)
+                          </label>
+
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              disabled={selectedInspectSessionIds.length === 0 || loading}
+                              onClick={() => handleUpdateSessionStatus(selectedInspectSessionIds, 'A')}
+                              style={{ padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', background: '#ef4444', color: '#ffffff', border: 'none', cursor: selectedInspectSessionIds.length > 0 ? 'pointer' : 'not-allowed', opacity: selectedInspectSessionIds.length > 0 ? 1 : 0.5 }}
+                              title="Reverts selected sessions back to Absent"
+                            >
+                              ❌ Revert to Absent (A)
+                            </button>
+                            <button
+                              type="button"
+                              disabled={selectedInspectSessionIds.length === 0 || loading}
+                              onClick={() => handleUpdateSessionStatus(selectedInspectSessionIds, 'O')}
+                              style={{ padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', background: '#059669', color: '#ffffff', border: 'none', cursor: selectedInspectSessionIds.length > 0 ? 'pointer' : 'not-allowed', opacity: selectedInspectSessionIds.length > 0 ? 1 : 0.5 }}
+                              title="Sets selected sessions to Official Clearance"
+                            >
+                              🏛️ Set Official (O)
+                            </button>
+                            <button
+                              type="button"
+                              disabled={selectedInspectSessionIds.length === 0 || loading}
+                              onClick={() => handleUpdateSessionStatus(selectedInspectSessionIds, 'M')}
+                              style={{ padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', background: '#0284c7', color: '#ffffff', border: 'none', cursor: selectedInspectSessionIds.length > 0 ? 'pointer' : 'not-allowed', opacity: selectedInspectSessionIds.length > 0 ? 1 : 0.5 }}
+                              title="Sets selected sessions to Medical Leave"
+                            >
+                              🏥 Set Medical (M)
+                            </button>
+                            <button
+                              type="button"
+                              disabled={selectedInspectSessionIds.length === 0 || loading}
+                              onClick={() => handleUpdateSessionStatus(selectedInspectSessionIds, 'P')}
+                              style={{ padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', background: '#16a34a', color: '#ffffff', border: 'none', cursor: selectedInspectSessionIds.length > 0 ? 'pointer' : 'not-allowed', opacity: selectedInspectSessionIds.length > 0 ? 1 : 0.5 }}
+                              title="Sets selected sessions to Present"
+                            >
+                              ✅ Set Present (P)
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Sessions Table */}
+                        {filteredSessions.length === 0 ? (
+                          <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+                            No recorded sessions match the current filter in this date range. Try switching date range to &ldquo;Full Semester&rdquo;.
+                          </div>
+                        ) : (
+                          <div style={{ maxHeight: '450px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                              <thead style={{ background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1, borderBottom: '2px solid #e2e8f0' }}>
+                                <tr>
+                                  <th style={{ padding: '8px 12px', width: '36px' }}>#</th>
+                                  <th style={{ padding: '8px 12px' }}>Date</th>
+                                  <th style={{ padding: '8px 12px' }}>Period</th>
+                                  <th style={{ padding: '8px 12px' }}>Subject &amp; Faculty</th>
+                                  <th style={{ padding: '8px 12px', textAlign: 'center' }}>Current Status</th>
+                                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>Correction Action</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {filteredSessions.map((s, idx) => {
+                                  const isSelected = selectedInspectSessionIds.includes(s.sessionDocId);
+                                  const isAbs = s.currentStatus === 'A';
+                                  const isPres = s.currentStatus === 'P';
+                                  const isOff = s.currentStatus === 'O';
+                                  const isMed = s.currentStatus === 'M';
+
+                                  return (
+                                    <tr
+                                      key={s.sessionDocId}
+                                      style={{
+                                        borderBottom: '1px solid #f1f5f9',
+                                        background: isSelected ? '#eff6ff' : (idx % 2 === 0 ? '#ffffff' : '#fafafa')
+                                      }}
+                                    >
+                                      <td style={{ padding: '8px 12px' }}>
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={e => {
+                                            if (e.target.checked) {
+                                              setSelectedInspectSessionIds(prev => [...prev, s.sessionDocId]);
+                                            } else {
+                                              setSelectedInspectSessionIds(prev => prev.filter(id => id !== s.sessionDocId));
+                                            }
+                                          }}
+                                          style={{ width: '15px', height: '15px' }}
+                                        />
+                                      </td>
+                                      <td style={{ padding: '8px 12px', fontWeight: '700', color: '#0f172a' }}>
+                                        {s.date}
+                                      </td>
+                                      <td style={{ padding: '8px 12px' }}>
+                                        <span style={{ background: '#e2e8f0', color: '#334155', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '800' }}>
+                                          Period {s.session}
+                                        </span>
+                                      </td>
+                                      <td style={{ padding: '8px 12px' }}>
+                                        <div style={{ fontWeight: '700', color: '#0f172a' }}>{s.subject}</div>
+                                        <div style={{ fontSize: '11px', color: '#64748b' }}>{s.teacherName}</div>
+                                      </td>
+                                      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                                        <span style={{
+                                          display: 'inline-block',
+                                          padding: '3px 10px',
+                                          borderRadius: '6px',
+                                          fontSize: '11px',
+                                          fontWeight: '800',
+                                          background: isPres ? '#dcfce7' : isOff ? '#d1fae5' : isMed ? '#e0f2fe' : '#fee2e2',
+                                          color: isPres ? '#166534' : isOff ? '#065f46' : isMed ? '#075985' : '#991b1b'
+                                        }}>
+                                          {isPres ? '✅ PRESENT' : isOff ? '🏛️ OFFICIAL' : isMed ? '🏥 MEDICAL' : '❌ ABSENT'}
+                                        </span>
+                                      </td>
+                                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                                        <div style={{ display: 'inline-flex', gap: '4px' }}>
+                                          <button
+                                            type="button"
+                                            disabled={isAbs || loading}
+                                            onClick={() => handleUpdateSessionStatus([s.sessionDocId], 'A')}
+                                            style={{
+                                              padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '800',
+                                              background: isAbs ? '#f1f5f9' : '#fee2e2',
+                                              color: isAbs ? '#94a3b8' : '#991b1b',
+                                              border: '1px solid #cbd5e1',
+                                              cursor: isAbs ? 'default' : 'pointer'
+                                            }}
+                                            title="Revert this session to Absent"
+                                          >
+                                            A
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={isOff || loading}
+                                            onClick={() => handleUpdateSessionStatus([s.sessionDocId], 'O')}
+                                            style={{
+                                              padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '800',
+                                              background: isOff ? '#f1f5f9' : '#d1fae5',
+                                              color: isOff ? '#94a3b8' : '#065f46',
+                                              border: '1px solid #cbd5e1',
+                                              cursor: isOff ? 'default' : 'pointer'
+                                            }}
+                                            title="Set this session to Official Clearance"
+                                          >
+                                            O
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={isMed || loading}
+                                            onClick={() => handleUpdateSessionStatus([s.sessionDocId], 'M')}
+                                            style={{
+                                              padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '800',
+                                              background: isMed ? '#f1f5f9' : '#e0f2fe',
+                                              color: isMed ? '#94a3b8' : '#075985',
+                                              border: '1px solid #cbd5e1',
+                                              cursor: isMed ? 'default' : 'pointer'
+                                            }}
+                                            title="Set this session to Medical Leave"
+                                          >
+                                            M
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={isPres || loading}
+                                            onClick={() => handleUpdateSessionStatus([s.sessionDocId], 'P')}
+                                            style={{
+                                              padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '800',
+                                              background: isPres ? '#f1f5f9' : '#dcfce7',
+                                              color: isPres ? '#94a3b8' : '#166534',
+                                              border: '1px solid #cbd5e1',
+                                              cursor: isPres ? 'default' : 'pointer'
+                                            }}
+                                            title="Set this session to Present"
+                                          >
+                                            P
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
           </div>
 
           
