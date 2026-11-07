@@ -64,6 +64,7 @@ export default function PeriodAttendanceMinusAndClearance({
   const [deleteAllConfirmText, setDeleteAllConfirmText] = useState('');
   const [shortageClassFilter, setShortageClassFilter] = useState('ALL');
   const [importAuditReport, setImportAuditReport] = useState(null);
+  const [bulkMinusResultReport, setBulkMinusResultReport] = useState(null);
 
   // Smart Teacher Ownership Matcher
   const canUserModifyMinusLog = (logItem) => {
@@ -294,81 +295,261 @@ export default function PeriodAttendanceMinusAndClearance({
     XLSX.writeFile(wb, `Minus_Attendance_Records_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
+  // Flexible Date Parser for Excel / CSV Imports:
+  // Supports Day-Month-Year (DD-MM-YYYY, DD/MM/YYYY, DD MM YYYY, DD.MM.YYYY), YYYY-MM-DD, and Excel numeric serial timestamps
+  const parseFlexDateToISO = (rawDate) => {
+    if (!rawDate && rawDate !== 0) return null;
+
+    // 1. JavaScript Date object
+    if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
+      const y = rawDate.getFullYear();
+      const m = String(rawDate.getMonth() + 1).padStart(2, '0');
+      const d = String(rawDate.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    // 2. Excel numeric serial date (e.g. 46333)
+    if (typeof rawDate === 'number' && !isNaN(rawDate) && rawDate > 1000) {
+      const utcDays = Math.floor(rawDate - 25569);
+      const date = new Date(utcDays * 86400 * 1000);
+      if (!isNaN(date.getTime())) {
+        const y = date.getUTCFullYear();
+        const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const d = String(date.getUTCDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+    }
+
+    const str = String(rawDate).trim();
+    if (!str) return null;
+
+    // Split by / or - or . or whitespace
+    const parts = str.split(/[\/\-\.\s]+/).filter(Boolean);
+
+    if (parts.length === 3) {
+      let day, month, year;
+      if (parts[0].length === 4) {
+        // YYYY-MM-DD
+        year = parseInt(parts[0], 10);
+        month = parseInt(parts[1], 10);
+        day = parseInt(parts[2], 10);
+      } else {
+        // Default: Day-Month-Year (DD-MM-YYYY or DD/MM/YYYY or DD MM YYYY)
+        day = parseInt(parts[0], 10);
+        month = parseInt(parts[1], 10);
+        year = parseInt(parts[2], 10);
+        if (year < 100) year += 2000;
+      }
+
+      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+        if (year >= 2000 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+          const mm = String(month).padStart(2, '0');
+          const dd = String(day).padStart(2, '0');
+          return `${year}-${mm}-${dd}`;
+        }
+      }
+    }
+
+    const dt = new Date(str);
+    if (!isNaN(dt.getTime())) {
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, '0');
+      const d = String(dt.getDate()).padStart(2, '0');
+      if (y >= 2000 && y <= 2100) {
+        return `${y}-${m}-${d}`;
+      }
+    }
+
+    return null;
+  };
+
   const handleDownloadBulkMinusTemplate = () => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, '0');
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const yyyy = now.getFullYear();
+    const formattedDate = `${dd}-${mm}-${yyyy}`;
+
     const sampleRows = [
       {
         'Admission No': 'U1115',
-        'Student Name': 'FARHAN AKHTAR (Sample)',
-        'Date': todayStr,
+        'Student Name': 'FARHAN AKHTAR (Urdu Stream: Prefix uppercase U required)',
+        'Date': formattedDate,
         'Minus': 1,
         'Reason': 'Late arrival to class',
-        'Teacher': loggedInUser?.fullName || 'Teacher Name'
+        'Teacher': loggedInUser?.fullName || 'Central Admin'
       },
       {
         'Admission No': '3529',
-        'Student Name': 'Muhammed Shahid C (Sample)',
-        'Date': todayStr,
+        'Student Name': 'Muhammed Shahid C (General Stream)',
+        'Date': formattedDate,
         'Minus': 1,
         'Reason': 'Classroom disturbance',
-        'Teacher': loggedInUser?.fullName || 'Teacher Name'
+        'Teacher': loggedInUser?.fullName || 'Central Admin'
       }
     ];
 
     const ws = XLSX.utils.json_to_sheet(sampleRows);
+    ws['!cols'] = [
+      { wch: 18 }, // Admission No
+      { wch: 48 }, // Student Name (reference only)
+      { wch: 16 }, // Date (DD-MM-YYYY)
+      { wch: 10 }, // Minus
+      { wch: 28 }, // Reason
+      { wch: 24 }  // Teacher
+    ];
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Bulk Minus Template');
-    XLSX.writeFile(wb, `Bulk_Minus_Attendance_Template.xlsx`);
+    XLSX.writeFile(wb, `Bulk_Minus_Attendance_Template_${formattedDate}.xlsx`);
   };
 
   const handleBulkMinusExcelUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setLoading(true);
+    setBulkMinusResultReport(null);
     try {
       const buffer = await file.arrayBuffer();
       const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { raw: true, defval: '' });
+
+      if (rows.length === 0) {
+        setLoading(false);
+        return alert('The selected Excel file contains no data rows.');
+      }
+
       const batch = writeBatch(db);
       const updatedMap = {};
-      let addedCount = 0;
-      const todayStr = new Date().toISOString().split('T')[0];
+      const failures = [];
+      const successes = [];
+      const defaultTodayISO = new Date().toISOString().split('T')[0];
 
       rows.forEach((row, idx) => {
-        const rawAd = row['Admission No'] || row['Admission Number'] || row['Adm. No.'] || row['Ad.No'] || row['Ad Number'] || row['adNo'] || row['AdNo'] || row.admissionNumber;
-        const rawMinus = Math.abs(Number(row.Minus ?? row.minus ?? row.Count ?? row.count ?? 1));
-        if (!rawAd) return;
+        const rowNumber = idx + 2; // 1-based index (Row 1 is headers)
+        const rawAd = row['Admission No'] || row['Admission Number'] || row['Admission'] || row['Adm. No.'] || row['Ad.No'] || row['Ad Number'] || row['adNo'] || row['AdNo'] || row.admissionNumber || row['Admission No (Urdu prefix U, e.g. U1115)'];
+        const studentNameInFile = String(row['Student Name'] || row['Name'] || row.name || row.student || '').trim();
 
-        const cleanAd = String(rawAd).trim().toUpperCase();
-        const st = localStudents.find(s => String(s.adNo || '').trim().toUpperCase() === cleanAd);
-        if (!st) return;
+        if (!rawAd || String(rawAd).trim() === '') {
+          failures.push({
+            rowNumber,
+            admissionNo: '(Blank)',
+            studentName: studentNameInFile || '—',
+            reason: 'Admission Number is empty or missing.'
+          });
+          return;
+        }
+
+        // Strict Admission Number Lookup (Student Name is ignored to prevent spelling / casing mismatch)
+        let cleanAd = String(rawAd).replace(/^[#\s]+/, '').trim();
+        // If it starts with lowercase 'u' followed by digits (e.g. u1115), automatically capitalize to U1115
+        if (/^u/i.test(cleanAd)) {
+          cleanAd = 'U' + cleanAd.slice(1).trim();
+        }
+
+        const st = localStudents.find(s => {
+          const sAd = String(s.adNo || '').replace(/^[#\s]+/, '').trim();
+          const sReg = String(s.regNo || '').replace(/^[#\s]+/, '').trim();
+          return (
+            sAd.toUpperCase() === cleanAd.toUpperCase() ||
+            sReg.toUpperCase() === cleanAd.toUpperCase()
+          );
+        });
+
+        if (!st) {
+          const isUrduAd = cleanAd.toUpperCase().startsWith('U');
+          failures.push({
+            rowNumber,
+            admissionNo: cleanAd,
+            studentName: studentNameInFile || '—',
+            reason: isUrduAd
+              ? `Urdu student with Ad.No '${cleanAd}' not found in database. Please verify the admission number.`
+              : isNaN(cleanAd)
+              ? `Student with Ad.No '${cleanAd}' not found. If this is an Urdu student, ensure uppercase 'U' is at the beginning (e.g. U${cleanAd}).`
+              : `Student with Admission No '${cleanAd}' not found in database.`
+          });
+          return;
+        }
+
+        // Validate and flex-parse date (DD-MM-YYYY, DD/MM/YYYY, DD MM YYYY, etc.)
+        const rawDate = row['Date'] || row['date'] || row['Date (DD-MM-YYYY)'] || row['Attendance Date'];
+        let dateISO = parseFlexDateToISO(rawDate);
+        if (!dateISO) {
+          if (!rawDate || String(rawDate).trim() === '') {
+            dateISO = defaultTodayISO;
+          } else {
+            failures.push({
+              rowNumber,
+              admissionNo: cleanAd,
+              studentName: studentNameInFile || st.firstName,
+              reason: `Invalid Date '${rawDate}'. Expected Day-Month-Year (e.g. 07-11-2026 or 07/11/2026).`
+            });
+            return;
+          }
+        }
+
+        // Validate minus count
+        const rawMinusVal = row.Minus ?? row.minus ?? row.Count ?? row.count ?? 1;
+        const rawMinus = Math.abs(Number(rawMinusVal));
+        if (isNaN(rawMinus) || rawMinus <= 0) {
+          failures.push({
+            rowNumber,
+            admissionNo: cleanAd,
+            studentName: studentNameInFile || st.firstName,
+            reason: `Invalid minus count '${rawMinusVal}'. Must be a positive number.`
+          });
+          return;
+        }
 
         const baseSt = updatedMap[st.regNo] || st;
         const curStat = JSON.parse(JSON.stringify(getStudentAttStat(baseSt)));
         const newLog = {
           id: `excel_minus_${Date.now()}_${idx}`,
-          date: row.Date || row.date || todayStr,
+          date: dateISO,
           count: rawMinus,
           reason: String(row.Reason || row.reason || 'Disciplinary Deduction').trim(),
-          issuedBy: row.Teacher || row.teacher || row['Teacher Name'] || row.By || row['Issued By'] || loggedInUser?.fullName || 'ADMIN USER',
-          issuedByUsername: String(row['Teacher Username'] || row.teacherUsername || loggedInUser?.username || 'admin').toLowerCase()
+          issuedBy: String(row.Teacher || row.teacher || row['Teacher Name'] || row.By || row['Issued By'] || loggedInUser?.fullName || 'Central Admin').trim(),
+          issuedByUsername: String(row['Teacher Username'] || row.teacherUsername || loggedInUser?.username || 'admin').toLowerCase().trim()
         };
+
         curStat.minusLogs = [newLog, ...(curStat.minusLogs || [])];
         curStat.minusCount = curStat.minusLogs.reduce((sum, l) => sum + (Number(l.count) || 0), 0);
 
         const docId = String(st.id || st.regNo || '').trim();
         batch.set(doc(db, 'students', docId), { periodAttendance: curStat }, { merge: true });
         updatedMap[st.regNo] = { ...st, periodAttendance: curStat };
-        addedCount++;
+
+        successes.push({
+          rowNumber,
+          admissionNo: cleanAd,
+          studentName: st.firstName,
+          minusCount: rawMinus,
+          reason: newLog.reason,
+          date: dateISO
+        });
       });
 
-      if (addedCount > 0) {
+      if (successes.length > 0) {
         await batch.commit();
         syncUpdatedStudentsState(updatedMap);
       }
-      setStatusMsg(`✅ Uploaded ${addedCount} minus record(s) from Excel!`);
-      setMinusSubTab('manage');
+
+      setBulkMinusResultReport({
+        totalRows: rows.length,
+        successCount: successes.length,
+        failures,
+        successes
+      });
+
+      if (failures.length === 0) {
+        setStatusMsg(`✅ Successfully applied minus deductions for all ${successes.length} student(s) from Excel!`);
+      } else if (successes.length > 0) {
+        setStatusMsg(`⚠️ Applied ${successes.length} minus deduction(s), but ${failures.length} row(s) had issues (see details below).`);
+      } else {
+        setStatusMsg(`❌ Could not import records: all ${failures.length} row(s) had errors (see details below).`);
+      }
     } catch (err) {
+      console.error('Excel upload error:', err);
       alert('Excel upload error: ' + err.message);
     } finally {
       setLoading(false);
@@ -1304,21 +1485,21 @@ export default function PeriodAttendanceMinusAndClearance({
           )}
 
           {minusSubTab === 'excel' && (
-            <div style={{ ...styles.card, maxWidth: '680px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '12px' }}>
+            <div style={{ ...styles.card, maxWidth: '780px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
                 <div>
-                  <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>
-                    📊 Bulk Minus Excel Upload
+                  <h3 style={{ margin: '0 0 6px 0', fontSize: '17px', fontWeight: '800', color: '#0f172a' }}>
+                    📊 Bulk Minus Attendance Excel Import
                   </h3>
                   <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
-                    Upload an Excel sheet (.xlsx, .xls, .csv) with columns: <code>Admission No</code>, <code>Date</code>, <code>Reason</code>, <code>Teacher</code>, <code>Minus</code>.
+                    Upload an Excel (.xlsx, .xls) or CSV file with minus records to update student balances in bulk.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={handleDownloadBulkMinusTemplate}
                   style={{
-                    padding: '8px 16px',
+                    padding: '9px 16px',
                     borderRadius: '8px',
                     border: '1.5px solid #4f46e5',
                     background: '#eef2ff',
@@ -1331,18 +1512,145 @@ export default function PeriodAttendanceMinusAndClearance({
                     gap: '6px'
                   }}
                 >
-                  <span>⬇️</span> Download Excel Template (.xlsx)
+                  <span>⬇️</span> Download Template (.xlsx)
                 </button>
               </div>
 
-              <div style={{ marginTop: '14px' }}>
-                <input type="file" accept=".xlsx,.xls,.csv" onChange={handleBulkMinusExcelUpload} disabled={loading} style={styles.input} />
+              {/* Helpful Import Guidance & Rules Notice */}
+              <div style={{ padding: '14px 16px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '13px', lineHeight: 1.6, marginBottom: '16px' }}>
+                <div style={{ fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>
+                  📌 Important Import Rules &amp; Guidelines:
+                </div>
+                <ul style={{ margin: 0, paddingLeft: '20px', color: '#334155' }}>
+                  <li>
+                    <strong>Student Matching by Admission No Only:</strong> Student matching is performed strictly by <code>Admission No</code>. The <code>Student Name</code> column is for your visual reference only and will not fail if there are spelling or casing differences.
+                  </li>
+                  <li>
+                    <strong>Urdu Stream Students:</strong> For Urdu stream students, the Admission No. <strong>must include the uppercase &apos;U&apos; prefix</strong> at the beginning (e.g. <code>U1115</code>, <code>U1107</code>). General students have plain numbers (e.g. <code>3529</code>).
+                  </li>
+                  <li>
+                    <strong>Date Format:</strong> Enter dates as <strong>Day-Month-Year</strong> (e.g. <code>07-11-2026</code>, <code>07/11/2026</code>, or <code>07 11 2026</code>). Standard ISO dates (<code>2026-11-07</code>) and Excel date cells are also accepted.
+                  </li>
+                  <li>
+                    <strong>Columns:</strong> <code>Admission No</code>, <code>Date</code>, <code>Minus</code>, <code>Reason</code>, <code>Teacher</code>.
+                  </li>
+                </ul>
               </div>
+
+              <div style={{ marginTop: '10px' }}>
+                <label style={{ ...styles.label, marginBottom: '6px' }}>
+                  Select Completed Excel / CSV Sheet to Import:
+                </label>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={handleBulkMinusExcelUpload}
+                  disabled={loading}
+                  style={{ ...styles.input, padding: '10px 14px', cursor: 'pointer' }}
+                />
+              </div>
+
+              {/* DETAILED IMPORT SUMMARY & MISMATCH AUDIT REPORT */}
+              {bulkMinusResultReport && (
+                <div style={{
+                  marginTop: '18px',
+                  padding: '16px 18px',
+                  borderRadius: '12px',
+                  border: bulkMinusResultReport.failures.length > 0 ? '1.5px solid #fecdd3' : '1.5px solid #a7f3d0',
+                  background: bulkMinusResultReport.failures.length > 0 ? '#fff1f2' : '#f0fdf4',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+                    <div>
+                      <h4 style={{ margin: '0 0 6px', fontSize: '15px', fontWeight: '800', color: bulkMinusResultReport.failures.length > 0 ? '#991b1b' : '#166534' }}>
+                        {bulkMinusResultReport.failures.length > 0
+                          ? `⚠️ Import Summary: ${bulkMinusResultReport.failures.length} Issue(s) Found`
+                          : `✅ Import Complete: All Records Successfully Applied!`}
+                      </h4>
+                      <p style={{ margin: 0, fontSize: '13px', color: '#475569' }}>
+                        Total Rows in File: <strong>{bulkMinusResultReport.totalRows}</strong> • Successfully Applied: <strong style={{ color: '#16a34a' }}>{bulkMinusResultReport.successCount}</strong> • Skipped / Issues: <strong style={{ color: '#dc2626' }}>{bulkMinusResultReport.failures.length}</strong>
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {bulkMinusResultReport.successCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setMinusSubTab('manage')}
+                          style={{ padding: '6px 12px', borderRadius: '6px', background: '#059669', color: '#ffffff', border: 'none', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}
+                        >
+                          📋 View History Register
+                        </button>
+                      )}
+                      {bulkMinusResultReport.failures.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const text = `BULK MINUS IMPORT ISSUES REPORT\n-------------------------------\n` +
+                              bulkMinusResultReport.failures.map(f => `• Excel Row ${f.rowNumber}: Ad.No "${f.admissionNo}" (${f.studentName}) -> Reason: ${f.reason}`).join('\n');
+                            navigator.clipboard.writeText(text);
+                            alert('Copied all issue details to clipboard!');
+                          }}
+                          style={{ padding: '6px 12px', borderRadius: '6px', background: '#ffffff', border: '1px solid #cbd5e1', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                        >
+                          📋 Copy Issue Details
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setBulkMinusResultReport(null)}
+                        style={{ padding: '6px 12px', borderRadius: '6px', background: '#ffffff', border: '1px solid #cbd5e1', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                      >
+                        ✕ Dismiss
+                      </button>
+                    </div>
+                  </div>
+
+                  {bulkMinusResultReport.failures.length > 0 && (
+                    <div style={{ marginTop: '14px', maxHeight: '260px', overflowY: 'auto', background: '#ffffff', borderRadius: '8px', border: '1px solid #fecdd3', padding: '6px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1.5px solid #f1f5f9', color: '#475569', background: '#f8fafc' }}>
+                            <th style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>Excel Row</th>
+                            <th style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>Ad.No in File</th>
+                            <th style={{ padding: '7px 10px' }}>Name in File</th>
+                            <th style={{ padding: '7px 10px' }}>Problem / Error Details</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {bulkMinusResultReport.failures.map((f, i) => (
+                            <tr key={i} style={{ borderBottom: '1px solid #f8fafc', background: i % 2 === 0 ? '#ffffff' : '#fff5f5' }}>
+                              <td style={{ padding: '7px 10px', fontWeight: '800', color: '#dc2626', whiteSpace: 'nowrap' }}>Row {f.rowNumber}</td>
+                              <td style={{ padding: '7px 10px', fontWeight: '700', whiteSpace: 'nowrap' }}>{f.admissionNo}</td>
+                              <td style={{ padding: '7px 10px', color: '#64748b' }}>{f.studentName}</td>
+                              <td style={{ padding: '7px 10px', color: '#991b1b', fontWeight: '600' }}>{f.reason}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           {minusSubTab === 'manage' && (
-            <div style={{ ...styles.card, padding: 0, overflow: 'hidden' }}>
+            <>
+              {bulkMinusResultReport?.failures?.length > 0 && (
+                <div style={{ marginBottom: '14px', padding: '12px 16px', background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ fontSize: '13px', color: '#991b1b', fontWeight: '700' }}>
+                    ⚠️ Notice: Your last Excel import had {bulkMinusResultReport.failures.length} skipped row(s) due to unrecognized admission numbers or format issues.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMinusSubTab('excel')}
+                    style={{ padding: '6px 14px', background: '#991b1b', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}
+                  >
+                    🔍 Review Mismatch Details
+                  </button>
+                </div>
+              )}
+
+              <div style={{ ...styles.card, padding: 0, overflow: 'hidden' }}>
               <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div>
                   <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>
@@ -1431,6 +1739,7 @@ export default function PeriodAttendanceMinusAndClearance({
                 </table>
               </div>
             </div>
+            </>
           )}
         </div>
       )}
