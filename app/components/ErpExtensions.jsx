@@ -1943,6 +1943,19 @@ export function StudentPortfolioModal({
 
 // ============================================================================
 export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAdmin = false, isOutreachView = false, onStudentUpdated }) {
+  // Fallback attendance stat reader (uses data stored on student.periodAttendance)
+  const getStudentAttStat = (st) => {
+    return st?.periodAttendance || {
+      totalPeriods: 0,
+      presentCount: 0,
+      officialCount: 0,
+      medicalCount: 0,
+      minusCount: 0,
+      minusLogs: [],
+      subjectWise: {}
+    };
+  };
+
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCompletion, setFilterCompletion] = useState('All');
   const [filterConsultancyStatus, setFilterConsultancyStatus] = useState('All');
