@@ -45,6 +45,44 @@ export default function UnifiedSchoolPortal() {
   const [userRole, setUserRole] = useState(null); // 'admin' | 'teacher'
   const [loggedInTeacherData, setLoggedInTeacherData] = useState(null);
   const [activeAdminTab, setActiveAdminTab] = useState('dashboard');
+  // 📱 Mobile Back-Swipe & Hardware Back Navigation: Return to Dashboard instead of exiting app
+  const handleSelectAdminTab = (tabId, skipHistory = false) => {
+    if (tabId === activeAdminTab) {
+      setMobileSidebarOpen(false);
+      return;
+    }
+    if (!skipHistory && typeof window !== 'undefined') {
+      window.history.pushState(
+        { portalTab: tabId },
+        '',
+        tabId === 'dashboard' ? window.location.pathname : '#' + tabId
+      );
+    }
+    setActiveAdminTab(tabId);
+    setMobileSidebarOpen(false);
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const hashTab = window.location.hash.replace('#', '').trim();
+    const validTabs = ['dashboard', 'students', 'teachers', 'attendance_minus', 'attendance', 'reports', 'outpass', 'gate_security', 'mentorship', 'reminders', 'proxy_marks'];
+    if (hashTab && validTabs.includes(hashTab)) {
+      setActiveAdminTab(hashTab);
+      window.history.replaceState({ portalTab: hashTab }, '', '#' + hashTab);
+    } else {
+      window.history.replaceState({ portalTab: 'dashboard' }, '', window.location.pathname);
+    }
+
+    const handlePopState = (e) => {
+      const targetTab = e.state?.portalTab || 'dashboard';
+      setActiveAdminTab(targetTab);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const [adminTeachersList, setAdminTeachersList] = useState([]);
@@ -319,7 +357,7 @@ export default function UnifiedSchoolPortal() {
         >
           <div>
             <div
-              onClick={() => { setActiveAdminTab('dashboard'); setMobileSidebarOpen(false); }}
+              onClick={() => handleSelectAdminTab('dashboard')}
               style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '4px 10px 20px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
             >
               <img src={DHIU_LOGO_URL} alt="DHIU" style={{ width: '40px', height: '40px', borderRadius: '10px', objectFit: 'contain', border: '1px solid #e2e8f0', padding: '2px' }} />
@@ -342,10 +380,7 @@ export default function UnifiedSchoolPortal() {
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => {
-                      setActiveAdminTab(item.id);
-                      setMobileSidebarOpen(false);
-                    }}
+                    onClick={() => handleSelectAdminTab(item.id)}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -374,7 +409,7 @@ export default function UnifiedSchoolPortal() {
           <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <button
               type="button"
-              onClick={() => setActiveAdminTab('gate_security')}
+              onClick={() => handleSelectAdminTab('gate_security')}
               style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '8px', background: activeAdminTab === 'gate_security' ? '#eef2ff' : '#f8fafc', color: activeAdminTab === 'gate_security' ? '#4f46e5' : '#334155', border: '1px solid #e2e8f0', fontSize: '13px', fontWeight: '700', cursor: 'pointer', width: '100%', textAlign: 'left' }}
             >
               <span>🛡️</span> Gate Security Kiosk
@@ -524,7 +559,7 @@ export default function UnifiedSchoolPortal() {
                   {sidebarNavItems.filter(i => i.id !== 'dashboard').map(item => (
                     <div
                       key={item.id}
-                      onClick={() => setActiveAdminTab(item.id)}
+                      onClick={() => handleSelectAdminTab(item.id)}
                       style={{
                         background: '#ffffff',
                         padding: '22px',

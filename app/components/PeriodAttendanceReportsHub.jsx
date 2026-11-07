@@ -265,7 +265,10 @@ export default function PeriodAttendanceReportsHub({
 
       fnAnMonthSessions.forEach(sess => {
         const attMap = sess.attendanceMap || {};
-        const status = attMap[reg] || attMap[st.id] || attMap[ad];
+        const sReg = String(st.regNo || '').trim();
+        const sAd = String(st.adNo || '').trim().toUpperCase();
+        const sId = String(st.id || '').trim();
+        const status = attMap[sReg] || attMap[sAd] || attMap[sId] || attMap[sReg.toLowerCase()] || attMap[sAd.toLowerCase()] || attMap[reg] || attMap[st.id] || attMap[ad];
         if (!status) return;
 
         const dStr = sess.date;

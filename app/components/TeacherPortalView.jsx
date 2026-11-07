@@ -206,6 +206,40 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
   }, [loggedInTeacher, myClassTeacherOf]);
 
   const [activeView, setActiveView] = useState('marks');
+  // 📱 Mobile Back-Swipe & Hardware Back Navigation: Return to Marks (Home) instead of exiting app
+  const handleSelectTeacherView = (viewId, skipHistory = false) => {
+    if (viewId === activeView) return;
+    if (!skipHistory && typeof window !== 'undefined') {
+      window.history.pushState(
+        { teacherView: viewId },
+        '',
+        viewId === 'marks' ? window.location.pathname : '#' + viewId
+      );
+    }
+    setActiveView(viewId);
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const hashView = window.location.hash.replace('#', '').trim();
+    const validViews = ['marks', 'period_attendance', 'mentees', 'outpass', 'attendance', 'outreach_dept', 'academic_coord', 'settings'];
+    if (hashView && validViews.includes(hashView)) {
+      setActiveView(hashView);
+      window.history.replaceState({ teacherView: hashView }, '', '#' + hashView);
+    } else {
+      window.history.replaceState({ teacherView: 'marks' }, '', window.location.pathname);
+    }
+
+    const handlePopState = (e) => {
+      const targetView = e.state?.teacherView || 'marks';
+      setActiveView(targetView);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const [selectedEnrollmentId, setSelectedEnrollmentId] = useState('');
   const [cceLevel, setCceLevel] = useState('');
   const [isEditingUnlocked, setIsEditingUnlocked] = useState(false);
@@ -772,18 +806,18 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
   const passPercentage = validMarks.length > 0 ? ((validMarks.filter(m => m >= maxAllowed * 0.4).length / validMarks.length) * 100).toFixed(0) : 0;
 
   const teacherNavItems = [
-    { id: 'marks', label: 'CCE Marks', icon: '📖', onClick: () => { setActiveView('marks'); handleSelectSubject(''); } },
-    { id: 'period_attendance', label: 'Period Attendance', icon: '📅', onClick: () => setActiveView('period_attendance') },
-    { id: 'mentees', label: 'Mentorship & Class', icon: '👥', onClick: () => setActiveView('mentees') },
-    { id: 'outpass', label: loggedInTeacher?.outpassPrivileges?.isOfficeSecretary ? 'Office Out-Pass' : 'Out-Pass Desk', icon: '🪪', onClick: () => setActiveView('outpass') },
-    { id: 'attendance', label: 'Night Attendance', icon: '🌙', onClick: () => setActiveView('attendance') },
+    { id: 'marks', label: 'CCE Marks', icon: '📖', onClick: () => { handleSelectTeacherView('marks'); handleSelectSubject(''); } },
+    { id: 'period_attendance', label: 'Period Attendance', icon: '📅', onClick: () => handleSelectTeacherView('period_attendance') },
+    { id: 'mentees', label: 'Mentorship & Class', icon: '👥', onClick: () => handleSelectTeacherView('mentees') },
+    { id: 'outpass', label: loggedInTeacher?.outpassPrivileges?.isOfficeSecretary ? 'Office Out-Pass' : 'Out-Pass Desk', icon: '🪪', onClick: () => handleSelectTeacherView('outpass') },
+    { id: 'attendance', label: 'Night Attendance', icon: '🌙', onClick: () => handleSelectTeacherView('attendance') },
     ...((loggedInTeacher?.outpassPrivileges?.isOutreachCoordinator || loggedInTeacher?.outpassPrivileges?.isPrincipal || loggedInTeacher?.outpassPrivileges?.isNiicsCoordinator)
       ? [{ id: 'outreach_dept', label: 'Outreach Tracker', icon: '🌍', onClick: () => setActiveView('outreach_dept') }]
       : []),
     ...((loggedInTeacher?.outpassPrivileges?.isAcademicCoordinator || loggedInTeacher?.outpassPrivileges?.isPrincipal || loggedInTeacher?.outpassPrivileges?.isNiicsCoordinator)
       ? [{ id: 'academic_coord', label: 'Academic Auditor', icon: '📊', onClick: () => setActiveView('academic_coord') }]
       : []),
-    { id: 'settings', label: 'Password Settings', icon: '⚙️', onClick: () => setActiveView('settings') }
+    { id: 'settings', label: 'Password Settings', icon: '⚙️', onClick: () => handleSelectTeacherView('settings') }
   ];
 
   const pendingTasksCount = reminderChecklist.filter(x => x.missing > 0).length;
