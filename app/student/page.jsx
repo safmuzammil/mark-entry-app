@@ -1045,7 +1045,14 @@ export default function StudentDashboard() {
                 </div>
               </div>
 
-              <div className="print-table-card" style={{ ...styles.card, padding: 0, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', marginBottom: '12px', padding: '8px 14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#475569' }}>
+                  <span style={{ fontWeight: '800', color: '#0f172a' }}>ℹ️ Mark Status Legend:</span>
+                  <span><strong style={{ color: '#4f46e5' }}>Numbered Score:</strong> Confirmed &amp; Recorded</span>
+                  <span><strong style={{ color: '#b45309' }}>🟡 In Progress:</strong> Usthad has begun grading your classmates</span>
+                  <span><strong style={{ color: '#64748b' }}>⚪ Not Started:</strong> Usthad hasn't entered marks yet</span>
+                </div>
+
+                <div className="print-table-card" style={{ ...styles.card, padding: 0, overflow: 'hidden' }}>
                 {isLoadingMarks ? (
                   <p style={{ textAlign: 'center', color: '#64748b', padding: '30px', fontWeight: '600' }}>Loading your academic records...</p>
                 ) : (

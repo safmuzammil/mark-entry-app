@@ -462,19 +462,24 @@ export default function ReminderManager() {
             style={{ ...styles.input, maxWidth: '280px', padding: '7px 12px', fontSize: '13px' }}
           />
           <div style={{ display: 'flex', gap: '6px' }}>
-            {['All', 'Pending', 'Completed'].map(f => (
+            {[
+              { id: 'All', label: `All (${trackerData.length})` },
+              { id: 'NotStarted', label: `🔴 Not Started (${notStartedCount})` },
+              { id: 'Partially', label: `🟡 Partially Marked (${partiallyCount})` },
+              { id: 'Completed', label: `🟢 Fully Marked (${completedCount})` }
+            ].map(f => (
               <button
                 key={f}
                 type="button"
-                onClick={() => setStatusFilter(f)}
+                onClick={() => setStatusFilter(f.id)}
                 style={{
                   padding: '6px 12px',
                   borderRadius: '8px',
                   fontSize: '12px',
                   fontWeight: '700',
                   cursor: 'pointer',
-                  background: statusFilter === f ? '#4f46e5' : '#f8fafc',
-                  color: statusFilter === f ? '#ffffff' : '#475569',
+                  background: statusFilter === f.id ? '#4f46e5' : '#f8fafc',
+                  color: statusFilter === f.id ? '#ffffff' : '#475569',
                   border: '1px solid #e2e8f0'
                 }}
               >

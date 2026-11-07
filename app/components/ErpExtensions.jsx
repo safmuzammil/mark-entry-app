@@ -2225,12 +2225,16 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
         }
       });
 
-      const isAbsentMoreThan5Days = totalDaysAbsent >= 5;
+            const isAbsentMoreThan5Days = totalDaysAbsent >= 5;
       const dayAttPct = workingDaysHeld > 0 ? ((totalDaysPresent / workingDaysHeld) * 100).toFixed(1) : '100.0';
 
-      return { student: st, workingDaysHeld, totalDaysPresent, totalDaysAbsent, dayAttPct, absentDatesDetails, isAbsentMoreThan5Days };
+      // 🌟 Compute leaveReasonsList safely for student
+      const liveOp = liveOutpassesMap[reg] || liveOutpassesMap[ad];
+      const leaveReasonsList = liveOp ? [`${liveOp.category || 'Leave'}${liveOp.destination ? ` (${liveOp.destination})` : ''}`] : [];
+
+      return { student: st, workingDaysHeld, totalDaysPresent, totalDaysAbsent, dayAttPct, absentDatesDetails, isAbsentMoreThan5Days, leaveReasonsList };
     });
-  }, [hasClassDuty, classStudentsList, fnAnMonthSessionsCache]);
+  }, [hasClassDuty, classStudentsList, fnAnMonthSessionsCache, liveOutpassesMap]);
 
   const classAbsentGt5Count = classFnAnRows.filter(r => r.isAbsentMoreThan5Days).length;
 
@@ -2907,7 +2911,7 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                           📅 {r.absentDatesDetails.slice(0, 5).join(', ')}
                         </div>
                       )}
-                      {r.leaveReasonsList.length > 0 ? (
+                      {(Array.isArray(r.leaveReasonsList) && r.leaveReasonsList.length > 0) ? (
                         <div style={{ color: '#475569', fontWeight: '600', marginTop: '2px' }}>
                           🪪 {r.leaveReasonsList.join(' • ')}
                         </div>

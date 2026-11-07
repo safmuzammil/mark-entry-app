@@ -48,6 +48,7 @@ export default function PeriodAttendanceReportsHub({
   const [fnAnMonthSessions, setFnAnMonthSessions] = useState([]);
   const [fnAnOutpasses, setFnAnOutpasses] = useState([]);
   const [fnAnFilterMode, setFnAnFilterMode] = useState('ALL'); // 'ALL' | 'ABSENT_GT_5' | 'PRESENT_ALL_DAYS'
+  const [fnAnViewMode, setFnAnViewMode] = useState('summary'); // 'summary' | 'register_grid'
   const [loadingFnAn, setLoadingFnAn] = useState(false);
 
   // Load Daily Recorded Sessions when `repScope === 'daily'`
@@ -144,6 +145,29 @@ export default function PeriodAttendanceReportsHub({
       subjectColsSet.add(normalizeSubKey(isAttendanceOnlyEnrollment(env) ? (env.alias || env.subject) : env.subject));
     });
   }
+
+  const allDaysInSelectedMonth = React.useMemo(() => {
+    if (!repMonth) return [];
+    const parts = repMonth.split('-');
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10);
+    if (!year || !month) return [];
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const days = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dStr = `${repMonth}-${String(d).padStart(2, '0')}`;
+      const dayOfWeek = new Date(`${dStr}T00:00:00`).getDay();
+      const isFriday = dayOfWeek === 5;
+      days.push({
+        dateStr: dStr,
+        dayNum: d,
+        dayOfWeek,
+        isFriday,
+        dayName: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayOfWeek]
+      });
+    }
+    return days;
+  }, [repMonth]);
 
   const availableClassesForDropdown = userRole === 'admin'
     ? DEFAULT_CLASSES

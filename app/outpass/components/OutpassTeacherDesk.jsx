@@ -125,6 +125,10 @@ export default function OutpassTeacherDesk({
   const [openCategoryList, setOpenCategoryList] = useState(false);
   const [openDestinationList, setOpenDestinationList] = useState(false);
   const [openPurposeList, setOpenPurposeList] = useState(false);
+  const [selectedMonthlyDays, setSelectedMonthlyDays] = useState(3);
+  const [isCustomDestActive, setIsCustomDestActive] = useState(false);
+  const [isCustomPurposeActive, setIsCustomPurposeActive] = useState(false);
+  const [customCategoryText, setCustomCategoryText] = useState('');
 
   const showStudentSearchBox = isGroupMode ? true : !selectedStudent;
 
@@ -805,215 +809,211 @@ export default function OutpassTeacherDesk({
             </div>
 
             <form onSubmit={handleIssuePass}>
-              {/* 🌟 2. LEAVE CATEGORY SELECTOR BUTTON (Opens list on click!) */}
+              {/* 🌟 2. LEAVE CATEGORY DIRECT BUTTONS */}
               <div style={{ marginBottom: 16 }}>
-                <label style={styles.fieldLabel}>2. Leave Category</label>
-                <button
-                  type="button"
-                  onClick={() => setOpenCategoryList((prev) => !prev)}
-                  style={{
-                    width: "100%",
-                    padding: "10px 14px",
-                    borderRadius: 8,
-                    border: openCategoryList ? "1.5px solid #4f46e5" : "1px solid #cbd5e1",
-                    background: "#ffffff",
-                    color: "#0f172a",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    fontWeight: 700,
-                    fontSize: 13,
-                    cursor: "pointer",
-                  }}
-                >
-                  <span>🏷️ Selected: {formatCategoryLabel(leaveCategory)}</span>
-                  <span style={{ color: "#4f46e5", fontSize: 12 }}>
-                    {openCategoryList ? "▲ Close List" : "▼ Change Category"}
-                  </span>
-                </button>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label style={styles.fieldLabel}>2. Leave Category</label>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5' }}>Selected: {formatCategoryLabel(leaveCategory)}</span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: 10, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                  {LEAVE_CATEGORIES.map((cat) => {
+                    const active = leaveCategory === cat;
+                    return (
+                      <button
+                        type="button"
+                        key={cat}
+                        onClick={() => handleSelectCategoryOption(cat)}
+                        style={{
+                          padding: "7px 12px",
+                          borderRadius: 8,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          border: active ? "1.5px solid #4f46e5" : "1px solid #cbd5e1",
+                          background: active ? "#4f46e5" : "#ffffff",
+                          color: active ? "#ffffff" : "#334155",
+                          boxShadow: active ? "0 2px 4px rgba(79, 70, 229, 0.2)" : "none"
+                        }}
+                      >
+                        {formatCategoryLabel(cat)}
+                      </button>
+                    );
+                  })}
+                </div>
 
-                {openCategoryList && (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: 6,
-                      marginTop: 8,
-                      padding: 12,
-                      background: "#f8fafc",
-                      borderRadius: 10,
-                      border: "1px solid #e2e8f0",
-                    }}
-                  >
-                    {LEAVE_CATEGORIES.map((cat) => {
-                      const active = leaveCategory === cat;
-                      return (
-                        <button
-                          type="button"
-                          key={cat}
-                          onClick={() => handleSelectCategoryOption(cat)}
-                          style={{
-                            padding: "7px 13px",
-                            borderRadius: 8,
-                            fontSize: 12,
-                            fontWeight: 700,
-                            cursor: "pointer",
-                            border: active ? "1px solid #4f46e5" : "1px solid #cbd5e1",
-                            background: active ? "#4f46e5" : "#ffffff",
-                            color: active ? "#ffffff" : "#334155",
-                          }}
-                        >
-                          {formatCategoryLabel(cat)}
-                        </button>
-                      );
-                    })}
+                {leaveCategory === 'Monthly_Home' && (
+                  <div style={{ marginTop: 8, padding: '10px 14px', background: '#eef2ff', borderRadius: 8, border: '1px solid #c7d2fe', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#3730a3' }}>🏠 Monthly Leave Duration:</span>
+                    {[1, 2, 3, 4, 5, 6, 7].map(d => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => {
+                          setSelectedMonthlyDays(d);
+                          handleSelectCategoryOption('Monthly_Home', d);
+                        }}
+                        style={{
+                          padding: '5px 12px',
+                          borderRadius: 6,
+                          fontSize: 12,
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          border: selectedMonthlyDays === d ? '1.5px solid #4f46e5' : '1px solid #cbd5e1',
+                          background: selectedMonthlyDays === d ? '#4f46e5' : '#ffffff',
+                          color: selectedMonthlyDays === d ? '#ffffff' : '#475569'
+                        }}
+                      >
+                        {d} {d === 1 ? 'Day' : 'Days'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {leaveCategory === 'Custom' && (
+                  <div style={{ marginTop: 8 }}>
+                    <input
+                      type="text"
+                      placeholder="Type custom leave category name (e.g., Special Program, Outreach)..."
+                      value={customCategoryText}
+                      onChange={(e) => {
+                        setCustomCategoryText(e.target.value);
+                        setPurpose(e.target.value ? `Custom Leave: ${e.target.value}` : '');
+                      }}
+                      style={{ ...styles.textInput, width: '100%' }}
+                    />
                   </div>
                 )}
               </div>
 
-              {/* 🌟 3. DESTINATION INPUT + POPOVER SELECTOR BUTTON */}
+              {/* 🌟 3. DESTINATION DIRECT LIST BUTTONS + CUSTOM OPTION */}
               <div style={{ marginBottom: 16 }}>
-                <label style={styles.fieldLabel}>3. Destination</label>
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label style={styles.fieldLabel}>3. Destination</label>
+                  {destination && <span style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5' }}>Selected: 📍 {destination}</span>}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: 10, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', marginBottom: 8 }}>
+                  {QUICK_DESTINATIONS.map((place) => {
+                    const active = destination === place && !isCustomDestActive;
+                    return (
+                      <button
+                        type="button"
+                        key={place}
+                        onClick={() => {
+                          setDestination(place);
+                          setIsCustomDestActive(false);
+                        }}
+                        style={{
+                          padding: "6px 12px",
+                          borderRadius: 8,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          border: active ? "1.5px solid #4f46e5" : "1px solid #cbd5e1",
+                          background: active ? "#4f46e5" : "#ffffff",
+                          color: active ? "#ffffff" : "#334155",
+                        }}
+                      >
+                        📍 {place}
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomDestActive(true)}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: 8,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      border: isCustomDestActive ? "1.5px solid #4f46e5" : "1px dashed #6366f1",
+                      background: isCustomDestActive ? "#4f46e5" : "#eef2ff",
+                      color: isCustomDestActive ? "#ffffff" : "#4f46e5",
+                    }}
+                  >
+                    ✏️ + Custom Place
+                  </button>
+                </div>
+
+                {(isCustomDestActive || (destination && !QUICK_DESTINATIONS.includes(destination))) && (
                   <input
                     type="text"
-                    placeholder="Type destination or click Choose List..."
+                    placeholder="Type custom destination..."
                     value={destination}
-                    onChange={(e) => setDestination(e.target.value)}
-                    style={{ ...styles.textInput, flex: 1 }}
+                    onChange={(e) => {
+                      setDestination(e.target.value);
+                      setIsCustomDestActive(true);
+                    }}
+                    style={{ ...styles.textInput, width: '100%' }}
+                    autoFocus
                     required
                   />
-                  <button
-                    type="button"
-                    onClick={() => setOpenDestinationList((prev) => !prev)}
-                    style={{
-                      padding: "0 14px",
-                      borderRadius: 8,
-                      border: openDestinationList ? "1.5px solid #4f46e5" : "1px solid #cbd5e1",
-                      background: openDestinationList ? "#eef2ff" : "#f8fafc",
-                      color: "#4f46e5",
-                      fontWeight: 700,
-                      fontSize: 12,
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    📍 {openDestinationList ? "▲ Hide List" : "▼ Choose Place"}
-                  </button>
-                </div>
-
-                {openDestinationList && (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: 6,
-                      marginTop: 8,
-                      padding: 12,
-                      background: "#f8fafc",
-                      borderRadius: 10,
-                      border: "1px solid #e2e8f0",
-                    }}
-                  >
-                    {QUICK_DESTINATIONS.map((place) => {
-                      const active = destination === place;
-                      return (
-                        <button
-                          type="button"
-                          key={place}
-                          onClick={() => {
-                            setDestination(place);
-                            setOpenDestinationList(false);
-                          }}
-                          style={{
-                            padding: "6px 12px",
-                            borderRadius: 8,
-                            fontSize: 12,
-                            fontWeight: 700,
-                            cursor: "pointer",
-                            border: active ? "1px solid #4f46e5" : "1px solid #cbd5e1",
-                            background: active ? "#4f46e5" : "#ffffff",
-                            color: active ? "#ffffff" : "#334155",
-                          }}
-                        >
-                          📍 {place}
-                        </button>
-                      );
-                    })}
-                  </div>
                 )}
               </div>
 
-              {/* 🌟 4. PURPOSE / REASON INPUT + POPOVER SELECTOR BUTTON */}
+              {/* 🌟 4. PURPOSE / REASON DIRECT LIST BUTTONS + CUSTOM OPTION */}
               <div style={{ marginBottom: 16 }}>
-                <label style={styles.fieldLabel}>4. Purpose / Reason for Leave</label>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input
-                    type="text"
-                    placeholder="Type reason or click Choose Reason..."
-                    value={purpose}
-                    onChange={(e) => setPurpose(e.target.value)}
-                    style={{ ...styles.textInput, flex: 1 }}
-                    required
-                  />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label style={styles.fieldLabel}>4. Purpose / Reason for Leave</label>
+                  {purpose && <span style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5' }}>Selected: 📝 {purpose}</span>}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: 10, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', marginBottom: 8 }}>
+                  {QUICK_PURPOSES.map((rsn) => {
+                    const active = purpose === rsn && !isCustomPurposeActive;
+                    return (
+                      <button
+                        type="button"
+                        key={rsn}
+                        onClick={() => {
+                          setPurpose(rsn);
+                          setIsCustomPurposeActive(false);
+                        }}
+                        style={{
+                          padding: "6px 12px",
+                          borderRadius: 8,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          border: active ? "1.5px solid #4f46e5" : "1px solid #cbd5e1",
+                          background: active ? "#4f46e5" : "#ffffff",
+                          color: active ? "#ffffff" : "#334155",
+                        }}
+                      >
+                        📝 {rsn}
+                      </button>
+                    );
+                  })}
                   <button
                     type="button"
-                    onClick={() => setOpenPurposeList((prev) => !prev)}
+                    onClick={() => setIsCustomPurposeActive(true)}
                     style={{
-                      padding: "0 14px",
+                      padding: "6px 12px",
                       borderRadius: 8,
-                      border: openPurposeList ? "1.5px solid #4f46e5" : "1px solid #cbd5e1",
-                      background: openPurposeList ? "#eef2ff" : "#f8fafc",
-                      color: "#4f46e5",
-                      fontWeight: 700,
                       fontSize: 12,
+                      fontWeight: 700,
                       cursor: "pointer",
-                      whiteSpace: "nowrap",
+                      border: isCustomPurposeActive ? "1.5px solid #4f46e5" : "1px dashed #6366f1",
+                      background: isCustomPurposeActive ? "#4f46e5" : "#eef2ff",
+                      color: isCustomPurposeActive ? "#ffffff" : "#4f46e5",
                     }}
                   >
-                    📝 {openPurposeList ? "▲ Hide List" : "▼ Choose Reason"}
+                    ✏️ + Custom Reason
                   </button>
                 </div>
 
-                {openPurposeList && (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: 6,
-                      marginTop: 8,
-                      padding: 12,
-                      background: "#f8fafc",
-                      borderRadius: 10,
-                      border: "1px solid #e2e8f0",
+                {(isCustomPurposeActive || (purpose && !QUICK_PURPOSES.includes(purpose))) && (
+                  <input
+                    type="text"
+                    placeholder="Type custom reason for leave..."
+                    value={purpose}
+                    onChange={(e) => {
+                      setPurpose(e.target.value);
+                      setIsCustomPurposeActive(true);
                     }}
-                  >
-                    {QUICK_PURPOSES.map((rsn) => {
-                      const active = purpose === rsn;
-                      return (
-                        <button
-                          type="button"
-                          key={rsn}
-                          onClick={() => {
-                            setPurpose(rsn);
-                            setOpenPurposeList(false);
-                          }}
-                          style={{
-                            padding: "6px 12px",
-                            borderRadius: 8,
-                            fontSize: 12,
-                            fontWeight: 700,
-                            cursor: "pointer",
-                            border: active ? "1px solid #4f46e5" : "1px solid #cbd5e1",
-                            background: active ? "#4f46e5" : "#ffffff",
-                            color: active ? "#ffffff" : "#334155",
-                          }}
-                        >
-                          ✓ {rsn}
-                        </button>
-                      );
-                    })}
-                  </div>
+                    style={{ ...styles.textInput, width: '100%' }}
+                    autoFocus
+                    required
+                  />
                 )}
               </div>
 

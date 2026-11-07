@@ -34,9 +34,23 @@ export const LEAVE_CATEGORIES = [
   "General",
   "Medical",
   "Monthly_Home",
+  "1_Day",
+  "2_Day",
   "Weekend_Thu_Sat",
   "Outreach",
   "Official",
+  "Custom",
+];
+
+export const PRESET_PURPOSES = [
+  "Monthly Home Leave",
+  "Medical / Hospital Case",
+  "Family Function / Visit",
+  "Personal Purchase",
+  "Bookplus / Stationery",
+  "Department / Official Work",
+  "Dental / Eye Checkup",
+  "Home Leave"
 ];
 
 export const PRESET_DESTINATIONS = [
