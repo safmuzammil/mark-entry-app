@@ -1,0 +1,390 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// This security rules file assumes the following data structures:
+//
+// Collection: systemCache
+// Document ID: [docId] (e.g. rehearsalSession_*, rehearsalStamp_*, periodSession_*,
+//              daySessionsIndex_*, portalNotifications, studentPortalMeta, whatsappGroups,
+//              activeReminder, adminReportCache, mentorshipConfig, teacherBroadcast, etc.)
+// Fields:
+//   - Arbitrary map containing attendance session records, daily indices,
+//     broadcast notifications, and portal metadata.
+//
+// Collection: students
+// Document ID: [studentId] (lowercase registration number, e.g. "dhiu2101", "1001")
+// Fields:
+//   - regNo: string (optional/required, 1..50 chars)
+//   - adNo: string or number (optional, 1..50 chars)
+//   - name: string (optional, 1..100 chars)
+//   - studentClass: string (optional, 1..50 chars)
+//   - rollNo: string or number (optional)
+//   - parentMobile: string (optional, <= 30 chars)
+//   - parentWhatsapp: string (optional, <= 30 chars)
+//   - bloodGroup: string (optional, <= 10 chars)
+//   - photoUrl: string (optional, <= 500000 chars)
+//   - skills: map or list or string (optional)
+//   - periodAttendance: map (optional)
+//   - mentorUsername: string (optional, <= 50 chars)
+//   - mentorName: string (optional, <= 100 chars)
+//   - department: string (optional, <= 50 chars)
+//   - status: string (optional, <= 50 chars)
+//
+// Collection: teachers
+// Document ID: [teacherId] (username, e.g. "sadiq", "yusuf", "nishan")
+// Fields:
+//   - username: string (required, 1..50 chars)
+//   - fullName: string (required, 1..100 chars)
+//   - designation: string (optional, <= 100 chars)
+//   - roleCategory: string (optional, <= 100 chars)
+//   - phone: string (optional, <= 30 chars)
+//   - email: string (optional, <= 100 chars)
+//   - roles: list (optional, <= 25 elements)
+//   - enrollments: list (optional, <= 250 elements)
+//   - isEventLeader: bool (optional)
+//   - eventTitle: string (optional, <= 100 chars)
+//   - assignedStudentIds: list (optional, <= 1000 elements)
+//   - studentDeadlines: map (optional)
+//   - outpassPrivileges: map (optional)
+//   - createdAt: string or timestamp (optional)
+//
+// Collection: marks
+// Document ID: [studentRegNo] (student registration number)
+// Fields:
+//   - Dynamic subject keys mapped to assessment maps (e.g. { "English": { "50": 45 } })
+//
+// Collection: night_attendance
+// Document ID: [date] (YYYY-MM-DD format, e.g. "2026-11-07")
+// Fields:
+//   - date: string (required, <= 30 chars)
+//   - classes: map (required)
+//   - lastUpdated: string or timestamp (optional)
+//
+// Collection: out_passes
+// Document ID: [passId] (auto-id or custom string)
+// Fields:
+//   - studentRegNo / regNo: string (optional, <= 50 chars)
+//   - adNo: string or number (optional, <= 50 chars)
+//   - studentName: string (optional, <= 100 chars)
+//   - studentClass: string (optional, <= 50 chars)
+//   - leaveCategory: string (optional, <= 50 chars)
+//   - purpose: string (optional, <= 300 chars)
+//   - destination: string (optional, <= 200 chars)
+//   - permittedFrom: string or timestamp (optional)
+//   - permittedTo: string or timestamp (optional)
+//   - status: string (optional, <= 50 chars)
+//   - teacherName: string (optional, <= 100 chars)
+//   - teacherUsername: string (optional, <= 50 chars)
+//   - gateDepartureTime: string or timestamp (optional)
+//   - gateArrivalTime: string or timestamp (optional)
+//   - actualDepartureTime: string or timestamp (optional)
+//   - actualReturnTime: string or timestamp (optional)
+//   - wasLateReturn: bool (optional)
+//   - createdAt: string or timestamp (optional)
+//
+// Collection: outpass_unapproved_logs
+// Document ID: [logId] (auto-id or custom string)
+// Fields:
+//   - scannedAdNo: string or number (optional)
+//   - timestamp: string or timestamp (optional)
+//   - reason: string (optional, <= 300 chars)
+//   - kioskUser: string (optional, <= 100 chars)
+//
+// Collection: clearance_certificates
+// Document ID: [certId] (e.g. "cert_1731000000_1001")
+// Fields:
+//   - certNumber: string or number (required)
+//   - regNo: string (required, <= 50 chars)
+//   - studentName: string (optional, <= 100 chars)
+//   - studentClass: string (optional, <= 50 chars)
+//   - dates: list (optional, <= 50 elements)
+//   - reason: string (optional, <= 100 chars)
+//   - remarks: string (optional, <= 500 chars)
+//   - clearedSessions: list (optional, <= 100 elements)
+//   - clearedLegacySubjects: list (optional, <= 50 elements)
+//   - clearedBy: string (optional, <= 100 chars)
+//   - clearedByRole: string (optional, <= 50 chars)
+//   - issuedAt: string or timestamp (optional)
+//   - status: string (required, 'ISSUED' or 'CONFIRMED')
+//   - studentConfirmedAt: string or timestamp (optional)
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions: Authentication & Role Verification
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function hasEmail() {
+      return isAuthenticated() &&
+             request.auth.token != null &&
+             request.auth.token.email != null;
+    }
+
+    // Admin accounts: includes explicit administrative emails and patterns
+    function isAdmin() {
+      return hasEmail() && (
+        request.auth.token.email.matches('.*admin.*') ||
+        request.auth.token.email.matches('(?i).*admin.*') ||
+        request.auth.token.email == 'admin@school.com' ||
+        request.auth.token.email == 'principalsadiq@gmail.com' ||
+        request.auth.token.email == 'degree@dhiu.in' ||
+        request.auth.token.email == 'dhdegreeclearance@gmail.com' ||
+        request.auth.token.email == 'admin@dhiu.in' ||
+        request.auth.token.email == 'admin@gmail.com' ||
+        request.auth.token.email == 'yusuf@school.com'
+      );
+    }
+
+    // Faculty & Event Leaders (@school.com)
+    function isFacultyOrLeader() {
+      return hasEmail() && (
+        request.auth.token.email.matches('.*@school\\.com$') ||
+        request.auth.token.email.matches('(?i).*@school\\.com$')
+      );
+    }
+
+    // Staff or Admin (Faculty, Event Leaders, Administrators)
+    function isStaffOrAdmin() {
+      return isAdmin() || isFacultyOrLeader();
+    }
+
+    // Security Gate Kiosk
+    function isGateKiosk() {
+      return hasEmail() && (
+        request.auth.token.email == 'kiosk@school.com' ||
+        isAdmin()
+      );
+    }
+
+    // Staff, Admin, or Gate Security Kiosk
+    function isStaffAdminOrKiosk() {
+      return isStaffOrAdmin() || isGateKiosk();
+    }
+
+    // Student account (@student.school.com)
+    function isStudent() {
+      return hasEmail() && (
+        request.auth.token.email.matches('.*@student\\.school\\.com$') ||
+        request.auth.token.email.matches('(?i).*@student\\.school\\.com$')
+      );
+    }
+
+    // Specific Teacher self-check for profile updates
+    function isSelfTeacher(teacherId) {
+      return hasEmail() && (
+        request.auth.token.email == teacherId + '@school.com' ||
+        request.auth.token.email.matches('(?i)^' + teacherId + '@school\\.com$')
+      );
+    }
+
+    // Specific Student self-check based on registration number
+    function isSelfStudent(regNo) {
+      return hasEmail() && (
+        request.auth.token.email == regNo + '@student.school.com' ||
+        request.auth.token.email.matches('(?i)^' + regNo + '@student\\.school\\.com$')
+      );
+    }
+
+    // ===============================================================
+    // Helper Functions: General Field Validation
+    // ===============================================================
+
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    function isValidOptionalString(field, minLen, maxLen) {
+      return !(field in request.resource.data) ||
+             (request.resource.data[field] is string &&
+              request.resource.data[field].size() >= minLen &&
+              request.resource.data[field].size() <= maxLen);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    // 1. systemCache validator
+    function isValidSystemCache(data) {
+      return data is map;
+    }
+
+    // 2. students validator
+    function isValidStudent(data) {
+      return data is map &&
+             isValidOptionalString('regNo', 1, 50) &&
+             isValidOptionalString('name', 1, 100) &&
+             isValidOptionalString('studentClass', 1, 50) &&
+             isValidOptionalString('mentorUsername', 0, 50) &&
+             isValidOptionalString('mentorName', 0, 100) &&
+             isValidOptionalString('parentMobile', 0, 30) &&
+             isValidOptionalString('parentWhatsapp', 0, 30) &&
+             isValidOptionalString('bloodGroup', 0, 10) &&
+             isValidOptionalString('department', 0, 50) &&
+             isValidOptionalString('photoUrl', 0, 500000);
+    }
+
+    // 3. teachers validator
+    function isValidTeacher(data) {
+      return data is map &&
+             data.username is string && data.username.size() >= 1 && data.username.size() <= 50 &&
+             data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 100 &&
+             isValidOptionalString('designation', 0, 100) &&
+             isValidOptionalString('roleCategory', 0, 100) &&
+             isValidOptionalString('phone', 0, 30) &&
+             isValidOptionalString('email', 0, 100) &&
+             isValidOptionalString('eventTitle', 0, 100) &&
+             (!('roles' in data) || (data.roles is list && data.roles.size() <= 25)) &&
+             (!('enrollments' in data) || (data.enrollments is list && data.enrollments.size() <= 250)) &&
+             (!('assignedStudentIds' in data) || (data.assignedStudentIds is list && data.assignedStudentIds.size() <= 1000));
+    }
+
+    // 4. marks validator
+    function isValidMarksDoc(data) {
+      return data is map;
+    }
+
+    // 5. night_attendance validator
+    function isValidNightAttendance(data) {
+      return data is map &&
+             data.date is string && data.date.size() <= 30 &&
+             data.classes is map;
+    }
+
+    // 6. out_passes validator
+    function isValidOutPass(data) {
+      return data is map &&
+             isValidOptionalString('studentName', 0, 100) &&
+             isValidOptionalString('studentClass', 0, 50) &&
+             isValidOptionalString('leaveCategory', 0, 50) &&
+             isValidOptionalString('purpose', 0, 300) &&
+             isValidOptionalString('destination', 0, 200) &&
+             isValidOptionalString('status', 0, 50) &&
+             isValidOptionalString('teacherName', 0, 100) &&
+             isValidOptionalString('teacherUsername', 0, 50);
+    }
+
+    // 7. outpass_unapproved_logs validator
+    function isValidOutpassLog(data) {
+      return data is map &&
+             isValidOptionalString('reason', 0, 300) &&
+             isValidOptionalString('kioskUser', 0, 100);
+    }
+
+    // 8. clearance_certificates validator
+    function isValidClearanceCert(data) {
+      return data is map &&
+             data.regNo is string && data.regNo.size() >= 1 && data.regNo.size() <= 50 &&
+             data.status is string && (data.status in ['ISSUED', 'CONFIRMED']) &&
+             isValidOptionalString('studentName', 0, 100) &&
+             isValidOptionalString('studentClass', 0, 50) &&
+             isValidOptionalString('reason', 0, 100) &&
+             isValidOptionalString('remarks', 0, 500) &&
+             isValidOptionalString('clearedBy', 0, 100) &&
+             isValidOptionalString('clearedByRole', 0, 50) &&
+             (!('dates' in data) || (data.dates is list && data.dates.size() <= 50)) &&
+             (!('clearedSessions' in data) || (data.clearedSessions is list && data.clearedSessions.size() <= 100)) &&
+             (!('clearedLegacySubjects' in data) || (data.clearedLegacySubjects is list && data.clearedLegacySubjects.size() <= 50));
+    }
+
+    // Student self-confirmation for clearance certificates
+    function isValidStudentCertAck(oldData, newData) {
+      return isSelfStudent(oldData.regNo) &&
+             newData.status == 'CONFIRMED' &&
+             request.resource.data.diff(oldData).affectedKeys().hasOnly(['status', 'studentConfirmedAt']) &&
+             newData.studentConfirmedAt is string &&
+             newData.studentConfirmedAt.size() <= 50;
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // 1. systemCache: Attendance sessions, stamps, portal notifications, index caches
+    match /systemCache/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isStaffOrAdmin() && isValidSystemCache(request.resource.data);
+      allow update: if isStaffOrAdmin() && isValidSystemCache(request.resource.data);
+      allow delete: if isStaffOrAdmin();
+    }
+
+    // 2. students: Student roster, period attendance stats, skills, mentorship
+    match /students/{studentId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidStudent(request.resource.data);
+      allow update: if isStaffOrAdmin() && isValidStudent(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // 3. teachers: Faculty profiles, enrollments, privileges, event leaders
+    // Read is allowed for all authenticated users and unauthenticated requests to support initial login lookups
+    match /teachers/{teacherId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidTeacher(request.resource.data);
+      allow update: if isValidTeacher(request.resource.data) && (
+        isAdmin() ||
+        (
+          isSelfTeacher(teacherId) &&
+          areImmutableFieldsUnchanged(['roles', 'roleCategory', 'outpassPrivileges', 'isEventLeader'])
+        )
+      );
+      allow delete: if isAdmin();
+    }
+
+    // 4. marks: CCE and Hifz marks
+    match /marks/{studentRegNo} {
+      allow read: if isAuthenticated();
+      allow create: if isStaffOrAdmin() && isValidMarksDoc(request.resource.data);
+      allow update: if isStaffOrAdmin() && isValidMarksDoc(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // 5. night_attendance: Night study attendance register
+    match /night_attendance/{date} {
+      allow read: if isStaffOrAdmin();
+      allow create: if isStaffOrAdmin() && isValidNightAttendance(request.resource.data);
+      allow update: if isStaffOrAdmin() && isValidNightAttendance(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // 6. out_passes: Student gate outpass passes
+    match /out_passes/{passId} {
+      allow read: if isAuthenticated();
+      allow create: if isStaffAdminOrKiosk() && isValidOutPass(request.resource.data);
+      allow update: if isStaffAdminOrKiosk() && isValidOutPass(request.resource.data);
+      allow delete: if isStaffAdminOrKiosk();
+    }
+
+    // 7. outpass_unapproved_logs: Gate audit logs for unapproved or barcode-less scans
+    match /outpass_unapproved_logs/{logId} {
+      allow read: if isStaffAdminOrKiosk();
+      allow create: if isStaffAdminOrKiosk() && isValidOutpassLog(request.resource.data);
+      allow update: if isStaffAdminOrKiosk() && isValidOutpassLog(request.resource.data);
+      allow delete: if isStaffAdminOrKiosk();
+    }
+
+    // 8. clearance_certificates: Academic attendance clearance certificates
+    match /clearance_certificates/{certId} {
+      allow read: if isAuthenticated();
+      allow create: if isStaffOrAdmin() && isValidClearanceCert(request.resource.data);
+      allow update: if (isStaffOrAdmin() && isValidClearanceCert(request.resource.data)) ||
+                       (isStudent() && isValidStudentCertAck(resource.data, request.resource.data));
+      allow delete: if isStaffOrAdmin();
+    }
+
+    // Default deny all other unspecified collections and paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

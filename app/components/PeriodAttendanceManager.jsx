@@ -756,11 +756,29 @@ export default function PeriodAttendanceManager({
           setExistingRehDoc(data);
           setRehAbsentRegNos(data.absentRegNos || []);
         } else {
-          setExistingRehDoc(null);
-          setRehAbsentRegNos([]);
+          const localStr = typeof window !== 'undefined' ? localStorage.getItem('dhiu_reh_' + docId) : null;
+          if (localStr) {
+            const data = JSON.parse(localStr);
+            setExistingRehDoc(data);
+            setRehAbsentRegNos(data.absentRegNos || []);
+          } else {
+            setExistingRehDoc(null);
+            setRehAbsentRegNos([]);
+          }
         }
       } catch (e) {
-        setExistingRehDoc(null);
+        const localStr = typeof window !== 'undefined' ? localStorage.getItem('dhiu_reh_' + docId) : null;
+        if (localStr) {
+          try {
+            const data = JSON.parse(localStr);
+            setExistingRehDoc(data);
+            setRehAbsentRegNos(data.absentRegNos || []);
+          } catch (_) {
+            setExistingRehDoc(null);
+          }
+        } else {
+          setExistingRehDoc(null);
+        }
       }
     }
     loadExistingRehearsal();
@@ -913,10 +931,43 @@ export default function PeriodAttendanceManager({
         console.warn('Rehearsal student periodAttendance update note:', stErr);
       }
 
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('dhiu_reh_' + rehDocId, JSON.stringify({
+            date: rehDate,
+            sessionId: rehSessionId,
+            sessionLabel: sessionConfig.label,
+            coveredPeriods,
+            presentRegNos: presentRegs,
+            absentRegNos: rehAbsentRegNos,
+            updatedAt: new Date().toISOString()
+          }));
+        } catch (_) {}
+      }
+
       setExistingRehDoc({ presentRegNos: presentRegs, absentRegNos: rehAbsentRegNos });
       setStatusMsg(`✅ Rehearsal Attendance Recorded to Period Register (${presentRegs.length} Present, ${rehAbsentRegNos.length} Absent)!`);
     } catch (err) {
-      setStatusMsg('❌ Error saving rehearsal attendance: ' + err.message);
+      const isPermissionErr = String(err.message || '').toLowerCase().includes('permission') || String(err.code || '').includes('permission');
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('dhiu_reh_' + rehDocId, JSON.stringify({
+            date: rehDate,
+            sessionId: rehSessionId,
+            sessionLabel: sessionConfig.label,
+            coveredPeriods,
+            presentRegNos: presentRegs,
+            absentRegNos: rehAbsentRegNos,
+            updatedAt: new Date().toISOString()
+          }));
+        } catch (_) {}
+      }
+      setExistingRehDoc({ presentRegNos: presentRegs, absentRegNos: rehAbsentRegNos });
+      if (isPermissionErr) {
+        setStatusMsg('⚠️ Firestore Rule Restriction: Event leader accounts require write permission for "systemCache" and "students". Rehearsal attendance has been saved locally on this device. Please deploy firestore.rules to Firebase Console to sync centrally across all devices.');
+      } else {
+        setStatusMsg('❌ Error saving rehearsal attendance: ' + err.message);
+      }
     } finally {
       setLoading(false);
       setTimeout(() => setStatusMsg(''), 6000);

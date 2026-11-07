@@ -391,7 +391,11 @@ export default function OutPassPortal({
         "Teacher";
 
       setStaffName(emailIsAdmin ? "Admin" : resolvedName);
-      setActiveTab(emailIsAdmin ? "admin" : "teacher");
+      if (initialTab) {
+        setActiveTab(initialTab);
+      } else {
+        setActiveTab(emailIsAdmin ? "admin" : "teacher");
+      }
       setAuthChecking(false);
     });
 
@@ -457,10 +461,20 @@ export default function OutPassPortal({
   );
 
   useEffect(() => {
-    if (!canSeeReportsTab && !isSecurityKiosk && activeTab !== "teacher") {
+    if (!canSeeReportsTab && !isSecurityKiosk && activeTab !== "teacher" && activeTab !== "security") {
       setActiveTab("teacher");
     }
   }, [canSeeReportsTab, isSecurityKiosk, activeTab]);
+
+  // 🌟 Sync initialTab dynamically when opened as embedded Gate Security Kiosk
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+      if (initialTab === "security") {
+        setTimeout(() => gateInputRef.current?.focus(), 250);
+      }
+    }
+  }, [initialTab]);
 
   useEffect(() => {
     if (activeTab === "security") {

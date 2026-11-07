@@ -298,13 +298,15 @@ export default function UnifiedSchoolPortal() {
       { id: 'attendance', label: 'Night Attendance', icon: '🌙', desc: 'Hostel roll-call & out-pass verification' },
       { id: 'reports', label: 'Marks & Auditor', icon: '📊', desc: 'CCE mark auditor & level-by-level inspector' },
       { id: 'outpass', label: 'Out-Pass Portal', icon: '🪪', desc: 'Live campus movement & leave approvals' },
-      { id: 'gate_security', label: 'Gate Security Kiosk', icon: '🛡️', desc: 'Live barcode scanning & undo verifications' },
       { id: 'mentorship', label: 'Mentorship & Outreach', icon: '🧭', desc: 'Consultancy logs, skills & usthad audit' },
       { id: 'reminders', label: 'Weekly Reminders', icon: '🔔', desc: 'Academic target broadcasts & tracker' },
       { id: 'proxy_marks', label: 'Proxy Mark Entry', icon: '✍️', desc: 'Inspect or enter marks on behalf of faculty' }
     ];
 
-    const currentTabObj = sidebarNavItems.find(x => x.id === activeAdminTab) || sidebarNavItems[0];
+    const adminTabsMeta = {
+      gate_security: { id: 'gate_security', label: 'Gate Security Kiosk', desc: 'Live barcode scanning & undo verifications' }
+    };
+    const currentTabObj = sidebarNavItems.find(x => x.id === activeAdminTab) || adminTabsMeta[activeAdminTab] || sidebarNavItems[0];
 
     return (
       <div style={{ minHeight: '100vh', display: 'flex', backgroundColor: '#f8fafc', fontFamily: 'Inter, system-ui, -apple-system, sans-serif', color: '#0f172a' }}>
@@ -612,6 +614,7 @@ export default function UnifiedSchoolPortal() {
 
             {activeAdminTab === 'gate_security' && (
               <OutPassPortal
+                key="gate_security_kiosk"
                 embeddedMode={true}
                 isAdminProp={true}
                 initialTab="security"
@@ -622,6 +625,7 @@ export default function UnifiedSchoolPortal() {
 
             {activeAdminTab === 'outpass' && (
               <OutPassPortal
+                key="outpass_portal"
                 embeddedMode={true}
                 isAdminProp={true}
                 preloadedStudents={adminStudentsList}
