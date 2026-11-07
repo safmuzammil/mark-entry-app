@@ -76,6 +76,20 @@ export default function StudentManager() {
   const [selectedRows, setSelectedRows] = useState([]);
   const [portfolioModalStudent, setPortfolioModalStudent] = useState(null);
 
+  // 🌟 Bulk Student Group Assignment State (Subject Slot / Mentor / Class Teacher)
+  const [batchMode, setBatchMode] = useState('subject'); // 'subject' | 'mentor' | 'classteacher'
+  const [batchSearch, setBatchSearch] = useState('');
+  const [batchGradeFilter, setBatchGradeFilter] = useState('All'); // 'All' | '1' | '2' | '3'
+  const [batchClassFilter, setBatchClassFilter] = useState('All');
+  const [batchDeptFilter, setBatchDeptFilter] = useState('All');
+  const [batchMadhabFilter, setBatchMadhabFilter] = useState('All'); // 'All' | 'SHAFI' | 'HANAFI'
+  const [batchStreamFilter, setBatchStreamFilter] = useState('All'); // 'All' | 'URDU' | 'GENERAL'
+  const [selectedBatchRegNos, setSelectedBatchRegNos] = useState([]);
+  const [batchTargetTeacher, setBatchTargetTeacher] = useState('');
+  const [batchTargetEnrollmentId, setBatchTargetEnrollmentId] = useState('');
+  const [batchStatusMsg, setBatchStatusMsg] = useState('');
+  const [isSavingBatch, setIsSavingBatch] = useState(false);
+
   const [bulkMentor, setBulkMentor] = useState('');
   const [bulkReplaceClass, setBulkReplaceClass] = useState('');
   const [bulkDept, setBulkDept] = useState('');
@@ -642,6 +656,223 @@ export default function StudentManager() {
       {statusMsg && (
         <div style={{ marginBottom: '18px', padding: '12px 16px', background: statusMsg.includes('Error') ? '#fff1f2' : '#ecfdf5', borderRadius: '10px', color: statusMsg.includes('Error') ? '#e11d48' : '#047857', fontWeight: '700', fontSize: '13px' }}>
           {statusMsg}
+        </div>
+      )}
+
+      {/* 🌟 PANEL: BULK STUDENT GROUP ASSIGNMENT (Subject Usthad, Mentor, or Class Teacher) */}
+      {activeTopPanel === 'batch_assign' && (
+        <div className="erp-slide-panel" style={{ ...styles.card, border: '1.5px solid #0f766e', boxShadow: '0 4px 12px rgba(15, 118, 110, 0.08)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
+              👥 Bulk Student Group Assignment (Subject Usthad, Mentor, or Class Teacher)
+            </h3>
+            <button type="button" onClick={() => setActiveTopPanel('none')} style={styles.buttonSecondary}>
+              ✕ Close
+            </button>
+          </div>
+          <p style={{ margin: '0 0 18px 0', fontSize: '13px', color: '#64748b', fontWeight: '600' }}>
+            Filter students by Grade, Class (e.g. QLA3), Stream (Urdu / Non-Urdu), or Madhab (Shafi / Hanafi), search by Name or Ad.No, select them, and assign them all at once to a specific teacher.
+          </p>
+
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            {[
+              { id: 'subject', label: '📚 Assign to Subject Teacher Slot' },
+              { id: 'mentor', label: '🧭 Assign to Mentor (Mentoring)' },
+              { id: 'classteacher', label: '🏫 Assign to Class Teacher' }
+            ].map(m => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setBatchMode(m.id)}
+                style={{
+                  padding: '10px 18px', borderRadius: '8px', fontWeight: '800', fontSize: '13px', cursor: 'pointer',
+                  border: '1px solid #cbd5e1',
+                  background: batchMode === m.id ? '#0f766e' : '#f8fafc',
+                  color: batchMode === m.id ? '#ffffff' : '#0f172a'
+                }}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '20px', background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <div>
+              <label style={styles.label}>SEARCH NAME / AD.NO:</label>
+              <input type="text" value={batchSearch} onChange={e => setBatchSearch(e.target.value)} placeholder="e.g. Nafil or U1107..." style={styles.input} />
+            </div>
+            <div>
+              <label style={styles.label}>GRADE FILTER:</label>
+              <select value={batchGradeFilter} onChange={e => setBatchGradeFilter(e.target.value)} style={styles.input}>
+                <option value="All">All Grades</option>
+                <option value="1">Grade 1 (1st Yr)</option>
+                <option value="2">Grade 2 (2nd Yr)</option>
+                <option value="3">Grade 3 (3rd Yr)</option>
+              </select>
+            </div>
+            <div>
+              <label style={styles.label}>CLASS FILTER:</label>
+              <select value={batchClassFilter} onChange={e => setBatchClassFilter(e.target.value)} style={styles.input}>
+                <option value="All">All Classes</option>
+                {DEFAULT_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={styles.label}>LANGUAGE STREAM:</label>
+              <select value={batchStreamFilter} onChange={e => setBatchStreamFilter(e.target.value)} style={styles.input}>
+                <option value="All">All Streams</option>
+                <option value="URDU">Urdu Only (Ad.No U...)</option>
+                <option value="GENERAL">General / Non-Urdu Only</option>
+              </select>
+            </div>
+            <div>
+              <label style={styles.label}>MADHAB (SHAFI/HANAFI):</label>
+              <select value={batchMadhabFilter} onChange={e => setBatchMadhabFilter(e.target.value)} style={styles.input}>
+                <option value="All">All Madhabs</option>
+                {(MADHABS || ['SHAFI', 'HANAFI']).map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={styles.label}>DEPARTMENT:</label>
+              <select value={batchDeptFilter} onChange={e => setBatchDeptFilter(e.target.value)} style={styles.input}>
+                <option value="All">All Departments</option>
+                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px', marginBottom: '20px', background: '#f0fdfa', padding: '16px', borderRadius: '12px', border: '1px solid #99f6e4', alignItems: 'end' }}>
+            <div>
+              <label style={{ ...styles.label, color: '#0f766e', fontWeight: '800' }}>SELECT TARGET TEACHER:</label>
+              <select
+                value={batchTargetTeacher}
+                onChange={e => {
+                  setBatchTargetTeacher(e.target.value);
+                  const t = teachersList.find(x => x.username === e.target.value);
+                  if (t && t.enrollments?.length > 0) setBatchTargetEnrollmentId(t.enrollments[0].id);
+                  else setBatchTargetEnrollmentId('');
+                }}
+                style={styles.input}
+              >
+                <option value="">-- Choose Target Teacher --</option>
+                {teachersList.map(t => <option key={t.username} value={t.username}>{t.fullName} (@{t.username})</option>)}
+              </select>
+            </div>
+
+            {batchMode === 'subject' && (
+              <div>
+                <label style={{ ...styles.label, color: '#0f766e', fontWeight: '800' }}>SELECT TEACHER'S SUBJECT SLOT:</label>
+                <select value={batchTargetEnrollmentId} onChange={e => setBatchTargetEnrollmentId(e.target.value)} style={styles.input}>
+                  {teachersList.find(t => t.username === batchTargetTeacher)?.enrollments?.map(env => (
+                    <option key={env.id} value={env.id}>
+                      {env.alias || `Grade ${env.grade} ${env.subject}`} — [Slot: {env.subject}] ({env.langTag || 'Gen'})
+                    </option>
+                  )) || <option value="">No subject slots found</option>}
+                </select>
+              </div>
+            )}
+
+            <div>
+              <button
+                type="button"
+                disabled={isSavingBatch}
+                onClick={handleExecuteBatchAssign}
+                style={{ ...styles.buttonPrimary, width: '100%', background: '#0d9488', padding: '12px 18px', fontWeight: '800' }}
+              >
+                {isSavingBatch ? 'Assigning...' : `🚀 Assign ${selectedBatchRegNos.length} Selected Students`}
+              </button>
+            </div>
+          </div>
+
+          {batchStatusMsg && (
+            <div style={{ marginBottom: '16px', padding: '14px', background: '#dcfce7', color: '#166534', borderRadius: '8px', fontWeight: '800' }}>
+              {batchStatusMsg}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ fontSize: '13px', fontWeight: '800', color: '#334155' }}>
+              Showing {batchFilteredStudents.length} matching students • <span style={{ color: '#0f766e' }}>{selectedBatchRegNos.length} currently selected</span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button type="button" onClick={handleToggleSelectAllBatch} style={{ padding: '6px 12px', background: '#e2e8f0', color: '#0f172a', border: 'none', borderRadius: '6px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}>
+                ☑️ Select / Deselect All Filtered ({batchFilteredStudents.length})
+              </button>
+              {selectedBatchRegNos.length > 0 && (
+                <button type="button" onClick={() => setSelectedBatchRegNos([])} style={{ padding: '6px 12px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}>
+                  ✖ Clear Selection
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div style={{ overflowX: 'auto', maxHeight: '420px', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px', minWidth: '800px' }}>
+              <thead style={{ position: 'sticky', top: 0, background: '#0f172a', color: '#ffffff', zIndex: 5 }}>
+                <tr>
+                  <th style={{ padding: '12px 16px', width: '45px' }}>
+                    <input
+                      type="checkbox"
+                      checked={batchFilteredStudents.length > 0 && batchFilteredStudents.every(s => selectedBatchRegNos.includes(s.regNo))}
+                      onChange={handleToggleSelectAllBatch}
+                    />
+                  </th>
+                  <th style={{ padding: '12px 16px' }}>Ad.No &amp; Reg</th>
+                  <th style={{ padding: '12px 16px' }}>Student Name</th>
+                  <th style={{ padding: '12px 16px' }}>Class &amp; Dept</th>
+                  <th style={{ padding: '12px 16px' }}>Stream &amp; Madhab</th>
+                  <th style={{ padding: '12px 16px' }}>Current Mentor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batchFilteredStudents.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
+                      No students match the current filters.
+                    </td>
+                  </tr>
+                ) : (
+                  batchFilteredStudents.map((st, i) => {
+                    const isSelected = selectedBatchRegNos.includes(st.regNo);
+                    const isUrdu = String(st.adNo || '').toUpperCase().startsWith('U');
+                    return (
+                      <tr
+                        key={st.regNo}
+                        onClick={() => setSelectedBatchRegNos(prev => prev.includes(st.regNo) ? prev.filter(r => r !== st.regNo) : [...prev, st.regNo])}
+                        style={{ borderBottom: '1px solid #e2e8f0', background: isSelected ? '#ccfbf1' : i % 2 === 0 ? '#ffffff' : '#f8fafc', cursor: 'pointer' }}
+                      >
+                        <td style={{ padding: '12px 16px' }} onClick={e => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => setSelectedBatchRegNos(prev => prev.includes(st.regNo) ? prev.filter(r => r !== st.regNo) : [...prev, st.regNo])}
+                          />
+                        </td>
+                        <td style={{ padding: '12px 16px', fontWeight: '800', color: '#0f172a' }}>
+                          #{st.adNo} <span style={{ color: '#64748b', fontSize: '12px' }}>({st.regNo})</span>
+                        </td>
+                        <td style={{ padding: '12px 16px', fontWeight: '700', color: '#0f172a' }}>{st.firstName}</td>
+                        <td style={{ padding: '12px 16px', fontWeight: '700' }}>
+                          {(st.classes || []).join(', ')} • <span style={{ color: '#0369a1' }}>{st.department || 'GENERAL'}</span>
+                        </td>
+                        <td style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '800' }}>
+                          <span style={{ background: isUrdu ? '#fef3c7' : '#e0f2fe', color: isUrdu ? '#b45309' : '#0369a1', padding: '3px 8px', borderRadius: '6px', marginRight: '6px' }}>
+                            {isUrdu ? 'URDU' : 'GENERAL'}
+                          </span>
+                          <span style={{ background: '#f1f5f9', color: '#334155', padding: '3px 8px', borderRadius: '6px' }}>
+                            {st.madhab || 'SHAFI'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 16px', fontWeight: '700', color: '#0f766e' }}>
+                          {st.mentorName || st.mentorUsername || 'Unassigned'}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

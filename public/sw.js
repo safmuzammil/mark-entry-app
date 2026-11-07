@@ -1,17 +1,23 @@
 // public/sw.js
-// This minimal service worker is required by Android Chrome to trigger the PWA Install prompt.
+// Modern PWA Service Worker with auto-purge cache on update
 
 self.addEventListener('install', (event) => {
-    console.log('Service Worker installing.');
+    console.log('Service Worker installing & skipping waiting.');
     self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-    console.log('Service Worker activating.');
+    console.log('Service Worker activating & clearing old caches.');
+    event.waitUntil(
+        caches.keys().then((cacheNames) => {
+            return Promise.all(
+                cacheNames.map((cacheName) => caches.delete(cacheName))
+            );
+        }).then(() => self.clients.claim())
+    );
 });
 
-// A fetch listener is strictly required by Chrome's PWA criteria
+// Pass through all requests dynamically without stale caching
 self.addEventListener('fetch', (event) => {
-    // We pass through all requests normally without caching for now
     event.respondWith(fetch(event.request));
 });
