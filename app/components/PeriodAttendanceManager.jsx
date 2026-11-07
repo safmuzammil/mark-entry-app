@@ -290,9 +290,16 @@ export default function PeriodAttendanceManager({
       const env = attendanceEnrollments.find(e => e.id === attEnrollmentId);
       if (!env) return;
 
-      const sessionDocId = `periodSession_${attDate}_${String(env.alias || env.subject).replace(/[^a-zA-Z0-9]/g, '_')}_S${attSession}`;
+      const safeAlias = String(env.alias || env.subject || 'Subject').trim();
+      const envUniqueKey = String(env.id || env.targetClass || env.subject || '').replace(/[^a-zA-Z0-9]/g, '_');
+      const sessionDocId = `periodSession_${attDate}_${safeAlias.replace(/[^a-zA-Z0-9]/g, '_')}_${envUniqueKey}_S${attSession}`;
+      const legacyDocId = `periodSession_${attDate}_${safeAlias.replace(/[^a-zA-Z0-9]/g, '_')}_S${attSession}`;
+
       try {
-        const snap = await getDoc(doc(db, 'systemCache', sessionDocId));
+        let snap = await getDoc(doc(db, 'systemCache', sessionDocId));
+        if (!snap.exists()) {
+          snap = await getDoc(doc(db, 'systemCache', legacyDocId));
+        }
         if (snap.exists()) {
           const data = snap.data();
           setExistingSessionDoc(data);
@@ -300,8 +307,9 @@ export default function PeriodAttendanceManager({
           setAbsentRegNos(abs);
         } else {
           setExistingSessionDoc(null);
+          const enrolledSts = getStudentsForEnrollment(env);
           const rehPresentForThisPeriod = rehearsalPresentMapForDate[String(attSession)] || [];
-          const autoAbs = classStudents
+          const autoAbs = enrolledSts
             .filter(st => {
               if (rehPresentForThisPeriod.includes(st.regNo)) return false;
               const op = activeOutpassesByReg[st.regNo];
@@ -315,7 +323,7 @@ export default function PeriodAttendanceManager({
       }
     }
     checkExistingSession();
-  }, [attEnrollmentId, attDate, attSession, classStudents, activeOutpassesByReg, rehearsalPresentMapForDate]);
+  }, [attEnrollmentId, attDate, attSession]);
 
   const toggleAbsent = (regNo) => {
     setAbsentRegNos(prev => prev.includes(regNo) ? prev.filter(id => id !== regNo) : [...prev, regNo]);
@@ -410,7 +418,8 @@ export default function PeriodAttendanceManager({
       if (!env) throw new Error('Selected subject enrollment not found.');
 
       const safeAlias = String(env.alias || env.subject || 'Subject').trim();
-      const sessionDocId = `periodSession_${attDate}_${safeAlias.replace(/[^a-zA-Z0-9]/g, '_')}_S${attSession}`;
+      const envUniqueKey = String(env.id || env.targetClass || env.subject || '').replace(/[^a-zA-Z0-9]/g, '_');
+      const sessionDocId = `periodSession_${attDate}_${safeAlias.replace(/[^a-zA-Z0-9]/g, '_')}_${envUniqueKey}_S${attSession}`;
       const subKey = normalizeSubKey(isAttendanceOnlyEnrollment(env) ? safeAlias : (env.subject || safeAlias));
       const safeTeacherUsername = String(activeTeacherObj?.username || loggedInUser?.username || 'faculty').toLowerCase().trim();
       const safeTeacherName = String(activeTeacherObj?.fullName || loggedInUser?.fullName || 'Faculty').trim();
@@ -650,8 +659,113 @@ export default function PeriodAttendanceManager({
       batch.set(stampRef, { date: rehDate, periodPresentRegs: existingPeriodPresent, updatedAt: new Date().toISOString() }, { merge: true });
 
       await batch.commit();
+
+      // 🌟 Write standard period session docs & day index so monthly FN/AN registers immediately see rehearsal presence
+      try {
+        const rehAttendanceMap = {};
+        leaderStudentsSorted.forEach(st => {
+          const reg = String(st.regNo || st.id || '').trim();
+          if (!reg) return;
+          const isAbsent = rehAbsentRegNos.includes(reg);
+          rehAttendanceMap[reg] = isAbsent ? 'A' : 'O';
+        });
+
+        for (const pNum of coveredPeriods) {
+          const pSessionDocId = `periodSession_${rehDate}_Rehearsal_${rehSessionId}_S${pNum}`;
+          await setDoc(doc(db, 'systemCache', pSessionDocId), {
+            date: rehDate,
+            session: Number(pNum),
+            subject: `REHEARSAL_${rehSessionId.toUpperCase()}`,
+            classAlias: `Rehearsal - ${sessionConfig.label || 'Event'}`,
+            isRehearsal: true,
+            isAttendanceOnly: true,
+            teacherUsername: activeLeaderObj.username,
+            teacherName: activeLeaderObj.fullName || 'Event Leader',
+            attendanceMap: rehAttendanceMap,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        }
+
+        const dayIndexRef = doc(db, 'systemCache', `daySessionsIndex_${rehDate}`);
+        const dayIndexSnap = await getDoc(dayIndexRef);
+        const existingList = dayIndexSnap.exists() ? (dayIndexSnap.data().sessions || []) : [];
+        const newEntries = coveredPeriods.map(pNum => ({
+          sessionDocId: `periodSession_${rehDate}_Rehearsal_${rehSessionId}_S${pNum}`,
+          session: Number(pNum),
+          subject: `REHEARSAL_${rehSessionId.toUpperCase()}`
+        }));
+        const filteredList = existingList.filter(x => !newEntries.some(n => n.sessionDocId === x.sessionDocId));
+        await setDoc(dayIndexRef, { date: rehDate, sessions: [...filteredList, ...newEntries] }, { merge: true });
+      } catch (cacheErr) {
+        console.warn('Rehearsal period session cache note:', cacheErr);
+      }
+
+      // 🌟 Batch update student periodAttendance in Firestore
+      const updatedStudentsByReg = {};
+      try {
+        for (let i = 0; i < leaderStudentsSorted.length; i += 400) {
+          const chunk = leaderStudentsSorted.slice(i, i + 400);
+          const stBatch = writeBatch(db);
+
+          chunk.forEach(st => {
+            const reg = String(st.regNo || st.id || '').trim();
+            const docId = String(st.id || st.regNo || '').trim();
+            if (!reg || !docId) return;
+
+            const isAbsent = rehAbsentRegNos.includes(reg);
+            const stRef = doc(db, 'students', docId);
+            const curStat = JSON.parse(JSON.stringify(getStudentAttStat(st)));
+
+            if (!curStat.subjectWise) curStat.subjectWise = {};
+            const subKey = 'REHEARSAL';
+            if (!curStat.subjectWise[subKey]) {
+              curStat.subjectWise[subKey] = {
+                total: 0,
+                present: 0,
+                official: 0,
+                medical: 0,
+                absentDates: [],
+                teacherName: activeLeaderObj.fullName || 'Event Leader',
+                isAttendanceOnly: true
+              };
+            }
+            const subObj = curStat.subjectWise[subKey];
+            subObj.teacherName = activeLeaderObj.fullName || 'Event Leader';
+            subObj.isAttendanceOnly = true;
+            if (!Array.isArray(subObj.absentDates)) subObj.absentDates = [];
+
+            const pCount = coveredPeriods.length;
+            curStat.totalPeriods = (Number(curStat.totalPeriods) || 0) + pCount;
+            subObj.total = (Number(subObj.total) || 0) + pCount;
+
+            if (!isAbsent) {
+              curStat.presentCount = (Number(curStat.presentCount) || 0) + pCount;
+              curStat.officialCount = (Number(curStat.officialCount) || 0) + pCount;
+              subObj.present = (Number(subObj.present) || 0) + pCount;
+              subObj.official = (Number(subObj.official) || 0) + pCount;
+              subObj.absentDates = subObj.absentDates.filter(d => d !== rehDate);
+            } else {
+              if (!subObj.absentDates.includes(rehDate)) subObj.absentDates.push(rehDate);
+            }
+
+            curStat.updatedAt = new Date().toISOString();
+            stBatch.set(stRef, { periodAttendance: curStat }, { merge: true });
+            const updatedObj = { ...st, periodAttendance: curStat };
+            updatedStudentsByReg[reg] = updatedObj;
+            if (reg.toLowerCase() !== reg) updatedStudentsByReg[reg.toLowerCase()] = updatedObj;
+            if (reg.toUpperCase() !== reg) updatedStudentsByReg[reg.toUpperCase()] = updatedObj;
+            if (st.id) updatedStudentsByReg[st.id] = updatedObj;
+          });
+
+          await stBatch.commit();
+        }
+        syncUpdatedStudentsState(updatedStudentsByReg);
+      } catch (stErr) {
+        console.warn('Rehearsal student periodAttendance update note:', stErr);
+      }
+
       setExistingRehDoc({ presentRegNos: presentRegs, absentRegNos: rehAbsentRegNos });
-      setStatusMsg(`✅ Rehearsal Attendance Saved (${presentRegs.length} Present, ${rehAbsentRegNos.length} Absent)!`);
+      setStatusMsg(`✅ Rehearsal Attendance Recorded to Period Register (${presentRegs.length} Present, ${rehAbsentRegNos.length} Absent)!`);
     } catch (err) {
       setStatusMsg('❌ Error saving rehearsal attendance: ' + err.message);
     } finally {

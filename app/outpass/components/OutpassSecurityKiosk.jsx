@@ -12,6 +12,7 @@ export default function OutpassSecurityKiosk({
   gateBarcodeInput,
   setGateBarcodeInput,
   processSecurityGateScan,
+  handleUndoGateVerification,
   setScannerMode,
   setScannerOpen,
   gateScanResult,
@@ -29,8 +30,12 @@ export default function OutpassSecurityKiosk({
   const currentlyOutCount = passes.filter((p) => p.status === "OUTSIDE").length;
 
   const activeGatePasses = passes.filter((p) => {
-    if (p.status !== "APPROVED" && p.status !== "OUTSIDE") return false;
-    if (kioskFilterMode !== "ALL" && p.status !== kioskFilterMode) return false;
+    if (kioskFilterMode === "RECENT_ACTIONS") {
+      if (p.status !== "ARRIVED_AT_GATE" && !p.actualDepartureTime && p.status !== "OUTSIDE") return false;
+    } else {
+      if (p.status !== "APPROVED" && p.status !== "OUTSIDE") return false;
+      if (kioskFilterMode !== "ALL" && p.status !== kioskFilterMode) return false;
+    }
     if (kioskListSearch.trim()) {
       const q = kioskListSearch.toLowerCase();
       return (

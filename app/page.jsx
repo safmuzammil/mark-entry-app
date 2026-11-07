@@ -260,6 +260,7 @@ export default function UnifiedSchoolPortal() {
       { id: 'attendance', label: 'Night Attendance', icon: '🌙', desc: 'Hostel roll-call & out-pass verification' },
       { id: 'reports', label: 'Marks & Auditor', icon: '📊', desc: 'CCE mark auditor & level-by-level inspector' },
       { id: 'outpass', label: 'Out-Pass Portal', icon: '🪪', desc: 'Live campus movement & leave approvals' },
+      { id: 'gate_security', label: 'Gate Security Kiosk', icon: '🛡️', desc: 'Live barcode scanning & undo verifications' },
       { id: 'mentorship', label: 'Mentorship & Outreach', icon: '🧭', desc: 'Consultancy logs, skills & usthad audit' },
       { id: 'reminders', label: 'Weekly Reminders', icon: '🔔', desc: 'Academic target broadcasts & tracker' },
       { id: 'proxy_marks', label: 'Proxy Mark Entry', icon: '✍️', desc: 'Inspect or enter marks on behalf of faculty' }
@@ -371,12 +372,13 @@ export default function UnifiedSchoolPortal() {
           </div>
 
           <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <Link
-              href="/outpass"
-              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '8px', background: '#f8fafc', color: '#334155', textDecoration: 'none', fontSize: '13px', fontWeight: '700', border: '1px solid #e2e8f0' }}
+            <button
+              type="button"
+              onClick={() => setActiveAdminTab('gate_security')}
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '8px', background: activeAdminTab === 'gate_security' ? '#eef2ff' : '#f8fafc', color: activeAdminTab === 'gate_security' ? '#4f46e5' : '#334155', border: '1px solid #e2e8f0', fontSize: '13px', fontWeight: '700', cursor: 'pointer', width: '100%', textAlign: 'left' }}
             >
               <span>🛡️</span> Gate Security Kiosk
-            </Link>
+            </button>
             <button
               type="button"
               onClick={handleLogout}
@@ -572,6 +574,16 @@ export default function UnifiedSchoolPortal() {
             )}
 
             {activeAdminTab === 'reminders' && <ReminderManager />}
+
+            {activeAdminTab === 'gate_security' && (
+              <OutPassPortal
+                embeddedMode={true}
+                isAdminProp={true}
+                initialTab="security"
+                preloadedStudents={adminStudentsList}
+                preloadedTeachers={adminTeachersList}
+              />
+            )}
 
             {activeAdminTab === 'outpass' && (
               <OutPassPortal

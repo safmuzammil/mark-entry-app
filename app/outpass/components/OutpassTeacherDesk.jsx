@@ -813,7 +813,11 @@ export default function OutpassTeacherDesk({
               <div style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <label style={styles.fieldLabel}>2. Leave Category</label>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5' }}>Selected: {formatCategoryLabel(leaveCategory)}</span>
+                  {!leaveCategory ? (
+                    <span style={{ fontSize: 11, fontWeight: 800, color: '#e11d48' }}>⚠️ Mandatory: Please select category</span>
+                  ) : (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#16a34a' }}>✓ Selected: {formatCategoryLabel(leaveCategory)}</span>
+                  )}
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: 10, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
                   {LEAVE_CATEGORIES.map((cat) => {
@@ -889,7 +893,11 @@ export default function OutpassTeacherDesk({
               <div style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <label style={styles.fieldLabel}>3. Destination</label>
-                  {destination && <span style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5' }}>Selected: 📍 {destination}</span>}
+                  {!destination ? (
+                    <span style={{ fontSize: 11, fontWeight: 800, color: '#e11d48' }}>⚠️ Mandatory: Please select or enter destination</span>
+                  ) : (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#16a34a' }}>✓ Selected: 📍 {destination}</span>
+                  )}
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: 10, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', marginBottom: 8 }}>
                   {QUICK_DESTINATIONS.map((place) => {
@@ -955,7 +963,11 @@ export default function OutpassTeacherDesk({
               <div style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <label style={styles.fieldLabel}>4. Purpose / Reason for Leave</label>
-                  {purpose && <span style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5' }}>Selected: 📝 {purpose}</span>}
+                  {!purpose ? (
+                    <span style={{ fontSize: 11, fontWeight: 800, color: '#e11d48' }}>⚠️ Mandatory: Please select or enter purpose</span>
+                  ) : (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#16a34a' }}>✓ Selected: 📝 {purpose}</span>
+                  )}
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: 10, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', marginBottom: 8 }}>
                   {QUICK_PURPOSES.map((rsn) => {

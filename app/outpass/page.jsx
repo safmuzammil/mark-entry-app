@@ -52,6 +52,7 @@ import OutpassAdminReports from "./components/OutpassAdminReports";
 import OutpassSettingsTab from "./components/OutpassSettingsTab";
 
 export default function OutPassPortal({
+  initialTab = null,
   embeddedMode = false,
   preloadedStudents = [],
   preloadedTeachers = [],
@@ -69,7 +70,7 @@ export default function OutPassPortal({
   const [isSecurityKiosk, setIsSecurityKiosk] = useState(false);
   const [securityPinInput, setSecurityPinInput] = useState("");
   const [authChecking, setAuthChecking] = useState(!embeddedMode);
-  const [activeTab, setActiveTab] = useState(isAdminProp ? "admin" : "teacher");
+  const [activeTab, setActiveTab] = useState(initialTab || (isAdminProp ? "admin" : "teacher"));
 
   const [useGatekeeperFlow, setUseGatekeeperFlow] = useState(
     DEFAULT_GATE_WORKFLOW
@@ -87,7 +88,7 @@ export default function OutPassPortal({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [selectedGroupStudents, setSelectedGroupStudents] = useState([]);
-  const [leaveCategory, setLeaveCategory] = useState("Friday");
+  const [leaveCategory, setLeaveCategory] = useState("");
   const [destination, setDestination] = useState("");
   const [purpose, setPurpose] = useState("");
   const [selectedTeacherOverride, setSelectedTeacherOverride] = useState("");
@@ -904,6 +905,58 @@ export default function OutPassPortal({
       processSecurityGateScan(code);
       return;
     }
+  const handleUndoGateVerification = async (passToUndo) => {
+    if (!passToUndo || !passToUndo.id) return;
+    const confirmMsg = `Are you sure you want to undo the gate verification for ${passToUndo.studentName || 'student'} (#${passToUndo.adNo})?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const prevStatus = passToUndo.status;
+      const passRef = doc(db, "out_passes", passToUndo.id);
+
+      if (prevStatus === "ARRIVED_AT_GATE" || prevStatus === "RETURNED") {
+        // Revert return -> student is back outside
+        await updateDoc(passRef, {
+          status: "OUTSIDE",
+          gateArrivalTime: null,
+          actualReturnTime: null,
+          wasLateReturn: false,
+          verifiedReturnedAt: null,
+          verifiedReturnedBy: null,
+        });
+        setPasses(prev => prev.map(p => p.id === passToUndo.id ? {
+          ...p,
+          status: "OUTSIDE",
+          gateArrivalTime: null,
+          actualReturnTime: null,
+          wasLateReturn: false
+        } : p));
+        alert(`↩️ Undone return verification! ${passToUndo.studentName} (#${passToUndo.adNo}) status reverted to OUTSIDE.`);
+      } else if (prevStatus === "OUTSIDE") {
+        // Revert exit -> student is back to approved (ready to exit)
+        await updateDoc(passRef, {
+          status: "APPROVED",
+          gateDepartureTime: null,
+          actualDepartureTime: null,
+        });
+        setPasses(prev => prev.map(p => p.id === passToUndo.id ? {
+          ...p,
+          status: "APPROVED",
+          gateDepartureTime: null,
+          actualDepartureTime: null
+        } : p));
+        alert(`↩️ Undone gate exit! ${passToUndo.studentName} (#${passToUndo.adNo}) status reverted to APPROVED (Ready to Exit).`);
+      }
+
+      if (gateScanResult && gateScanResult.pass?.id === passToUndo.id) {
+        setGateScanResult(null);
+      }
+    } catch (err) {
+      console.error("Undo error:", err);
+      alert("Error undoing verification: " + err.message);
+    }
+  };
+
     playBeep(false);
     if (scannerMode === "teacher") {
       const found = students.find(
@@ -1059,8 +1112,14 @@ export default function OutPassPortal({
     if (targetStudents.length === 0) {
       return alert("Please select at least one student.");
     }
-    if (!destination.trim() || !purpose.trim()) {
-      return alert("Please enter both Destination and Purpose.");
+    if (!leaveCategory) {
+      return alert("⚠️ Mandatory Step: Please select a Leave Category.");
+    }
+    if (!destination || !destination.trim()) {
+      return alert("⚠️ Mandatory Step: Please select or enter a Destination.");
+    }
+    if (!purpose || !purpose.trim()) {
+      return alert("⚠️ Mandatory Step: Please select or enter a Purpose / Reason for Leave.");
     }
 
     const fromISO = partsToISOString(fromDate, fromHour, fromMinute, fromAmpm);
@@ -2197,6 +2256,7 @@ export default function OutPassPortal({
             gateBarcodeInput={gateBarcodeInput}
             setGateBarcodeInput={setGateBarcodeInput}
             processSecurityGateScan={processSecurityGateScan}
+            handleUndoGateVerification={handleUndoGateVerification}
             setScannerMode={setScannerMode}
             setScannerOpen={setScannerOpen}
             gateScanResult={gateScanResult}
