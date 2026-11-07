@@ -83,7 +83,7 @@ export default function PeriodAttendanceManager({
   // --- 1. SUBJECT CARDS & 9-PERIOD ROLL CALL STATE ---
   const [selectedTeacherUsername, setSelectedTeacherUsername] = useState(loggedInUser?.username || '');
   const [attDate, setAttDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [attSession, setAttSession] = useState(''); // Mandatory manual selection!
+  const [attSession, setAttSession] = useState('1');
   const [attEnrollmentId, setAttEnrollmentId] = useState('');
   const [classStudents, setClassStudents] = useState([]);
   const [absentRegNos, setAbsentRegNos] = useState([]);
@@ -334,7 +334,18 @@ export default function PeriodAttendanceManager({
   };
 
   const syncUpdatedStudentsState = (updatedMapByReg) => {
-    const nextList = localStudents.map(s => updatedMapByReg[s.regNo] ? updatedMapByReg[s.regNo] : s);
+    if (!updatedMapByReg || typeof updatedMapByReg !== 'object') return;
+    const nextList = localStudents.map(s => {
+      const sReg = String(s.regNo || '').trim();
+      const sId = String(s.id || '').trim();
+      const match = updatedMapByReg[sReg] ||
+                    updatedMapByReg[sId] ||
+                    updatedMapByReg[sReg.toLowerCase()] ||
+                    updatedMapByReg[sReg.toUpperCase()] ||
+                    updatedMapByReg[sId.toLowerCase()] ||
+                    updatedMapByReg[sId.toUpperCase()];
+      return match ? { ...s, ...match } : s;
+    });
     setLocalStudents(nextList);
     if (onStudentsUpdated) onStudentsUpdated(nextList);
   };
@@ -404,8 +415,17 @@ export default function PeriodAttendanceManager({
       const safeTeacherUsername = String(activeTeacherObj?.username || loggedInUser?.username || 'faculty').toLowerCase().trim();
       const safeTeacherName = String(activeTeacherObj?.fullName || loggedInUser?.fullName || 'Faculty').trim();
 
-      const rehPresentList = rehearsalPresentMapForDate[String(attSession)] || [];
-      const previousMap = existingSessionDoc?.attendanceMap || null;
+            const rehPresentList = rehearsalPresentMapForDate[String(attSession)] || [];
+      const sessionRef = doc(db, 'systemCache', sessionDocId);
+      let previousMap = existingSessionDoc?.attendanceMap || null;
+      try {
+        const freshSnap = await getDoc(sessionRef);
+        if (freshSnap.exists()) {
+          previousMap = freshSnap.data().attendanceMap || previousMap;
+        }
+      } catch (err) {
+        console.warn('Could not re-fetch session cache:', err);
+      }
       const newAttendanceMap = {};
 
       classStudents.forEach(st => {
@@ -431,7 +451,7 @@ export default function PeriodAttendanceManager({
 
         chunk.forEach(st => {
           const reg = String(st.regNo || st.id || '').trim();
-          const docId = String(st.id || st.regNo || '').toLowerCase().trim();
+          const docId = String(st.id || st.regNo || '').trim();
           if (!reg || !docId) return;
 
           const stRef = doc(db, 'students', docId);
@@ -490,7 +510,11 @@ export default function PeriodAttendanceManager({
 
           curStat.updatedAt = new Date().toISOString();
           stBatch.set(stRef, { periodAttendance: curStat }, { merge: true });
-          updatedStudentsByReg[reg] = { ...st, periodAttendance: curStat };
+          const updatedObj = { ...st, periodAttendance: curStat };
+          updatedStudentsByReg[reg] = updatedObj;
+          if (reg.toLowerCase() !== reg) updatedStudentsByReg[reg.toLowerCase()] = updatedObj;
+          if (reg.toUpperCase() !== reg) updatedStudentsByReg[reg.toUpperCase()] = updatedObj;
+          if (st.id) updatedStudentsByReg[st.id] = updatedObj;
         });
 
         await stBatch.commit();
@@ -1087,7 +1111,7 @@ export default function PeriodAttendanceManager({
                       type="button"
                       onClick={() => {
                         setAttEnrollmentId(env.id);
-                        setAttSession(''); // Mandatory manual selection!
+                        setAttSession(prev => prev || '1');
                         setExistingSessionDoc(null);
                         setActiveTab('mark_sheet');
                       }}

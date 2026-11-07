@@ -144,7 +144,7 @@ export default function PeriodAttendanceMinusAndClearance({
     try {
       if (editingMinusLog) {
         const st = localStudents.find(s => s.regNo === selectedMinusStudent.regNo) || selectedMinusStudent;
-        const docId = String(st.id || st.regNo).toLowerCase().trim();
+        const docId = String(st.id || st.regNo || '').trim();
         const curStat = JSON.parse(JSON.stringify(getStudentAttStat(st)));
 
         if (!canUserModifyMinusLog(editingMinusLog)) {
@@ -177,7 +177,7 @@ export default function PeriodAttendanceMinusAndClearance({
 
         targetStudents.forEach((targetSt, idx) => {
           const st = localStudents.find(s => s.regNo === targetSt.regNo) || targetSt;
-          const docId = String(st.id || st.regNo).toLowerCase().trim();
+          const docId = String(st.id || st.regNo || '').trim();
           const curStat = JSON.parse(JSON.stringify(getStudentAttStat(st)));
 
           const newLog = {
@@ -222,7 +222,7 @@ export default function PeriodAttendanceMinusAndClearance({
     if (!window.confirm(`Delete minus record (-${logItem.count}) and restore attendance to ${studentObj.firstName}?`)) return;
     setLoading(true);
     try {
-      const docId = String(studentObj.id || studentObj.regNo).toLowerCase().trim();
+      const docId = String(studentObj.id || studentObj.regNo || '').trim();
       const curStat = JSON.parse(JSON.stringify(getStudentAttStat(studentObj)));
 
       const updatedLogs = (curStat.minusLogs || []).filter(l => l.id !== logItem.id);
@@ -329,7 +329,7 @@ export default function PeriodAttendanceMinusAndClearance({
         curStat.minusLogs = [newLog, ...(curStat.minusLogs || [])];
         curStat.minusCount = curStat.minusLogs.reduce((sum, l) => sum + (Number(l.count) || 0), 0);
 
-        const docId = String(st.id || st.regNo).toLowerCase().trim();
+        const docId = String(st.id || st.regNo || '').trim();
         batch.set(doc(db, 'students', docId), { periodAttendance: curStat }, { merge: true });
         updatedMap[st.regNo] = { ...st, periodAttendance: curStat };
         addedCount++;
@@ -579,7 +579,7 @@ export default function PeriodAttendanceMinusAndClearance({
 
       // Commit updated student documents
       fetchedClearStudentsList.forEach(student => {
-        const docId = String(student.id || student.regNo).toLowerCase().trim();
+        const docId = String(student.id || student.regNo || '').trim();
         const finalStat = studentStatsDraft[student.regNo];
         batch.set(doc(db, 'students', docId), { periodAttendance: finalStat }, { merge: true });
         updatedMap[student.regNo] = { ...student, periodAttendance: finalStat };
@@ -700,7 +700,7 @@ export default function PeriodAttendanceMinusAndClearance({
         const chunk = localStudents.slice(i, i + 400);
         const batch = writeBatch(db);
         chunk.forEach(st => {
-          const docId = String(st.id || st.regNo).toLowerCase().trim();
+          const docId = String(st.id || st.regNo || '').trim();
           const emptyStat = {
             totalPeriods: 0, presentCount: 0, officialCount: 0, medicalCount: 0,
             permittedCount: 0, minusCount: 0, minusLogs: [], subjectWise: {},
@@ -805,7 +805,7 @@ export default function PeriodAttendanceMinusAndClearance({
 
         if (cleared > 0) {
           totalPeriodsCleared += cleared;
-          const docId = String(st.id || st.regNo).toLowerCase().trim();
+          const docId = String(st.id || st.regNo || '').trim();
           batch.set(doc(db, 'students', docId), { periodAttendance: nextStat }, { merge: true });
           updatedMap[st.regNo] = { ...st, periodAttendance: nextStat };
         }
@@ -898,7 +898,7 @@ export default function PeriodAttendanceMinusAndClearance({
               });
             }
 
-            const docId = String(st.id || st.regNo).toLowerCase().trim();
+            const docId = String(st.id || st.regNo || '').trim();
             const periodAttendance = {
               totalPeriods: calcTotal,
               presentCount: calcPresent,
@@ -1048,7 +1048,7 @@ export default function PeriodAttendanceMinusAndClearance({
           }
 
           matchedNewRegs.add(st.regNo);
-          const docId = String(st.id || st.regNo).toLowerCase().trim();
+          const docId = String(st.id || st.regNo || '').trim();
           const cur = getStudentAttStat(st);
           const periodAttendance = {
             ...cur,
@@ -1098,7 +1098,7 @@ export default function PeriodAttendanceMinusAndClearance({
 
         if (cleared > 0) {
           totalCleared += cleared;
-          const docId = String(st.id || st.regNo).toLowerCase().trim();
+          const docId = String(st.id || st.regNo || '').trim();
           batch.set(doc(db, 'students', docId), { periodAttendance: nextStat }, { merge: true });
           updatedMap[st.regNo] = { ...st, periodAttendance: nextStat };
         }

@@ -1,5 +1,4 @@
 'use client';
-import AiAssistantChat from './components/AiAssistantChat';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -626,7 +625,6 @@ export default function UnifiedSchoolPortal() {
               </div>
             )}
           </main>
-          <AiAssistantChat userRole="admin" userName="Administrator" />
         </div>
       </div>
     );

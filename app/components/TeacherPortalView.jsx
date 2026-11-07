@@ -1,5 +1,4 @@
 'use client';
-import AiAssistantChat from './AiAssistantChat';
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { auth, db } from '../../lib/firebase';
@@ -1387,7 +1386,6 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
             </>
           )}
         </main>
-        <AiAssistantChat userRole="teacher" userName={loggedInTeacher?.fullName || 'Faculty'} />
       </div>
     </div>
   );
