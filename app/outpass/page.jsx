@@ -466,11 +466,23 @@ export default function OutPassPortal({
     }
   }, [canSeeReportsTab, isSecurityKiosk, activeTab]);
 
-  // 🌟 Sync initialTab dynamically when opened as embedded Gate Security Kiosk
+  // 🌟 Sync initialTab dynamically when opened as embedded Gate Security Kiosk or via URL hash
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
       if (initialTab === "security") {
+        setTimeout(() => gateInputRef.current?.focus(), 250);
+      }
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash.replace("#", "").toLowerCase().trim();
+      const searchParams = new URLSearchParams(window.location.search);
+      const tabParam = searchParams.get("tab")?.toLowerCase().trim();
+      if (hash === "security" || hash === "gate_security" || tabParam === "security") {
+        setActiveTab("security");
+        setIsSecurityKiosk(true);
         setTimeout(() => gateInputRef.current?.focus(), 250);
       }
     }

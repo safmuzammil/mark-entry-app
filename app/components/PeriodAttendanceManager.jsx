@@ -632,6 +632,17 @@ export default function PeriodAttendanceManager({
         await stBatch.commit();
       }
 
+      const sessionMeta = {
+        sessionDocId,
+        session: Number(attSession) || 1,
+        subject: subKey,
+        enrollmentId: env.id,
+        targetClass: env.targetClass || '',
+        classAlias: safeAlias,
+        teacherUsername: safeTeacherUsername,
+        teacherName: safeTeacherName
+      };
+
       try {
         await setDoc(doc(db, 'systemCache', sessionDocId), {
           date: attDate,
@@ -647,17 +658,6 @@ export default function PeriodAttendanceManager({
           updatedAt: new Date().toISOString()
         }, { merge: true });
 
-        const sessionMeta = {
-          sessionDocId,
-          session: Number(attSession) || 1,
-          subject: subKey,
-          enrollmentId: env.id,
-          targetClass: env.targetClass || '',
-          classAlias: safeAlias,
-          teacherUsername: safeTeacherUsername,
-          teacherName: safeTeacherName
-        };
-
         const dayIndexRef = doc(db, 'systemCache', `daySessionsIndex_${attDate}`);
         const dayIndexSnap = await getDoc(dayIndexRef);
         const existingSessionsList = dayIndexSnap.exists() ? (dayIndexSnap.data().sessions || []) : [];
@@ -671,17 +671,6 @@ export default function PeriodAttendanceManager({
       }
 
       syncUpdatedStudentsState(updatedStudentsByReg);
-
-      const sessionMeta = {
-        sessionDocId,
-        session: Number(attSession) || 1,
-        subject: subKey,
-        enrollmentId: env.id,
-        targetClass: env.targetClass || '',
-        classAlias: safeAlias,
-        teacherUsername: safeTeacherUsername,
-        teacherName: safeTeacherName
-      };
 
       const recordedAbs = Object.keys(newAttendanceMap)
         .filter(k => newAttendanceMap[k] === 'A' || newAttendanceMap[k] === 'M')
@@ -1475,18 +1464,32 @@ export default function PeriodAttendanceManager({
                     {(() => {
                       const subKey = normalizeSubKey(isAttendanceOnlyEnrollment(env) ? (env.alias || env.subject) : env.subject);
                       const envUniqueKey = String(env.id || env.targetClass || '').replace(/[^a-zA-Z0-9]/g, '_');
-                      const classUpper = String(env.targetClass || env.alias?.split(' ').pop() || '').toUpperCase();
-                      const aliasUpper = String(env.alias || '').toUpperCase();
+                      const eAliasClean = String(env.alias || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+                      const eSubClean = String(env.subject || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+                      const eTargetClean = String(env.targetClass || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
                       const recordedSessions = todayRecordedSessions.filter(s => {
                         if (s.enrollmentId && s.enrollmentId === env.id) return true;
                         if (envUniqueKey && s.sessionDocId?.includes(envUniqueKey)) return true;
-                        if (classUpper && (s.sessionDocId?.toUpperCase().includes(classUpper) || String(s.classAlias || '').toUpperCase().includes(classUpper) || String(s.targetClass || '').toUpperCase() === classUpper)) {
-                          if (s.subject === subKey || (aliasUpper && String(s.classAlias || s.sessionDocId || '').toUpperCase().includes(aliasUpper))) {
+
+                        const sSub = String(s.subject || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+                        const sAlias = String(s.classAlias || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+                        const sDocId = String(s.sessionDocId || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+                        // 1. Direct clean alias match (e.g. "QLA3THAMADUN" in "QLA3THAMADUN")
+                        if (eAliasClean && (sAlias.includes(eAliasClean) || sSub.includes(eAliasClean) || sDocId.includes(eAliasClean))) {
+                          return true;
+                        }
+
+                        // 2. Target class + Subject match (both must match to avoid cross-batch pollution)
+                        if (eTargetClean && (sAlias.includes(eTargetClean) || sDocId.includes(eTargetClean))) {
+                          if (eSubClean && (sSub.includes(eSubClean) || sAlias.includes(eSubClean))) {
                             return true;
                           }
                         }
-                        if (!s.enrollmentId && !s.targetClass && aliasUpper && String(s.classAlias || s.sessionDocId || '').toUpperCase().includes(aliasUpper)) {
+
+                        // 3. Fallback only if no specific alias or class is present
+                        if (!eAliasClean && !eTargetClean && eSubClean && sSub === eSubClean) {
                           return true;
                         }
                         return false;

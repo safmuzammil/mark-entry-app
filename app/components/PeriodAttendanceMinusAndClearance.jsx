@@ -1038,6 +1038,219 @@ export default function PeriodAttendanceMinusAndClearance({
   // =========================================================================
   // 🌟 3. IMPORT OLD ATTENDANCE DATA (Supports Full Granular Date-by-Date Sessions!)
   // =========================================================================
+  const executeImportFromJson = async (jsonMap) => {
+    const updatedMap = {};
+    let importedCount = 0;
+    const notFoundInNewApp = [];
+    const nameDiffWarnings = [];
+    const matchedNewRegs = new Set();
+
+    // Determine students list (handles full granular export, legacy students map, or flat array)
+    let rawStudentsObj = jsonMap.students || jsonMap.attendance || jsonMap;
+    const entries = Array.isArray(rawStudentsObj)
+      ? rawStudentsObj
+      : Object.entries(rawStudentsObj)
+          .filter(([k]) => k !== 'sessions' && k !== 'dayIndexes' && k !== 'teachers' && k !== 'metadata' && k !== 'version' && k !== 'exportedAt')
+          .map(([k, v]) => ({ jsonKey: k, ...v }));
+
+    // 1. Batch Write Students & Period Attendance Summary (Chunk size 50 for safety)
+    for (let i = 0; i < entries.length; i += 50) {
+      const chunk = entries.slice(i, i + 50);
+      const batch = writeBatch(db);
+
+      chunk.forEach(item => {
+        const rawAd = item.adNo || item.admissionNumber || item.admission_number || item.jsonKey || '';
+        let cleanAd = String(rawAd).trim().toUpperCase();
+        if (cleanAd.startsWith('#')) cleanAd = cleanAd.slice(1).trim();
+        if (!cleanAd) return;
+
+        let st = localStudents.find(s =>
+          String(s.adNo || '').trim().toUpperCase() === cleanAd ||
+          String(s.regNo || '').trim().toUpperCase() === cleanAd ||
+          String(s.id || '').trim().toUpperCase() === cleanAd
+        );
+
+        if (!st && /^\d{3,5}$/.test(cleanAd)) {
+          st = localStudents.find(s => String(s.adNo || '').trim().toUpperCase() === 'U' + cleanAd);
+        }
+
+        if (!st) {
+          notFoundInNewApp.push({
+            adNo: cleanAd,
+            oldName: item.studentName || item.name || 'Unknown',
+            oldClass: item.className || item.class || '-',
+            totalPeriods: Number(item.totalPeriods) || 0,
+            presentCount: Number(item.presentCount) || 0,
+            minusCount: Number(item.minusCount) || 0
+          });
+          return;
+        }
+
+        matchedNewRegs.add(st.regNo);
+
+        let calcTotal = Number(item.totalPeriods) || 0;
+        let calcPresent = Number(item.presentCount) || 0;
+        const subjData = item.subjectWise || item.subjects || {};
+
+        if (calcTotal === 0 && Object.keys(subjData).length > 0) {
+          Object.values(subjData).forEach(subObj => {
+            calcTotal += Number(subObj.total || subObj.totalPeriods) || 0;
+            calcPresent += Number(subObj.present || subObj.presentCount) || 0;
+          });
+        }
+
+        const docId = String(st.id || st.regNo || '').trim();
+        const existingPatt = st.periodAttendance || {};
+        const existingMinusLogs = Array.isArray(existingPatt.minusLogs) ? existingPatt.minusLogs : [];
+        const newMinusLogs = Array.isArray(item.minusLogs) ? item.minusLogs : [];
+        const mergedMinusLogs = [...existingMinusLogs];
+        newMinusLogs.forEach(ml => {
+          if (!mergedMinusLogs.some(em => (em.id && em.id === ml.id) || (em.date === ml.date && em.reason === ml.reason && em.count === ml.count))) {
+            mergedMinusLogs.push(ml);
+          }
+        });
+        const totalMinusCount = mergedMinusLogs.reduce((acc, m) => acc + (Number(m.count) || 0), 0);
+
+        const periodAttendance = {
+          totalPeriods: calcTotal,
+          presentCount: calcPresent,
+          officialCount: Number(item.officialCount) || 0,
+          medicalCount: Number(item.medicalCount) || 0,
+          permittedCount: 0,
+          minusCount: totalMinusCount,
+          minusLogs: mergedMinusLogs,
+          subjectWise: subjData,
+          appliedRehearsalDates: existingPatt.appliedRehearsalDates || {},
+          updatedAt: new Date().toISOString()
+        };
+
+        batch.set(doc(db, 'students', docId), { periodAttendance }, { merge: true });
+        updatedMap[st.regNo] = { ...st, periodAttendance };
+        importedCount++;
+      });
+      await batch.commit();
+    }
+
+    // 2. Batch Write Granular Period Sessions (Chunk size 80)
+    let importedSessionsCount = 0;
+    const sessionsList = Array.isArray(jsonMap.sessions) ? jsonMap.sessions : [];
+    if (sessionsList.length > 0) {
+      setStatusMsg(`⏳ Saving ${sessionsList.length} date-by-date period sessions (Periods 1 to 9)...`);
+      for (let i = 0; i < sessionsList.length; i += 80) {
+        const chunk = sessionsList.slice(i, i + 80);
+        const batch = writeBatch(db);
+
+        chunk.forEach(s => {
+          const safeAlias = String(s.classAlias || s.subject || 'Subject').trim();
+          const sessionDocId = s.sessionDocId || `periodSession_${s.date}_${safeAlias.replace(/[^a-zA-Z0-9]/g, '_')}_S${s.session || 1}`;
+
+          const normalizedMap = {};
+          Object.entries(s.attendanceMap || {}).forEach(([adOrReg, status]) => {
+            normalizedMap[adOrReg] = status;
+            const cleanK = String(adOrReg).trim().toUpperCase();
+            const matched = localStudents.find(st => 
+              String(st.adNo || '').trim().toUpperCase() === cleanK ||
+              String(st.regNo || '').trim().toUpperCase() === cleanK
+            );
+            if (matched) {
+              normalizedMap[matched.regNo] = status;
+            }
+          });
+
+          batch.set(doc(db, 'systemCache', sessionDocId), {
+            date: s.date,
+            session: Number(s.session) || 1,
+            subject: s.subject,
+            classAlias: s.classAlias,
+            teacherUsername: String(s.teacherUsername || 'admin').toLowerCase().trim(),
+            teacherName: String(s.teacherName || 'Faculty').trim(),
+            attendanceMap: normalizedMap,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+
+          importedSessionsCount++;
+        });
+        await batch.commit();
+      }
+    }
+
+    // 3. Batch Write Daily Sessions Indexes (Chunk size 50)
+    const dayIndexesObj = jsonMap.dayIndexes || {};
+    const dayDates = Object.keys(dayIndexesObj);
+    if (dayDates.length > 0) {
+      setStatusMsg(`⏳ Indexing ${dayDates.length} calendar dates...`);
+      for (let i = 0; i < dayDates.length; i += 50) {
+        const chunk = dayDates.slice(i, i + 50);
+        const batch = writeBatch(db);
+
+        chunk.forEach(dStr => {
+          batch.set(doc(db, 'systemCache', `daySessionsIndex_${dStr}`), {
+            date: dStr,
+            sessions: dayIndexesObj[dStr] || []
+          }, { merge: true });
+        });
+        await batch.commit();
+      }
+    }
+
+    // 4. Batch Write Teacher Enrollments & Allocations
+    const teachersList = Array.isArray(jsonMap.teachers) ? jsonMap.teachers : [];
+    let importedTeachersCount = 0;
+    if (teachersList.length > 0) {
+      setStatusMsg(`⏳ Linking ${teachersList.length} teacher subject allocations...`);
+      const batch = writeBatch(db);
+      teachersList.forEach(t => {
+        const safeUsername = String(t.username || '').toLowerCase().trim();
+        if (!safeUsername) return;
+        const existingT = localTeachers.find(x => x.username === safeUsername);
+        const mergedEnrollments = [...(existingT?.enrollments || [])];
+        (t.enrollments || []).forEach(env => {
+          if (!mergedEnrollments.some(e => e.id === env.id || e.alias === env.alias)) {
+            mergedEnrollments.push(env);
+          }
+        });
+        batch.set(doc(db, 'teachers', safeUsername), {
+          fullName: t.fullName || t.name,
+          username: safeUsername,
+          role: t.role || 'teacher',
+          enrollments: mergedEnrollments
+        }, { merge: true });
+        importedTeachersCount++;
+      });
+      await batch.commit();
+    }
+
+    const missingFromOldExport = localStudents
+      .filter(s => !matchedNewRegs.has(s.regNo))
+      .map(s => ({ adNo: s.adNo, name: s.firstName, className: (s.classes || []).join(', ') }));
+
+    setImportAuditReport({ importedCount, totalAutoCleared: 0, notFoundInNewApp, nameDiffWarnings, missingFromOldExport });
+    syncUpdatedStudentsState(updatedMap);
+    setStatusMsg(
+      `🎉 Successfully imported ${importedCount} students` +
+      (importedSessionsCount > 0 ? `, ${importedSessionsCount} period sessions across ${dayDates.length} dates` : '') +
+      (importedTeachersCount > 0 ? `, and ${importedTeachersCount} teachers` : '') +
+      '!'
+    );
+  };
+
+  const handleAutoSyncBundledHuzoorData = async () => {
+    setLoading(true);
+    setStatusMsg('⏳ Fetching bundled Huzoor Server Granular Dataset...');
+    setImportAuditReport(null);
+    try {
+      const res = await fetch('/shuhood_full_granular_export.json');
+      if (!res.ok) throw new Error('Could not fetch dataset from server: ' + res.statusText);
+      const jsonMap = await res.json();
+      await executeImportFromJson(jsonMap);
+    } catch (err) {
+      console.error('Auto sync error:', err);
+      setStatusMsg('❌ Sync failed: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleImportOldShuhoodFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1047,187 +1260,10 @@ export default function PeriodAttendanceMinusAndClearance({
 
     try {
       const ext = file.name.split('.').pop().toLowerCase();
-      const updatedMap = {};
-      let importedCount = 0;
-      const notFoundInNewApp = [];
-      const nameDiffWarnings = [];
-      const matchedNewRegs = new Set();
-
       if (ext === 'json') {
         const textContent = await file.text();
         const jsonMap = JSON.parse(textContent);
-
-        // Determine students list (handles full granular export, legacy students map, or flat array)
-        let rawStudentsObj = jsonMap.students || jsonMap.attendance || jsonMap;
-        const entries = Array.isArray(rawStudentsObj)
-          ? rawStudentsObj
-          : Object.entries(rawStudentsObj)
-              .filter(([k]) => k !== 'sessions' && k !== 'dayIndexes' && k !== 'teachers' && k !== 'metadata' && k !== 'version' && k !== 'exportedAt')
-              .map(([k, v]) => ({ jsonKey: k, ...v }));
-
-        // 1. Batch Write Students & Period Attendance Summary
-        for (let i = 0; i < entries.length; i += 400) {
-          const chunk = entries.slice(i, i + 400);
-          const batch = writeBatch(db);
-
-          chunk.forEach(item => {
-            const rawAd = item.adNo || item.admissionNumber || item.admission_number || item.jsonKey || '';
-            const cleanAd = String(rawAd).trim().toUpperCase();
-            if (!cleanAd) return;
-
-            const st = localStudents.find(s =>
-              String(s.adNo || '').trim().toUpperCase() === cleanAd ||
-              String(s.regNo || '').trim().toUpperCase() === cleanAd ||
-              String(s.id || '').trim().toUpperCase() === cleanAd
-            );
-
-            if (!st) {
-              notFoundInNewApp.push({
-                adNo: cleanAd,
-                oldName: item.studentName || item.name || 'Unknown',
-                oldClass: item.className || item.class || '-',
-                totalPeriods: Number(item.totalPeriods) || 0,
-                presentCount: Number(item.presentCount) || 0,
-                minusCount: Number(item.minusCount) || 0
-              });
-              return;
-            }
-
-            matchedNewRegs.add(st.regNo);
-
-            let calcTotal = Number(item.totalPeriods) || 0;
-            let calcPresent = Number(item.presentCount) || 0;
-            const subjData = item.subjectWise || item.subjects || {};
-
-            if (calcTotal === 0 && Object.keys(subjData).length > 0) {
-              Object.values(subjData).forEach(subObj => {
-                calcTotal += Number(subObj.total || subObj.totalPeriods) || 0;
-                calcPresent += Number(subObj.present || subObj.presentCount) || 0;
-              });
-            }
-
-            const docId = String(st.id || st.regNo || '').trim();
-            const periodAttendance = {
-              totalPeriods: calcTotal,
-              presentCount: calcPresent,
-              officialCount: Number(item.officialCount) || 0,
-              medicalCount: Number(item.medicalCount) || 0,
-              permittedCount: 0,
-              minusCount: Number(item.minusCount) || Number(item.totalMinusCount) || 0,
-              minusLogs: Array.isArray(item.minusLogs) ? item.minusLogs : [],
-              subjectWise: subjData,
-              appliedRehearsalDates: {},
-              updatedAt: new Date().toISOString()
-            };
-
-            batch.set(doc(db, 'students', docId), { periodAttendance }, { merge: true });
-            updatedMap[st.regNo] = { ...st, periodAttendance };
-            importedCount++;
-          });
-          await batch.commit();
-        }
-
-        // 2. Batch Write Granular Period Sessions (date by date, teacher by teacher, subject by subject)
-        let importedSessionsCount = 0;
-        const sessionsList = Array.isArray(jsonMap.sessions) ? jsonMap.sessions : [];
-        if (sessionsList.length > 0) {
-          setStatusMsg(`⏳ Saving ${sessionsList.length} date-by-date period sessions...`);
-          for (let i = 0; i < sessionsList.length; i += 400) {
-            const chunk = sessionsList.slice(i, i + 400);
-            const batch = writeBatch(db);
-
-            chunk.forEach(s => {
-              const safeAlias = String(s.classAlias || s.subject || 'Subject').trim();
-              const sessionDocId = s.sessionDocId || `periodSession_${s.date}_${safeAlias.replace(/[^a-zA-Z0-9]/g, '_')}_S${s.session || 1}`;
-
-              // Normalize attendanceMap to map any admission numbers to student regNo
-              const normalizedMap = {};
-              Object.entries(s.attendanceMap || {}).forEach(([adOrReg, status]) => {
-                normalizedMap[adOrReg] = status;
-                const matched = localStudents.find(st => 
-                  String(st.adNo || '').trim().toUpperCase() === String(adOrReg).trim().toUpperCase() ||
-                  String(st.regNo || '').trim().toUpperCase() === String(adOrReg).trim().toUpperCase()
-                );
-                if (matched) {
-                  normalizedMap[matched.regNo] = status;
-                }
-              });
-
-              batch.set(doc(db, 'systemCache', sessionDocId), {
-                date: s.date,
-                session: Number(s.session) || 1,
-                subject: s.subject,
-                classAlias: s.classAlias,
-                teacherUsername: String(s.teacherUsername || 'admin').toLowerCase().trim(),
-                teacherName: String(s.teacherName || 'Faculty').trim(),
-                attendanceMap: normalizedMap,
-                updatedAt: new Date().toISOString()
-              }, { merge: true });
-
-              importedSessionsCount++;
-            });
-            await batch.commit();
-          }
-        }
-
-        // 3. Batch Write Daily Sessions Indexes (daySessionsIndex_YYYY-MM-DD)
-        const dayIndexesObj = jsonMap.dayIndexes || {};
-        const dayDates = Object.keys(dayIndexesObj);
-        if (dayDates.length > 0) {
-          setStatusMsg(`⏳ Indexing ${dayDates.length} calendar dates...`);
-          for (let i = 0; i < dayDates.length; i += 400) {
-            const chunk = dayDates.slice(i, i + 400);
-            const batch = writeBatch(db);
-
-            chunk.forEach(dStr => {
-              batch.set(doc(db, 'systemCache', `daySessionsIndex_${dStr}`), {
-                date: dStr,
-                sessions: dayIndexesObj[dStr] || []
-              }, { merge: true });
-            });
-            await batch.commit();
-          }
-        }
-
-        // 4. Batch Write Teacher Enrollments & Allocations
-        const teachersList = Array.isArray(jsonMap.teachers) ? jsonMap.teachers : [];
-        let importedTeachersCount = 0;
-        if (teachersList.length > 0) {
-          setStatusMsg(`⏳ Linking ${teachersList.length} teacher subject allocations...`);
-          const batch = writeBatch(db);
-          teachersList.forEach(t => {
-            const safeUsername = String(t.username || '').toLowerCase().trim();
-            if (!safeUsername) return;
-            const existingT = localTeachers.find(x => x.username === safeUsername);
-            const mergedEnrollments = [...(existingT?.enrollments || [])];
-            (t.enrollments || []).forEach(env => {
-              if (!mergedEnrollments.some(e => e.id === env.id || e.alias === env.alias)) {
-                mergedEnrollments.push(env);
-              }
-            });
-            batch.set(doc(db, 'teachers', safeUsername), {
-              fullName: t.fullName || t.name,
-              username: safeUsername,
-              role: t.role || 'teacher',
-              enrollments: mergedEnrollments
-            }, { merge: true });
-            importedTeachersCount++;
-          });
-          await batch.commit();
-        }
-
-        const missingFromOldExport = localStudents
-          .filter(s => !matchedNewRegs.has(s.regNo))
-          .map(s => ({ adNo: s.adNo, name: s.firstName, className: (s.classes || []).join(', ') }));
-
-        setImportAuditReport({ importedCount, totalAutoCleared: 0, notFoundInNewApp, nameDiffWarnings, missingFromOldExport });
-        syncUpdatedStudentsState(updatedMap);
-        setStatusMsg(
-          `🎉 Successfully imported ${importedCount} students` +
-          (importedSessionsCount > 0 ? `, ${importedSessionsCount} period sessions across ${dayDates.length} dates` : '') +
-          (importedTeachersCount > 0 ? `, and ${importedTeachersCount} teachers` : '') +
-          '!'
-        );
+        await executeImportFromJson(jsonMap);
         return;
       } else {
         const buffer = await file.arrayBuffer();
@@ -2296,7 +2332,27 @@ export default function PeriodAttendanceMinusAndClearance({
             </p>
           </div>
 
-          <input type="file" accept=".json,.xlsx,.xls,.csv" onChange={handleImportOldShuhoodFile} disabled={loading} style={styles.input} />
+          <div style={{ padding: '16px 18px', background: '#eef2ff', borderRadius: '12px', border: '1.5px solid #c7d2fe', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <div style={{ fontWeight: '800', color: '#312e81', fontSize: '15px' }}>⚡ 1-Click Fast Sync Bundled Huzoor Dataset</div>
+              <div style={{ fontSize: '12px', color: '#4338ca', marginTop: '2px' }}>
+                Directly imports 2,700 granular period sessions across 55 dates with 1-9 periods (FN 1-6 &amp; AN 7-9) and 270 students.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleAutoSyncBundledHuzoorData}
+              disabled={loading}
+              style={{ ...styles.buttonPrimary, background: '#4f46e5', padding: '12px 22px', fontSize: '14px', fontWeight: '800' }}
+            >
+              ⚡ 1-Click Sync Now
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: '13px', fontWeight: '700', color: '#475569' }}>Or Upload Custom Export File (.json, .xlsx, .csv):</label>
+            <input type="file" accept=".json,.xlsx,.xls,.csv" onChange={handleImportOldShuhoodFile} disabled={loading} style={styles.input} />
+          </div>
 
           <div style={{ padding: '14px 16px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
             <div>

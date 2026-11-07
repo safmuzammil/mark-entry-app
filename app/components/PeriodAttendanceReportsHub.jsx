@@ -978,22 +978,27 @@ export default function PeriodAttendanceReportsHub({
                     No period sessions recorded for {repDate} yet.
                   </div>
                 ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: '12px' }}>
-                    {filteredDailySessions.map(sess => {
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
+                    {filteredDailySessions.map((sess, sIdx) => {
                       const mapVals = Object.values(sess.attendanceMap || {});
                       const presC = mapVals.filter(v => v === 'P' || v === 'O').length;
                       const absC = mapVals.length - presC;
+                      const isReh = Boolean(sess.isRehearsal || String(sess.subject || '').startsWith('REHEARSAL'));
+                      const uniqueKey = sess.sessionDocId || sess.id || `${sess.date}_${sess.session}_${sess.subject}_${sIdx}`;
+
                       return (
-                        <div key={sess.id} style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#ffffff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
+                        <div key={uniqueKey} style={{ padding: '14px 16px', borderRadius: '12px', border: isReh ? '1px solid #fde68a' : '1px solid #e2e8f0', background: isReh ? '#fffbeb' : '#ffffff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
                           <div>
-                            <span style={{ background: '#4f46e5', color: '#ffffff', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
-                              Period {sess.session}
-                            </span>
-                            <div style={{ fontWeight: '800', fontSize: '14px', color: '#0f172a', marginTop: '4px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ background: isReh ? '#d97706' : '#4f46e5', color: '#ffffff', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
+                                {isReh ? `🎭 Rehearsal • Period ${sess.session}` : `Period ${sess.session}`}
+                              </span>
+                            </div>
+                            <div style={{ fontWeight: '800', fontSize: '14px', color: '#0f172a', marginTop: '5px' }}>
                               {sess.classAlias || sess.subject}
                             </div>
-                            <div style={{ fontSize: '12px', color: '#475569', fontWeight: '600' }}>
-                              👨‍🏫 {sess.teacherName} • Pres: {presC} / Abs: {absC}
+                            <div style={{ fontSize: '12px', color: '#475569', fontWeight: '600', marginTop: '2px' }}>
+                              👨‍🏫 {sess.teacherName} • Pres: <strong style={{ color: '#059669' }}>{presC}</strong> / Abs: <strong style={{ color: '#e11d48' }}>{absC}</strong>
                             </div>
                           </div>
                           {(userRole === 'admin' || currentUname === String(sess.teacherUsername || '').toLowerCase().trim() || currentFullName.includes(String(sess.teacherName || '').toLowerCase().replace(/[^a-z0-9]/g, '')) || teacherEnvs.some(e => e.id === sess.enrollmentId || normalizeSubKey(e.subject) === normalizeSubKey(sess.subject))) && (
