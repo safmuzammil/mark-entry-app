@@ -29,10 +29,15 @@ export default function PeriodAttendanceReportsHub({
   setStatusMsg
 }) {
   // --- 1. REPORTS HUB STATE ---
-  const [repScope, setRepScope] = useState('total'); // 'total' | 'monthly' | 'fn_an_monthly' | 'daily'
+  const [repScope, setRepScope] = useState(() => {
+    const ctClasses = activeTeacherObj?.outpassPrivileges?.classTeacherOf || activeTeacherObj?.classTeacherOf || loggedInUser?.outpassPrivileges?.classTeacherOf || loggedInUser?.classTeacherOf || [];
+    const hasCt = Array.isArray(ctClasses) ? ctClasses.length > 0 : Boolean(ctClasses);
+    return (userRole === 'admin' || hasCt) ? 'fn_an_monthly' : 'total';
+  });
   const [repClass, setRepClass] = useState(() => {
-    const ctClasses = activeTeacherObj?.outpassPrivileges?.classTeacherOf || loggedInUser?.outpassPrivileges?.classTeacherOf || [];
-    return ctClasses.length > 0 ? ctClasses[0] : 'ALL';
+    const ctClasses = activeTeacherObj?.outpassPrivileges?.classTeacherOf || activeTeacherObj?.classTeacherOf || loggedInUser?.outpassPrivileges?.classTeacherOf || loggedInUser?.classTeacherOf || [];
+    const firstCt = Array.isArray(ctClasses) ? ctClasses[0] : ctClasses;
+    return (userRole !== 'admin' && firstCt) ? firstCt : 'ALL';
   });
   const [repMonth, setRepMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [repDate, setRepDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -113,11 +118,58 @@ export default function PeriodAttendanceReportsHub({
     fetchFnAnMonthData();
   }, [activeTab, repScope, repMonth]);
 
+  useEffect(() => {
+    if (isPureSubjectTeacher && repScope === 'fn_an_monthly') {
+      setRepScope('total');
+    }
+  }, [isPureSubjectTeacher, repScope]);
+
+  useEffect(() => {
+    if (isClassTeacher && repScope === 'fn_an_monthly') {
+      if (repClass === 'ALL' || !myCtClasses.includes(repClass)) {
+        if (myCtClasses.length > 0) setRepClass(myCtClasses[0]);
+      }
+    }
+  }, [isClassTeacher, repScope, myCtClasses, repClass]);
+
   const teacherAllowedClassesSet = new Set();
   const teacherAllowedStudentRegs = new Set();
   const subjectColsSet = new Set();
 
-  const myCtClasses = activeTeacherObj?.outpassPrivileges?.classTeacherOf || loggedInUser?.outpassPrivileges?.classTeacherOf || [];
+    const myCtClasses = React.useMemo(() => {
+    const set = new Set();
+    const addClean = (val) => {
+      if (!val) return;
+      if (Array.isArray(val)) {
+        val.filter(Boolean).forEach(c => set.add(String(c).trim().toUpperCase()));
+      } else if (typeof val === 'string') {
+        val.split(',').map(s => s.trim().toUpperCase()).filter(Boolean).forEach(c => set.add(c));
+      }
+    };
+    addClean(activeTeacherObj?.outpassPrivileges?.classTeacherOf);
+    addClean(activeTeacherObj?.classTeacherOf);
+    addClean(loggedInUser?.outpassPrivileges?.classTeacherOf);
+    addClean(loggedInUser?.classTeacherOf);
+
+    const myUser = String(activeTeacherObj?.username || loggedInUser?.username || '').trim().toLowerCase();
+    const myName = String(activeTeacherObj?.fullName || loggedInUser?.fullName || '').trim().toLowerCase();
+
+    if (myUser && myUser !== 'admin') {
+      localStudents.forEach(st => {
+        const ctUser = String(st.classTeacherUsername || st.classTeacher || '').trim().toLowerCase();
+        const ctName = String(st.classTeacherName || '').trim().toLowerCase();
+        if ((ctUser && ctUser === myUser) || (ctName && ctName === myName)) {
+          const stClasses = Array.isArray(st.classes) ? st.classes : [st.class].filter(Boolean);
+          stClasses.forEach(c => set.add(String(c).trim().toUpperCase()));
+        }
+      });
+    }
+    return Array.from(set);
+  }, [activeTeacherObj, loggedInUser, localStudents]);
+
+  const isClassTeacher = userRole !== 'admin' && myCtClasses.length > 0;
+  const isPureSubjectTeacher = userRole !== 'admin' && myCtClasses.length === 0;
+
   myCtClasses.forEach(c => teacherAllowedClassesSet.add(c));
 
   if (userRole !== 'admin') {
@@ -171,7 +223,7 @@ export default function PeriodAttendanceReportsHub({
 
   const availableClassesForDropdown = userRole === 'admin'
     ? DEFAULT_CLASSES
-    : Array.from(teacherAllowedClassesSet);
+    : (repScope === 'fn_an_monthly' ? (myCtClasses.length > 0 ? myCtClasses : Array.from(teacherAllowedClassesSet)) : Array.from(teacherAllowedClassesSet));
 
   const filteredReportStudents = localStudents.filter(st => {
     if (userRole !== 'admin' && !teacherAllowedStudentRegs.has(st.regNo)) return false;
@@ -193,7 +245,13 @@ export default function PeriodAttendanceReportsHub({
     });
   }
 
+  const teacherSubKeys = new Set(
+    attendanceEnrollments.map(env => normalizeSubKey(isAttendanceOnlyEnrollment(env) ? (env.alias || env.subject) : env.subject))
+  );
   let subjectColumns = Array.from(subjectColsSet);
+  if (userRole !== 'admin') {
+    subjectColumns = subjectColumns.filter(s => teacherSubKeys.has(s));
+  }
   if (repSubject !== 'ALL') {
     subjectColumns = subjectColumns.filter(s => s === repSubject);
   }
@@ -425,10 +483,21 @@ export default function PeriodAttendanceReportsHub({
       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', background: '#f8fafc', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
           {[
-            { id: 'total', label: '📈 Total Semester' },
-            { id: 'fn_an_monthly', label: '🌤️ FN / AN Monthly Days (≥5d Absent & 100% Present)' },
-            { id: 'monthly', label: '🗓️ Subject Monthly' },
-            { id: 'daily', label: '📅 Specific Date (9 Periods & Edit)' }
+            ...(userRole === 'admin' ? [
+              { id: 'fn_an_monthly', label: '🌤️ FN / AN Monthly Days (All Classes)' },
+              { id: 'total', label: '📈 Total Semester Attendance' },
+              { id: 'monthly', label: '🗓️ Subject Monthly' },
+              { id: 'daily', label: '📅 Specific Date (All Periods)' }
+            ] : isClassTeacher ? [
+              { id: 'fn_an_monthly', label: `🌤️ Class ${myCtClasses.join(', ')} Monthly Day Register (FN & AN)` },
+              { id: 'total', label: '📈 My Subject Summary (Total)' },
+              { id: 'monthly', label: '🗓️ My Subject Monthly' },
+              { id: 'daily', label: '📅 My Recorded Periods (Daily)' }
+            ] : [
+              { id: 'total', label: '📈 My Subject Summary (Total)' },
+              { id: 'monthly', label: '🗓️ My Subject Monthly' },
+              { id: 'daily', label: '📅 My Recorded Periods (Daily)' }
+            ])
           ].map(tab => (
             <button
               key={tab.id}
@@ -583,6 +652,39 @@ export default function PeriodAttendanceReportsHub({
             </div>
           </div>
 
+          {/* 🌟 SUB-VIEW SWITCHER: MONTHLY DAY SUMMARY vs FULL MONTH REGISTER GRID */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', background: '#f8fafc', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setFnAnViewMode('summary')}
+                style={{
+                  padding: '7px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer',
+                  border: fnAnViewMode === 'summary' ? '2px solid #4f46e5' : '1px solid #cbd5e1',
+                  background: fnAnViewMode === 'summary' ? '#eef2ff' : '#ffffff',
+                  color: fnAnViewMode === 'summary' ? '#4f46e5' : '#475569'
+                }}
+              >
+                📊 Monthly Day Summary
+              </button>
+              <button
+                type="button"
+                onClick={() => setFnAnViewMode('register_grid')}
+                style={{
+                  padding: '7px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer',
+                  border: fnAnViewMode === 'register_grid' ? '2px solid #4f46e5' : '1px solid #cbd5e1',
+                  background: fnAnViewMode === 'register_grid' ? '#eef2ff' : '#ffffff',
+                  color: fnAnViewMode === 'register_grid' ? '#4f46e5' : '#475569'
+                }}
+              >
+                📋 Full Month Register Grid (All Working Days • Friday Off)
+              </button>
+            </div>
+            <div style={{ fontSize: '12px', fontWeight: '800', color: '#0f766e' }}>
+              {isClassTeacher ? `🏫 Class ${repClass} Register` : `Class: ${repClass}`}
+            </div>
+          </div>
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {[
@@ -623,7 +725,7 @@ export default function PeriodAttendanceReportsHub({
             <div style={{ padding: '28px', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>
               Calculating Forenoon (P1–P6) &amp; Afternoon (P7–P9) daily sessions for {repMonth}...
             </div>
-          ) : (
+          ) : fnAnViewMode === 'summary' ? (
             <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', minWidth: '880px' }}>
                 <thead>
@@ -717,6 +819,108 @@ export default function PeriodAttendanceReportsHub({
                 </tbody>
               </table>
             </div>
+          ) : (
+            /* 🌟 FULL MONTH REGISTER GRID (ALL WORKING DAYS • FRIDAY OFF) */
+            <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px', maxHeight: '560px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'center', minWidth: '1050px' }}>
+                <thead style={{ position: 'sticky', top: 0, background: '#0f172a', color: '#ffffff', zIndex: 10 }}>
+                  <tr>
+                    <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: '35px' }}>#</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: '160px' }}>Student Name</th>
+                    <th style={{ padding: '8px 10px', minWidth: '60px' }}>Ad.No</th>
+                    {allDaysInSelectedMonth.map(d => (
+                      <th
+                        key={d.dateStr}
+                        style={{
+                          padding: '6px 4px',
+                          minWidth: '32px',
+                          background: d.isFriday ? '#475569' : '#1e293b',
+                          color: d.isFriday ? '#fbbf24' : '#ffffff',
+                          borderLeft: '1px solid #334155'
+                        }}
+                      >
+                        <div style={{ fontSize: '11px', fontWeight: '800' }}>{d.dayNum}</div>
+                        <div style={{ fontSize: '9px', opacity: 0.85 }}>{d.dayName}</div>
+                      </th>
+                    ))}
+                    <th style={{ padding: '8px 10px', minWidth: '70px', background: '#064e3b' }}>Pres (d)</th>
+                    <th style={{ padding: '8px 10px', minWidth: '70px', background: '#881337' }}>Abs (d)</th>
+                    <th style={{ padding: '8px 10px', minWidth: '70px', background: '#312e81' }}>%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayedFnAnRows.map((r, idx) => {
+                    const st = r.student;
+                    const reg = st.regNo;
+                    const ad = String(st.adNo || '').trim().toUpperCase();
+
+                    return (
+                      <tr key={st.regNo} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'left', color: '#64748b' }}>{idx + 1}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'left', fontWeight: '700', color: '#0f172a', whiteSpace: 'nowrap' }}>{st.firstName}</td>
+                        <td style={{ padding: '6px 8px', color: '#64748b' }}>#{st.adNo}</td>
+                        {allDaysInSelectedMonth.map(d => {
+                          if (d.isFriday) {
+                            return (
+                              <td key={d.dateStr} style={{ padding: '4px 2px', background: '#fef3c7', color: '#b45309', fontWeight: '800', fontSize: '9px', borderLeft: '1px solid #e2e8f0' }}>
+                                OFF
+                              </td>
+                            );
+                          }
+                          const daySessions = fnAnMonthSessions.filter(s => s.date === d.dateStr);
+                          if (daySessions.length === 0) {
+                            return (
+                              <td key={d.dateStr} style={{ padding: '4px 2px', color: '#cbd5e1', borderLeft: '1px solid #f1f5f9' }}>
+                                -
+                              </td>
+                            );
+                          }
+
+                          const fnSess = daySessions.filter(s => Number(s.session) <= 6);
+                          const anSess = daySessions.filter(s => Number(s.session) > 6);
+                          const isFnPres = fnSess.some(s => {
+                            const val = (s.attendanceMap || {})[reg] || (s.attendanceMap || {})[st.id] || (s.attendanceMap || {})[ad];
+                            return val === 'P' || val === 'O';
+                          });
+                          const isAnPres = anSess.some(s => {
+                            const val = (s.attendanceMap || {})[reg] || (s.attendanceMap || {})[st.id] || (s.attendanceMap || {})[ad];
+                            return val === 'P' || val === 'O';
+                          });
+
+                          let badgeText = 'A';
+                          let bg = '#fee2e2';
+                          let textCol = '#dc2626';
+
+                          if (fnSess.length > 0 && anSess.length > 0) {
+                            if (isFnPres && isAnPres) { badgeText = 'P'; bg = '#dcfce7'; textCol = '#15803d'; }
+                            else if (isFnPres) { badgeText = 'FN'; bg = '#fef3c7'; textCol = '#d97706'; }
+                            else if (isAnPres) { badgeText = 'AN'; bg = '#e0f2fe'; textCol = '#0284c7'; }
+                            else { badgeText = 'A'; bg = '#fee2e2'; textCol = '#dc2626'; }
+                          } else if (fnSess.length > 0) {
+                            badgeText = isFnPres ? 'FN' : 'A';
+                            bg = isFnPres ? '#fef3c7' : '#fee2e2';
+                            textCol = isFnPres ? '#d97706' : '#dc2626';
+                          } else if (anSess.length > 0) {
+                            badgeText = isAnPres ? 'AN' : 'A';
+                            bg = isAnPres ? '#e0f2fe' : '#fee2e2';
+                            textCol = isAnPres ? '#0284c7' : '#dc2626';
+                          }
+
+                          return (
+                            <td key={d.dateStr} style={{ padding: '4px 2px', background: bg, color: textCol, fontWeight: '800', fontSize: '10px', borderLeft: '1px solid #e2e8f0' }}>
+                              {badgeText}
+                            </td>
+                          );
+                        })}
+                        <td style={{ padding: '6px 8px', fontWeight: '800', color: '#047857', background: '#ecfdf5' }}>{r.totalDaysPresent}d</td>
+                        <td style={{ padding: '6px 8px', fontWeight: '800', color: r.totalDaysAbsent >= 5 ? '#e11d48' : '#475569', background: r.totalDaysAbsent >= 5 ? '#ffe4e6' : '#f8fafc' }}>{r.totalDaysAbsent}d</td>
+                        <td style={{ padding: '6px 8px', fontWeight: '800', color: '#1e40af' }}>{r.dayAttPct}%</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       ) : (
@@ -736,7 +940,12 @@ export default function PeriodAttendanceReportsHub({
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: '12px' }}>
                   {dailySessionsCache
-                    .filter(s => userRole === 'admin' || s.teacherUsername === loggedInUser?.username || myCtClasses.some(c => String(s.classAlias || '').includes(c)))
+                    .filter(s => {
+                      if (userRole === 'admin') return true;
+                      if (s.teacherUsername === (loggedInUser?.username || activeTeacherObj?.username)) return true;
+                      if (isClassTeacher && myCtClasses.some(c => String(s.classAlias || '').toUpperCase().includes(c))) return true;
+                      return false;
+                    })
                     .map(sess => {
                       const mapVals = Object.values(sess.attendanceMap || {});
                       const presC = mapVals.filter(v => v === 'P' || v === 'O').length;

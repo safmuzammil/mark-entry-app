@@ -83,7 +83,7 @@ export default function PeriodAttendanceManager({
   // --- 1. SUBJECT CARDS & 9-PERIOD ROLL CALL STATE ---
   const [selectedTeacherUsername, setSelectedTeacherUsername] = useState(loggedInUser?.username || '');
   const [attDate, setAttDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [attSession, setAttSession] = useState('1');
+  const [attSession, setAttSession] = useState('');
   const [attEnrollmentId, setAttEnrollmentId] = useState('');
   const [classStudents, setClassStudents] = useState([]);
   const [absentRegNos, setAbsentRegNos] = useState([]);
@@ -1111,7 +1111,7 @@ export default function PeriodAttendanceManager({
                       type="button"
                       onClick={() => {
                         setAttEnrollmentId(env.id);
-                        setAttSession(prev => prev || '1');
+                        setAttSession('');
                         setExistingSessionDoc(null);
                         setActiveTab('mark_sheet');
                       }}
@@ -1173,7 +1173,7 @@ export default function PeriodAttendanceManager({
                   fontWeight: '700'
                 }}
               >
-                <option value="">-- ⚠️ Select Period (1 to 9) --</option>
+                <option value="">-- ⚠️ Mandatory: Select Period (1 to 9) --</option>
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(s => (
                   <option key={s} value={String(s)}>Period {s}</option>
                 ))}

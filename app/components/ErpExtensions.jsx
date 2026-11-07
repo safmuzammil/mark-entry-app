@@ -2004,7 +2004,35 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
   const myUsername = String(loggedInTeacher?.username || '').trim().toLowerCase();
   const myFullNameLower = String(loggedInTeacher?.fullName || '').trim().toLowerCase();
   const priv = loggedInTeacher?.outpassPrivileges || {};
-  const myClassTeacherOf = Array.isArray(priv.classTeacherOf) ? priv.classTeacherOf : [];
+  const [adminClassFilter, setAdminClassFilter] = useState('QLA3');
+
+  const resolvedClassTeacherClasses = React.useMemo(() => {
+    const set = new Set();
+    const addClean = (val) => {
+      if (!val) return;
+      if (Array.isArray(val)) {
+        val.filter(Boolean).forEach(c => set.add(String(c).trim().toUpperCase()));
+      } else if (typeof val === 'string') {
+        val.split(',').map(s => s.trim().toUpperCase()).filter(Boolean).forEach(c => set.add(c));
+      }
+    };
+    addClean(priv.classTeacherOf);
+    addClean(loggedInTeacher?.classTeacherOf);
+
+    if (myUsername && myUsername !== 'admin') {
+      students.forEach(st => {
+        const ctUser = String(st.classTeacherUsername || st.classTeacher || '').trim().toLowerCase();
+        const ctName = String(st.classTeacherName || '').trim().toLowerCase();
+        if ((ctUser && ctUser === myUsername) || (ctName && ctName === myFullNameLower)) {
+          const stClasses = Array.isArray(st.classes) ? st.classes : [st.class].filter(Boolean);
+          stClasses.forEach(c => set.add(String(c).trim().toUpperCase()));
+        }
+      });
+    }
+    return Array.from(set);
+  }, [priv, loggedInTeacher, students, myUsername, myFullNameLower]);
+
+  const myClassTeacherOf = resolvedClassTeacherClasses;
   const isNiicsCoord = Boolean(priv.isNiicsCoordinator);
   const canManageMentorAssignments = Boolean(isAdmin || isOutreachView || priv.isOutreachCoordinator || priv.isPrincipal);
 
@@ -2118,7 +2146,9 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
 
   const isStudentMyNiics = (st) => isNiicsCoord && String(st.adNo || '').trim().toUpperCase().startsWith('U');
 
-  const classStudentsList = students.filter(isStudentInMyClass);
+  const classStudentsList = isAdmin
+    ? students.filter(s => (Array.isArray(s.classes) ? s.classes : [s.class]).includes(adminClassFilter))
+    : students.filter(isStudentInMyClass);
   const menteeStudentsList = students.filter(isStudentMyMentee);
   const hasClassDuty = myClassTeacherOf.length > 0 || classStudentsList.length > 0;
   const hasMentorDuty = Boolean(priv.isMentor) || menteeStudentsList.length > 0;
@@ -2257,7 +2287,9 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
   // Load verification status when selectedRegisterDate changes
   useEffect(() => {
     if (!myClassTeacherOf || myClassTeacherOf.length === 0 || !selectedRegisterDate) return;
-    const docId = `classRegisterVerification_${myClassTeacherOf[0]}_${selectedRegisterDate}`;
+    const targetCls = isAdmin ? adminClassFilter : myClassTeacherOf[0];
+    if (!targetCls) return;
+    const docId = `classRegisterVerification_${targetCls}_${selectedRegisterDate}`;
     getDoc(doc(db, 'systemCache', docId))
       .then(snap => {
         if (snap.exists()) setRegisterVerificationStatus(snap.data());
@@ -2271,7 +2303,9 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
     if (!myClassTeacherOf || myClassTeacherOf.length === 0) return;
     setIsVerifyingRegister(true);
     try {
-      const docId = `classRegisterVerification_${myClassTeacherOf[0]}_${selectedRegisterDate}`;
+      const targetCls = isAdmin ? adminClassFilter : myClassTeacherOf[0];
+    if (!targetCls) return;
+    const docId = `classRegisterVerification_${targetCls}_${selectedRegisterDate}`;
       const verificationRecord = {
         classAlias: myClassTeacherOf[0],
         date: selectedRegisterDate,
@@ -2545,7 +2579,7 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
       </div>
 
       {/* 🌟 CLASS TEACHER LIVE PRESENCE & TODAY'S PERIOD ATTENDANCE FEED */}
-      {hasClassDuty && !isAdmin && !isOutreachView && teacherViewMode === 'CLASS' && (
+      {((hasClassDuty && !isOutreachView && teacherViewMode === 'CLASS') || (isAdmin && !isOutreachView)) && (
         <div style={{ background: '#ffffff', padding: '20px', borderRadius: '16px', border: '1px solid #cbd5e1', marginBottom: '22px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
             <div>

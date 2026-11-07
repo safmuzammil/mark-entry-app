@@ -549,6 +549,150 @@ export default function StudentManager() {
     setIsLoading(false);
   };
 
+
+  // 🌟 Bulk Student Group Assignment Handlers
+  const batchFilteredStudents = registeredStudents.filter(st => {
+    const stClasses = Array.isArray(st.classes) ? st.classes : [st.class].filter(Boolean);
+    const isUrdu = String(st.adNo || '').trim().toUpperCase().startsWith('U');
+    const stMadhab = String(st.madhab || 'SHAFI').trim().toUpperCase();
+
+    if (batchGradeFilter !== 'All') {
+      const hasGrade = stClasses.some(c => String(c).includes(batchGradeFilter));
+      if (!hasGrade) return false;
+    }
+    if (batchClassFilter !== 'All' && !stClasses.includes(batchClassFilter)) return false;
+    if (batchDeptFilter !== 'All' && String(st.department || 'GENERAL').toUpperCase() !== batchDeptFilter.toUpperCase()) return false;
+    if (batchMadhabFilter !== 'All' && stMadhab !== batchMadhabFilter.toUpperCase()) return false;
+    if (batchStreamFilter === 'URDU' && !isUrdu) return false;
+    if (batchStreamFilter === 'GENERAL' && isUrdu) return false;
+
+    if (batchSearch.trim()) {
+      const q = batchSearch.trim().toLowerCase();
+      const name = String(st.firstName || '').toLowerCase();
+      const ad = String(st.adNo || '').toLowerCase();
+      const reg = String(st.regNo || '').toLowerCase();
+      if (!name.includes(q) && !ad.includes(q) && !reg.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const handleToggleSelectAllBatch = () => {
+    const allFilteredRegs = batchFilteredStudents.map(s => s.regNo);
+    const allSelected = allFilteredRegs.length > 0 && allFilteredRegs.every(r => selectedBatchRegNos.includes(r));
+    if (allSelected) {
+      setSelectedBatchRegNos(prev => prev.filter(r => !allFilteredRegs.includes(r)));
+    } else {
+      setSelectedBatchRegNos(prev => Array.from(new Set([...prev, ...allFilteredRegs])));
+    }
+  };
+
+  const handleExecuteBatchAssign = async () => {
+    if (selectedBatchRegNos.length === 0) return alert('Please select at least one student from the list below.');
+    if (!batchTargetTeacher) return alert('Please select a target Teacher.');
+
+    const selectedTeacherObj = teachersList.find(t => t.username === batchTargetTeacher);
+    if (!selectedTeacherObj) return alert('Selected teacher not found.');
+
+    setIsSavingBatch(true);
+    setBatchStatusMsg('');
+
+    try {
+      if (batchMode === 'subject') {
+        if (!batchTargetEnrollmentId) {
+          setIsSavingBatch(false);
+          return alert('Please select a Subject Enrollment slot for this teacher.');
+        }
+
+        const updatedEnrollments = (selectedTeacherObj.enrollments || []).map(env => {
+          if (env.id === batchTargetEnrollmentId) {
+            const existingIds = Array.isArray(env.studentIds) ? env.studentIds : [];
+            const mergedIds = Array.from(new Set([...existingIds, ...selectedBatchRegNos]));
+            return { ...env, studentIds: mergedIds };
+          }
+          return env;
+        });
+
+        await setDoc(doc(db, 'teachers', selectedTeacherObj.username), { enrollments: updatedEnrollments }, { merge: true });
+
+        setTeachersList(prev => prev.map(t =>
+          t.username === selectedTeacherObj.username ? { ...t, enrollments: updatedEnrollments } : t
+        ));
+
+        setBatchStatusMsg(`✅ Assigned ${selectedBatchRegNos.length} students to ${selectedTeacherObj.fullName}'s subject batch!`);
+      } else if (batchMode === 'mentor') {
+        const promises = selectedBatchRegNos.map(regNo =>
+          setDoc(doc(db, 'students', String(regNo).toLowerCase()), {
+            mentorUsername: selectedTeacherObj.username,
+            mentorName: selectedTeacherObj.fullName
+          }, { merge: true })
+        );
+        await Promise.all(promises);
+
+        setRegisteredStudents(prev => prev.map(st =>
+          selectedBatchRegNos.includes(st.regNo)
+            ? { ...st, mentorUsername: selectedTeacherObj.username, mentorName: selectedTeacherObj.fullName }
+            : st
+        ));
+        setBatchStatusMsg(`✅ Assigned ${selectedBatchRegNos.length} students to ${selectedTeacherObj.fullName} as Mentees!`);
+      } else if (batchMode === 'classteacher') {
+        const assignedStudents = registeredStudents.filter(s => selectedBatchRegNos.includes(s.regNo));
+        const assignedClasses = new Set();
+        assignedStudents.forEach(st => {
+          (Array.isArray(st.classes) ? st.classes : [st.class]).filter(Boolean).forEach(c => assignedClasses.add(c));
+        });
+        const assignedClassesList = Array.from(assignedClasses);
+
+        const promises = selectedBatchRegNos.map(regNo =>
+          setDoc(doc(db, 'students', String(regNo).toLowerCase()), {
+            classTeacherUsername: selectedTeacherObj.username,
+            classTeacherName: selectedTeacherObj.fullName
+          }, { merge: true })
+        );
+        await Promise.all(promises);
+
+        // Keep teacher document classTeacherOf and outpassPrivileges.classTeacherOf in sync
+        const existingCtOf = Array.isArray(selectedTeacherObj.classTeacherOf) ? selectedTeacherObj.classTeacherOf : [];
+        const mergedCtOf = Array.from(new Set([...existingCtOf, ...assignedClassesList]));
+
+        const existingPriv = selectedTeacherObj.outpassPrivileges || {};
+        const existingPrivCtOf = Array.isArray(existingPriv.classTeacherOf) ? existingPriv.classTeacherOf : [];
+        const mergedPrivCtOf = Array.from(new Set([...existingPrivCtOf, ...assignedClassesList]));
+
+        await setDoc(doc(db, 'teachers', selectedTeacherObj.username), {
+          classTeacherOf: mergedCtOf,
+          outpassPrivileges: {
+            ...existingPriv,
+            classTeacherOf: mergedPrivCtOf
+          }
+        }, { merge: true });
+
+        setRegisteredStudents(prev => prev.map(st =>
+          selectedBatchRegNos.includes(st.regNo)
+            ? { ...st, classTeacherUsername: selectedTeacherObj.username, classTeacherName: selectedTeacherObj.fullName }
+            : st
+        ));
+
+        setTeachersList(prev => prev.map(t =>
+          t.username === selectedTeacherObj.username
+            ? {
+                ...t,
+                classTeacherOf: mergedCtOf,
+                outpassPrivileges: { ...(t.outpassPrivileges || {}), classTeacherOf: mergedPrivCtOf }
+              }
+            : t
+        ));
+
+        setBatchStatusMsg(`✅ Assigned ${selectedBatchRegNos.length} students (Classes: ${assignedClassesList.join(', ')}) to ${selectedTeacherObj.fullName} as Class Teacher!`);
+      }
+
+      setSelectedBatchRegNos([]);
+    } catch (err) {
+      alert('Failed to complete batch assignment: ' + err.message);
+    } finally {
+      setIsSavingBatch(false);
+    }
+  };
+
   return (
     <div>
       {portfolioModalStudent && (
