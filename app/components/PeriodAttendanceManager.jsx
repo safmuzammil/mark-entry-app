@@ -379,9 +379,13 @@ export default function PeriodAttendanceManager({
           const data = snap.data();
           setExistingSessionDoc({ id: snap.id, ...data });
           const attMap = data.attendanceMap || {};
+          const rehPresentForThisPeriod = rehearsalPresentMapForDate[String(attSession)] || [];
           const abs = Object.keys(attMap).filter(k => {
             const val = attMap[k];
-            return val === 'A' || val === 'M';
+            if (val !== 'A' && val !== 'M') return false;
+            const strK = String(k).trim().toUpperCase();
+            const isReh = rehPresentForThisPeriod.some(r => String(r).trim().toUpperCase() === strK);
+            return !isReh;
           }).map(k => String(k).trim());
           setAbsentRegNos(abs);
         } else {
@@ -392,7 +396,13 @@ export default function PeriodAttendanceManager({
             .filter(st => {
               const sReg = String(st.regNo || '').trim();
               const sAd = String(st.adNo || '').trim();
-              if (rehPresentForThisPeriod.some(r => String(r).trim() === sReg || (sAd && String(r).trim() === sAd))) return false;
+              const sId = String(st.id || '').trim();
+              if (rehPresentForThisPeriod.some(r => {
+                const str = String(r || '').trim().toUpperCase();
+                return (sReg && str === sReg.toUpperCase()) || 
+                       (sAd && str === sAd.toUpperCase()) || 
+                       (sId && str === sId.toUpperCase());
+              })) return false;
               const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]);
               return op && !op.isOfficial;
             })
@@ -405,7 +415,7 @@ export default function PeriodAttendanceManager({
       }
     }
     checkExistingSession();
-  }, [attEnrollmentId, attDate, attSession]);
+  }, [attEnrollmentId, attDate, attSession, rehearsalPresentMapForDate, activeOutpassesByReg]);
 
   const toggleAbsent = (regNo) => {
     const sReg = String(regNo || '').trim();
@@ -453,12 +463,17 @@ export default function PeriodAttendanceManager({
       const sReg = String(st.regNo || '').trim();
       const sAd = String(st.adNo || '').trim();
       const sId = String(st.id || '').trim();
-      const isReh = rehPresentHere.some(r => String(r).trim() === sReg || (sAd && String(r).trim() === sAd));
+      const isReh = rehPresentHere.some(r => {
+        const str = String(r || '').trim().toUpperCase();
+        return (sReg && str === sReg.toUpperCase()) || 
+               (sAd && str === sAd.toUpperCase()) || 
+               (sId && str === sId.toUpperCase());
+      });
       const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]);
       const isAutoOfficial = isReh || (op && op.isOfficial);
       const isMarkedAbsent = absentRegNos.some(r => {
-        const str = String(r).trim();
-        return (sReg && str === sReg) || (sAd && str === sAd) || (sId && str === sId);
+        const str = String(r).trim().toUpperCase();
+        return (sReg && str === sReg.toUpperCase()) || (sAd && str === sAd.toUpperCase()) || (sId && str === sId.toUpperCase());
       });
       return !isAutoOfficial && isMarkedAbsent;
     });
@@ -541,15 +556,22 @@ export default function PeriodAttendanceManager({
         const sAd = String(st.adNo || '').trim();
         const sId = String(st.id || '').trim();
         const isMarkedAbsentByRegularTeacher = absentRegNos.some(r => {
-          const str = String(r).trim();
-          return (sReg && str === sReg) || (sAd && str === sAd) || (sId && str === sId);
+          const str = String(r).trim().toUpperCase();
+          return (sReg && str === sReg.toUpperCase()) || (sAd && str === sAd.toUpperCase()) || (sId && str === sId.toUpperCase());
         });
-        const isRehearsalPresent = rehPresentList.some(r => String(r).trim() === sReg || (sAd && String(r).trim() === sAd));
+        const isRehearsalPresent = rehPresentList.some(r => {
+          const str = String(r || '').trim().toUpperCase();
+          return (sReg && str === sReg.toUpperCase()) || 
+                 (sAd && str === sAd.toUpperCase()) || 
+                 (sId && str === sId.toUpperCase());
+        });
         const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]);
 
-        if (!isMarkedAbsentByRegularTeacher) {
+        if (isRehearsalPresent) {
+          newAttendanceMap[reg] = 'P'; // 🌟 Converted to ACTUAL PRESENT per user logic!
+        } else if (!isMarkedAbsentByRegularTeacher) {
           newAttendanceMap[reg] = 'P';
-        } else if (isRehearsalPresent || (op && op.isOfficial)) {
+        } else if (op && op.isOfficial) {
           newAttendanceMap[reg] = 'O';
         } else {
           newAttendanceMap[reg] = op ? 'M' : 'A';
@@ -990,6 +1012,69 @@ export default function PeriodAttendanceManager({
         const filteredList = existingList.filter(x => !newEntries.some(n => n.sessionDocId === x.sessionDocId));
         await setDoc(dayIndexRef, { date: rehDate, sessions: [...filteredList, ...newEntries] }, { merge: true });
 
+        // 🌟 Retroactively convert any absence in existing regular teacher sessions for coveredPeriods to Present!
+        try {
+          const matchedRegularSessions = existingList.filter(s =>
+            coveredPeriods.includes(Number(s.session)) &&
+            !String(s.subject || '').startsWith('REHEARSAL')
+          );
+
+          for (const sess of matchedRegularSessions) {
+            if (!sess.sessionDocId) continue;
+            const sRef = doc(db, 'systemCache', sess.sessionDocId);
+            const sSnap = await getDoc(sRef);
+            if (!sSnap.exists()) continue;
+            const sData = sSnap.data();
+            const attMap = { ...(sData.attendanceMap || {}) };
+            let sessionChanged = false;
+
+            presentRegs.forEach(pReg => {
+              const strReg = String(pReg || '').trim();
+              if (!strReg) return;
+              const matchedKey = Object.keys(attMap).find(k => String(k).trim().toUpperCase() === strReg.toUpperCase());
+              const currentVal = matchedKey ? attMap[matchedKey] : null;
+
+              if (currentVal === 'A' || currentVal === 'M' || currentVal === 'O') {
+                const targetKey = matchedKey || strReg;
+                attMap[targetKey] = 'P'; // Converted to actual present!
+                sessionChanged = true;
+
+                // Also update student's subject record
+                const st = localStudents.find(s =>
+                  String(s.regNo || '').trim().toUpperCase() === strReg.toUpperCase() ||
+                  String(s.adNo || '').trim().toUpperCase() === strReg.toUpperCase() ||
+                  String(s.id || '').trim().toUpperCase() === strReg.toUpperCase()
+                );
+                if (st) {
+                  const targetDocId = String(st.id || st.regNo || '').trim();
+                  const curStat = updatedStudentsByReg[strReg]?.periodAttendance ||
+                                  updatedStudentsByReg[targetDocId]?.periodAttendance ||
+                                  JSON.parse(JSON.stringify(getStudentAttStat(st)));
+                  const subKey = sess.subject || 'GENERAL';
+                  if (curStat.subjectWise && curStat.subjectWise[subKey]) {
+                    const subObj = curStat.subjectWise[subKey];
+                    if (Array.isArray(subObj.absentDates) && subObj.absentDates.includes(rehDate)) {
+                      subObj.absentDates = subObj.absentDates.filter(d => d !== rehDate);
+                      subObj.present = (Number(subObj.present) || 0) + 1;
+                      curStat.presentCount = (Number(curStat.presentCount) || 0) + 1;
+                      curStat.updatedAt = new Date().toISOString();
+                      const updatedObj = { ...st, periodAttendance: curStat };
+                      updatedStudentsByReg[strReg] = updatedObj;
+                      updatedStudentsByReg[targetDocId] = updatedObj;
+                    }
+                  }
+                }
+              }
+            });
+
+            if (sessionChanged) {
+              await setDoc(sRef, { attendanceMap: attMap, updatedAt: new Date().toISOString() }, { merge: true });
+            }
+          }
+        } catch (retroErr) {
+          console.warn('Retroactive regular session reconciliation note:', retroErr);
+        }
+
         // Update students in Firestore
         for (let i = 0; i < leaderStudentsSorted.length; i += 400) {
           const chunk = leaderStudentsSorted.slice(i, i + 400);
@@ -1005,6 +1090,7 @@ export default function PeriodAttendanceManager({
           });
           await stBatch.commit();
         }
+        syncUpdatedStudentsState(updatedStudentsByReg);
       } catch (cloudErr) {
         console.warn('Rehearsal Firestore background sync note (local device cache active):', cloudErr);
       }
@@ -1659,7 +1745,26 @@ export default function PeriodAttendanceManager({
                 }).length}</span>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button type="button" onClick={() => setAbsentRegNos([])} style={{ padding: '5px 10px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>All Present</button>
-                  <button type="button" onClick={() => setAbsentRegNos(classStudents.map(s => s.regNo))} style={{ padding: '5px 10px', background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>All Absent</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const rehPresentList = rehearsalPresentMapForDate[String(attSession)] || [];
+                      const nonRehRegs = classStudents.filter(s => {
+                        const sReg = String(s.regNo || '').trim();
+                        const sAd = String(s.adNo || '').trim();
+                        const sId = String(s.id || '').trim();
+                        const isReh = rehPresentList.some(r => {
+                          const str = String(r || '').trim().toUpperCase();
+                          return (sReg && str === sReg.toUpperCase()) || (sAd && str === sAd.toUpperCase()) || (sId && str === sId.toUpperCase());
+                        });
+                        return !isReh;
+                      }).map(s => s.regNo);
+                      setAbsentRegNos(nonRehRegs);
+                    }}
+                    style={{ padding: '5px 10px', background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                  >
+                    All Absent
+                  </button>
                 </div>
               </div>
 
@@ -1668,30 +1773,40 @@ export default function PeriodAttendanceManager({
                   const sReg = String(st.regNo || '').trim();
                   const sAd = String(st.adNo || '').trim();
                   const sId = String(st.id || '').trim();
-                  const rehPresentHere = (rehearsalPresentMapForDate[String(attSession)] || []).some(
-                    r => String(r).trim() === sReg || (sAd && String(r).trim() === sAd)
-                  );
+                  const rehPresentHere = (rehearsalPresentMapForDate[String(attSession)] || []).some(r => {
+                    const str = String(r || '').trim().toUpperCase();
+                    return (sReg && str === sReg.toUpperCase()) || 
+                           (sAd && str === sAd.toUpperCase()) || 
+                           (sId && str === sId.toUpperCase());
+                  });
                   const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]);
-                  const isAutoOfficial = rehPresentHere || (op && op.isOfficial);
-                  const isAbsent = !isAutoOfficial && absentRegNos.some(r => {
-                    const str = String(r).trim();
-                    return (sReg && str === sReg) || (sAd && str === sAd) || (sId && str === sId);
+                  const isOfficialPass = Boolean(op && op.isOfficial);
+                  const isAbsent = !rehPresentHere && !isOfficialPass && absentRegNos.some(r => {
+                    const str = String(r).trim().toUpperCase();
+                    return (sReg && str === sReg.toUpperCase()) || (sAd && str === sAd.toUpperCase()) || (sId && str === sId.toUpperCase());
                   });
 
                   return (
                     <div
                       key={st.regNo}
-                      onClick={() => { if (!isAutoOfficial) toggleAbsent(st.regNo); }}
+                      onClick={() => {
+                        if (rehPresentHere) {
+                          alert(`🎭 ${st.firstName} (#${st.adNo}) is marked Present in Rehearsal by Event Leader and will be automatically recorded as Present.`);
+                          return;
+                        }
+                        if (isOfficialPass) return;
+                        toggleAbsent(st.regNo);
+                      }}
                       style={{
                         padding: '12px 14px',
                         borderRadius: '10px',
-                        cursor: isAutoOfficial ? 'default' : 'pointer',
+                        cursor: rehPresentHere ? 'default' : isOfficialPass ? 'default' : 'pointer',
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'flex-start',
                         gap: '8px',
-                        background: isAutoOfficial ? '#eef2ff' : isAbsent ? '#fff1f2' : '#ecfdf5',
-                        border: `1.5px solid ${isAutoOfficial ? '#6366f1' : isAbsent ? '#f43f5e' : '#10b981'}`
+                        background: rehPresentHere ? '#f5f3ff' : isOfficialPass ? '#eef2ff' : isAbsent ? '#fff1f2' : '#ecfdf5',
+                        border: `1.5px solid ${rehPresentHere ? '#8b5cf6' : isOfficialPass ? '#6366f1' : isAbsent ? '#f43f5e' : '#10b981'}`
                       }}
                     >
                       <div style={{ flex: 1 }}>
@@ -1702,8 +1817,8 @@ export default function PeriodAttendanceManager({
                           Ad.No: #{st.adNo} • {(st.classes || []).join(', ')}
                         </div>
                         {rehPresentHere && (
-                          <span style={{ display: 'inline-block', marginTop: '4px', background: '#e0e7ff', color: '#4338ca', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '800' }}>
-                            🎭 Rehearsal Present (Auto-Cleared)
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '5px', background: '#e0e7ff', color: '#4338ca', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
+                            🎭 Rehearsal Present (Converts to Present)
                           </span>
                         )}
                         {op && (
@@ -1715,8 +1830,16 @@ export default function PeriodAttendanceManager({
                           </div>
                         )}
                       </div>
-                      <span style={{ padding: '4px 10px', borderRadius: '6px', fontWeight: '800', fontSize: '11px', background: isAutoOfficial ? '#4f46e5' : isAbsent ? '#e11d48' : '#10b981', color: '#ffffff', whiteSpace: 'nowrap' }}>
-                        {isAutoOfficial ? 'OFFICIAL' : isAbsent ? 'ABSENT' : 'PRESENT'}
+                      <span style={{
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        fontWeight: '800',
+                        fontSize: '11px',
+                        background: rehPresentHere ? '#7c3aed' : isOfficialPass ? '#4f46e5' : isAbsent ? '#e11d48' : '#10b981',
+                        color: '#ffffff',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {rehPresentHere ? '🎭 REHEARSAL' : isOfficialPass ? 'OFFICIAL' : isAbsent ? 'ABSENT' : 'PRESENT'}
                       </span>
                     </div>
                   );
