@@ -15,6 +15,7 @@ import InstallAppBanner from './components/InstallAppBanner';
 import TeacherPortalView from './components/TeacherPortalView';
 import TeacherManager from './components/TeacherManager';
 import StudentManager from './components/StudentManager';
+import SubjectManager from './components/SubjectManager';
 import ReportManager from './components/ReportManager';
 import ReminderManager from './components/ReminderManager';
 import NightAttendanceManager from './components/NightAttendanceManager';
@@ -110,7 +111,7 @@ export default function UnifiedSchoolPortal() {
     if (typeof window === 'undefined') return;
 
     const hashTab = window.location.hash.replace('#', '').trim();
-    const validTabs = ['dashboard', 'students', 'teachers', 'attendance_minus', 'attendance', 'reports', 'outpass', 'gate_security', 'mentorship', 'reminders', 'proxy_marks'];
+    const validTabs = ['dashboard', 'students', 'teachers', 'subjects', 'attendance_minus', 'attendance', 'reports', 'outpass', 'gate_security', 'mentorship', 'reminders', 'proxy_marks'];
     if (hashTab && validTabs.includes(hashTab)) {
       setActiveAdminTab(hashTab);
       window.history.replaceState({ portalTab: hashTab }, '', '#' + hashTab);
@@ -393,6 +394,7 @@ export default function UnifiedSchoolPortal() {
       { id: 'dashboard', label: 'Dashboard', icon: '⊞', desc: 'Institutional overview & quick access' },
       { id: 'students', label: 'Students', icon: '👥', desc: 'Manage student profiles & subject mappings' },
       { id: 'teachers', label: 'Teachers', icon: '🎓', desc: 'Manage all faculty members and roles' },
+      { id: 'subjects', label: 'Subjects', icon: '📚', desc: 'Course catalog, faculty assignments & student enrollments' },
       { id: 'attendance_minus', label: 'Period Attendance', icon: '📅', desc: 'Roll-call, monthly reports, minus & clearance' },
       { id: 'attendance', label: 'Night Attendance', icon: '🌙', desc: 'Hostel roll-call & out-pass verification' },
       { id: 'reports', label: 'Marks & Auditor', icon: '📊', desc: 'CCE mark auditor & level-by-level inspector' },
@@ -578,7 +580,7 @@ export default function UnifiedSchoolPortal() {
               teachersList={adminTeachersList}
             />
 
-            {activeAdminTab !== 'teachers' && activeAdminTab !== 'students' && (
+            {activeAdminTab !== 'teachers' && activeAdminTab !== 'students' && activeAdminTab !== 'subjects' && (
               <div style={{ marginBottom: '22px' }}>
                 <h1 style={{ margin: 0, fontSize: '24px', fontWeight: '800', color: '#0f172a' }}>{currentTabObj.label}</h1>
                 <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b', fontWeight: '500' }}>{currentTabObj.desc}</p>
@@ -696,6 +698,14 @@ export default function UnifiedSchoolPortal() {
               />
             )}
             {activeAdminTab === 'students' && <StudentManager />}
+            {activeAdminTab === 'subjects' && (
+              <SubjectManager
+                preloadedTeachers={adminTeachersList}
+                preloadedStudents={adminStudentsList}
+                onTeachersUpdated={(nextTeachers) => setAdminTeachersList(nextTeachers)}
+                onStudentsUpdated={(nextStudents) => setAdminStudentsList(nextStudents)}
+              />
+            )}
             {activeAdminTab === 'reports' && <ReportManager />}
 
             {activeAdminTab === 'attendance_minus' && (

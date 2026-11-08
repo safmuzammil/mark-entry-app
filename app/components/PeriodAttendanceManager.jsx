@@ -284,8 +284,14 @@ export default function PeriodAttendanceManager({
     ? (localTeachers.find(t => t.username === selectedTeacherUsername) || localTeachers[0] || loggedInUser)
     : (localTeachers.find(t => t.username === loggedInUser?.username) || loggedInUser);
 
-  const attendanceEnrollments = (Array.isArray(activeTeacherObj?.enrollments) ? activeTeacherObj.enrollments : [])
+  const rawAttendanceEnrollments = (Array.isArray(activeTeacherObj?.enrollments) ? activeTeacherObj.enrollments : [])
     .filter(env => !isHifzEnrollment(env) && !env.isRehearsalSlot);
+
+  // Group and merge Dirasathul Adyan into Logic so only Logic is ever displayed
+  const attendanceEnrollments = rawAttendanceEnrollments.filter(env => {
+    const s = ((env.Sub || env.subject || '') + ' ' + (env.Alias || env.alias || '') + ' ' + (env.id || '')).toUpperCase();
+    return !s.includes('DIRASATH') && !s.includes('ADYAN');
+  });
 
   const getStudentsForEnrollment = (env) => {
     if (!env || localStudents.length === 0) return [];
@@ -363,6 +369,23 @@ export default function PeriodAttendanceManager({
         if (!snap.exists()) {
           snap = await getDoc(doc(db, 'systemCache', legacyDocId));
         }
+        if (!snap.exists() && (env.subject === 'Logic' || String(env.alias || '').toUpperCase().includes('LOGIC'))) {
+          const targetCls = (env.targetClass || '').toUpperCase();
+          const fallbackIds = [
+            `periodSession_${attDate}_LOGIC_${targetCls}_S${attSession}`,
+            `periodSession_${attDate}_MANTHIQ_${targetCls}_S${attSession}`,
+            `periodSession_${attDate}_DIRASATHUL_ADYAN_${targetCls}_S${attSession}`,
+            `periodSession_${attDate}_DIRASATHUL_ADYAN__${targetCls}_S${attSession}`
+          ];
+          for (const fid of fallbackIds) {
+            const fSnap = await getDoc(doc(db, 'systemCache', fid));
+            if (fSnap.exists()) {
+              snap = fSnap;
+              break;
+            }
+          }
+        }
+
         if (!snap.exists()) {
           const idxSnap = await getDoc(doc(db, 'systemCache', `daySessionsIndex_${attDate}`));
           if (idxSnap.exists()) {

@@ -1269,6 +1269,11 @@ export default function OutPassPortal({
       return alert("Please select a valid Departure Date and Time.");
     }
 
+    const todayLocalDateStr = getLocalDateString(new Date());
+    if (fromDate < todayLocalDateStr) {
+      return alert("⚠️ Invalid Departure Date: Cannot issue an outpass for a past date.");
+    }
+
     let toISO = null;
     if (!isOpenReturn) {
       toISO = partsToISOString(toDate, toHour, toMinute, toAmpm);
@@ -1276,6 +1281,9 @@ export default function OutPassPortal({
         return alert(
           "Please select a Return Date & Time, or enable 'No Specific Return Time'."
         );
+      }
+      if (toDate < fromDate) {
+        return alert("⚠️ Invalid Return Deadline: Return date cannot be earlier than departure date.");
       }
     }
 

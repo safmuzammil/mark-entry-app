@@ -184,6 +184,7 @@ export function CustomDateTimePicker({
   onAmpmChange,
   onSetNow,
   previewLabel,
+  minDate,
 }) {
   const dateInputRef = useRef(null);
   const previewISO = partsToISOString(
@@ -192,6 +193,8 @@ export function CustomDateTimePicker({
     minuteValue,
     ampmValue
   );
+
+  const isMinusDayDisabled = Boolean(minDate && dateValue && dateValue <= minDate);
 
   const shiftDateByDays = (offsetDays, resetToToday = false) => {
     const base = resetToToday
@@ -202,7 +205,12 @@ export function CustomDateTimePicker({
     if (!resetToToday) {
       base.setDate(base.getDate() + offsetDays);
     }
-    onDateChange(getLocalDateString(base));
+    const targetDate = getLocalDateString(base);
+    if (minDate && targetDate < minDate) {
+      onDateChange(minDate);
+      return;
+    }
+    onDateChange(targetDate);
   };
 
   return (
@@ -221,8 +229,14 @@ export function CustomDateTimePicker({
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
           <button
             type="button"
+            disabled={isMinusDayDisabled}
             onClick={() => shiftDateByDays(-1)}
-            style={styles.miniDayStepBtn}
+            style={{
+              ...styles.miniDayStepBtn,
+              opacity: isMinusDayDisabled ? 0.35 : 1,
+              cursor: isMinusDayDisabled ? "not-allowed" : "pointer",
+            }}
+            title={isMinusDayDisabled ? "Cannot select a past date" : "Subtract 1 day"}
           >
             ◀ -1 Day
           </button>
@@ -263,13 +277,21 @@ export function CustomDateTimePicker({
           <input
             ref={dateInputRef}
             type="date"
+            min={minDate || undefined}
             value={dateValue || ""}
             onClick={() => {
               try {
                 dateInputRef.current?.showPicker?.();
               } catch (e) {}
             }}
-            onChange={(e) => onDateChange(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (minDate && val && val < minDate) {
+                onDateChange(minDate);
+              } else {
+                onDateChange(val);
+              }
+            }}
             style={styles.dateInputBox}
           />
         </div>

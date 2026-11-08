@@ -5,6 +5,7 @@ import {
   PRESET_DESTINATIONS,
   dateTo12HourParts,
   formatDateTime12Hour,
+  getLocalDateString,
   StudentAvatar,
   CustomDateTimePicker,
   getStatusBadgeStyle,
@@ -1093,6 +1094,7 @@ export default function OutpassTeacherDesk({
 
                 <CustomDateTimePicker
                   title="🚶‍♂️ Permitted From (Date & Time)"
+                  minDate={getLocalDateString(new Date())}
                   dateValue={fromDate}
                   onDateChange={setFromDate}
                   hourValue={fromHour}
@@ -1115,6 +1117,7 @@ export default function OutpassTeacherDesk({
                   <div style={{ marginTop: 12 }}>
                     <CustomDateTimePicker
                       title="⏳ To Date & Time (Return Deadline)"
+                      minDate={fromDate || getLocalDateString(new Date())}
                       dateValue={toDate}
                       onDateChange={setToDate}
                       hourValue={toHour}
