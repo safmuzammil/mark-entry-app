@@ -1407,9 +1407,52 @@ export default function PeriodAttendanceMinusAndClearance({
           const safeAlias = String(s.classAlias || s.subject || 'Subject').trim();
           const sessionDocId = s.sessionDocId || `periodSession_${s.date}_${safeAlias.replace(/[^a-zA-Z0-9]/g, '_')}_S${s.session || 1}`;
 
+          const TEACHER_MAPPING = {
+            'abdussalam_baqavi': 'abdussalambaqavi',
+            'aboobacker_sidheeq_hudawi': 'sidheeqhudawi',
+            'ajmal_hudawi': 'ajmalhudawi',
+            'ashraf_alimi': 'ashraf',
+            'aswim_saeed_hudawi': 'aswimhudawi',
+            'c.yousuf_faizy': 'yousuffaisy',
+            'hassan_nawaz_alimi': 'hassan',
+            'hassankutty_baqavi': 'hasankutty',
+            'mohammed_hudawi': 'muhammedhudawi',
+            'muhammed_ali_hudawi_pi': 'pihudawi',
+            'muhammed_ali_shihab_hudawi': 'shihabhudawi',
+            'munavir_hudawi': 'munawir',
+            'musthaqeem_faizy': 'musthaqeem',
+            'muzammil_hudawi': 'muzammil',
+            'niyas_hudawi': 'niyas',
+            'sayyed_shahul_hameed_hudawi': 'thangal',
+            'shabeer_hudawi': 'shabeer',
+            'shajahan_hudawi': 'shajahanhudawi',
+            'shamsu_sir': 'shamsu',
+            'shanid_hudawi': 'shanid',
+            'sharafudheen_hudawi': 'sharafu',
+            'shuaib_hudawi': 'shuaibhudawi',
+            'siraj_hudawi': 'sirajhudawi',
+            'yoonus_hudawi': 'yoonushudawi'
+          };
+
+          const rawSubStr = String(s.subject || '').trim();
+          let cleanSub = rawSubStr;
+          const upSub = rawSubStr.toUpperCase();
+          if (upSub.includes('THAFSEER')) cleanSub = 'Thafseer';
+          else if (upSub.includes('HADEES')) cleanSub = 'Hadith';
+          else if (upSub.includes('U:FIQH') || upSub.includes('U: FIQH')) cleanSub = 'U :FIQH';
+          else if (upSub.includes('FIQH')) cleanSub = 'Fiqh';
+          else if (upSub.includes('AQEED')) cleanSub = 'Aqidah';
+          else if (upSub.includes('BALAG')) cleanSub = 'Balagha';
+          else if (upSub.includes('MANTHIQ')) cleanSub = 'Logic';
+          else if (upSub.includes('ENGLISH')) cleanSub = 'English';
+          else if (upSub.includes('ADAB')) cleanSub = 'Adab';
+          else if (upSub.includes('URDU')) cleanSub = 'Urdu';
+          else if (upSub === 'SS' || upSub.startsWith('SS ') || upSub.endsWith(' SS')) cleanSub = 'Social Science';
+          else if (upSub.includes('THAMAD')) cleanSub = 'Thamadun';
+          else if (upSub.includes('DIRASATHUL ADYAN')) cleanSub = 'Dirasathul Adyan';
+
           const normalizedMap = {};
           Object.entries(s.attendanceMap || {}).forEach(([adOrReg, status]) => {
-            normalizedMap[adOrReg] = status;
             const cleanK = String(adOrReg).trim().toUpperCase();
             const matched = localStudents.find(st => 
               String(st.adNo || '').trim().toUpperCase() === cleanK ||
@@ -1417,16 +1460,22 @@ export default function PeriodAttendanceMinusAndClearance({
             );
             if (matched) {
               normalizedMap[matched.regNo] = status;
+            } else {
+              normalizedMap[adOrReg] = status;
             }
           });
+
+          const rawTeacherUser = String(s.teacherUsername || 'admin').toLowerCase().trim();
+          const mappedTeacherUser = TEACHER_MAPPING[rawTeacherUser] || rawTeacherUser;
+          const matchedTeacherObj = localTeachers.find(ct => ct.username === mappedTeacherUser);
 
           batch.set(doc(db, 'systemCache', sessionDocId), {
             date: s.date,
             session: Number(s.session) || 1,
-            subject: s.subject,
+            subject: cleanSub,
             classAlias: s.classAlias,
-            teacherUsername: String(s.teacherUsername || 'admin').toLowerCase().trim(),
-            teacherName: String(s.teacherName || 'Faculty').trim(),
+            teacherUsername: mappedTeacherUser,
+            teacherName: matchedTeacherObj?.fullName || String(s.teacherName || 'Faculty').trim(),
             attendanceMap: normalizedMap,
             updatedAt: new Date().toISOString()
           }, { merge: true });
@@ -1462,9 +1511,37 @@ export default function PeriodAttendanceMinusAndClearance({
     if (teachersList.length > 0) {
       setStatusMsg(`⏳ Linking ${teachersList.length} teacher subject allocations...`);
       const batch = writeBatch(db);
+      const TEACHER_MAPPING = {
+        'abdussalam_baqavi': 'abdussalambaqavi',
+        'aboobacker_sidheeq_hudawi': 'sidheeqhudawi',
+        'ajmal_hudawi': 'ajmalhudawi',
+        'ashraf_alimi': 'ashraf',
+        'aswim_saeed_hudawi': 'aswimhudawi',
+        'c.yousuf_faizy': 'yousuffaisy',
+        'hassan_nawaz_alimi': 'hassan',
+        'hassankutty_baqavi': 'hasankutty',
+        'mohammed_hudawi': 'muhammedhudawi',
+        'muhammed_ali_hudawi_pi': 'pihudawi',
+        'muhammed_ali_shihab_hudawi': 'shihabhudawi',
+        'munavir_hudawi': 'munawir',
+        'musthaqeem_faizy': 'musthaqeem',
+        'muzammil_hudawi': 'muzammil',
+        'niyas_hudawi': 'niyas',
+        'sayyed_shahul_hameed_hudawi': 'thangal',
+        'shabeer_hudawi': 'shabeer',
+        'shajahan_hudawi': 'shajahanhudawi',
+        'shamsu_sir': 'shamsu',
+        'shanid_hudawi': 'shanid',
+        'sharafudheen_hudawi': 'sharafu',
+        'shuaib_hudawi': 'shuaibhudawi',
+        'siraj_hudawi': 'sirajhudawi',
+        'yoonus_hudawi': 'yoonushudawi'
+      };
+
       teachersList.forEach(t => {
-        const safeUsername = String(t.username || '').toLowerCase().trim();
-        if (!safeUsername) return;
+        const rawUsername = String(t.username || '').toLowerCase().trim();
+        if (!rawUsername) return;
+        const safeUsername = TEACHER_MAPPING[rawUsername] || rawUsername;
         const existingT = localTeachers.find(x => x.username === safeUsername);
         const mergedEnrollments = [...(existingT?.enrollments || [])];
         (t.enrollments || []).forEach(env => {
@@ -1473,9 +1550,9 @@ export default function PeriodAttendanceMinusAndClearance({
           }
         });
         batch.set(doc(db, 'teachers', safeUsername), {
-          fullName: t.fullName || t.name,
+          fullName: existingT?.fullName || t.fullName || t.name,
           username: safeUsername,
-          role: t.role || 'teacher',
+          role: t.role || existingT?.role || 'teacher',
           enrollments: mergedEnrollments
         }, { merge: true });
         importedTeachersCount++;

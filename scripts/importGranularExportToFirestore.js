@@ -17,6 +17,33 @@ const firebaseConfig = {
   appId: "1:694213237468:web:04efcc2b775c578bf97219"
 };
 
+const TEACHER_MAPPING = {
+  'abdussalam_baqavi': 'abdussalambaqavi',
+  'aboobacker_sidheeq_hudawi': 'sidheeqhudawi',
+  'ajmal_hudawi': 'ajmalhudawi',
+  'ashraf_alimi': 'ashraf',
+  'aswim_saeed_hudawi': 'aswimhudawi',
+  'c.yousuf_faizy': 'yousuffaisy',
+  'hassan_nawaz_alimi': 'hassan',
+  'hassankutty_baqavi': 'hasankutty',
+  'mohammed_hudawi': 'muhammedhudawi',
+  'muhammed_ali_hudawi_pi': 'pihudawi',
+  'muhammed_ali_shihab_hudawi': 'shihabhudawi',
+  'munavir_hudawi': 'munawir',
+  'musthaqeem_faizy': 'musthaqeem',
+  'muzammil_hudawi': 'muzammil',
+  'niyas_hudawi': 'niyas',
+  'sayyed_shahul_hameed_hudawi': 'thangal',
+  'shabeer_hudawi': 'shabeer',
+  'shajahan_hudawi': 'shajahanhudawi',
+  'shamsu_sir': 'shamsu',
+  'shanid_hudawi': 'shanid',
+  'sharafudheen_hudawi': 'sharafu',
+  'shuaib_hudawi': 'shuaibhudawi',
+  'siraj_hudawi': 'sirajhudawi',
+  'yoonus_hudawi': 'yoonushudawi'
+};
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = initializeFirestore(app, { experimentalForceLongPolling: true });
@@ -154,13 +181,17 @@ async function runMigration() {
         }
       });
 
+      const rawTeacherUser = String(s.teacherUsername || 'admin').toLowerCase().trim();
+      const mappedTeacherUser = TEACHER_MAPPING[rawTeacherUser] || rawTeacherUser;
+      const matchedTeacherObj = currentTeachers.find(ct => ct.username === mappedTeacherUser);
+
       batch.set(doc(db, 'systemCache', sessionDocId), {
         date: s.date,
         session: Number(s.session) || 1,
         subject: s.subject,
         classAlias: s.classAlias,
-        teacherUsername: String(s.teacherUsername || 'admin').toLowerCase().trim(),
-        teacherName: String(s.teacherName || 'Faculty').trim(),
+        teacherUsername: mappedTeacherUser,
+        teacherName: matchedTeacherObj?.fullName || String(s.teacherName || 'Faculty').trim(),
         attendanceMap: normalizedMap,
         updatedAt: new Date().toISOString()
       }, { merge: true });
@@ -181,9 +212,21 @@ async function runMigration() {
     const batch = writeBatch(db);
 
     chunk.forEach(dStr => {
+      const rawSessions = dayIndexes[dStr] || [];
+      const mappedSessions = rawSessions.map(s => {
+        const u = String(s.teacherUsername || '').trim();
+        const mappedU = TEACHER_MAPPING[u] || u;
+        const matchedT = currentTeachers.find(ct => ct.username === mappedU);
+        return {
+          ...s,
+          teacherUsername: mappedU,
+          teacherName: matchedT?.fullName || s.teacherName
+        };
+      });
+
       batch.set(doc(db, 'systemCache', `daySessionsIndex_${dStr}`), {
         date: dStr,
-        sessions: dayIndexes[dStr] || []
+        sessions: mappedSessions
       }, { merge: true });
     });
 
@@ -199,21 +242,25 @@ async function runMigration() {
   let updatedTeachersCount = 0;
 
   teachersList.forEach(t => {
-    const safeUser = String(t.username || '').toLowerCase().trim();
-    if (!safeUser) return;
+    const rawUser = String(t.username || '').toLowerCase().trim();
+    if (!rawUser) return;
+    const safeUser = TEACHER_MAPPING[rawUser] || rawUser;
     const existingT = currentTeachers.find(x => x.username === safeUser);
     const mergedEnrollments = [...(existingT?.enrollments || [])];
 
     (t.enrollments || []).forEach(env => {
       if (!mergedEnrollments.some(e => e.id === env.id || (e.subject === env.subject && e.alias === env.alias))) {
-        mergedEnrollments.push(env);
+        mergedEnrollments.push({
+          ...env,
+          teacherName: existingT?.fullName || existingT?.name || env.teacherName
+        });
       }
     });
 
     tBatch.set(doc(db, 'teachers', safeUser), {
-      fullName: t.fullName || t.name,
+      fullName: existingT?.fullName || existingT?.name || t.fullName || t.name,
       username: safeUser,
-      role: t.role || 'teacher',
+      role: t.role || existingT?.role || 'teacher',
       enrollments: mergedEnrollments
     }, { merge: true });
     updatedTeachersCount++;

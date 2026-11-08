@@ -995,7 +995,9 @@ export default function PeriodAttendanceReportsHub({
                               </span>
                             </div>
                             <div style={{ fontWeight: '800', fontSize: '14px', color: '#0f172a', marginTop: '5px' }}>
-                              {sess.classAlias || sess.subject}
+                              {sess.subject && sess.classAlias && sess.subject !== sess.classAlias
+                                ? `${sess.subject} • ${sess.classAlias}`
+                                : (sess.subject || sess.classAlias || 'Period Session')}
                             </div>
                             <div style={{ fontSize: '12px', color: '#475569', fontWeight: '600', marginTop: '2px' }}>
                               👨‍🏫 {sess.teacherName} • Pres: <strong style={{ color: '#059669' }}>{presC}</strong> / Abs: <strong style={{ color: '#e11d48' }}>{absC}</strong>

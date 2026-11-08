@@ -70,6 +70,181 @@ export default function NightAttendanceManager({
   const [nightRepMonth, setNightRepMonth] = useState(() => getTodayDateString().slice(0, 7));
   const [nightRepClass, setNightRepClass] = useState('ALL');
 
+  // 🌟 EXTRA ATTENDANCE STATE (Same-Day Multi-Session Recording & Reports)
+  const [extraDate, setExtraDate] = useState(getTodayDateString());
+  const [extraClass, setExtraClass] = useState(
+    loggedInTeacher?.outpassPrivileges?.classTeacherOf?.[0] || DEFAULT_CLASSES[0]
+  );
+  const [extraReason, setExtraReason] = useState('Special Study Camp');
+  const [customExtraReason, setCustomExtraReason] = useState('');
+  const [includeUrdu, setIncludeUrdu] = useState(true);
+  const [extraStatusMap, setExtraStatusMap] = useState({});
+  const [extraSaving, setExtraSaving] = useState(false);
+  const [lastSavedExtraPayload, setLastSavedExtraPayload] = useState(null);
+  const [recordedExtraList, setRecordedExtraList] = useState([]);
+  const [loadingExtraReports, setLoadingExtraReports] = useState(false);
+  const [extraRepClass, setExtraRepClass] = useState('ALL');
+  const [extraRepDate, setExtraRepDate] = useState('');
+  const [extraSearchFilter, setExtraSearchFilter] = useState('');
+  const [extraSubmittedState, setExtraSubmittedState] = useState(false);
+  const [classSubmittedSuccess, setClassSubmittedSuccess] = useState(null);
+
+  // 🌟 EXTRA ATTENDANCE HELPERS
+  const getClassTeacherForClass = (clsName) => {
+    return teachers.find(t => {
+      const ctClasses = t.outpassPrivileges?.classTeacherOf || t.classTeacherOf || [];
+      return Array.isArray(ctClasses) && ctClasses.includes(clsName);
+    }) || null;
+  };
+
+  const isUrduStudent = (st) => {
+    const ad = String(st.adNo || '').trim().toUpperCase();
+    const lang = String(st.langTag || st.stream || '').trim().toUpperCase();
+    return ad.startsWith('U') || lang.includes('URDU');
+  };
+
+  const extraBaseClassStudents = students.filter(st => {
+    const cls = st.studentClass || st.class || (Array.isArray(st.classes) ? st.classes[0] : '');
+    return cls === extraClass;
+  });
+
+  const extraStudentsList = extraBaseClassStudents
+    .filter(st => includeUrdu || !isUrduStudent(st))
+    .filter(st => {
+      if (!extraSearchFilter) return true;
+      const q = extraSearchFilter.toLowerCase();
+      return (st.firstName || '').toLowerCase().includes(q) || String(st.adNo || '').includes(q);
+    });
+
+  const handleExtraQuickTap = (adNo) => {
+    setExtraStatusMap(prev => {
+      const cur = prev[adNo] || 'PRESENT';
+      if (cur === 'OUTPASS' || cur === 'OFFICIAL') return prev;
+      return { ...prev, [adNo]: cur === 'PRESENT' ? 'ABSENT' : 'PRESENT' };
+    });
+  };
+
+  const handleExtraMarkAll = (status) => {
+    const newMap = { ...extraStatusMap };
+    extraStudentsList.forEach(st => {
+      const ad = String(st.adNo || '').trim();
+      const p = getActiveOutpassForStudent(ad);
+      if (p) {
+        newMap[ad] = (p.purpose === 'OFFICIAL' || p.category === 'OFFICIAL') ? 'OFFICIAL' : 'OUTPASS';
+      } else {
+        newMap[ad] = status;
+      }
+    });
+    setExtraStatusMap(newMap);
+  };
+
+  const handleSaveExtraAttendance = async () => {
+    const effectiveReason = extraReason === 'CUSTOM' ? customExtraReason.trim() : extraReason.trim();
+    if (!effectiveReason) {
+      return alert('Please select or enter a reason for Extra Attendance.');
+    }
+
+    setExtraSaving(true);
+    try {
+      const absentAdNos = [];
+      const outpassAdNos = [];
+      const officialAdNos = [];
+      const sickAdNos = [];
+
+      const targetStudents = extraBaseClassStudents.filter(st => includeUrdu || !isUrduStudent(st));
+
+      targetStudents.forEach(st => {
+        const ad = String(st.adNo || '').trim();
+        const stStatus = extraStatusMap[ad] || 'PRESENT';
+        if (stStatus === 'ABSENT') absentAdNos.push(ad);
+        if (stStatus === 'OUTPASS') outpassAdNos.push(ad);
+        if (stStatus === 'OFFICIAL') officialAdNos.push(ad);
+        if (stStatus === 'SICK_ROOM') sickAdNos.push(ad);
+      });
+
+      const presentCount = targetStudents.length - absentAdNos.length - outpassAdNos.length - officialAdNos.length - sickAdNos.length;
+      const reasonSlug = effectiveReason.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const docId = `extra_${extraDate}_${extraClass}_${reasonSlug}_${Date.now()}`;
+
+      const payload = {
+        id: docId,
+        date: extraDate,
+        className: extraClass,
+        reason: effectiveReason,
+        includeUrdu: Boolean(includeUrdu),
+        takenBy: recorderName || 'Teacher',
+        totalStrength: targetStudents.length,
+        presentCount,
+        absentCount: absentAdNos.length,
+        outpassCount: outpassAdNos.length,
+        officialCount: officialAdNos.length,
+        sickCount: sickAdNos.length,
+        absentAdNos,
+        statusMap: extraStatusMap,
+        absentList: targetStudents
+          .filter(s => absentAdNos.includes(String(s.adNo || '').trim()))
+          .map(s => ({ name: s.firstName || s.name, adNo: s.adNo, rollNo: s.rollNo || '' })),
+        createdAt: new Date().toISOString()
+      };
+
+      await setDoc(doc(db, 'night_extra_attendance', docId), payload);
+
+      setLastSavedExtraPayload(payload);
+      setRecordedExtraList(prev => [payload, ...prev]);
+      setExtraSubmittedState(true);
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+      alert(`✅ Extra Attendance saved for Class ${extraClass} (${extraDate} • ${effectiveReason})!`);
+    } catch (err) {
+      console.error(err);
+      alert('Error saving extra attendance: ' + err.message);
+    } finally {
+      setExtraSaving(false);
+    }
+  };
+
+  const loadExtraAttendanceRecords = async () => {
+    setLoadingExtraReports(true);
+    try {
+      const snap = await getDocs(query(collection(db, 'night_extra_attendance'), orderBy('createdAt', 'desc'), limit(150)));
+      const list = [];
+      snap.forEach(d => list.push({ id: d.id, ...d.data() }));
+      setRecordedExtraList(list);
+    } catch (e) {
+      console.error('Error loading extra attendance reports:', e);
+    } finally {
+      setLoadingExtraReports(false);
+    }
+  };
+
+  const handleSendExtraToClassTeacher = (data) => {
+    const payload = data || lastSavedExtraPayload;
+    if (!payload) return alert('No Extra Attendance session data available.');
+    const ct = getClassTeacherForClass(payload.className);
+    const ctPhone = ct?.whatsappNumber || ct?.mobileNumber;
+    const ctName = ct?.fullName || `Class Teacher (${payload.className})`;
+
+    const absentLines = (payload.absentList && payload.absentList.length > 0)
+      ? payload.absentList.map((s, idx) => `${idx + 1}. *${s.name}* (#${s.adNo})`).join('\n')
+      : 'None (All students present)';
+
+    const msg = [
+      `*⚡ EXTRA ATTENDANCE REPORT — CLASS ${payload.className}*`,
+      `📅 *Date:* ${payload.date}`,
+      `🏷️ *Reason:* ${payload.reason}`,
+      `🌐 *Urdu Stream:* ${payload.includeUrdu ? 'Included in roll-call' : 'Skipped / Excluded'}`,
+      `👨‍🏫 *Recorded By:* ${payload.takenBy}`,
+      `📊 *Strength:* ${payload.totalStrength} | *Present:* ${payload.presentCount} | *Absent:* ${payload.absentCount}`,
+      `-----------------------------------------`,
+      (payload.absentList && payload.absentList.length > 0)
+        ? `*🔴 ABSENT STUDENTS (${payload.absentList.length}):*\n${absentLines}`
+        : `*✅ All ${payload.totalStrength} students were Present!*`,
+      `-----------------------------------------`,
+      `_Sent to Class Faculty: ${ctName}_`
+    ].join('\n');
+
+    openDirectWhatsApp(ctPhone, msg);
+  };
+
   const recorderName = isAdmin
     ? 'Admin'
     : (loggedInTeacher?.fullName || loggedInTeacher?.username || 'Teacher');
@@ -225,6 +400,9 @@ export default function NightAttendanceManager({
     if ((viewMode === 'regular_absentees' || (viewMode === 'admin_summary' && nightRepScope !== 'daily')) && monthlyDocsList.length === 0) {
       loadRecent30DaysForAnalytics();
     }
+    if (viewMode === 'extra_reports' && recordedExtraList.length === 0) {
+      loadExtraAttendanceRecords();
+    }
   }, [viewMode, nightRepScope]);
 
   const handleCardQuickTap = (adNo) => {
@@ -280,6 +458,8 @@ export default function NightAttendanceManager({
       }, { merge: true });
 
       setDailyDocData(prev => ({ ...prev, classes: updatedClassesMap }));
+      setClassSubmittedSuccess(selectedClass);
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
       alert(`✅ Night Attendance saved for Class ${selectedClass} (${selectedDate})!`);
     } catch (err) {
       alert('Error saving attendance: ' + err.message);
@@ -438,6 +618,8 @@ export default function NightAttendanceManager({
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
           {[
             { id: 'take_attendance', label: 'Take Class Attendance' },
+            { id: 'extra_attendance', label: '⚡ Extra Attendance (Same Day)' },
+            { id: 'extra_reports', label: '📊 Extra Attendance Reports' },
             ...(canViewAdminAnalytics ? [
               { id: 'admin_summary', label: 'Institution & Monthly Summary' },
               { id: 'regular_absentees', label: 'Regular Absentees Tracker' }
@@ -494,7 +676,7 @@ export default function NightAttendanceManager({
                   <button
                     key={cls}
                     type="button"
-                    onClick={() => setSelectedClass(cls)}
+                    onClick={() => { setSelectedClass(cls); setClassSubmittedSuccess(null); }}
                     style={{
                       padding: '7px 14px', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'pointer',
                       background: isSelected ? '#4f46e5' : isDoneTonight ? '#ecfdf5' : '#f8fafc',
@@ -514,6 +696,52 @@ export default function NightAttendanceManager({
               </span>
             )}
           </div>
+
+          
+          {classSubmittedSuccess === selectedClass && (
+            <div style={{ marginBottom: '16px', background: '#ecfdf5', border: '1.5px solid #10b981', padding: '16px 20px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', boxShadow: '0 2px 4px rgba(16,185,129,0.1)' }}>
+              <div>
+                <div style={{ fontWeight: '800', fontSize: '15px', color: '#065f46' }}>
+                  ✅ Night Attendance for Class {selectedClass} Successfully Recorded ({selectedDate})!
+                </div>
+                <div style={{ fontSize: '12px', color: '#047857', marginTop: '3px' }}>
+                  Present: <strong>{presentInCurrentClass}</strong> • Absent: <strong>{absentInCurrentClass}</strong> • On Leave: <strong>{outpassInCurrentClass + sickInCurrentClass}</strong>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowForwardDrawer(true)}
+                  style={{ ...styles.buttonSuccess, background: '#25D366', color: '#ffffff', padding: '8px 14px', fontSize: '12px', fontWeight: '800' }}
+                >
+                  📲 Share Absentees on WhatsApp
+                </button>
+                {(() => {
+                  const unsaved = DEFAULT_CLASSES.find(c => !((dailyDocData.classes || {})[c]));
+                  if (!unsaved) return null;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedClass(unsaved);
+                        setClassSubmittedSuccess(null);
+                      }}
+                      style={{ ...styles.buttonPrimary, padding: '8px 14px', fontSize: '12px', fontWeight: '800' }}
+                    >
+                      👥 Take Class {unsaved} Attendance →
+                    </button>
+                  );
+                })()}
+                <button
+                  type="button"
+                  onClick={() => setClassSubmittedSuccess(null)}
+                  style={{ ...styles.buttonSecondary, padding: '8px 12px', fontSize: '12px' }}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* SOFT PASTEL 4-COUNTER BAR */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '16px' }}>
@@ -1000,6 +1228,479 @@ export default function NightAttendanceManager({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* =========================================================
+          MODE 4: EXTRA ATTENDANCE (SAME DAY MULTI-SESSION)
+         ========================================================= */}
+      {viewMode === 'extra_attendance' && (
+        <div style={{ ...styles.card, marginBottom: 0, padding: '20px' }}>
+          {/* CLASS SELECTOR PILLS */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '16px', paddingBottom: '14px', borderBottom: '1px solid #f1f5f9' }}>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a', marginRight: '4px' }}>Class:</span>
+              {DEFAULT_CLASSES.map(cls => {
+                const active = extraClass === cls;
+                return (
+                  <button
+                    key={cls}
+                    type="button"
+                    onClick={() => {
+                      setExtraClass(cls);
+                      setExtraStatusMap({});
+                      setLastSavedExtraPayload(null);
+                    }}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      fontWeight: '800',
+                      cursor: 'pointer',
+                      border: active ? '1.5px solid #4f46e5' : '1px solid #e2e8f0',
+                      background: active ? '#4f46e5' : '#ffffff',
+                      color: active ? '#ffffff' : '#475569',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {cls}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '12px', fontWeight: '700', color: '#64748b' }}>Extra Date:</span>
+              <input
+                type="date"
+                value={extraDate}
+                onChange={(e) => setExtraDate(e.target.value)}
+                style={{ ...styles.input, width: 'auto', padding: '6px 12px', fontSize: '12px', fontWeight: '700' }}
+              />
+            </div>
+          </div>
+
+          {/* REASON SELECTOR & URDU TOGGLE */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '16px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <div>
+              <label style={styles.label}>Reason for Extra Attendance</label>
+              <select
+                value={extraReason}
+                onChange={e => setExtraReason(e.target.value)}
+                style={styles.input}
+              >
+                <option value="Special Study Camp">Special Study Camp</option>
+                <option value="Event Rehearsal Practice">Event Rehearsal Practice</option>
+                <option value="Special Assembly">Special Assembly</option>
+                <option value="Madrasa Night Program">Madrasa Night Program</option>
+                <option value="Emergency Roll-Call">Emergency Roll-Call</option>
+                <option value="Hostel Gate Check">Hostel Gate Check</option>
+                <option value="CUSTOM">Custom Reason...</option>
+              </select>
+              {extraReason === 'CUSTOM' && (
+                <input
+                  type="text"
+                  placeholder="Type specific reason..."
+                  value={customExtraReason}
+                  onChange={e => setCustomExtraReason(e.target.value)}
+                  style={{ ...styles.input, marginTop: '8px' }}
+                />
+              )}
+            </div>
+
+            <div>
+              <label style={styles.label}>Urdu Stream Handling</label>
+              <button
+                type="button"
+                onClick={() => setIncludeUrdu(!includeUrdu)}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  fontWeight: '800',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  border: includeUrdu ? '1.5px solid #10b981' : '1.5px solid #f59e0b',
+                  background: includeUrdu ? '#ecfdf5' : '#fffbeb',
+                  color: includeUrdu ? '#065f46' : '#92400e',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+              >
+                <span>{includeUrdu ? '🌐 Urdu Students: INCLUDED' : '⏭️ Urdu Students: SKIPPED / IGNORED'}</span>
+                <span style={{ fontSize: '11px', textDecoration: 'underline' }}>Click to Toggle</span>
+              </button>
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                {includeUrdu ? 'Urdu stream students (#U...) are included in roll-call.' : 'Urdu stream students are completely omitted from attendance & statistics.'}
+              </div>
+            </div>
+
+            <div>
+              <label style={styles.label}>Designated Class Teacher</label>
+              {(() => {
+                const ct = getClassTeacherForClass(extraClass);
+                return (
+                  <div style={{ padding: '8px 12px', background: '#ffffff', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', fontWeight: '700', color: '#0f172a' }}>
+                    👨‍🏫 {ct?.fullName || 'Not assigned'} <span style={{ color: '#64748b', fontSize: '11px' }}>({ct?.whatsappNumber || ct?.mobileNumber || 'No Phone'})</span>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+
+          
+          {extraSubmittedState && lastSavedExtraPayload ? (
+            <div style={{ padding: '28px', background: '#ffffff', borderRadius: '14px', border: '1.5px solid #cbd5e1', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+              <div style={{ textAlign: 'center', marginBottom: '22px' }}>
+                <div style={{ fontSize: '44px', marginBottom: '8px' }}>🎉</div>
+                <h3 style={{ margin: '0 0 6px 0', fontSize: '22px', fontWeight: '900', color: '#0f172a' }}>
+                  Extra Attendance Successfully Recorded!
+                </h3>
+                <p style={{ margin: 0, fontSize: '14px', color: '#64748b', fontWeight: '600' }}>
+                  Recorded separately for <strong>Class {lastSavedExtraPayload.className}</strong> on <strong>{lastSavedExtraPayload.date}</strong> under reason: <strong style={{ color: '#4f46e5' }}>{lastSavedExtraPayload.reason}</strong>
+                </p>
+              </div>
+
+              {/* STATS TILES */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+                <div style={{ padding: '14px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                  <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748b' }}>TOTAL ENROLLED</div>
+                  <div style={{ fontSize: '22px', fontWeight: '900', color: '#0f172a', marginTop: '2px' }}>{lastSavedExtraPayload.totalStrength}</div>
+                </div>
+                <div style={{ padding: '14px', background: '#ecfdf5', borderRadius: '10px', border: '1px solid #a7f3d0', textAlign: 'center' }}>
+                  <div style={{ fontSize: '11px', fontWeight: '800', color: '#047857' }}>PRESENT</div>
+                  <div style={{ fontSize: '22px', fontWeight: '900', color: '#065f46', marginTop: '2px' }}>{lastSavedExtraPayload.presentCount}</div>
+                </div>
+                <div style={{ padding: '14px', background: '#fff1f2', borderRadius: '10px', border: '1px solid #fecdd3', textAlign: 'center' }}>
+                  <div style={{ fontSize: '11px', fontWeight: '800', color: '#be123c' }}>ABSENT</div>
+                  <div style={{ fontSize: '22px', fontWeight: '900', color: '#e11d48', marginTop: '2px' }}>{lastSavedExtraPayload.absentCount}</div>
+                </div>
+                <div style={{ padding: '14px', background: '#fef3c7', borderRadius: '10px', border: '1px solid #fde68a', textAlign: 'center' }}>
+                  <div style={{ fontSize: '11px', fontWeight: '800', color: '#92400e' }}>URDU STREAM</div>
+                  <div style={{ fontSize: '14px', fontWeight: '900', color: '#b45309', marginTop: '6px' }}>{lastSavedExtraPayload.includeUrdu ? 'INCLUDED' : 'SKIPPED'}</div>
+                </div>
+              </div>
+
+              {/* ABSENT LIST IF ANY */}
+              {lastSavedExtraPayload.absentList && lastSavedExtraPayload.absentList.length > 0 ? (
+                <div style={{ marginBottom: '22px', padding: '16px', background: '#fff1f2', borderRadius: '10px', border: '1px solid #fecdd3' }}>
+                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#be123c', marginBottom: '8px' }}>
+                    🔴 Absent Students ({lastSavedExtraPayload.absentList.length}):
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {lastSavedExtraPayload.absentList.map(a => (
+                      <span key={a.adNo} style={{ background: '#ffffff', color: '#e11d48', border: '1px solid #fecdd3', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' }}>
+                        {a.name} (#{a.adNo})
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ marginBottom: '22px', padding: '14px', background: '#ecfdf5', borderRadius: '10px', border: '1px solid #a7f3d0', color: '#047857', fontWeight: '700', fontSize: '13px', textAlign: 'center' }}>
+                  ✅ 100% Attendance — Zero Absentees for this extra session!
+                </div>
+              )}
+
+              {/* ACTION BUTTONS */}
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => handleSendExtraToClassTeacher(lastSavedExtraPayload)}
+                  style={{ ...styles.buttonSuccess, background: '#25D366', color: '#ffffff', padding: '12px 24px', fontSize: '14px', fontWeight: '800', display: 'inline-flex', alignItems: 'center', gap: '8px', boxShadow: '0 2px 4px rgba(37,211,102,0.2)' }}
+                >
+                  📲 Send Report to Class Teacher (WhatsApp)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExtraSubmittedState(false);
+                    setExtraStatusMap({});
+                    setLastSavedExtraPayload(null);
+                  }}
+                  style={{ ...styles.buttonPrimary, padding: '12px 24px', fontSize: '14px', fontWeight: '800' }}
+                >
+                  ➕ Record Another Extra Session
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setExtraSubmittedState(false)}
+                  style={{ ...styles.buttonSecondary, padding: '12px 18px', fontSize: '13px', fontWeight: '700' }}
+                >
+                  ✏️ Edit / Adjust This Session
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewMode('extra_reports');
+                    loadExtraAttendanceRecords();
+                  }}
+                  style={{ ...styles.buttonSecondary, padding: '12px 18px', fontSize: '13px', fontWeight: '700' }}
+                >
+                  📊 View Extra Reports Hub
+                </button>
+              </div>
+            </div>
+          ) : (
+
+            <>
+            {/* ACTION TOOLBAR: QUICK BUTTONS & SEARCH */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button type="button" onClick={() => handleExtraMarkAll('PRESENT')} style={styles.buttonSuccess}>
+                ✓ Mark All Present
+              </button>
+              <button type="button" onClick={() => handleExtraMarkAll('ABSENT')} style={{ ...styles.buttonSecondary, color: '#e11d48' }}>
+                ✕ Mark All Absent
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <input
+                type="text"
+                placeholder="Search student or #AdNo..."
+                value={extraSearchFilter}
+                onChange={e => setExtraSearchFilter(e.target.value)}
+                style={{ ...styles.input, width: '220px', padding: '8px 12px', fontSize: '12px' }}
+              />
+            </div>
+          </div>
+
+          {/* STUDENT CARDS GRID */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '10px', marginBottom: '20px' }}>
+            {extraStudentsList.map(st => {
+              const ad = String(st.adNo || '').trim();
+              const activePass = getActiveOutpassForStudent(ad);
+              const isUrdu = isUrduStudent(st);
+
+              let curStatus = extraStatusMap[ad];
+              if (!curStatus) {
+                if (activePass) {
+                  curStatus = (activePass.purpose === 'OFFICIAL' || activePass.category === 'OFFICIAL') ? 'OFFICIAL' : 'OUTPASS';
+                } else {
+                  curStatus = 'PRESENT';
+                }
+              }
+
+              const isAbsent = curStatus === 'ABSENT';
+              const isOutpass = curStatus === 'OUTPASS';
+              const isOfficial = curStatus === 'OFFICIAL';
+              const isSick = curStatus === 'SICK_ROOM';
+
+              return (
+                <div
+                  key={st.id || ad}
+                  onClick={() => handleExtraQuickTap(ad)}
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: '10px',
+                    cursor: (isOutpass || isOfficial) ? 'default' : 'pointer',
+                    userSelect: 'none',
+                    border: isAbsent ? '1.5px solid #fecdd3' : isOutpass ? '1.5px solid #fef08a' : isOfficial ? '1.5px solid #bae6fd' : isSick ? '1.5px solid #e9d5ff' : '1.5px solid #e2e8f0',
+                    background: isAbsent ? '#fff1f2' : isOutpass ? '#fefce8' : isOfficial ? '#f0f9ff' : isSick ? '#faf5ff' : '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    boxShadow: '0 1px 2px rgba(15,23,42,0.03)'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <ProfileAvatar name={st.firstName} code={ad} photoUrl={st.photoUrl} size={36} />
+                    <div>
+                      <div style={{ fontWeight: '700', fontSize: '13px', color: '#0f172a' }}>{st.firstName}</div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>
+                        #{ad} • Roll: {st.rollNo || '—'} {isUrdu && <span style={{ background: '#fef3c7', color: '#92400e', padding: '1px 5px', borderRadius: '4px', fontSize: '10px', fontWeight: '800' }}>URDU</span>}
+                      </div>
+                    </div>
+                  </div>
+
+                  <span style={{
+                    padding: '3px 8px',
+                    borderRadius: '999px',
+                    fontSize: '11px',
+                    fontWeight: '800',
+                    background: isAbsent ? '#e11d48' : isOutpass ? '#ca8a04' : isOfficial ? '#0284c7' : isSick ? '#9333ea' : '#10b981',
+                    color: '#ffffff'
+                  }}>
+                    {curStatus}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* SAVE AND FORWARD TO WHATSAPP ACTION BAR */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <div>
+              <div style={{ fontWeight: '800', fontSize: '15px', color: '#0f172a' }}>
+                Summary: {extraStudentsList.length} Students • {extraStudentsList.filter(s => extraStatusMap[s.adNo] === 'ABSENT').length} Absent
+              </div>
+              <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                Recorded separately from regular night attendance under reason: <strong>{extraReason === 'CUSTOM' ? customExtraReason : extraReason}</strong>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={handleSaveExtraAttendance}
+                disabled={extraSaving}
+                style={{ ...styles.buttonPrimary, padding: '12px 24px', fontSize: '14px', fontWeight: '800' }}
+              >
+                {extraSaving ? '⏳ Saving...' : '💾 Save Extra Attendance'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSendExtraToClassTeacher()}
+                style={{ ...styles.buttonSuccess, background: '#25D366', color: '#ffffff', padding: '12px 20px', fontSize: '14px', fontWeight: '800', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+              >
+                📲 Send to Class Teacher (WhatsApp)
+              </button>
+            </div>
+          </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* =========================================================
+          MODE 5: EXTRA ATTENDANCE REPORTS & ARCHIVE
+         ========================================================= */}
+      {viewMode === 'extra_reports' && (
+        <div style={styles.card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
+                📊 Extra Attendance Reports &amp; History
+              </h3>
+              <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+                View and forward all same-day extra roll-calls recorded for specific events, camps, and checks.
+              </p>
+            </div>
+            <button type="button" onClick={loadExtraAttendanceRecords} style={styles.buttonSecondary}>
+              🔄 Refresh List
+            </button>
+          </div>
+
+          {/* FILTER BAR */}
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '16px', alignItems: 'center' }}>
+            <div>
+              <label style={styles.label}>Filter by Class</label>
+              <select
+                value={extraRepClass}
+                onChange={e => setExtraRepClass(e.target.value)}
+                style={{ ...styles.input, width: '140px', padding: '7px 12px' }}
+              >
+                <option value="ALL">All Classes</option>
+                {DEFAULT_CLASSES.map(c => <option key={c} value={c}>Class {c}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label style={styles.label}>Filter by Date</label>
+              <input
+                type="date"
+                value={extraRepDate}
+                onChange={e => setExtraRepDate(e.target.value)}
+                style={{ ...styles.input, width: '160px', padding: '7px 12px' }}
+              />
+            </div>
+            {extraRepDate && (
+              <button
+                type="button"
+                onClick={() => setExtraRepDate('')}
+                style={{ ...styles.buttonSecondary, marginTop: '16px', padding: '7px 12px', fontSize: '12px' }}
+              >
+                Clear Date
+              </button>
+            )}
+          </div>
+
+          {/* SESSIONS CARDS LIST */}
+          {loadingExtraReports ? (
+            <div style={{ padding: '30px', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>Loading extra attendance records...</div>
+          ) : (() => {
+            const filteredSessions = recordedExtraList
+              .filter(item => extraRepClass === 'ALL' || item.className === extraRepClass)
+              .filter(item => !extraRepDate || item.date === extraRepDate);
+
+            if (filteredSessions.length === 0) {
+              return (
+                <div style={{ padding: '36px', background: '#f8fafc', borderRadius: '12px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
+                  No extra attendance records found for the selected filters.
+                </div>
+              );
+            }
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {filteredSessions.map(sess => {
+                  const ct = getClassTeacherForClass(sess.className);
+                  return (
+                    <div
+                      key={sess.id}
+                      style={{
+                        padding: '16px 18px',
+                        borderRadius: '12px',
+                        border: '1px solid #e2e8f0',
+                        background: '#ffffff',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '12px',
+                        boxShadow: '0 1px 3px rgba(15,23,42,0.03)'
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ background: '#4f46e5', color: '#ffffff', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
+                            Class {sess.className}
+                          </span>
+                          <span style={{ fontSize: '12px', fontWeight: '700', color: '#64748b' }}>
+                            📅 {sess.date}
+                          </span>
+                          <span style={{ background: '#e0e7ff', color: '#3730a3', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>
+                            🏷️ {sess.reason}
+                          </span>
+                          <span style={{ background: sess.includeUrdu ? '#dcfce7' : '#fef3c7', color: sess.includeUrdu ? '#15803d' : '#92400e', padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '800' }}>
+                            {sess.includeUrdu ? 'Urdu Included' : 'Urdu Skipped'}
+                          </span>
+                        </div>
+
+                        <div style={{ marginTop: '8px', fontSize: '13px', color: '#0f172a', fontWeight: '700' }}>
+                          Present: <span style={{ color: '#059669' }}>{sess.presentCount}</span> / Absent: <span style={{ color: '#e11d48' }}>{sess.absentCount}</span> • Total Strength: {sess.totalStrength}
+                        </div>
+
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '3px' }}>
+                          👨‍🏫 Recorded By: {sess.takenBy || 'Teacher'} • Class Faculty: {ct?.fullName || 'Not assigned'}
+                          {sess.absentList && sess.absentList.length > 0 && (
+                            <div style={{ marginTop: '4px', color: '#e11d48', fontWeight: '600' }}>
+                              Absentees: {sess.absentList.map(a => a.name).join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleSendExtraToClassTeacher(sess)}
+                          style={{ ...styles.buttonSuccess, background: '#25D366', color: '#ffffff', padding: '8px 14px', fontSize: '12px', fontWeight: '800', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                        >
+                          📲 Forward to Class Teacher
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

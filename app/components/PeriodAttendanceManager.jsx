@@ -702,6 +702,12 @@ export default function PeriodAttendanceManager({
       // 🌟 Return to Subject Cards Dashboard so teacher sees immediate confirmation that it has been recorded
       setActiveTab('cards');
       setStatusMsg(`✅ Period ${attSession} Attendance (${safeAlias}) Successfully Recorded! (${presentTotal} Present, ${classStudents.length - presentTotal} Absent)`);
+      // Reset form to initial clean state
+      setAttSession('');
+      setAttEnrollmentId('');
+      setClassStudents([]);
+      setAbsentRegNos([]);
+      setExistingSessionDoc(null);
       if (typeof window !== 'undefined') {
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
@@ -1004,6 +1010,13 @@ export default function PeriodAttendanceManager({
       }
 
       setStatusMsg(`✅ Rehearsal Attendance Recorded to Period Register (${presentRegs.length} Present, ${rehAbsentRegNos.length} Absent)!`);
+      // Reset rehearsal form to initial clean state
+      setRehSessionId('');
+      setCoveredPeriods([]);
+      setRehAbsentRegNos([]);
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     } catch (err) {
       console.error('Error saving rehearsal attendance:', err);
       setStatusMsg('❌ Error saving rehearsal attendance: ' + err.message);
