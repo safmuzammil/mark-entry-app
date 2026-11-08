@@ -31,7 +31,8 @@ export default function MinusAttendanceManager({
   const [minusSearchQuery, setMinusSearchQuery] = useState('');
   const [selectedStudentsList, setSelectedStudentsList] = useState([]);
   const [selectedSingleStudent, setSelectedSingleStudent] = useState(null);
-  const [minusCount, setMinusCount] = useState(1);
+  const [minusCount, setMinusCount] = useState(3);
+  const [adminOnBehalfOfUsername, setAdminOnBehalfOfUsername] = useState('admin');
   const [minusReason, setMinusReason] = useState('');
   const [minusDate, setMinusDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [quickClassFilter, setQuickClassFilter] = useState('');
@@ -44,8 +45,9 @@ export default function MinusAttendanceManager({
 
   // --- Edit Modal State ---
   const [editingLogItem, setEditingLogItem] = useState(null); // { log, student }
-  const [editMinusCount, setEditMinusCount] = useState(1);
+  const [editMinusCount, setEditMinusCount] = useState(3);
   const [editMinusReason, setEditMinusReason] = useState('');
+  const [editIssuedByUsername, setEditIssuedByUsername] = useState('admin');
 
   // --- Async & Status State ---
   const [loading, setLoading] = useState(false);
@@ -157,8 +159,21 @@ export default function MinusAttendanceManager({
       const batch = writeBatch(db);
       const updatedMap = {};
       const dateToUse = minusDate || new Date().toISOString().split('T')[0];
-      const issuerName = loggedInUser?.fullName || activeTeacherObj?.fullName || (userRole === 'admin' ? 'Central Admin' : 'Faculty');
-      const issuerUname = String(loggedInUser?.username || activeTeacherObj?.username || (userRole === 'admin' ? 'admin' : 'faculty')).toLowerCase();
+      let issuerName = loggedInUser?.fullName || activeTeacherObj?.fullName || (userRole === 'admin' ? 'Central Admin' : 'Faculty');
+      let issuerUname = String(loggedInUser?.username || activeTeacherObj?.username || (userRole === 'admin' ? 'admin' : 'faculty')).toLowerCase();
+
+      if (userRole === 'admin') {
+        if (adminOnBehalfOfUsername === 'admin') {
+          issuerName = 'Central Admin';
+          issuerUname = 'admin';
+        } else {
+          const chosenTeacher = localTeachers.find(t => t.username === adminOnBehalfOfUsername);
+          if (chosenTeacher) {
+            issuerName = chosenTeacher.fullName || 'Faculty';
+            issuerUname = chosenTeacher.username;
+          }
+        }
+      }
 
       targets.forEach((targetSt, idx) => {
         const st = localStudents.find(s => s.regNo === targetSt.regNo) || targetSt;
@@ -197,7 +212,8 @@ export default function MinusAttendanceManager({
       setSelectedStudentsList([]);
       setSelectedSingleStudent(null);
       setMinusReason('');
-      setMinusCount(1);
+      setMinusCount(3);
+      if (userRole === 'admin') setAdminOnBehalfOfUsername('admin');
     } catch (err) {
       console.error('Error applying minus:', err);
       setStatusMsg({ text: '❌ Failed to save minus: ' + err.message, type: 'error' });
@@ -224,12 +240,29 @@ export default function MinusAttendanceManager({
       const docId = String(student.id || student.regNo || '').trim();
       const curStat = JSON.parse(JSON.stringify(getStudentAttStat(student)));
 
+      let updatedIssuerName = log.issuedBy;
+      let updatedIssuerUsername = log.issuedByUsername;
+      if (userRole === 'admin') {
+        if (editIssuedByUsername === 'admin') {
+          updatedIssuerName = 'Central Admin';
+          updatedIssuerUsername = 'admin';
+        } else {
+          const chosenTeacher = localTeachers.find(t => t.username === editIssuedByUsername);
+          if (chosenTeacher) {
+            updatedIssuerName = chosenTeacher.fullName || 'Faculty';
+            updatedIssuerUsername = chosenTeacher.username;
+          }
+        }
+      }
+
       const updatedLogs = (curStat.minusLogs || []).map(l => {
         if (l.id === log.id) {
           return {
             ...l,
             count: newCount,
             reason: editMinusReason.trim(),
+            issuedBy: updatedIssuerName,
+            issuedByUsername: updatedIssuerUsername,
             editedAt: new Date().toISOString().split('T')[0]
           };
         }
@@ -410,7 +443,7 @@ export default function MinusAttendanceManager({
           return;
         }
 
-        const countVal = Math.abs(Number(row['Minus'] || row['Count'] || row['Periods'] || 1));
+        const countVal = Math.abs(Number(row['Minus'] || row['Count'] || row['Periods'] || 3));
         const reasonVal = String(row['Reason'] || 'Disciplinary Minus').trim();
         const dateVal = String(row['Date'] || todayStr).trim();
         const teacherVal = String(row['Teacher'] || loggedInUser?.fullName || 'Central Admin').trim();
@@ -726,7 +759,7 @@ export default function MinusAttendanceManager({
             )}
 
             {/* Deduction Details */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: userRole === 'admin' ? 'repeat(auto-fit, minmax(180px, 1fr))' : 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
               <div>
                 <label style={styles.label}>3. Periods to Deduct *</label>
                 <input
@@ -750,11 +783,32 @@ export default function MinusAttendanceManager({
                   style={styles.input}
                 />
               </div>
+
+              {userRole === 'admin' && (
+                <div>
+                  <label style={styles.label}>5. Imposed on Behalf of</label>
+                  <select
+                    value={adminOnBehalfOfUsername}
+                    onChange={e => setAdminOnBehalfOfUsername(e.target.value)}
+                    style={styles.input}
+                  >
+                    <option value="admin">🏛️ Central Admin</option>
+                    {localTeachers
+                      .filter(t => !t.isEventLeader)
+                      .sort((a, b) => (a.fullName || '').localeCompare(b.fullName || ''))
+                      .map(t => (
+                        <option key={t.username} value={t.username}>
+                          👨‍🏫 Usthad {t.fullName} (@{t.username})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* Reason with Quick Chips */}
             <div>
-              <label style={styles.label}>5. Disciplinary Reason *</label>
+              <label style={styles.label}>{userRole === 'admin' ? '6. Disciplinary Reason *' : '5. Disciplinary Reason *'}</label>
               <input
                 type="text"
                 value={minusReason}
@@ -925,6 +979,7 @@ export default function MinusAttendanceManager({
                                   setEditingLogItem({ log, student });
                                   setEditMinusCount(log.count);
                                   setEditMinusReason(log.reason);
+                                  setEditIssuedByUsername(log.issuedByUsername || 'admin');
                                 }}
                                 style={{
                                   padding: '4px 10px',
@@ -1070,6 +1125,27 @@ export default function MinusAttendanceManager({
                   style={styles.input}
                 />
               </div>
+
+              {userRole === 'admin' && (
+                <div>
+                  <label style={styles.label}>Imposed on Behalf of</label>
+                  <select
+                    value={editIssuedByUsername}
+                    onChange={e => setEditIssuedByUsername(e.target.value)}
+                    style={styles.input}
+                  >
+                    <option value="admin">🏛️ Central Admin</option>
+                    {localTeachers
+                      .filter(t => !t.isEventLeader)
+                      .sort((a, b) => (a.fullName || '').localeCompare(b.fullName || ''))
+                      .map(t => (
+                        <option key={t.username} value={t.username}>
+                          👨‍🏫 Usthad {t.fullName} (@{t.username})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
                 <button type="button" onClick={() => setEditingLogItem(null)} style={styles.buttonSecondary}>
