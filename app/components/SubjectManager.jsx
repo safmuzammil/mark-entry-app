@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../../lib/firebase';
 import { doc, getDocs, setDoc, collection } from 'firebase/firestore';
 import { DEFAULT_CLASSES, DEFAULT_SUBJECTS, styles } from './erpConstants';
+import { isAttendanceOnlyEnrollment } from './PeriodAttendanceManager';
 import { ProfileAvatar } from './ErpExtensions';
 
 const QUICK_COURSE_SUGGESTIONS = [
@@ -111,8 +112,12 @@ export default function SubjectManager({
           });
         } else {
           // Fall back to target class match
-          const tCls = String(env.targetClass || '').toUpperCase().trim();
-          if (tCls && tCls !== 'CUSTOM') {
+          let tCls = String(env.targetClass || '').toUpperCase().trim();
+          if (!tCls || tCls === 'GENERAL' || tCls === 'CUSTOM') {
+            const m = String(aliasClean || '').match(/\b(QLA3|HFC3|FC2|AL2|QH2|FC1|QH1|AL1|QHF2|ALC2|M10)\b/i);
+            if (m) tCls = m[0].toUpperCase();
+          }
+          if (tCls && tCls !== 'CUSTOM' && tCls !== 'GENERAL') {
             enrolledStudents = students.filter(st => {
               const stClasses = Array.isArray(st.classes) ? st.classes : [st.class];
               return stClasses.some(c => norm(c) === norm(tCls) || norm(c).includes(norm(tCls)));
@@ -120,12 +125,20 @@ export default function SubjectManager({
           }
         }
 
+        let effectiveClass = env.targetClass;
+        if (!effectiveClass || effectiveClass === 'General' || effectiveClass === 'CUSTOM') {
+          const m = String(aliasClean || '').match(/\b(QLA3|HFC3|FC2|AL2|QH2|FC1|QH1|AL1|QHF2|ALC2|M10)\b/i);
+          if (m) effectiveClass = m[0].toUpperCase();
+        }
+
+        const isAttOnly = isAttendanceOnlyEnrollment(env);
+
         list.push({
           id: env.id || `env_${Math.random()}`,
           subject: subNameClean || 'General Course',
           alias: aliasClean,
-          targetClass: env.targetClass || 'General',
-          isAttendanceOnly: Boolean(env.isAttendanceOnly),
+          targetClass: effectiveClass || 'General',
+          isAttendanceOnly: isAttOnly,
           isHifz: String(env.subject || '').toUpperCase() === 'HIFZ',
           studentIds: env.studentIds || [],
           enrolledStudents,
