@@ -245,15 +245,29 @@ export default function UnifiedSchoolPortal() {
 
         await signInWithEmailAndPassword(auth, finalTargetEmail, firebasePassword);
       } else {
-        const studentPassword = cleanPassword.length < 6 ? cleanPassword.padStart(6, '0') : cleanPassword;
         const studentEmailAttempt = `${safeUsername}@student.school.com`;
         const teacherEmailAttempt = `${safeUsername}@school.com`;
+        const paddedStudentPassword = cleanPassword.length < 6 ? cleanPassword.padStart(6, '0') : cleanPassword;
 
-        try {
-          await signInWithEmailAndPassword(auth, studentEmailAttempt, studentPassword);
-          isStudentLogin = true;
-          finalTargetEmail = studentEmailAttempt;
-        } catch (studentErr) {
+        const studentAttempts = Array.from(new Set([
+          paddedStudentPassword,
+          cleanPassword,
+          cleanPassword.toUpperCase(),
+          cleanPassword.toLowerCase()
+        ]));
+
+        for (const pwd of studentAttempts) {
+          try {
+            await signInWithEmailAndPassword(auth, studentEmailAttempt, pwd);
+            isStudentLogin = true;
+            finalTargetEmail = studentEmailAttempt;
+            break;
+          } catch (err) {
+            // continue trying next student password variant
+          }
+        }
+
+        if (!isStudentLogin) {
           try {
             await signInWithEmailAndPassword(auth, teacherEmailAttempt, cleanPassword);
             isStudentLogin = false;

@@ -344,7 +344,53 @@ function StudentWeeklyReminder({ reminder, studentMarks }) {
   );
 }
 
-export default function StudentDashboard() {
+class StudentPortalErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error('StudentPortal caught error:', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px', background: '#f8fafc', fontFamily: 'Inter, system-ui, sans-serif' }}>
+          <div style={{ maxWidth: '440px', background: '#ffffff', borderRadius: '16px', padding: '32px', border: '1px solid #e2e8f0', textAlign: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+            <div style={{ fontSize: '36px', marginBottom: '12px' }}>⚠️</div>
+            <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: '0 0 8px 0' }}>Student Portal Notice</h3>
+            <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 20px 0' }}>An unexpected error occurred while loading this view. You can reload or return to the sign-in screen.</p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                style={{ padding: '9px 16px', background: '#4f46e5', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}
+              >
+                🔄 Reload
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try { const { signOut } = await import('firebase/auth'); await signOut(auth); } catch (e) {}
+                  window.location.href = '/';
+                }}
+                style={{ padding: '9px 16px', background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function StudentDashboardInner() {
   const [regNo, setRegNo] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -374,6 +420,30 @@ export default function StudentDashboard() {
   const [studentAttScope, setStudentAttScope] = useState('monthly');
   const [studentAttMonth, setStudentAttMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [studentAttDate, setStudentAttDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const todayDateStr = React.useMemo(() => new Date().toISOString().split('T')[0], []);
+
+  const daysInMonth = React.useMemo(() => {
+    const [yearStr, monthStr] = (studentAttMonth || '2026-11').split('-');
+    const y = parseInt(yearStr, 10);
+    const m = parseInt(monthStr, 10);
+    if (isNaN(y) || isNaN(m)) return [];
+    const numDays = new Date(y, m, 0).getDate();
+    const days = [];
+    const dayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+    for (let i = 1; i <= numDays; i++) {
+      const dStr = `${yearStr}-${String(m).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+      const dateObj = new Date(y, m - 1, i);
+      const dayOfWeek = dateObj.getDay();
+      days.push({
+        dateStr: dStr,
+        dayNum: String(i).padStart(2, '0'),
+        dayName: dayNames[dayOfWeek],
+        isFriday: dayOfWeek === 5
+      });
+    }
+    return days;
+  }, [studentAttMonth]);
+
   const [attendanceData, setAttendanceData] = useState({
     totalPeriods: 0,
     presentCount: 0,
@@ -423,10 +493,33 @@ export default function StudentDashboard() {
     const safeRegNo = regNo.trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '');
     const fakeEmail = `${safeRegNo}@student.school.com`;
     const safeAdNo = password.trim();
-    const firebasePassword = safeAdNo.length < 6 ? safeAdNo.padStart(6, '0') : safeAdNo;
+    const paddedPassword = safeAdNo.length < 6 ? safeAdNo.padStart(6, '0') : safeAdNo;
+
+    const passwordAttempts = Array.from(new Set([
+      paddedPassword,
+      safeAdNo,
+      safeAdNo.toUpperCase(),
+      safeAdNo.toLowerCase()
+    ]));
+
+    let loggedIn = false;
+    for (const pwd of passwordAttempts) {
+      try {
+        await signInWithEmailAndPassword(auth, fakeEmail, pwd);
+        loggedIn = true;
+        break;
+      } catch (err) {
+        // try next password variation
+      }
+    }
+
+    if (!loggedIn) {
+      setErrorMsg('Invalid Registration Number or Admission Number.');
+      setIsLoading(false);
+      return;
+    }
 
     try {
-      await signInWithEmailAndPassword(auth, fakeEmail, firebasePassword);
       const docSnap = await getDoc(doc(db, 'students', safeRegNo));
       if (docSnap.exists()) {
         const studentData = { id: docSnap.id, ...docSnap.data() };
@@ -438,7 +531,7 @@ export default function StudentDashboard() {
         await signOut(auth);
       }
     } catch (err) {
-      setErrorMsg('Invalid Registration Number or Admission Number.');
+      setErrorMsg('Error loading profile: ' + (err.message || ''));
     } finally {
       setIsLoading(false);
     }
@@ -818,7 +911,7 @@ export default function StudentDashboard() {
 
   const deduplicatedSubjectsMap = new Map();
 
-  subjectAggregates.filter(item => !item.isHifz).forEach(item => {
+  (subjectAggregates || []).filter(item => !item.isHifz).forEach(item => {
     const canon = canonicalSubject(item.subject);
     deduplicatedSubjectsMap.set(canon, {
       subject: canon,
@@ -827,7 +920,7 @@ export default function StudentDashboard() {
     });
   });
 
-  Object.keys(attendanceData.subjectWise || {}).forEach(k => {
+  Object.keys(attendanceData?.subjectWise || {}).forEach(k => {
     if (k.toUpperCase() === 'HIFZ') return;
     const canon = canonicalSubject(k);
     if (!deduplicatedSubjectsMap.has(canon)) {
@@ -846,40 +939,17 @@ export default function StudentDashboard() {
 
   const allAttendanceSubjectsForStudent = Array.from(deduplicatedSubjectsMap.values());
 
-  // 🌟 Compute days in the selected month
-  const todayDateStr = React.useMemo(() => new Date().toISOString().split('T')[0], []);
-
-  // Compute days in the selected month
-  const [yearStr, monthStr] = (studentAttMonth || '2026-11').split('-');
-  const y = parseInt(yearStr, 10);
-  const m = parseInt(monthStr, 10);
-  const numDays = new Date(y, m, 0).getDate();
-  const daysInMonth = [];
-  const dayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-
-  for (let i = 1; i <= numDays; i++) {
-    const dStr = `${yearStr}-${String(m).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-    const dateObj = new Date(y, m - 1, i);
-    const dayOfWeek = dateObj.getDay();
-    daysInMonth.push({
-      dateStr: dStr,
-      dayNum: String(i).padStart(2, '0'),
-      dayName: dayNames[dayOfWeek],
-      isFriday: dayOfWeek === 5
-    });
-  }
-
   const getSubjectAttendanceStats = (canonSubject, scopeMonth) => {
-    const matchingEntries = Object.entries(attendanceData.subjectWise || {}).filter(([k]) => canonicalSubject(k) === canonSubject);
+    const matchingEntries = Object.entries(attendanceData?.subjectWise || {}).filter(([k]) => canonicalSubject(k) === canonSubject);
 
     let total = 0;
     const absentDatesSet = new Set();
     let teacher = '';
 
     matchingEntries.forEach(([k, v]) => {
-      total = Math.max(total, Number(v.total) || 0);
-      (v.absentDates || []).forEach(d => absentDatesSet.add(d));
-      if (!teacher && v.teacherName) teacher = v.teacherName;
+      total = Math.max(total, Number(v?.total) || 0);
+      (Array.isArray(v?.absentDates) ? v.absentDates : []).forEach(d => absentDatesSet.add(d));
+      if (!teacher && v?.teacherName) teacher = v.teacherName;
     });
 
     const allAbsentDates = Array.from(absentDatesSet).sort();
@@ -1685,18 +1755,18 @@ export default function StudentDashboard() {
               <CollapsibleCard
                 title="Disciplinary Minus Attendance Records"
                 subtitle="Click to view detailed reasons, dates, and issuing Usthads"
-                badgeText={`${attendanceData.minusLogs.length} Record(s)`}
+                badgeText={`${(attendanceData.minusLogs || []).length} Record(s)`}
                 icon="⚠️"
                 accentColor="#4f46e5"
-                defaultOpen={attendanceData.minusLogs.length > 0}
+                defaultOpen={(attendanceData.minusLogs || []).length > 0}
               >
-                {attendanceData.minusLogs.length === 0 ? (
+                {(attendanceData.minusLogs || []).length === 0 ? (
                   <div style={{ padding: '16px', background: '#f8fafc', borderRadius: '10px', textAlign: 'center', color: '#047857', fontWeight: '700' }}>
                     Alhamdulillah! You have 0 minus attendance deductions this semester.
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {attendanceData.minusLogs.map((log, i) => (
+                    {(attendanceData.minusLogs || []).map((log, i) => (
                       <div key={log.id || i} style={{ padding: '12px 16px', borderRadius: '10px', border: '1px solid #ffe4e6', background: '#fff1f2', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                         <div>
                           <div style={{ fontWeight: '800', color: '#be123c', fontSize: '14px' }}>
@@ -1819,5 +1889,13 @@ export default function StudentDashboard() {
         </main>
       </div>
     </div>
+  );
+}
+
+export default function StudentDashboard() {
+  return (
+    <StudentPortalErrorBoundary>
+      <StudentDashboardInner />
+    </StudentPortalErrorBoundary>
   );
 }

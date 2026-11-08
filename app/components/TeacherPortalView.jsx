@@ -205,7 +205,7 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
     return base;
   }, [loggedInTeacher, myClassTeacherOf]);
 
-  const [activeView, setActiveView] = useState('marks');
+  const [activeView, setActiveView] = useState('period_attendance');
   // 📱 Mobile Back-Swipe & Hardware Back Navigation: Return to Marks (Home) instead of exiting app
   const handleSelectTeacherView = (viewId, skipHistory = false) => {
     if (viewId === activeView) return;
@@ -213,7 +213,7 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
       window.history.pushState(
         { teacherView: viewId },
         '',
-        viewId === 'marks' ? window.location.pathname : '#' + viewId
+        viewId === 'period_attendance' ? window.location.pathname : '#' + viewId
       );
     }
     setActiveView(viewId);
@@ -228,11 +228,12 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
       setActiveView(hashView);
       window.history.replaceState({ teacherView: hashView }, '', '#' + hashView);
     } else {
-      window.history.replaceState({ teacherView: 'marks' }, '', window.location.pathname);
+      setActiveView('period_attendance');
+      window.history.replaceState({ teacherView: 'period_attendance' }, '', window.location.pathname);
     }
 
     const handlePopState = (e) => {
-      const targetView = e.state?.teacherView || 'marks';
+      const targetView = e.state?.teacherView || 'period_attendance';
       setActiveView(targetView);
     };
 
@@ -806,8 +807,8 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
   const passPercentage = validMarks.length > 0 ? ((validMarks.filter(m => m >= maxAllowed * 0.4).length / validMarks.length) * 100).toFixed(0) : 0;
 
   const teacherNavItems = [
-    { id: 'marks', label: 'CCE Marks', icon: '📖', onClick: () => { handleSelectTeacherView('marks'); handleSelectSubject(''); } },
     { id: 'period_attendance', label: 'Period Attendance', icon: '📅', onClick: () => handleSelectTeacherView('period_attendance') },
+    { id: 'marks', label: 'CCE Marks', icon: '📖', onClick: () => { handleSelectTeacherView('marks'); handleSelectSubject(''); } },
     { id: 'mentees', label: 'Mentorship & Class', icon: '👥', onClick: () => handleSelectTeacherView('mentees') },
     { id: 'outpass', label: loggedInTeacher?.outpassPrivileges?.isOfficeSecretary ? 'Office Out-Pass' : 'Out-Pass Desk', icon: '🪪', onClick: () => handleSelectTeacherView('outpass') },
     { id: 'attendance', label: 'Night Attendance', icon: '🌙', onClick: () => handleSelectTeacherView('attendance') },
