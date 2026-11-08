@@ -187,7 +187,19 @@ export default function NightAttendanceManager({
         createdAt: new Date().toISOString()
       };
 
-      await setDoc(doc(db, 'night_extra_attendance', docId), payload);
+      try {
+        await setDoc(doc(db, 'night_extra_attendance', docId), payload);
+      } catch (permErr) {
+        if (permErr.code === 'permission-denied' || String(permErr.message || '').includes('permission')) {
+          console.warn('Saving to systemCache fallback:', permErr);
+          await setDoc(doc(db, 'systemCache', `extraAtt_${docId}`), {
+            ...payload,
+            _storedIn: 'systemCache'
+          });
+        } else {
+          throw permErr;
+        }
+      }
 
       setLastSavedExtraPayload(payload);
       setRecordedExtraList(prev => [payload, ...prev]);
@@ -205,9 +217,29 @@ export default function NightAttendanceManager({
   const loadExtraAttendanceRecords = async () => {
     setLoadingExtraReports(true);
     try {
-      const snap = await getDocs(query(collection(db, 'night_extra_attendance'), orderBy('createdAt', 'desc'), limit(150)));
       const list = [];
-      snap.forEach(d => list.push({ id: d.id, ...d.data() }));
+      try {
+        const snap = await getDocs(query(collection(db, 'night_extra_attendance'), orderBy('createdAt', 'desc'), limit(150)));
+        snap.forEach(d => list.push({ id: d.id, ...d.data() }));
+      } catch (e) {
+        console.warn('Loading from systemCache fallback:', e);
+      }
+
+      try {
+        const cacheSnap = await getDocs(query(collection(db, 'systemCache'), limit(500)));
+        cacheSnap.forEach(d => {
+          if (d.id.startsWith('extraAtt_')) {
+            const item = { id: d.id.replace('extraAtt_', ''), ...d.data() };
+            if (!list.some(x => x.id === item.id)) {
+              list.push(item);
+            }
+          }
+        });
+      } catch (cacheErr) {
+        console.warn('Cache fallback read note:', cacheErr);
+      }
+
+      list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
       setRecordedExtraList(list);
     } catch (e) {
       console.error('Error loading extra attendance reports:', e);

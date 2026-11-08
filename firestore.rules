@@ -63,6 +63,26 @@ rules_version = '2';
 //   - classes: map (required)
 //   - lastUpdated: string or timestamp (optional)
 //
+// Collection: night_extra_attendance
+// Document ID: [sessionId] (e.g. "extra_2026-11-08_Class10_revision_1731000000000")
+// Fields:
+//   - id: string
+//   - date: string (<= 30 chars)
+//   - className: string (<= 50 chars)
+//   - reason: string (<= 200 chars)
+//   - includeUrdu: bool
+//   - takenBy: string (<= 100 chars)
+//   - totalStrength: int / number
+//   - presentCount: int / number
+//   - absentCount: int / number
+//   - outpassCount: int / number (optional)
+//   - officialCount: int / number (optional)
+//   - sickCount: int / number (optional)
+//   - absentAdNos: list (optional, <= 500 items)
+//   - statusMap: map (optional)
+//   - absentList: list (optional, <= 500 items)
+//   - createdAt: string or timestamp (optional)
+//
 // Collection: out_passes
 // Document ID: [passId] (auto-id or custom string)
 // Fields:
@@ -261,7 +281,28 @@ service cloud.firestore {
              data.classes is map;
     }
 
-    // 6. out_passes validator
+    // 6. night_extra_attendance validator
+    function isValidNightExtraAttendance(data) {
+      return data is map &&
+             data.id is string && data.id.size() <= 300 &&
+             data.date is string && data.date.size() <= 30 &&
+             data.className is string && data.className.size() <= 50 &&
+             data.reason is string && data.reason.size() <= 200 &&
+             data.includeUrdu is bool &&
+             data.takenBy is string && data.takenBy.size() <= 100 &&
+             data.totalStrength is number &&
+             data.presentCount is number &&
+             data.absentCount is number &&
+             (!('outpassCount' in data) || data.outpassCount is number) &&
+             (!('officialCount' in data) || data.officialCount is number) &&
+             (!('sickCount' in data) || data.sickCount is number) &&
+             (!('absentAdNos' in data) || (data.absentAdNos is list && data.absentAdNos.size() <= 500)) &&
+             (!('statusMap' in data) || data.statusMap is map) &&
+             (!('absentList' in data) || (data.absentList is list && data.absentList.size() <= 500)) &&
+             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50) || data.createdAt is timestamp);
+    }
+
+    // 7. out_passes validator
     function isValidOutPass(data) {
       return data is map &&
              isValidOptionalString('studentName', 0, 100) &&
@@ -274,14 +315,14 @@ service cloud.firestore {
              isValidOptionalString('teacherUsername', 0, 50);
     }
 
-    // 7. outpass_unapproved_logs validator
+    // 8. outpass_unapproved_logs validator
     function isValidOutpassLog(data) {
       return data is map &&
              isValidOptionalString('reason', 0, 300) &&
              isValidOptionalString('kioskUser', 0, 100);
     }
 
-    // 8. clearance_certificates validator
+    // 9. clearance_certificates validator
     function isValidClearanceCert(data) {
       return data is map &&
              data.regNo is string && data.regNo.size() >= 1 && data.regNo.size() <= 50 &&
@@ -357,7 +398,15 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // 6. out_passes: Student gate outpass passes
+    // 6. night_extra_attendance: Extra night study attendance sessions
+    match /night_extra_attendance/{sessionId} {
+      allow read: if isStaffOrAdmin();
+      allow create: if isStaffOrAdmin() && isValidNightExtraAttendance(request.resource.data);
+      allow update: if isStaffOrAdmin() && isValidNightExtraAttendance(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // 7. out_passes: Student gate outpass passes
     match /out_passes/{passId} {
       allow read: if isAuthenticated();
       allow create: if isStaffAdminOrKiosk() && isValidOutPass(request.resource.data);
@@ -365,7 +414,7 @@ service cloud.firestore {
       allow delete: if isStaffAdminOrKiosk();
     }
 
-    // 7. outpass_unapproved_logs: Gate audit logs for unapproved or barcode-less scans
+    // 8. outpass_unapproved_logs: Gate audit logs for unapproved or barcode-less scans
     match /outpass_unapproved_logs/{logId} {
       allow read: if isStaffAdminOrKiosk();
       allow create: if isStaffAdminOrKiosk() && isValidOutpassLog(request.resource.data);
@@ -373,7 +422,7 @@ service cloud.firestore {
       allow delete: if isStaffAdminOrKiosk();
     }
 
-    // 8. clearance_certificates: Academic attendance clearance certificates
+    // 9. clearance_certificates: Academic attendance clearance certificates
     match /clearance_certificates/{certId} {
       allow read: if isAuthenticated();
       allow create: if isStaffOrAdmin() && isValidClearanceCert(request.resource.data);
