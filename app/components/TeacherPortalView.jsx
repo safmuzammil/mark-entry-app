@@ -298,15 +298,21 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
   }, []);
 
   // 🌟 Live Campus & Medical Counts for Teacher's Designated Class and Assigned Mentees
+  const cleanAdNo = (str) => String(str || '').replace('#', '').trim().toUpperCase();
   const outsideAdSet = React.useMemo(() => {
-    return new Set(activeOutpassesCache.map(p => String(p.adNo || '').trim().toUpperCase()).filter(Boolean));
+    return new Set(
+      activeOutpassesCache
+        .filter(p => String(p.status || '').toUpperCase() === 'OUTSIDE')
+        .map(p => cleanAdNo(p.adNo))
+        .filter(Boolean)
+    );
   }, [activeOutpassesCache]);
 
   const medicalAdSet = React.useMemo(() => {
     return new Set(
       activeOutpassesCache
-        .filter(p => String(p.leaveCategory || '').toLowerCase().includes('medical') || p.isOpenReturn)
-        .map(p => String(p.adNo || '').trim().toUpperCase())
+        .filter(p => String(p.status || '').toUpperCase() === 'OUTSIDE' && (String(p.leaveCategory || '').toLowerCase().includes('medical') || p.isOpenReturn))
+        .map(p => cleanAdNo(p.adNo))
         .filter(Boolean)
     );
   }, [activeOutpassesCache]);
@@ -316,15 +322,15 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
     return allStudentsCache.filter(s => (s.classes || []).some(c => myClassTeacherOf.includes(c)));
   }, [allStudentsCache, myClassTeacherOf]);
 
-  const myClassOutCount = myDesignatedClassStudents.filter(s => outsideAdSet.has(String(s.adNo || '').trim().toUpperCase())).length;
-  const myClassMedCount = myDesignatedClassStudents.filter(s => medicalAdSet.has(String(s.adNo || '').trim().toUpperCase())).length;
+  const myClassOutCount = myDesignatedClassStudents.filter(s => outsideAdSet.has(cleanAdNo(s.adNo))).length;
+  const myClassMedCount = myDesignatedClassStudents.filter(s => medicalAdSet.has(cleanAdNo(s.adNo))).length;
   const myClassInCount = Math.max(0, myDesignatedClassStudents.length - myClassOutCount);
 
   const myAssignedMentees = allStudentsCache.filter(
     s => String(s.mentorUsername || '').trim().toLowerCase() === myUsername
   );
-  const myMenteesOutCount = myAssignedMentees.filter(s => outsideAdSet.has(String(s.adNo || '').trim().toUpperCase())).length;
-  const myMenteesMedCount = myAssignedMentees.filter(s => medicalAdSet.has(String(s.adNo || '').trim().toUpperCase())).length;
+  const myMenteesOutCount = myAssignedMentees.filter(s => outsideAdSet.has(cleanAdNo(s.adNo))).length;
+  const myMenteesMedCount = myAssignedMentees.filter(s => medicalAdSet.has(cleanAdNo(s.adNo))).length;
   const myMenteesInCount = Math.max(0, myAssignedMentees.length - myMenteesOutCount);
 
   const minSittingsReq = Number(mentorshipConfig.minConsultations) || 3;

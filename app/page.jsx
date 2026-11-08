@@ -321,28 +321,33 @@ export default function UnifiedSchoolPortal() {
     const totalEnrollmentsCount = adminTeachersList.reduce((acc, t) => acc + (Array.isArray(t.enrollments) ? t.enrollments.length : 0), 0);
 
     // 🌟 Compute Real-Time Inside vs. Outside Campus Breakdown for Malayalam & Urdu (NIICS) Streams
+    // Exactly synchronized with Out-Pass Portal: Only students physically marked "OUTSIDE" are Off-Campus!
+    const cleanAdNo = (str) => String(str || '').replace('#', '').trim().toUpperCase();
     const outsideAdNosSet = new Set();
     const medicalAdNosSet = new Set();
     activeOutpassesList.forEach(p => {
-      const ad = String(p.adNo || '').trim().toUpperCase();
-      if (ad) {
-        outsideAdNosSet.add(ad);
-        if (String(p.leaveCategory || '').toLowerCase().includes('medical') || p.isOpenReturn) {
-          medicalAdNosSet.add(ad);
+      const st = String(p.status || '').toUpperCase();
+      if (st === 'OUTSIDE') {
+        const ad = cleanAdNo(p.adNo);
+        if (ad) {
+          outsideAdNosSet.add(ad);
+          if (String(p.leaveCategory || '').toLowerCase().includes('medical') || p.isOpenReturn) {
+            medicalAdNosSet.add(ad);
+          }
         }
       }
     });
 
-    const malayalamStudents = adminStudentsList.filter(s => !String(s.adNo || '').trim().toUpperCase().startsWith('U'));
-    const urduStudents = adminStudentsList.filter(s => String(s.adNo || '').trim().toUpperCase().startsWith('U'));
+    const malayalamStudents = adminStudentsList.filter(s => !cleanAdNo(s.adNo).startsWith('U'));
+    const urduStudents = adminStudentsList.filter(s => cleanAdNo(s.adNo).startsWith('U'));
 
-    const malayalamOutsideCount = malayalamStudents.filter(s => outsideAdNosSet.has(String(s.adNo || '').trim().toUpperCase())).length;
+    const malayalamOutsideCount = malayalamStudents.filter(s => outsideAdNosSet.has(cleanAdNo(s.adNo))).length;
     const malayalamInsideCount = Math.max(0, malayalamStudents.length - malayalamOutsideCount);
-    const malayalamMedicalCount = malayalamStudents.filter(s => medicalAdNosSet.has(String(s.adNo || '').trim().toUpperCase())).length;
+    const malayalamMedicalCount = malayalamStudents.filter(s => medicalAdNosSet.has(cleanAdNo(s.adNo))).length;
 
-    const urduOutsideCount = urduStudents.filter(s => outsideAdNosSet.has(String(s.adNo || '').trim().toUpperCase())).length;
+    const urduOutsideCount = urduStudents.filter(s => outsideAdNosSet.has(cleanAdNo(s.adNo))).length;
     const urduInsideCount = Math.max(0, urduStudents.length - urduOutsideCount);
-    const urduMedicalCount = urduStudents.filter(s => medicalAdNosSet.has(String(s.adNo || '').trim().toUpperCase())).length;
+    const urduMedicalCount = urduStudents.filter(s => medicalAdNosSet.has(cleanAdNo(s.adNo))).length;
 
     const totalOutsideCount = malayalamOutsideCount + urduOutsideCount;
     const totalInsideCount = Math.max(0, adminStudentsList.length - totalOutsideCount);

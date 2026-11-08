@@ -1670,11 +1670,12 @@ export default function OutPassPortal({
       isMoreThan5DaysLeave(p)
   );
 
+  const cleanAdNo = (str) => String(str || '').replace('#', '').trim().toUpperCase();
   const outsideAdNos = new Set(
-    currentlyOutsidePasses.map((p) => String(p.adNo).toLowerCase())
+    currentlyOutsidePasses.map((p) => cleanAdNo(p.adNo)).filter(Boolean)
   );
   const insideStudents = students.filter(
-    (s) => !outsideAdNos.has(String(s.adNo).toLowerCase())
+    (s) => !outsideAdNos.has(cleanAdNo(s.adNo))
   );
 
   const mealCheckTargetISO = partsToISOString(
