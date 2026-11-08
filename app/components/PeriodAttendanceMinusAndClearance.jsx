@@ -1449,7 +1449,7 @@ export default function PeriodAttendanceMinusAndClearance({
           else if (upSub.includes('URDU')) cleanSub = 'Urdu';
           else if (upSub === 'SS' || upSub.startsWith('SS ') || upSub.endsWith(' SS')) cleanSub = 'Social Science';
           else if (upSub.includes('THAMAD')) cleanSub = 'Thamadun';
-          else if (upSub.includes('DIRASATHUL ADYAN')) cleanSub = 'Dirasathul Adyan';
+          else if (upSub.includes('DIRASATHUL ADYAN') || upSub.includes('DIRASATH') || upSub.includes('ADYAN')) cleanSub = 'Logic';
 
           const normalizedMap = {};
           Object.entries(s.attendanceMap || {}).forEach(([adOrReg, status]) => {

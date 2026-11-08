@@ -785,7 +785,9 @@ export function checkSmartSubjectMatch(dbKey, expectedSub) {
   if (isAUsul || isBUsul) return isAUsul && isBUsul;
   if (a === 'FIQH' || b === 'FIQH') return a === 'FIQH' && b === 'FIQH';
   if (a === b) return true;
-  if ((a.includes('LOGIC') || a.includes('MANTIQ')) && (b.includes('LOGIC') || b.includes('MANTIQ'))) return true;
+  const isALogic = a.includes('LOGIC') || a.includes('MANTIQ') || a.includes('DIRASATH') || a.includes('ADYAN');
+  const isBLogic = b.includes('LOGIC') || b.includes('MANTIQ') || b.includes('DIRASATH') || b.includes('ADYAN');
+  if (isALogic && isBLogic) return true;
   if ((a.includes('AQIDAH') || a.includes('AQEEDA')) && (b.includes('AQIDAH') || b.includes('AQEEDA'))) return true;
   if ((a.includes('THAMADUN') || a.includes('THAMADAN')) && (b.includes('THAMADUN') || b.includes('THAMADAN'))) return true;
   return false;

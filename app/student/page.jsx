@@ -177,7 +177,7 @@ const getEnrollmentMatchScore = (student, env, targetSubjectName) => {
     { key: 'HADITH', tokens: ['HADITH', 'HADEETH'] },
     { key: 'AQIDAH', tokens: ['AQIDAH', 'AQEEDAH'] },
     { key: 'BALAGHA', tokens: ['BALAGHA'] },
-    { key: 'LOGIC', tokens: ['LOGIC', 'MANTIQ'] },
+    { key: 'LOGIC', tokens: ['LOGIC', 'MANTIQ', 'DIRASATH', 'ADYAN'] },
     { key: 'ENGLISH', tokens: ['ENGLISH'] },
     { key: 'ADAB', tokens: ['ADAB'] },
     { key: 'URDU', tokens: ['URDU'] },
@@ -198,7 +198,7 @@ const getEnrollmentMatchScore = (student, env, targetSubjectName) => {
     }
   }
 
-  const effectiveEnvSub = detectedSubFromAlias || (envSubUp === 'MANTIQ' ? 'LOGIC' : envSubUp);
+  const effectiveEnvSub = detectedSubFromAlias || (envSubUp === 'MANTIQ' || envSubUp.includes('DIRASATH') || envSubUp.includes('ADYAN') ? 'LOGIC' : envSubUp);
   const normalizedTarget = (targetUp === 'U:FIQH' || targetUp.includes('USUL')) ? 'U :FIQH' : (targetUp === 'MANTIQ' ? 'LOGIC' : targetUp);
 
   let isMatchingSub = false;
@@ -422,6 +422,36 @@ function StudentDashboardInner() {
   const [studentAttDate, setStudentAttDate] = useState(() => new Date().toISOString().split('T')[0]);
   const todayDateStr = React.useMemo(() => new Date().toISOString().split('T')[0], []);
 
+  const [monthSessions, setMonthSessions] = useState([]);
+  const [loadingMonthSessions, setLoadingMonthSessions] = useState(false);
+
+  useEffect(() => {
+    if (!studentAttMonth || !authenticated) return;
+    let isMounted = true;
+    setLoadingMonthSessions(true);
+
+    async function fetchMonthSessions() {
+      try {
+        const snap = await getDocs(collection(db, 'systemCache'));
+        if (!isMounted) return;
+        const list = [];
+        snap.forEach(d => {
+          if (d.id.startsWith(`periodSession_${studentAttMonth}`)) {
+            list.push({ id: d.id, ...d.data() });
+          }
+        });
+        setMonthSessions(list);
+      } catch (err) {
+        console.warn('Error fetching monthly attendance sessions:', err);
+      } finally {
+        if (isMounted) setLoadingMonthSessions(false);
+      }
+    }
+
+    fetchMonthSessions();
+    return () => { isMounted = false; };
+  }, [studentAttMonth, authenticated]);
+
   const daysInMonth = React.useMemo(() => {
     const [yearStr, monthStr] = (studentAttMonth || '2026-11').split('-');
     const y = parseInt(yearStr, 10);
@@ -596,6 +626,12 @@ function StudentDashboardInner() {
       }
 
       const ad = studentData.periodAttendance || {};
+      const cleanSubjectWise = {};
+      Object.entries(ad.subjectWise || {}).forEach(([k, val]) => {
+        const kUp = k.toUpperCase();
+        if (kUp.includes('REHEARSAL') || kUp.includes('FEST')) return;
+        cleanSubjectWise[k] = val;
+      });
       setAttendanceData({
         totalPeriods: Number(ad.totalPeriods) || 0,
         presentCount: Number(ad.presentCount) || 0,
@@ -603,7 +639,7 @@ function StudentDashboardInner() {
         medicalCount: Number(ad.medicalCount) || 0,
         minusCount: Number(ad.minusCount) || 0,
         minusLogs: Array.isArray(ad.minusLogs) ? ad.minusLogs : [],
-        subjectWise: ad.subjectWise || {}
+        subjectWise: cleanSubjectWise
       });
 
       const localCerts = Array.isArray(ad.clearanceCertificates) ? ad.clearanceCertificates : [];
@@ -659,15 +695,18 @@ function StudentDashboardInner() {
       const isHifz = sub.toUpperCase() === 'HIFZ';
       const isSpecialization = sub.toUpperCase() === 'SPECIALIZATION';
 
-      const foundSubjectKey = Object.keys(marksData).find(k => {
+      const matchingMarkKeys = Object.keys(marksData).filter(k => {
         const kUp = k.toUpperCase();
         const subUp = sub.toUpperCase();
         if (subUp === 'U :FIQH' || subUp === 'U:FIQH') return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
         if (subUp === 'FIQH') return kUp === 'FIQH' && !kUp.includes('U :FIQH');
-        if (subUp === 'LOGIC' || subUp === 'MANTIQ') return kUp === 'LOGIC' || kUp === 'MANTIQ';
+        if (subUp === 'LOGIC' || subUp === 'MANTIQ') return kUp === 'LOGIC' || kUp === 'MANTIQ' || kUp.includes('DIRASATH') || kUp.includes('ADYAN');
         return kUp === subUp;
       });
-      const subMarks = foundSubjectKey ? marksData[foundSubjectKey] : {};
+      let subMarks = {};
+      matchingMarkKeys.forEach(k => {
+        subMarks = { ...subMarks, ...(marksData[k] || {}) };
+      });
 
       let bestScore = 0;
       let assignedTeacherName = '';
@@ -707,7 +746,7 @@ function StudentDashboardInner() {
         const pUp = subPart.toUpperCase();
         if (sUp === 'U :FIQH' || sUp === 'U:FIQH') isSubPartMatch = pUp.includes('U :FIQH') || pUp.includes('U:FIQH');
         else if (sUp === 'FIQH') isSubPartMatch = pUp === 'FIQH' && !pUp.includes('U :FIQH');
-        else if (sUp === 'LOGIC' || sUp === 'MANTIQ') isSubPartMatch = pUp === 'LOGIC' || pUp === 'MANTIQ';
+        else if (sUp === 'LOGIC' || sUp === 'MANTIQ') isSubPartMatch = pUp === 'LOGIC' || pUp === 'MANTIQ' || pUp.includes('DIRASATH') || pUp.includes('ADYAN');
         else isSubPartMatch = sUp === pUp;
 
         if ((clsPart === myPrimaryClass || (matchedTeacherEnv && clsPart === String(matchedTeacherEnv.targetClass || matchedTeacherEnv.alias || '').toUpperCase())) && isSubPartMatch) {
@@ -887,7 +926,7 @@ function StudentDashboardInner() {
     if (up.includes('FIQH')) return 'Fiqh';
     if (up.includes('AQEED') || up.includes('AQIDAH')) return 'Aqidah';
     if (up.includes('BALAG')) return 'Balagha';
-    if (up.includes('MANTHIQ') || up.includes('LOGIC')) return 'Logic';
+    if (up.includes('MANTHIQ') || up.includes('LOGIC') || up.includes('DIRASATHUL ADYAN') || up.includes('DIRASATH') || up.includes('ADYAN')) return 'Logic';
     if (up.includes('ENGLISH')) return 'English';
     if (up.includes('ADAB')) return 'Adab';
     if (up.includes('URDU')) return 'Urdu';
@@ -895,7 +934,6 @@ function StudentDashboardInner() {
     if (up.includes('THAMAD')) return 'Thamadun';
     if (up.includes('PKV')) return 'PKV';
     if (up.includes('RP')) return 'RP';
-    if (up.includes('DIRASATHUL ADYAN')) return 'Dirasathul Adyan';
     if (up.includes('TKS')) {
       if (up.includes('QURAN') || up.includes('Q3') || up.includes('Q1') || up.includes('Q2')) return 'TKS Quran';
       if (up.includes('HANAFI') || (up.includes('FIQH') && up.includes('F3'))) return 'TKS Fiqh Hanafi';
@@ -912,7 +950,10 @@ function StudentDashboardInner() {
   const deduplicatedSubjectsMap = new Map();
 
   (subjectAggregates || []).filter(item => !item.isHifz).forEach(item => {
+    const subUpper = String(item.subject || '').toUpperCase();
+    if (subUpper.includes('REHEARSAL') || subUpper.includes('FEST')) return;
     const canon = canonicalSubject(item.subject);
+    if (canon.toUpperCase().includes('REHEARSAL') || canon.toUpperCase().includes('FEST')) return;
     deduplicatedSubjectsMap.set(canon, {
       subject: canon,
       teacherName: item.teacherName || '',
@@ -921,8 +962,10 @@ function StudentDashboardInner() {
   });
 
   Object.keys(attendanceData?.subjectWise || {}).forEach(k => {
-    if (k.toUpperCase() === 'HIFZ') return;
+    const kUp = k.toUpperCase();
+    if (kUp === 'HIFZ' || kUp.includes('REHEARSAL') || kUp.includes('FEST')) return;
     const canon = canonicalSubject(k);
+    if (canon.toUpperCase().includes('REHEARSAL') || canon.toUpperCase().includes('FEST')) return;
     if (!deduplicatedSubjectsMap.has(canon)) {
       deduplicatedSubjectsMap.set(canon, {
         subject: canon,
@@ -937,7 +980,8 @@ function StudentDashboardInner() {
     }
   });
 
-  const allAttendanceSubjectsForStudent = Array.from(deduplicatedSubjectsMap.values());
+  const allAttendanceSubjectsForStudent = Array.from(deduplicatedSubjectsMap.values())
+    .filter(item => !String(item.subject).toUpperCase().includes('REHEARSAL') && !String(item.subject).toUpperCase().includes('FEST'));
 
   const getSubjectAttendanceStats = (canonSubject, scopeMonth) => {
     const matchingEntries = Object.entries(attendanceData?.subjectWise || {}).filter(([k]) => canonicalSubject(k) === canonSubject);
@@ -1432,11 +1476,84 @@ function StudentDashboardInner() {
                           const stats = getSubjectAttendanceStats(sub.subject, studentAttMonth);
                           const subAbsentDatesMonth = new Set(stats.scopedAbsentDates);
 
-                          const monthAbsCount = stats.scopedAbsentDates.length;
-                          const monthHeldCount = stats.total > 0
-                            ? (monthAbsCount + Math.min(stats.present, daysInMonth.filter(d => !d.isFriday && d.dateStr <= todayDateStr).length))
-                            : monthAbsCount;
-                          const monthPresCount = Math.max(0, monthHeldCount - monthAbsCount);
+                          const getMonthlyCellAttendance = (d) => {
+                            if (d.isFriday) return { type: 'OFF', label: 'OFF', bg: '#fef3c7', textCol: '#b45309' };
+
+                            const canon = canonicalSubject(sub.subject);
+                            const myReg = String(loggedInStudent?.regNo || regNo || '').trim();
+                            const myAd = String(loggedInStudent?.adNo || '').trim().toUpperCase();
+                            const myId = String(loggedInStudent?.id || '').trim();
+                            const myClasses = (loggedInStudent?.classes || []).map(c => String(c).trim().toUpperCase());
+                            if (loggedInStudent?.class) myClasses.push(String(loggedInStudent.class).trim().toUpperCase());
+                            const myPrimaryClass = myClasses[0] || '';
+
+                            // Filter matching sessions from monthSessions
+                            const matchingSessions = monthSessions.filter(sess => {
+                              if (sess.date !== d.dateStr) return false;
+                              const sessCanon = canonicalSubject(sess.subject);
+                              if (sessCanon !== canon) return false;
+
+                              const attMap = sess.attendanceMap || {};
+                              const inMap = Boolean(
+                                attMap[myReg] || attMap[myAd] || attMap[myId] ||
+                                attMap[myReg.toLowerCase()] || attMap[myAd.toLowerCase()]
+                              );
+                              if (inMap) return true;
+
+                              const sessClass = String(sess.targetClass || '').trim().toUpperCase();
+                              const sessAlias = String(sess.classAlias || '').trim().toUpperCase();
+                              if (myPrimaryClass && (sessClass === myPrimaryClass || sessAlias.includes(myPrimaryClass))) return true;
+                              if (myClasses.some(c => c && (sessClass === c || sessAlias.includes(c)))) return true;
+                              return false;
+                            });
+
+                            // If no session recorded on this date for this subject
+                            if (matchingSessions.length === 0) {
+                              if (subAbsentDatesMonth.has(d.dateStr)) {
+                                return { type: 'A', label: 'A', bg: '#e11d48', textCol: '#ffffff' };
+                              }
+                              // Blank / line when attendance was not taken!
+                              return { type: 'EMPTY', label: '—', bg: 'transparent', textCol: '#cbd5e1' };
+                            }
+
+                            // Attendance was taken on this day!
+                            let isAbsent = false;
+                            let isMedical = false;
+                            let isOfficial = false;
+                            let isPresent = false;
+
+                            matchingSessions.forEach(sess => {
+                              const attMap = sess.attendanceMap || {};
+                              const val = attMap[myReg] || attMap[myAd] || attMap[myId] ||
+                                          attMap[myReg.toLowerCase()] || attMap[myAd.toLowerCase()];
+                              if (val === 'A') isAbsent = true;
+                              else if (val === 'M') isMedical = true;
+                              else if (val === 'O') isOfficial = true;
+                              else if (val === 'P') isPresent = true;
+                              else if (subAbsentDatesMonth.has(d.dateStr)) isAbsent = true;
+                              else isPresent = true;
+                            });
+
+                            if (isAbsent) return { type: 'A', label: 'A', bg: '#e11d48', textCol: '#ffffff' };
+                            if (isMedical) return { type: 'M', label: 'M', bg: '#0284c7', textCol: '#ffffff' };
+                            if (isOfficial) return { type: 'O', label: 'O', bg: '#4f46e5', textCol: '#ffffff' };
+                            return { type: 'P', label: 'P', bg: '#059669', textCol: '#ffffff' };
+                          };
+
+                          const monthHeldDays = daysInMonth.filter(d => {
+                            if (d.isFriday) return false;
+                            const cell = getMonthlyCellAttendance(d);
+                            return cell.type === 'P' || cell.type === 'A' || cell.type === 'M' || cell.type === 'O';
+                          });
+                          const monthHeldCount = monthHeldDays.length;
+                          const monthAbsCount = monthHeldDays.filter(d => {
+                            const cell = getMonthlyCellAttendance(d);
+                            return cell.type === 'A' || cell.type === 'M';
+                          }).length;
+                          const monthPresCount = monthHeldDays.filter(d => {
+                            const cell = getMonthlyCellAttendance(d);
+                            return cell.type === 'P' || cell.type === 'O';
+                          }).length;
                           const monthPct = monthHeldCount > 0
                             ? ((monthPresCount / monthHeldCount) * 100).toFixed(1)
                             : (stats.pct !== null ? stats.pct : null);
@@ -1461,7 +1578,9 @@ function StudentDashboardInner() {
                               </td>
 
                               {daysInMonth.map(d => {
-                                if (d.isFriday) {
+                                const cell = getMonthlyCellAttendance(d);
+
+                                if (cell.type === 'OFF') {
                                   return (
                                     <td key={d.dateStr} style={{ padding: '3px 1px', background: '#fef3c7', color: '#b45309', fontWeight: '800', fontSize: '9px', borderLeft: '1px solid #f1f5f9' }}>
                                       OFF
@@ -1469,31 +1588,33 @@ function StudentDashboardInner() {
                                   );
                                 }
 
-                                const isAbsent = subAbsentDatesMonth.has(d.dateStr);
-
-                                if (isAbsent) {
+                                if (cell.type === 'EMPTY') {
                                   return (
-                                    <td key={d.dateStr} style={{ padding: '3px 1px', background: '#fff1f2', borderLeft: '1px solid #fecdd3' }}>
-                                      <span style={{ background: '#e11d48', color: '#ffffff', borderRadius: '4px', padding: '1px 5px', fontSize: '10px', fontWeight: '900' }}>
-                                        A
-                                      </span>
-                                    </td>
-                                  );
-                                }
-
-                                if (d.dateStr <= todayDateStr && (stats.total > 0 || isAbsent)) {
-                                  return (
-                                    <td key={d.dateStr} style={{ padding: '3px 1px', background: '#ecfdf5', borderLeft: '1px solid #a7f3d0' }}>
-                                      <span style={{ background: '#059669', color: '#ffffff', borderRadius: '4px', padding: '1px 5px', fontSize: '10px', fontWeight: '900' }}>
-                                        P
-                                      </span>
+                                    <td key={d.dateStr} style={{ padding: '3px 1px', color: '#cbd5e1', borderLeft: '1px solid #f1f5f9' }}>
+                                      —
                                     </td>
                                   );
                                 }
 
                                 return (
-                                  <td key={d.dateStr} style={{ padding: '3px 1px', color: '#cbd5e1', borderLeft: '1px solid #f1f5f9' }}>
-                                    —
+                                  <td
+                                    key={d.dateStr}
+                                    style={{
+                                      padding: '3px 1px',
+                                      background: cell.type === 'A' ? '#fff1f2' : cell.type === 'M' ? '#eff6ff' : cell.type === 'O' ? '#eef2ff' : '#ecfdf5',
+                                      borderLeft: cell.type === 'A' ? '1px solid #fecdd3' : '1px solid #a7f3d0'
+                                    }}
+                                  >
+                                    <span style={{
+                                      background: cell.bg,
+                                      color: cell.textCol,
+                                      borderRadius: '4px',
+                                      padding: '1px 5px',
+                                      fontSize: '10px',
+                                      fontWeight: '900'
+                                    }}>
+                                      {cell.label}
+                                    </span>
                                   </td>
                                 );
                               })}

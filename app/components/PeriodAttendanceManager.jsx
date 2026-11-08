@@ -775,6 +775,31 @@ export default function PeriodAttendanceManager({
     return deadlines;
   }, [activeLeaderObj]);
 
+  const leaderMinDate = React.useMemo(() => {
+    if (activeLeaderObj?.createdAt) {
+      return String(activeLeaderObj.createdAt).slice(0, 10);
+    }
+    return '';
+  }, [activeLeaderObj]);
+
+  const leaderMaxDate = React.useMemo(() => {
+    const deadlines = Object.values(leaderStudentDeadlinesMap).filter(Boolean);
+    if (activeLeaderObj?.deadline) deadlines.push(activeLeaderObj.deadline);
+    if (activeLeaderObj?.expiryDate) deadlines.push(activeLeaderObj.expiryDate);
+    if (deadlines.length > 0) {
+      return deadlines.sort().reverse()[0];
+    }
+    return '';
+  }, [leaderStudentDeadlinesMap, activeLeaderObj]);
+
+  useEffect(() => {
+    if (isEventLeaderUser && leaderMinDate && rehDate < leaderMinDate) {
+      setRehDate(leaderMinDate);
+    } else if (isEventLeaderUser && leaderMaxDate && rehDate > leaderMaxDate) {
+      setRehDate(leaderMaxDate);
+    }
+  }, [leaderMinDate, leaderMaxDate, isEventLeaderUser]);
+
   const leaderStudentsSorted = React.useMemo(() => {
     const savedUpper = leaderAssignedStudentIds.map(id => String(id).trim().toUpperCase());
     const matched = localStudents.filter(st => {
@@ -843,6 +868,13 @@ export default function PeriodAttendanceManager({
       return alert('No active students assigned for this date.');
     }
 
+    if (leaderMinDate && rehDate < leaderMinDate) {
+      return alert(`⛔ Date Restricted: Rehearsal attendance can only be taken starting from the account creation date (${leaderMinDate}). You cannot take attendance for earlier dates.`);
+    }
+    if (leaderMaxDate && rehDate > leaderMaxDate) {
+      return alert(`⛔ Date Restricted: Rehearsal event validity ended on ${leaderMaxDate}. You cannot take attendance after the deadline.`);
+    }
+
     const sessionConfig = REHEARSAL_SESSIONS.find(s => s.id === rehSessionId) || REHEARSAL_SESSIONS[0];
     const coveredPeriods = sessionConfig.coveredPeriods;
     const presentRegs = leaderStudentsSorted.filter(st => !rehAbsentRegNos.includes(st.regNo)).map(st => st.regNo);
@@ -852,48 +884,15 @@ export default function PeriodAttendanceManager({
     try {
       const rehDocId = `rehearsalSession_${rehDate}_${activeLeaderObj.username}_${rehSessionId}`;
 
-      // 1. Compute in-memory periodAttendance updates for all assigned students
+      // 1. In-memory sync for student tracking (Do not pollute students' academic subjectWise with REHEARSAL)
       const updatedStudentsByReg = {};
       leaderStudentsSorted.forEach(st => {
         const reg = String(st.regNo || st.id || '').trim();
         const docId = String(st.id || st.regNo || '').trim();
         if (!reg || !docId) return;
 
-        const isAbsent = rehAbsentRegNos.includes(reg);
         const curStat = JSON.parse(JSON.stringify(getStudentAttStat(st)));
-
-        if (!curStat.subjectWise) curStat.subjectWise = {};
-        const subKey = 'REHEARSAL';
-        if (!curStat.subjectWise[subKey]) {
-          curStat.subjectWise[subKey] = {
-            total: 0,
-            present: 0,
-            official: 0,
-            medical: 0,
-            absentDates: [],
-            teacherName: activeLeaderObj.fullName || 'Event Leader',
-            isAttendanceOnly: true
-          };
-        }
-        const subObj = curStat.subjectWise[subKey];
-        subObj.teacherName = activeLeaderObj.fullName || 'Event Leader';
-        subObj.isAttendanceOnly = true;
-        if (!Array.isArray(subObj.absentDates)) subObj.absentDates = [];
-
-        const pCount = coveredPeriods.length;
-        curStat.totalPeriods = (Number(curStat.totalPeriods) || 0) + pCount;
-        subObj.total = (Number(subObj.total) || 0) + pCount;
-
-        if (!isAbsent) {
-          curStat.presentCount = (Number(curStat.presentCount) || 0) + pCount;
-          curStat.officialCount = (Number(curStat.officialCount) || 0) + pCount;
-          subObj.present = (Number(subObj.present) || 0) + pCount;
-          subObj.official = (Number(subObj.official) || 0) + pCount;
-          subObj.absentDates = subObj.absentDates.filter(d => d !== rehDate);
-        } else {
-          if (!subObj.absentDates.includes(rehDate)) subObj.absentDates.push(rehDate);
-        }
-
+        // Note: Students academic subjects are preserved without adding REHEARSAL to academic records
         curStat.updatedAt = new Date().toISOString();
         const updatedObj = { ...st, periodAttendance: curStat };
         updatedStudentsByReg[reg] = updatedObj;
@@ -1937,7 +1936,19 @@ export default function PeriodAttendanceManager({
             )}
             <div>
               <label style={styles.label}>Rehearsal Date</label>
-              <input type="date" value={rehDate} onChange={e => setRehDate(e.target.value)} style={styles.input} />
+              <input
+                type="date"
+                value={rehDate}
+                min={leaderMinDate || undefined}
+                max={leaderMaxDate || undefined}
+                onChange={e => setRehDate(e.target.value)}
+                style={styles.input}
+              />
+              {leaderMinDate && (
+                <div style={{ fontSize: '11px', color: '#6366f1', marginTop: '4px', fontWeight: '700' }}>
+                  📅 Valid Window: {leaderMinDate} {leaderMaxDate ? `to ${leaderMaxDate}` : 'onwards'}
+                </div>
+              )}
             </div>
             <div>
               <label style={{ ...styles.label, color: !rehSessionId ? '#e11d48' : '#475569' }}>
