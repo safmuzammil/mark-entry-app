@@ -119,7 +119,7 @@ export default function NightAttendanceManager({
   const handleExtraQuickTap = (adNo) => {
     setExtraStatusMap(prev => {
       const cur = prev[adNo] || 'PRESENT';
-      if (cur === 'OUTPASS' || cur === 'OFFICIAL') return prev;
+      
       return { ...prev, [adNo]: cur === 'PRESENT' ? 'ABSENT' : 'PRESENT' };
     });
   };
@@ -332,7 +332,7 @@ export default function NightAttendanceManager({
     initData();
   }, []);
 
-  const getActiveOutpassForStudent = (adNo) => {
+    const getActiveOutpassForStudent = (adNo) => {
     const cleanAd = String(adNo || '').trim().toLowerCase();
     if (!cleanAd) return null;
     const todayStr = getTodayDateString();
@@ -341,6 +341,10 @@ export default function NightAttendanceManager({
       if (String(p.adNo || '').trim().toLowerCase() !== cleanAd) return false;
       const st = String(p.status || '').toUpperCase();
       if (st === 'CANCELLED') return false;
+
+      // 🌟 If student has returned and verified inside campus, he is NO LONGER off-campus!
+      const isReturned = st === 'RETURNED' || st === 'ARRIVED_AT_GATE' || Boolean(p.actualReturnTime || p.verifiedReturnedAt || p.teacherVerifiedTime);
+      if (isReturned) return false;
 
       const fromYMD = isoToLocalYMD(p.permittedFrom || p.createdAt);
       const toYMD = p.isOpenReturn || !p.permittedTo
@@ -351,9 +355,20 @@ export default function NightAttendanceManager({
         return !fromYMD || selectedDate >= fromYMD;
       }
       if (fromYMD && selectedDate >= fromYMD && selectedDate <= toYMD) {
-        return st === 'OUTSIDE' || st === 'APPROVED' || st === 'ARRIVED_AT_GATE' || st === 'RETURNED';
+        return st === 'OUTSIDE' || st === 'APPROVED';
       }
       return false;
+    });
+  };
+
+  const getReturnedOutpassForStudent = (adNo) => {
+    const cleanAd = String(adNo || '').trim().toLowerCase();
+    if (!cleanAd) return null;
+    return activePasses.find(p => {
+      if (String(p.adNo || '').trim().toLowerCase() !== cleanAd) return false;
+      const st = String(p.status || '').toUpperCase();
+      if (st === 'CANCELLED') return false;
+      return st === 'RETURNED' || st === 'ARRIVED_AT_GATE' || Boolean(p.actualReturnTime || p.verifiedReturnedAt || p.teacherVerifiedTime);
     });
   };
 
@@ -382,18 +397,27 @@ export default function NightAttendanceManager({
 
     classStudents.forEach(st => {
       const ad = String(st.adNo || '').trim();
-      const activePass = getActiveOutpassForStudent(ad);
+      const returnedPass = getReturnedOutpassForStudent(ad);
+                const activePass = getActiveOutpassForStudent(ad);
       const isOfficialPass = activePass && (
         String(activePass.leaveCategory || '').toLowerCase().includes('official') ||
         String(activePass.leaveCategory || '').toLowerCase().includes('outreach')
       );
+
 
       if (savedClassRecord) {
         if ((savedClassRecord.absentAdNos || []).includes(ad)) {
           newStatus[ad] = 'ABSENT';
         } else if ((savedClassRecord.officialAdNos || []).includes(ad)) {
           newStatus[ad] = 'OFFICIAL';
-        } else if ((savedClassRecord.outpassAdNos || []).includes(ad) || activePass) {
+        } else if ((savedClassRecord.outpassAdNos || []).includes(ad)) {
+          // 🌟 If saved as outpass earlier, but student has returned & verified inside campus:
+          if (returnedPass) {
+            newStatus[ad] = 'PRESENT';
+          } else {
+            newStatus[ad] = 'OUTPASS';
+          }
+        } else if (activePass) {
           newStatus[ad] = isOfficialPass ? 'OFFICIAL' : 'OUTPASS';
         } else if ((savedClassRecord.sickAdNos || []).includes(ad)) {
           newStatus[ad] = 'SICK_ROOM';
@@ -440,7 +464,7 @@ export default function NightAttendanceManager({
   const handleCardQuickTap = (adNo) => {
     setStatusMap(prev => {
       const cur = prev[adNo] || 'PRESENT';
-      if (cur === 'OUTPASS' || cur === 'OFFICIAL') return prev;
+      
       return { ...prev, [adNo]: cur === 'PRESENT' ? 'ABSENT' : 'PRESENT' };
     });
   };
@@ -938,12 +962,23 @@ export default function NightAttendanceManager({
                     </div>
 
                     {activePass && (
-                      <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', padding: '7px 10px', borderRadius: '8px', fontSize: '11px', color: '#334155', lineHeight: 1.35 }}>
+                      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '7px 10px', borderRadius: '8px', fontSize: '11px', color: '#92400e', lineHeight: 1.35 }}>
                         <div style={{ fontWeight: '700' }}>
-                          🪪 {activePass.leaveCategory || 'Leave'}: {activePass.destination}
+                          🪪 Outside Campus ({activePass.leaveCategory || 'Leave'}): {activePass.destination}
                         </div>
-                        <div style={{ fontSize: '10px', marginTop: '2px', color: '#64748b' }}>
-                          By: {activePass.teacherName} • Return: {formatNightPassTime(activePass.permittedTo, activePass.isOpenReturn)}
+                        <div style={{ fontSize: '10px', marginTop: '2px', color: '#b45309' }}>
+                          Reason: &ldquo;{activePass.purpose || activePass.reason || 'Leave'}&rdquo; • Approved by: Usthad {activePass.teacherName}
+                        </div>
+                      </div>
+                    )}
+
+                    {returnedPass && !activePass && (
+                      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '7px 10px', borderRadius: '8px', fontSize: '11px', color: '#166534', lineHeight: 1.35 }}>
+                        <div style={{ fontWeight: '700' }}>
+                          🟢 Back Inside Campus (Verified at Gate)
+                        </div>
+                        <div style={{ fontSize: '10px', marginTop: '2px', color: '#15803d' }}>
+                          Reason was: &ldquo;{returnedPass.purpose || returnedPass.reason || returnedPass.leaveCategory}&rdquo; • Permitted by Usthad {returnedPass.teacherName}
                         </div>
                       </div>
                     )}

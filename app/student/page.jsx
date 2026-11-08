@@ -932,7 +932,7 @@ function StudentDashboardInner() {
     if (up.includes('FIQH')) return 'Fiqh';
     if (up.includes('AQEED') || up.includes('AQIDAH')) return 'Aqidah';
     if (up.includes('BALAG')) return 'Balagha';
-    if (up.includes('MANTHIQ') || up.includes('LOGIC') || up.includes('DIRASATHUL ADYAN') || up.includes('DIRASATH') || up.includes('ADYAN')) return 'Logic';
+    if (up.includes('MANTHIQ') || up.includes('MANTIQ') || up.includes('LOGIC') || up.includes('DIRASATHUL ADYAN') || up.includes('DIRASATH') || up.includes('DIRASAT') || up.includes('ADYAN')) return 'Logic';
     if (up.includes('ENGLISH')) return 'English';
     if (up.includes('ADAB')) return 'Adab';
     if (up.includes('URDU')) return 'Urdu';
@@ -946,7 +946,7 @@ function StudentDashboardInner() {
       if (up.includes('HADEES') || up.includes('HADITH') || up.includes('H3') || up.includes('H2') || up.includes('H1')) return 'Specialization (Hadith)';
       if (up.includes('CIVIL') || up.includes('C1') || up.includes('C2') || up.includes('C3')) return 'Specialization (Civil)';
       if (up.includes('LANGUAGE') || up.includes('L1') || up.includes('L2') || up.includes('L3')) return 'Specialization (Language)';
-      if (up.includes('AQEED') || up.includes('AQIDAH') || up.includes('A3') || up.includes('A1')) return 'Specialization (Aqidah)';
+      if (up.includes('AQEED') || up.includes('AQIDAH') || up.includes('A3') || up.includes('A2') || up.includes('A1')) return 'Specialization (Aqidah)';
       return 'Specialization';
     }
     return subKey;
@@ -986,7 +986,7 @@ function StudentDashboardInner() {
   });
 
   const allAttendanceSubjectsForStudent = Array.from(deduplicatedSubjectsMap.values())
-    .filter(item => !String(item.subject).toUpperCase().includes('REHEARSAL') && !String(item.subject).toUpperCase().includes('FEST'));
+    .filter(item => !String(item.subject).toUpperCase().includes('REHEARSAL') && !String(item.subject).toUpperCase().includes('FEST') && !String(item.subject).toUpperCase().includes('DIRASATH') && !String(item.subject).toUpperCase().includes('ADYAN'));
 
   const getSubjectAttendanceStats = (canonSubject, scopeMonth) => {
     const matchingEntries = Object.entries(attendanceData?.subjectWise || {}).filter(([k]) => canonicalSubject(k) === canonSubject);
@@ -1495,7 +1495,7 @@ function StudentDashboardInner() {
                             // Filter matching sessions from monthSessions
                             const matchingSessions = monthSessions.filter(sess => {
                               if (sess.date !== d.dateStr) return false;
-                              const sessCanon = canonicalSubject(sess.subject);
+                              const sessCanon = canonicalSubject(sess.subject || sess.classAlias || sess.alias || '');
                               if (sessCanon !== canon) return false;
 
                               const attMap = sess.attendanceMap || {};

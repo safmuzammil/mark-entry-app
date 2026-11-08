@@ -772,6 +772,46 @@ export default function OutPassPortal({
     e.target.value = null;
   };
 
+  const syncReturnedStudentToNightAttendance = async (studentAdNo) => {
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const naRef = doc(db, 'night_attendance', todayStr);
+      const naSnap = await getDoc(naRef);
+      if (!naSnap.exists()) return;
+      const naData = naSnap.data();
+      const classes = naData.classes || {};
+      let modified = false;
+
+      const cleanTarget = String(studentAdNo || '').toUpperCase().replace('#', '').trim();
+      if (!cleanTarget) return;
+
+      Object.keys(classes).forEach(clsKey => {
+        const clsRec = classes[clsKey];
+        if (!clsRec) return;
+        const outpassList = Array.isArray(clsRec.outpassAdNos) ? [...clsRec.outpassAdNos] : [];
+        const idx = outpassList.findIndex(x => String(x).toUpperCase().replace('#', '').trim() === cleanTarget);
+
+        if (idx >= 0) {
+          outpassList.splice(idx, 1);
+          clsRec.outpassAdNos = outpassList;
+          clsRec.outpassCount = outpassList.length;
+          const total = Number(clsRec.totalCount) || 0;
+          const abs = Number(clsRec.absentAdNos?.length) || 0;
+          const off = Number(clsRec.officialAdNos?.length) || 0;
+          const sick = Number(clsRec.sickAdNos?.length) || 0;
+          clsRec.presentCount = Math.max(0, total - abs - outpassList.length - off - sick);
+          modified = true;
+        }
+      });
+
+      if (modified) {
+        await updateDoc(naRef, { classes, updatedAt: new Date().toISOString() });
+      }
+    } catch (err) {
+      console.warn('Night attendance sync error:', err);
+    }
+  };
+
   const processSecurityGateScan = async (rawCode) => {
     const code = String(rawCode || "").trim();
     if (!code) return;
@@ -944,8 +984,13 @@ export default function OutPassPortal({
         status: "ARRIVED_AT_GATE",
         gateArrivalTime: scanTimeISO,
         actualReturnTime: scanTimeISO,
+        verifiedReturnedAt: scanTimeISO,
+        verifiedReturnedBy: staffName || "Gate Security",
         wasLateReturn: Boolean(isLate),
       });
+
+      // 🌟 Real-Time Sync: Instantly restore student inside campus in Night Attendance
+      syncReturnedStudentToNightAttendance(matchingPass.adNo);
 
       setPasses((prev) =>
         prev.map((p) =>
@@ -1568,10 +1613,14 @@ export default function OutPassPortal({
       await updateDoc(doc(db, "out_passes", pass.id), {
         status: "RETURNED",
         actualReturnTime: pass.gateArrivalTime || verifyTime.toISOString(),
+        verifiedReturnedAt: verifyTime.toISOString(),
         teacherVerifiedTime: verifyTime.toISOString(),
         returnClerkName: getOfficialTeacherName(staffName) || "Teacher",
         wasLateReturn: Boolean(isLate),
       });
+
+      // 🌟 Real-Time Sync: Instantly restore student inside campus in Night Attendance
+      syncReturnedStudentToNightAttendance(pass.adNo);
       playBeep(false);
     } catch (err) {
       alert("Error updating return status.");
@@ -1611,14 +1660,16 @@ export default function OutPassPortal({
 
     const verifyISO = new Date().toISOString();
     await Promise.all(
-      activeToReturn.map((p) =>
-        updateDoc(doc(db, "out_passes", p.id), {
+      activeToReturn.map((p) => {
+        syncReturnedStudentToNightAttendance(p.adNo);
+        return updateDoc(doc(db, "out_passes", p.id), {
           status: "RETURNED",
           actualReturnTime: p.gateArrivalTime || verifyISO,
+          verifiedReturnedAt: verifyISO,
           teacherVerifiedTime: verifyISO,
           returnClerkName: getOfficialTeacherName(staffName) || "Teacher",
-        })
-      )
+        });
+      })
     );
     playBeep(false);
     alert(`✅ Marked ${activeToReturn.length} students as Returned!`);

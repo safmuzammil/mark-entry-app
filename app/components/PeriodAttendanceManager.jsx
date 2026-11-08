@@ -225,6 +225,8 @@ export default function PeriodAttendanceManager({
             ? (data.actualReturnTime ? isoToLocalYMD(data.actualReturnTime) : '2099-12-31')
             : isoToLocalYMD(data.actualReturnTime || data.permittedTo || data.returnDate);
 
+          const isReturned = status === 'RETURNED' || status === 'ARRIVED_AT_GATE' || Boolean(data.actualReturnTime || data.verifiedReturnedAt || data.teacherVerifiedTime);
+          const isCurrentlyOutside = (status === 'APPROVED' || status === 'OUTSIDE') && !isReturned;
           const isActiveNow = status === 'APPROVED' || status === 'OUTSIDE' || status === 'ARRIVED_AT_GATE';
           const isWithinDateWindow = depDate && attDate >= depDate && attDate <= retDate;
 
@@ -247,6 +249,9 @@ export default function PeriodAttendanceManager({
                 category: cat,
                 isOfficial,
                 status,
+                isReturned,
+                isCurrentlyOutside,
+                actualReturnTime: data.actualReturnTime || data.verifiedReturnedAt || data.gateArrivalTime,
                 destination: data.destination || 'Out',
                 reason: data.purpose || data.reason || '',
                 teacherName: data.teacherName || 'Faculty',
@@ -440,7 +445,7 @@ export default function PeriodAttendanceManager({
                        (sId && str === sId.toUpperCase());
               })) return false;
               const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]);
-              return op && !op.isOfficial;
+              return op && !op.isOfficial && op.isCurrentlyOutside;
             })
             .map(st => String(st.regNo || st.id).trim());
           setAbsentRegNos(autoAbs);
@@ -607,10 +612,12 @@ export default function PeriodAttendanceManager({
           newAttendanceMap[reg] = 'P'; // 🌟 Converted to ACTUAL PRESENT per user logic!
         } else if (!isMarkedAbsentByRegularTeacher) {
           newAttendanceMap[reg] = 'P';
-        } else if (op && op.isOfficial) {
+        } else if (op && op.isCurrentlyOutside && op.isOfficial) {
           newAttendanceMap[reg] = 'O';
+        } else if (op && op.isCurrentlyOutside) {
+          newAttendanceMap[reg] = 'M';
         } else {
-          newAttendanceMap[reg] = op ? 'M' : 'A';
+          newAttendanceMap[reg] = 'A';
         }
       });
 
@@ -1827,19 +1834,19 @@ export default function PeriodAttendanceManager({
                           alert(`🎭 ${st.firstName} (#${st.adNo}) is marked Present in Rehearsal by Event Leader and will be automatically recorded as Present.`);
                           return;
                         }
-                        if (isOfficialPass) return;
+                        if (isOfficialPass && op?.isCurrentlyOutside) return;
                         toggleAbsent(st.regNo);
                       }}
                       style={{
                         padding: '12px 14px',
                         borderRadius: '10px',
-                        cursor: rehPresentHere ? 'default' : isOfficialPass ? 'default' : 'pointer',
+                        cursor: rehPresentHere ? 'default' : (isOfficialPass && op?.isCurrentlyOutside) ? 'default' : 'pointer',
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'flex-start',
                         gap: '8px',
-                        background: rehPresentHere ? '#f5f3ff' : isOfficialPass ? '#eef2ff' : isAbsent ? '#fff1f2' : '#ecfdf5',
-                        border: `1.5px solid ${rehPresentHere ? '#8b5cf6' : isOfficialPass ? '#6366f1' : isAbsent ? '#f43f5e' : '#10b981'}`
+                        background: rehPresentHere ? '#f5f3ff' : (isOfficialPass && op?.isCurrentlyOutside) ? '#eef2ff' : isAbsent ? '#fff1f2' : '#ecfdf5',
+                        border: `1.5px solid ${rehPresentHere ? '#8b5cf6' : (isOfficialPass && op?.isCurrentlyOutside) ? '#6366f1' : isAbsent ? '#f43f5e' : '#10b981'}`
                       }}
                     >
                       <div style={{ flex: 1 }}>
@@ -1854,11 +1861,19 @@ export default function PeriodAttendanceManager({
                             🎭 Rehearsal Present (Converts to Present)
                           </span>
                         )}
-                        {op && (
-                          <div style={{ marginTop: '6px', background: '#ffffff', color: '#334155', padding: '5px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', lineHeight: 1.35, border: '1px solid #cbd5e1' }}>
-                            <div>🪪 <strong>{op.category} Leave:</strong> {op.destination} {op.reason ? `(${op.reason})` : ''}</div>
-                            <div style={{ fontSize: '10px', marginTop: '2px', color: '#64748b' }}>
-                              By: {op.teacherName} • Return: {op.toFormatted}
+                        {op && op.isCurrentlyOutside && (
+                          <div style={{ marginTop: '6px', background: '#fffbeb', color: '#92400e', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', lineHeight: 1.35, border: '1px solid #fde68a' }}>
+                            <div>🪪 <strong>Outside Campus ({op.category} Leave):</strong> {op.destination}</div>
+                            <div style={{ fontSize: '10px', marginTop: '2px', color: '#b45309' }}>
+                              Reason: &ldquo;{op.reason || op.category}&rdquo; • Approved by: Usthad {op.teacherName} • Expected Return: {op.toFormatted}
+                            </div>
+                          </div>
+                        )}
+                        {op && op.isReturned && (
+                          <div style={{ marginTop: '6px', background: '#f0fdf4', color: '#166534', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', lineHeight: 1.35, border: '1px solid #bbf7d0' }}>
+                            <div>🟢 <strong>Back Inside Campus (Verified Return)</strong></div>
+                            <div style={{ fontSize: '10px', marginTop: '2px', color: '#15803d' }}>
+                              Previous leave: &ldquo;{op.reason || op.category}&rdquo; by Usthad {op.teacherName} • Tap card to mark Absent if absent from class
                             </div>
                           </div>
                         )}
@@ -1868,11 +1883,11 @@ export default function PeriodAttendanceManager({
                         borderRadius: '6px',
                         fontWeight: '800',
                         fontSize: '11px',
-                        background: rehPresentHere ? '#7c3aed' : isOfficialPass ? '#4f46e5' : isAbsent ? '#e11d48' : '#10b981',
+                        background: rehPresentHere ? '#7c3aed' : (isOfficialPass && op?.isCurrentlyOutside) ? '#4f46e5' : isAbsent ? '#e11d48' : '#10b981',
                         color: '#ffffff',
                         whiteSpace: 'nowrap'
                       }}>
-                        {rehPresentHere ? '🎭 REHEARSAL' : isOfficialPass ? 'OFFICIAL' : isAbsent ? 'ABSENT' : 'PRESENT'}
+                        {rehPresentHere ? '🎭 REHEARSAL' : (isOfficialPass && op?.isCurrentlyOutside) ? 'OFFICIAL' : isAbsent ? 'ABSENT' : 'PRESENT'}
                       </span>
                     </div>
                   );
