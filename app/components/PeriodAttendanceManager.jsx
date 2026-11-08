@@ -1098,7 +1098,6 @@ export default function PeriodAttendanceManager({
       setStatusMsg(`✅ Rehearsal Attendance Recorded to Period Register (${presentRegs.length} Present, ${rehAbsentRegNos.length} Absent)!`);
       // Reset rehearsal form to initial clean state
       setRehSessionId('');
-      setCoveredPeriods([]);
       setRehAbsentRegNos([]);
       if (typeof window !== 'undefined') {
         window.scrollTo({ top: 0, behavior: 'smooth' });
