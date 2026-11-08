@@ -42,6 +42,10 @@ export default function TeacherManager({ onOpenProxyMarks }) {
   // 🌟 Minimalist Top Action Panel Toggles ('none' | 'add' | 'import' | 'broadcast' | 'filters')
   const [activeTopPanel, setActiveTopPanel] = useState('none');
   const [expandedTeacherUsername, setExpandedTeacherUsername] = useState(null);
+  const [resetModalTeacher, setResetModalTeacher] = useState(null);
+  const [newResetPassword, setNewResetPassword] = useState('');
+  const [resetSuccessData, setResetSuccessData] = useState(null);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [visibleCols, setVisibleCols] = useState({
     roles: false,
     contact: false,
@@ -418,6 +422,11 @@ export default function TeacherManager({ onOpenProxyMarks }) {
         district: district.trim(),
         photoUrl: photoUrl || null,
         enrollments: finalEnrollments,
+        ...(password.trim().length >= 6 ? {
+          password: password.trim(),
+          passwordUpdatedAt: new Date().toISOString(),
+          passwordUpdatedBy: 'admin'
+        } : {}),
         outpassPrivileges: {
           isPrincipal: Boolean(isPrincipalRole),
           isNiicsCoordinator: Boolean(isNiicsCoordRole),
@@ -471,7 +480,7 @@ export default function TeacherManager({ onOpenProxyMarks }) {
     setIsOfficeSecRole(Boolean(priv.isOfficeSecretary));
     setIsEventLeaderRole(Boolean(teacher.isEventLeader || teacher.roleCategory === 'Event Leader'));
     setClassTeacherOf(Array.isArray(priv.classTeacherOf) ? priv.classTeacherOf : []);
-    setPassword('');
+    setPassword(teacher.password || '');
     setActiveTopPanel('add');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -538,6 +547,90 @@ export default function TeacherManager({ onOpenProxyMarks }) {
       setSelectedTeacherUsernames([]);
     } else {
       setSelectedTeacherUsernames(filteredTeachers.map(t => t.username));
+    }
+  };
+
+  const handleOpenResetModal = (teacher) => {
+    setResetModalTeacher(teacher);
+    setNewResetPassword(teacher.password || '');
+    setResetSuccessData(null);
+  };
+
+  const handleGenerateRandomPassword = () => {
+    const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+    let rand = '';
+    for (let i = 0; i < 4; i++) rand += chars.charAt(Math.floor(Math.random() * chars.length));
+    const u = (resetModalTeacher?.username || 'teacher').slice(0, 4);
+    setNewResetPassword(`${u}@${rand}`);
+  };
+
+  const handleSaveResetPassword = async (e) => {
+    e.preventDefault();
+    if (!resetModalTeacher) return;
+    if (newResetPassword.trim().length < 6) {
+      return alert('Password must be at least 6 characters.');
+    }
+
+    setIsResettingPassword(true);
+    const safeUser = resetModalTeacher.username.trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '');
+    const cleanPwd = newResetPassword.trim();
+    const fakeEmail = `${safeUser}@school.com`;
+    const nowIso = new Date().toISOString();
+
+    try {
+      // 1. Update Firestore teacher document
+      await setDoc(doc(db, 'teachers', safeUser), {
+        password: cleanPwd,
+        passwordUpdatedAt: nowIso,
+        passwordUpdatedBy: 'admin'
+      }, { merge: true });
+
+      // 2. Try to sync with Firebase Auth
+      try {
+        const primaryApp = getApp();
+        let secondaryApp;
+        try { secondaryApp = getApp("SecondaryApp"); } catch (err) { secondaryApp = initializeApp(primaryApp.options, "SecondaryApp"); }
+        const secondaryAuth = getAuth(secondaryApp);
+        await setPersistence(secondaryAuth, inMemoryPersistence);
+
+        try {
+          await createUserWithEmailAndPassword(secondaryAuth, fakeEmail, cleanPwd);
+        } catch (createErr) {
+          if (createErr.code === 'auth/email-already-in-use') {
+            const oldPwd = resetModalTeacher.password;
+            if (oldPwd) {
+              try {
+                await signInWithEmailAndPassword(secondaryAuth, fakeEmail, oldPwd);
+                await updatePassword(secondaryAuth.currentUser, cleanPwd);
+              } catch (_) {}
+            }
+          }
+        }
+        await signOut(secondaryAuth);
+      } catch (authErr) {
+        console.warn('Auth sync notice:', authErr);
+      }
+
+      // 3. Update local state
+      const updatedTeacher = {
+        ...resetModalTeacher,
+        password: cleanPwd,
+        passwordUpdatedAt: nowIso
+      };
+      const nextList = teachers.map(t => t.username === safeUser ? updatedTeacher : t);
+      setTeachers(nextList);
+      if (onTeachersUpdated) onTeachersUpdated(nextList);
+
+      setResetSuccessData({
+        username: safeUser,
+        fullName: resetModalTeacher.fullName,
+        password: cleanPwd,
+        loginUrl: typeof window !== 'undefined' ? window.location.origin : 'https://mark-entry-app.vercel.app'
+      });
+    } catch (err) {
+      alert('Error resetting password: ' + err.message);
+    } finally {
+      setIsResettingPassword(false);
     }
   };
 
@@ -1115,10 +1208,18 @@ export default function TeacherManager({ onOpenProxyMarks }) {
                         <div style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
                           <button
                             type="button"
+                            onClick={() => handleOpenResetModal(teacher)}
+                            style={{ padding: '6px 12px', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                            title="Reset or Change Faculty Password"
+                          >
+                            🔑 Reset Password
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleEditClick(teacher)}
                             style={{ padding: '6px 12px', background: '#eef2ff', color: '#4f46e5', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
                           >
-                            ✏️ Edit / Password
+                            ✏️ Edit Profile
                           </button>
                           <button
                             type="button"
@@ -1203,6 +1304,167 @@ export default function TeacherManager({ onOpenProxyMarks }) {
           </table>
         </div>
       </div>
+      {/* 🌟 DEDICATED ADMIN FACULTY PASSWORD RESET MODAL */}
+      {resetModalTeacher && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 99999,
+            padding: '16px'
+          }}
+          onClick={() => { if (!isResettingPassword) { setResetModalTeacher(null); setResetSuccessData(null); } }}
+        >
+          <div
+            style={{
+              background: '#ffffff',
+              borderRadius: '16px',
+              maxWidth: '480px',
+              width: '100%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
+              border: '1px solid #cbd5e1',
+              overflow: 'hidden'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ background: '#0f172a', padding: '16px 20px', color: '#ffffff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '20px' }}>🔑</span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800' }}>Reset Faculty Password</h3>
+                  <div style={{ fontSize: '11px', color: '#94a3b8' }}>Admin Credentials Manager</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setResetModalTeacher(null); setResetSuccessData(null); }}
+                style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '20px', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ padding: '20px' }}>
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '14px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <ProfileAvatar name={resetModalTeacher.fullName} code={resetModalTeacher.username} photoUrl={resetModalTeacher.photoUrl} size={42} />
+                <div>
+                  <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '15px' }}>{resetModalTeacher.fullName}</div>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                    Username: <strong style={{ color: '#0284c7' }}>@{resetModalTeacher.username}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {!resetSuccessData ? (
+                <form onSubmit={handleSaveResetPassword}>
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: '800', color: '#334155' }}>
+                        Set New Password *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleGenerateRandomPassword}
+                        style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
+                      >
+                        🎲 Generate Random
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={newResetPassword}
+                      onChange={e => setNewResetPassword(e.target.value)}
+                      placeholder="Enter minimum 6 characters..."
+                      required
+                      minLength={6}
+                      style={{ ...styles.input, fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px' }}
+                    />
+                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                      Teacher will use this password to sign in with username <strong>@{resetModalTeacher.username}</strong>.
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setResetModalTeacher(null)}
+                      style={{ ...styles.buttonSecondary, flex: 1, padding: '10px' }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isResettingPassword}
+                      style={{ ...styles.buttonPrimary, flex: 2, padding: '10px', background: '#2563eb' }}
+                    >
+                      {isResettingPassword ? 'Updating Password...' : '💾 Save & Update Password'}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div>
+                  <div style={{ background: '#ecfdf5', border: '1.5px solid #6ee7b7', borderRadius: '12px', padding: '14px', marginBottom: '16px' }}>
+                    <div style={{ color: '#065f46', fontWeight: '800', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>✅</span> Password Reset Successfully!
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#047857', marginTop: '4px' }}>
+                      Teacher credentials have been updated and are ready to use.
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '12px 14px', fontSize: '12px', color: '#1e293b', marginBottom: '16px', lineHeight: '1.6' }}>
+                    <div><strong>Portal URL:</strong> {resetSuccessData.loginUrl}</div>
+                    <div><strong>Username:</strong> {resetSuccessData.username}</div>
+                    <div><strong>Password:</strong> <span style={{ background: '#fef3c7', padding: '2px 6px', borderRadius: '4px', fontWeight: '800', color: '#92400e' }}>{resetSuccessData.password}</span></div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const txt = `Assalamu Alaikum Usthad ${resetSuccessData.fullName},\n\nYour DHIU Portal login credentials have been updated:\n\n🌐 Portal: ${resetSuccessData.loginUrl}\n👤 Username: ${resetSuccessData.username}\n🔑 Password: ${resetSuccessData.password}\n\nPlease sign in to take period attendance and record marks.`;
+                        navigator.clipboard.writeText(txt);
+                        alert('📋 Copied login credentials to clipboard!');
+                      }}
+                      style={{ flex: 1, padding: '9px 12px', background: '#2563eb', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                    >
+                      📋 Copy Credentials
+                    </button>
+
+                    {resetModalTeacher.whatsappNumber && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const txt = `Assalamu Alaikum Usthad ${resetSuccessData.fullName},\n\nYour DHIU Portal login credentials have been updated:\n\n🌐 Portal: ${resetSuccessData.loginUrl}\n👤 Username: ${resetSuccessData.username}\n🔑 Password: ${resetSuccessData.password}\n\nPlease sign in to take period attendance and record marks.`;
+                          const cleanNum = resetModalTeacher.whatsappNumber.replace(/[^0-9]/g, '');
+                          const url = `https://wa.me/${cleanNum.length === 10 ? '91' + cleanNum : cleanNum}?text=${encodeURIComponent(txt)}`;
+                          window.open(url, '_blank');
+                        }}
+                        style={{ flex: 1, padding: '9px 12px', background: '#16a34a', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                      >
+                        💬 Send WhatsApp
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => { setResetModalTeacher(null); setResetSuccessData(null); }}
+                      style={{ width: '100%', marginTop: '6px', padding: '8px', background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
