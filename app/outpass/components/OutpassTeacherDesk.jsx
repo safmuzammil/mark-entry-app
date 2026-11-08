@@ -1378,7 +1378,9 @@ export default function OutpassTeacherDesk({
                           {p.status === "ARRIVED_AT_GATE"
                             ? "🟣 GATE ARRIVED (UNVERIFIED)"
                             : p.status === "APPROVED"
-                            ? "🔵 PERMITTED (AT CAMPUS)"
+                            ? (!p.isOpenReturn && p.permittedTo && new Date(now) > new Date(p.permittedTo)
+                                ? "⛔ EXPIRED RETURN DEADLINE (BLOCKED)"
+                                : "🔵 PERMITTED (AT CAMPUS)")
                             : p.status === "OUTSIDE" && isOverdue
                             ? "🚨 OVERDUE"
                             : p.status}

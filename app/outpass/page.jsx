@@ -16,6 +16,7 @@ import {
   orderBy,
   limit,
   onSnapshot,
+  writeBatch,
 } from "firebase/firestore";
 import {
   onAuthStateChanged,
@@ -133,6 +134,20 @@ export default function OutPassPortal({
   const [autoOpenParentWA, setAutoOpenParentWA] = useState(true);
   const [autoNotifyParentOnGateScan, setAutoNotifyParentOnGateScan] =
     useState(true);
+  const [blockExitAfterReturnTime, setBlockExitAfterReturnTime] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("dhiu_block_expired_exit");
+      return saved !== null ? saved === "true" : true;
+    }
+    return true;
+  });
+
+  const handleToggleBlockExitAfterReturnTime = (val) => {
+    setBlockExitAfterReturnTime(val);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("dhiu_block_expired_exit", String(val));
+    }
+  };
 
   const [receiptPass, setReceiptPass] = useState(null);
   const [zoomPhotoStudent, setZoomPhotoStudent] = useState(null);
@@ -779,12 +794,98 @@ export default function OutPassPortal({
     const scanTimeISO = new Date().toISOString();
 
     if (matchingPass && matchingPass.status === "APPROVED") {
+      const isPastReturnDeadline =
+        !matchingPass.isOpenReturn &&
+        matchingPass.permittedTo &&
+        new Date(scanTimeISO) > new Date(matchingPass.permittedTo);
+
+      if (blockExitAfterReturnTime && isPastReturnDeadline) {
+        playBeep(true);
+        const reasonStr = `Blocked at Gate: Attempted departure after return deadline (${formatDateTime12Hour(matchingPass.permittedTo)}) expired. Student remained on campus and is auto-verified completely inside campus.`;
+
+        await updateDoc(doc(db, "out_passes", matchingPass.id), {
+          status: "RETURNED",
+          isLapsedUnused: true,
+          lapsedReason: reasonStr,
+          gateArrivalTime: scanTimeISO,
+          actualReturnTime: scanTimeISO,
+          teacherVerifiedTime: scanTimeISO,
+          returnClerkName: "Gate Security (Auto-Expired / Stayed Inside)",
+          gateBlockedAt: scanTimeISO,
+        });
+
+        setPasses((prev) =>
+          prev.map((p) =>
+            p.id === matchingPass.id
+              ? {
+                  ...p,
+                  status: "RETURNED",
+                  isLapsedUnused: true,
+                  lapsedReason: reasonStr,
+                  gateArrivalTime: scanTimeISO,
+                  actualReturnTime: scanTimeISO,
+                  teacherVerifiedTime: scanTimeISO,
+                  returnClerkName: "Gate Security (Auto-Expired / Stayed Inside)",
+                  gateBlockedAt: scanTimeISO,
+                }
+              : p
+          )
+        );
+
+        try {
+          await addDoc(collection(db, "outpass_unapproved_logs"), {
+            scannedId: code,
+            adNo: matchingPass.adNo,
+            studentName: matchingPass.studentName,
+            studentClass: matchingPass.studentClass,
+            department: matchingPass.department || "—",
+            photoUrl: matchingPass.studentPhotoUrl || studentObj?.photoUrl || null,
+            timestamp: scanTimeISO,
+            reason: `⛔ BLOCKED GATE EXIT: Permitted return time (${formatDateTime12Hour(matchingPass.permittedTo)}) expired before student left campus. Verified inside campus.`,
+            kioskUser: "Security Gate Kiosk",
+          });
+        } catch (e) {}
+
+        setGateScanResult({
+          allowed: false,
+          actionType: "BLOCKED_EXPIRED",
+          student: studentObj || {
+            name: matchingPass.studentName,
+            adNo: matchingPass.adNo,
+            studentClass: matchingPass.studentClass,
+            department: matchingPass.department || "GENERAL",
+            photoUrl: matchingPass.studentPhotoUrl,
+          },
+          pass: {
+            ...matchingPass,
+            status: "RETURNED",
+            isLapsedUnused: true,
+          },
+          message: `⛔ RED SIGNAL — EXIT BLOCKED: Return deadline has already expired (${formatDateTime12Hour(matchingPass.permittedTo)})! Student remained on campus & verified completely inside.`,
+          timestamp: scanTimeISO,
+        });
+        return;
+      }
+
       playBeep(false);
       await updateDoc(doc(db, "out_passes", matchingPass.id), {
         status: "OUTSIDE",
         gateDepartureTime: scanTimeISO,
         actualDepartureTime: scanTimeISO,
       });
+
+      setPasses((prev) =>
+        prev.map((p) =>
+          p.id === matchingPass.id
+            ? {
+                ...p,
+                status: "OUTSIDE",
+                gateDepartureTime: scanTimeISO,
+                actualDepartureTime: scanTimeISO,
+              }
+            : p
+        )
+      );
 
       const isHomePass =
         String(matchingPass.destination || "").toLowerCase().includes("home") ||
@@ -845,6 +946,20 @@ export default function OutPassPortal({
         actualReturnTime: scanTimeISO,
         wasLateReturn: Boolean(isLate),
       });
+
+      setPasses((prev) =>
+        prev.map((p) =>
+          p.id === matchingPass.id
+            ? {
+                ...p,
+                status: "ARRIVED_AT_GATE",
+                gateArrivalTime: scanTimeISO,
+                actualReturnTime: scanTimeISO,
+                wasLateReturn: Boolean(isLate),
+              }
+            : p
+        )
+      );
 
       const isHomePass =
         String(matchingPass.destination || "").toLowerCase().includes("home") ||
@@ -1369,6 +1484,65 @@ export default function OutPassPortal({
       alert("Failed to update out-pass details.");
     } finally {
       setSavingEdit(false);
+    }
+  };
+
+  const handleAutoVerifyAllExpiredUnused = async () => {
+    const expiredPasses = passes.filter(
+      (p) =>
+        p.status === "APPROVED" &&
+        !p.isOpenReturn &&
+        p.permittedTo &&
+        new Date() > new Date(p.permittedTo)
+    );
+    if (expiredPasses.length === 0) {
+      return alert("No expired unused passes found.");
+    }
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        `Auto-verify ${expiredPasses.length} student(s) who did not depart before their return deadline as remained on-campus? Their passes will be completed and verified inside campus.`
+      )
+    ) {
+      return;
+    }
+
+    const nowISO = new Date().toISOString();
+    try {
+      const batch = writeBatch(db);
+      expiredPasses.forEach((p) => {
+        batch.update(doc(db, "out_passes", p.id), {
+          status: "RETURNED",
+          isLapsedUnused: true,
+          lapsedReason: `Auto-verified: Student did not leave campus before return deadline (${formatDateTime12Hour(p.permittedTo)}).`,
+          gateArrivalTime: nowISO,
+          actualReturnTime: nowISO,
+          teacherVerifiedTime: nowISO,
+          returnClerkName: "System (Auto-Expired / Stayed Inside)",
+        });
+      });
+      await batch.commit();
+
+      setPasses((prev) =>
+        prev.map((p) =>
+          expiredPasses.some((ep) => ep.id === p.id)
+            ? {
+                ...p,
+                status: "RETURNED",
+                isLapsedUnused: true,
+                gateArrivalTime: nowISO,
+                actualReturnTime: nowISO,
+                teacherVerifiedTime: nowISO,
+                returnClerkName: "System (Auto-Expired / Stayed Inside)",
+              }
+            : p
+        )
+      );
+
+      alert(`✅ Successfully verified ${expiredPasses.length} student(s) as remaining inside campus.`);
+    } catch (err) {
+      console.error("Error auto-verifying expired passes:", err);
+      alert("Error: " + err.message);
     }
   };
 
@@ -2301,6 +2475,9 @@ export default function OutPassPortal({
             setZoomPhotoStudent={setZoomPhotoStudent}
             autoNotifyParentOnGateScan={autoNotifyParentOnGateScan}
             setAutoNotifyParentOnGateScan={setAutoNotifyParentOnGateScan}
+            blockExitAfterReturnTime={blockExitAfterReturnTime}
+            setBlockExitAfterReturnTime={handleToggleBlockExitAfterReturnTime}
+            handleAutoVerifyAllExpiredUnused={handleAutoVerifyAllExpiredUnused}
           />
         )}
 

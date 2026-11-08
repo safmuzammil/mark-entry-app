@@ -22,11 +22,18 @@ export default function OutpassSecurityKiosk({
   setZoomPhotoStudent,
   autoNotifyParentOnGateScan,
   setAutoNotifyParentOnGateScan,
+  blockExitAfterReturnTime = true,
+  setBlockExitAfterReturnTime,
+  handleAutoVerifyAllExpiredUnused,
 }) {
   const [kioskListSearch, setKioskListSearch] = useState("");
   const [kioskFilterMode, setKioskFilterMode] = useState("ALL");
 
   const safePasses = Array.isArray(passes) ? passes : [];
+  const isPassExpiredBeforeExit = (p) => {
+    return p.status === "APPROVED" && !p.isOpenReturn && p.permittedTo && new Date() > new Date(p.permittedTo);
+  };
+  const expiredExitCount = safePasses.filter(isPassExpiredBeforeExit).length;
   const waitingExitCount = safePasses.filter((p) => p.status === "APPROVED").length;
   const currentlyOutCount = safePasses.filter((p) => p.status === "OUTSIDE").length;
 
@@ -113,34 +120,60 @@ export default function OutpassSecurityKiosk({
           </div>
         </div>
 
-        {setAutoNotifyParentOnGateScan && (
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              background: "#f0fdf4",
-              border: "1px solid #86efac",
-              padding: "8px 12px",
-              borderRadius: 10,
-              fontSize: 12,
-              fontWeight: 800,
-              color: "#166534",
-              cursor: "pointer",
-              marginBottom: 12,
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={Boolean(autoNotifyParentOnGateScan)}
-              onChange={(e) =>
-                setAutoNotifyParentOnGateScan(e.target.checked)
-              }
-            />
-            💬 Auto-Open Parent&apos;s WhatsApp when Student Scans Out/In for
-            Home Leave
-          </label>
-        )}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+          {setBlockExitAfterReturnTime && (
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                background: blockExitAfterReturnTime ? "#eff6ff" : "#f8fafc",
+                border: blockExitAfterReturnTime ? "1.5px solid #60a5fa" : "1.5px solid #cbd5e1",
+                padding: "8px 12px",
+                borderRadius: 10,
+                fontSize: 12,
+                fontWeight: 800,
+                color: blockExitAfterReturnTime ? "#1d4ed8" : "#475569",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={Boolean(blockExitAfterReturnTime)}
+                onChange={(e) => setBlockExitAfterReturnTime(e.target.checked)}
+              />
+              🛡️ Block Gate Exit After Return Deadline &amp; Auto-Verify Inside Campus
+            </label>
+          )}
+
+          {setAutoNotifyParentOnGateScan && (
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                background: "#f0fdf4",
+                border: "1px solid #86efac",
+                padding: "8px 12px",
+                borderRadius: 10,
+                fontSize: 12,
+                fontWeight: 800,
+                color: "#166534",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={Boolean(autoNotifyParentOnGateScan)}
+                onChange={(e) =>
+                  setAutoNotifyParentOnGateScan(e.target.checked)
+                }
+              />
+              💬 Auto-Open Parent&apos;s WhatsApp when Student Scans Out/In for
+              Home Leave
+            </label>
+          )}
+        </div>
 
         <form
           onSubmit={(e) => {
@@ -535,6 +568,48 @@ export default function OutpassSecurityKiosk({
           />
         </div>
 
+        {expiredExitCount > 0 && handleAutoVerifyAllExpiredUnused && (
+          <div
+            style={{
+              background: "#fef2f2",
+              border: "1px solid #fecaca",
+              borderRadius: 10,
+              padding: "10px 14px",
+              marginBottom: 14,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 800, color: "#991b1b", fontSize: 13 }}>
+                ⛔ {expiredExitCount} Approved Student(s) Exceeded Return Deadline Without Leaving
+              </div>
+              <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 2 }}>
+                Their return deadline has already expired. They cannot leave now and remained on campus.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleAutoVerifyAllExpiredUnused}
+              style={{
+                background: "#dc2626",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: 8,
+                padding: "8px 14px",
+                fontWeight: 800,
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              ⛔ Auto-Verify All {expiredExitCount} Inside Campus
+            </button>
+          </div>
+        )}
+
         <div style={styles.passListScroll}>
           {activeGatePasses.length === 0 ? (
             <div style={styles.emptyStateBox}>
@@ -544,7 +619,9 @@ export default function OutpassSecurityKiosk({
               </div>
             </div>
           ) : (
-            activeGatePasses.map((p) => (
+            activeGatePasses.map((p) => {
+              const isExpiredExit = isPassExpiredBeforeExit(p);
+              return (
               <div
                 key={p.id}
                 style={{
@@ -554,10 +631,12 @@ export default function OutpassSecurityKiosk({
                   alignItems: "center",
                   gap: 12,
                   flexWrap: "wrap",
-                  borderLeft:
-                    p.status === "APPROVED"
-                      ? "5px solid #0284c7"
-                      : "5px solid #f59e0b",
+                  borderLeft: isExpiredExit
+                    ? "5px solid #dc2626"
+                    : p.status === "APPROVED"
+                    ? "5px solid #0284c7"
+                    : "5px solid #f59e0b",
+                  background: isExpiredExit ? "#fff5f5" : "#ffffff",
                 }}
               >
                 <div
@@ -589,6 +668,21 @@ export default function OutpassSecurityKiosk({
                       <span style={styles.classPill}>
                         {p.studentClass} (Degree)
                       </span>
+                      {isExpiredExit && (
+                        <span
+                          style={{
+                            background: "#fee2e2",
+                            color: "#b91c1c",
+                            padding: "2px 8px",
+                            borderRadius: 6,
+                            fontSize: 10,
+                            fontWeight: 900,
+                            marginLeft: 6,
+                          }}
+                        >
+                          ⛔ RETURN TIME EXPIRED (BLOCKED)
+                        </span>
+                      )}
                     </div>
                     <div
                       style={{ fontSize: 12, color: "#475569", marginTop: 2 }}
@@ -639,12 +733,17 @@ export default function OutpassSecurityKiosk({
                     onClick={() => processSecurityGateScan(p.adNo)}
                     style={{
                       ...styles.markReturnedBtn,
-                      background:
-                        p.status === "APPROVED" ? "#0284c7" : "#059669",
+                      background: isExpiredExit
+                        ? "#dc2626"
+                        : p.status === "APPROVED"
+                        ? "#0284c7"
+                        : "#059669",
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {p.status === "APPROVED"
+                    {isExpiredExit
+                      ? "⛔ Block & Verify Inside"
+                      : p.status === "APPROVED"
                       ? "🚪 Record Gate Exit"
                       : "🏁 Record Gate Return"}
                   </button>
@@ -671,8 +770,9 @@ export default function OutpassSecurityKiosk({
                   )}
                 </div>
               </div>
-            ))
-          )}
+            );
+          })
+        )}
         </div>
       </div>
     </div>

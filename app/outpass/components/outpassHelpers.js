@@ -364,6 +364,22 @@ export function getStatusBadgeStyle(pass, now) {
     };
   }
   if (status === "APPROVED") {
+    const isExpiredExit =
+      !pass.isOpenReturn &&
+      pass.permittedTo &&
+      new Date(pass.permittedTo) < (now || new Date());
+    if (isExpiredExit) {
+      return {
+        background: "#fee2e2",
+        color: "#b91c1c",
+        border: "1px solid #fca5a5",
+        padding: "5px 10px",
+        borderRadius: "999px",
+        fontSize: "11px",
+        fontWeight: 800,
+        display: "inline-block",
+      };
+    }
     return {
       background: "#e0f2fe",
       color: "#0369a1",
