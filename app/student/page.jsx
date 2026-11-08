@@ -372,8 +372,6 @@ export default function StudentDashboard() {
   });
 
   const [studentAttScope, setStudentAttScope] = useState('monthly');
-  const [studentMonthSessions, setStudentMonthSessions] = useState([]);
-  const [loadingMonthSessions, setLoadingMonthSessions] = useState(false);
   const [studentAttMonth, setStudentAttMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [studentAttDate, setStudentAttDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [attendanceData, setAttendanceData] = useState({
@@ -848,33 +846,8 @@ export default function StudentDashboard() {
 
   const allAttendanceSubjectsForStudent = Array.from(deduplicatedSubjectsMap.values());
 
-  // 🌟 Load month period sessions for the student's class
-  useEffect(() => {
-    async function loadMonthSessions() {
-      if (!studentAttMonth || !loggedInStudent) return;
-      setLoadingMonthSessions(true);
-      try {
-        const studentClass = loggedInStudent.studentClass || loggedInStudent.class || (Array.isArray(loggedInStudent.classes) ? loggedInStudent.classes[0] : '');
-        const snap = await getDocs(collection(db, 'systemCache'));
-        const list = [];
-        snap.forEach(d => {
-          if (d.id.startsWith(`periodSession_${studentAttMonth}`)) {
-            const data = d.data();
-            const sessClass = String(data.classAlias || data.className || '').toUpperCase();
-            if (!studentClass || sessClass.includes(studentClass.toUpperCase())) {
-              list.push({ id: d.id, ...data });
-            }
-          }
-        });
-        setStudentMonthSessions(list);
-      } catch (err) {
-        console.error('Error loading student month sessions:', err);
-      } finally {
-        setLoadingMonthSessions(false);
-      }
-    }
-    loadMonthSessions();
-  }, [studentAttMonth, loggedInStudent]);
+  // 🌟 Compute days in the selected month
+  const todayDateStr = React.useMemo(() => new Date().toISOString().split('T')[0], []);
 
   // Compute days in the selected month
   const [yearStr, monthStr] = (studentAttMonth || '2026-11').split('-');
@@ -932,8 +905,7 @@ export default function StudentDashboard() {
     { id: 'marks', label: 'CCE & Hifz Marks', icon: '📊', desc: 'Curriculum performance & class rank' },
     { id: 'attendance', label: 'Period Attendance', icon: '📅', desc: `Semester attendance (${attendancePct}%) & minus log` },
     { id: 'mentorship', label: 'My Mentorship', icon: '🧭', desc: `Consultancy sittings (${completedSittings}/${minReqSittings}) & action plan` },
-    { id: 'portfolio', label: 'Skills & Awards', icon: '🏆', desc: 'Verified talents & Sibaq achievements' },
-    { id: 'faculty', label: 'My Usthads', icon: '👨‍🏫', desc: 'Mentor, Class Teacher & 14 subject faculty' }
+    { id: 'portfolio', label: 'Skills & Awards', icon: '🏆', desc: 'Verified talents & Sibaq achievements' }
   ];
 
   const currentTabObj = studentNavItems.find(x => x.id === activeTab) || studentNavItems[0];
@@ -1390,19 +1362,14 @@ export default function StudentDashboard() {
                           const stats = getSubjectAttendanceStats(sub.subject, studentAttMonth);
                           const subAbsentDatesMonth = new Set(stats.scopedAbsentDates);
 
-                          const subjectMonthSessions = studentMonthSessions.filter(s => canonicalSubject(s.subject) === sub.subject);
-                          const heldDatesThisMonth = new Set(subjectMonthSessions.map(s => s.date));
-
-                          const monthHeldCount = subjectMonthSessions.length > 0
-                            ? subjectMonthSessions.length
-                            : stats.scopedAbsentDates.length;
                           const monthAbsCount = stats.scopedAbsentDates.length;
-                          const monthPresCount = subjectMonthSessions.length > 0
-                            ? Math.max(0, monthHeldCount - monthAbsCount)
-                            : (monthHeldCount > 0 ? Math.max(0, monthHeldCount - monthAbsCount) : 0);
+                          const monthHeldCount = stats.total > 0
+                            ? (monthAbsCount + Math.min(stats.present, daysInMonth.filter(d => !d.isFriday && d.dateStr <= todayDateStr).length))
+                            : monthAbsCount;
+                          const monthPresCount = Math.max(0, monthHeldCount - monthAbsCount);
                           const monthPct = monthHeldCount > 0
                             ? ((monthPresCount / monthHeldCount) * 100).toFixed(1)
-                            : null;
+                            : (stats.pct !== null ? stats.pct : null);
 
                           return (
                             <tr key={sub.subject} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
@@ -1433,7 +1400,6 @@ export default function StudentDashboard() {
                                 }
 
                                 const isAbsent = subAbsentDatesMonth.has(d.dateStr);
-                                const wasHeld = heldDatesThisMonth.has(d.dateStr) || isAbsent;
 
                                 if (isAbsent) {
                                   return (
@@ -1445,7 +1411,7 @@ export default function StudentDashboard() {
                                   );
                                 }
 
-                                if (wasHeld) {
+                                if (d.dateStr <= todayDateStr && (stats.total > 0 || isAbsent)) {
                                   return (
                                     <td key={d.dateStr} style={{ padding: '3px 1px', background: '#ecfdf5', borderLeft: '1px solid #a7f3d0' }}>
                                       <span style={{ background: '#059669', color: '#ffffff', borderRadius: '4px', padding: '1px 5px', fontSize: '10px', fontWeight: '900' }}>
