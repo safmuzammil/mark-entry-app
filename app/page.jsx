@@ -21,6 +21,7 @@ import ReminderManager from './components/ReminderManager';
 import NightAttendanceManager from './components/NightAttendanceManager';
 import OutPassPortal from './outpass/page';
 import PeriodAttendanceManager from './components/PeriodAttendanceManager';
+import MinusAttendanceManager from './components/MinusAttendanceManager';
 import { DHIU_LOGO_URL, styles } from './components/erpConstants';
 import {
   HighContrastStyles,
@@ -244,11 +245,51 @@ export default function UnifiedSchoolPortal() {
       if (rawInput.includes('@')) {
         finalTargetEmail = rawInput;
         isStudentLogin = finalTargetEmail.endsWith('@student.school.com');
+        const uPrefix = rawInput.split('@')[0].trim().toLowerCase();
+
+        // If teacher email, check authoritative password in Firestore first
+        if (!isStudentLogin && uPrefix !== 'admin') {
+          try {
+            const docSnap = await getDoc(doc(db, 'teachers', uPrefix));
+            if (docSnap.exists()) {
+              const authoritativePwd = String(docSnap.data().password || '').trim();
+              if (authoritativePwd && cleanPassword !== authoritativePwd) {
+                throw new Error('Incorrect password. If your password was changed or reset, please enter your new password.');
+              }
+            }
+          } catch (tLookupErr) {
+            if (tLookupErr.message.includes('Incorrect password')) throw tLookupErr;
+          }
+        }
+
         const firebasePassword = isStudentLogin
           ? (cleanPassword.length < 6 ? cleanPassword.padStart(6, '0') : cleanPassword)
           : cleanPassword;
 
-        await signInWithEmailAndPassword(auth, finalTargetEmail, firebasePassword);
+        try {
+          await signInWithEmailAndPassword(auth, finalTargetEmail, firebasePassword);
+        } catch (signInErr) {
+          // If authoritative password matched, authenticate with admin fallback
+          if (!isStudentLogin && uPrefix !== 'admin') {
+            try {
+              const docSnap = await getDoc(doc(db, 'teachers', uPrefix));
+              if (docSnap.exists()) {
+                const authoritativePwd = String(docSnap.data().password || '').trim();
+                if (authoritativePwd && cleanPassword === authoritativePwd) {
+                  await signInWithEmailAndPassword(auth, 'admin@school.com', 'admin123');
+                } else {
+                  throw signInErr;
+                }
+              } else {
+                throw signInErr;
+              }
+            } catch (fallbackErr) {
+              throw fallbackErr;
+            }
+          } else {
+            throw signInErr;
+          }
+        }
       } else {
         const studentEmailAttempt = `${safeUsername}@student.school.com`;
         const teacherEmailAttempt = `${safeUsername}@school.com`;
@@ -273,6 +314,24 @@ export default function UnifiedSchoolPortal() {
         }
 
         if (!isStudentLogin) {
+          // 🌟 STRICT AUTHORITATIVE PASSWORD CHECK FOR TEACHERS:
+          // If admin or teacher set a new password, reject old passwords immediately!
+          let teacherDocData = null;
+          if (safeUsername !== 'admin') {
+            try {
+              const docSnap = await getDoc(doc(db, 'teachers', safeUsername));
+              if (docSnap.exists()) {
+                teacherDocData = docSnap.data();
+                const authoritativePwd = String(teacherDocData.password || '').trim();
+                if (authoritativePwd && cleanPassword !== authoritativePwd) {
+                  throw new Error('Incorrect password. If your password was changed or reset, please enter your new password.');
+                }
+              }
+            } catch (checkErr) {
+              if (checkErr.message.includes('Incorrect password')) throw checkErr;
+            }
+          }
+
           try {
             await signInWithEmailAndPassword(auth, teacherEmailAttempt, cleanPassword);
             isStudentLogin = false;
@@ -282,9 +341,8 @@ export default function UnifiedSchoolPortal() {
             // If standard Firebase Auth sign-in failed, check if admin set/reset this teacher's password in Firestore!
             let resolvedViaAdminReset = false;
             try {
-              const docSnap = await getDoc(doc(db, 'teachers', safeUsername));
-              if (docSnap.exists()) {
-                const tData = docSnap.data();
+              const tData = teacherDocData || (await getDoc(doc(db, 'teachers', safeUsername))).data();
+              if (tData) {
                 const expectedPwd = String(tData.password || '').trim();
                 if (expectedPwd && expectedPwd === cleanPassword) {
                   // Password matches the admin-configured password!
@@ -399,7 +457,8 @@ export default function UnifiedSchoolPortal() {
       { id: 'students', label: 'Students', icon: '👥', desc: 'Manage student profiles & subject mappings' },
       { id: 'teachers', label: 'Teachers', icon: '🎓', desc: 'Manage all faculty members and roles' },
       { id: 'subjects', label: 'Subjects', icon: '📚', desc: 'Course catalog, faculty assignments & student enrollments' },
-      { id: 'attendance_minus', label: 'Period Attendance', icon: '📅', desc: 'Roll-call, monthly reports, minus & clearance' },
+      { id: 'attendance_minus', label: 'Period Attendance', icon: '📅', desc: 'Roll-call, monthly reports & shortage' },
+      { id: 'minus_attendance', label: 'Minus Attendance', icon: '⚖️', desc: 'Deduct minus periods, edit records, filter & summary' },
       { id: 'attendance', label: 'Night Attendance', icon: '🌙', desc: 'Hostel roll-call & out-pass verification' },
       { id: 'reports', label: 'Marks & Auditor', icon: '📊', desc: 'CCE mark auditor & level-by-level inspector' },
       { id: 'outpass', label: 'Out-Pass Portal', icon: '🪪', desc: 'Live campus movement & leave approvals' },
@@ -720,6 +779,16 @@ export default function UnifiedSchoolPortal() {
                 preloadedTeachers={adminTeachersList}
                 onStudentsUpdated={(nextStudents) => setAdminStudentsList(nextStudents)}
                 onTeachersUpdated={(nextTeachers) => setAdminTeachersList(nextTeachers)}
+              />
+            )}
+
+            {activeAdminTab === 'minus_attendance' && (
+              <MinusAttendanceManager
+                userRole="admin"
+                loggedInUser={{ username: 'admin', fullName: 'Central Admin' }}
+                localStudents={adminStudentsList}
+                localTeachers={adminTeachersList}
+                onStudentsUpdated={(nextStudents) => setAdminStudentsList(nextStudents)}
               />
             )}
 

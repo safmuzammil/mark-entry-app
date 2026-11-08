@@ -1898,6 +1898,9 @@ function StudentDashboardInner() {
                           <div style={{ fontWeight: '800', color: '#be123c', fontSize: '14px' }}>
                             -{log.count} Period(s) • &quot;{log.reason}&quot;
                           </div>
+                          <div style={{ fontSize: '11px', color: '#9f1239', marginTop: '2px', fontWeight: '600' }}>
+                            ⚖️ Deducted from total campus attendance percentage
+                          </div>
                         </div>
                         <div style={{ fontSize: '12px', color: '#881337', fontWeight: '600' }}>
                           {log.date} • By {log.issuedBy || 'Faculty'}

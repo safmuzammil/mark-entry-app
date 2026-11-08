@@ -380,7 +380,43 @@ export function PortalNotificationBanner({
     } catch (e) {}
   };
 
+  const [editingMessage, setEditingMessage] = useState(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editBody, setEditBody] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const handleStartEditMessage = (msg) => {
+    setEditingMessage(msg);
+    setEditTitle(msg.title || '');
+    setEditBody(msg.body || '');
+  };
+
+  const handleSaveEditMessage = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!editBody.trim()) return alert('Message content cannot be blank.');
+    setSavingEdit(true);
+    try {
+      const updated = messages.map(m => {
+        if (m.id !== editingMessage.id) return m;
+        return {
+          ...m,
+          title: editTitle.trim() || 'Portal Notification',
+          body: editBody.trim(),
+          editedAt: new Date().toISOString()
+        };
+      });
+      setMessages(updated);
+      await setDoc(doc(db, 'systemCache', 'portalNotifications'), { items: updated }, { merge: true });
+      setEditingMessage(null);
+    } catch (err) {
+      alert('Error updating message: ' + err.message);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const handleDeleteSentMessage = async (msgId) => {
+    if (!window.confirm('Are you sure you want to delete / recall this sent message for all recipients?')) return;
     const updated = messages.filter(m => m.id !== msgId);
     setMessages(updated);
     try {
@@ -539,13 +575,35 @@ export function PortalNotificationBanner({
                 <div style={{ fontWeight: '800', fontSize: '14px', color: '#0f172a' }}>{msg.title}</div>
                 <div style={{ fontSize: '13px', color: '#334155', marginTop: '4px', lineHeight: 1.45 }}>{msg.body}</div>
               </div>
-              <button
-                type="button"
-                onClick={() => handleDismissMessage(msg.id)}
-                style={{ padding: '6px 12px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap' }}
-              >
-                ✓ Mark Read
-              </button>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                {(viewerRole === 'admin' || (msg.senderUsername && String(msg.senderUsername).toLowerCase() === String(senderUsername).toLowerCase())) && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleStartEditMessage(msg)}
+                      style={{ padding: '6px 10px', background: '#f8fafc', color: '#4f46e5', border: '1px solid #c7d2fe', borderRadius: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                      title="Edit this message"
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteSentMessage(msg.id)}
+                      style={{ padding: '6px 10px', background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', borderRadius: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                      title="Delete this message"
+                    >
+                      🗑️ Delete
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleDismissMessage(msg.id)}
+                  style={{ padding: '6px 12px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                >
+                  ✓ Mark Read
+                </button>
+              </div>
             </div>
           ))}
 
@@ -561,13 +619,24 @@ export function PortalNotificationBanner({
                       <strong>To [{m.targetSummaryLabel}]:</strong> {m.title} — <span style={{ color: '#475569' }}>{m.body}</span>
                       <span style={{ color: '#94a3b8', fontSize: '11px', marginLeft: '8px' }}>({formatNotificationTime12Hr(m.createdAt)})</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteSentMessage(m.id)}
-                      style={{ background: 'transparent', border: 'none', color: '#e11d48', fontWeight: '700', fontSize: '11px', cursor: 'pointer' }}
-                    >
-                      🗑️ Recall
-                    </button>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        onClick={() => handleStartEditMessage(m)}
+                        style={{ padding: '3px 8px', background: '#f8fafc', border: '1px solid #c7d2fe', borderRadius: '6px', color: '#4f46e5', fontWeight: '700', fontSize: '11px', cursor: 'pointer' }}
+                        title="Edit sent message"
+                      >
+                        ✏️ Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSentMessage(m.id)}
+                        style={{ padding: '3px 8px', background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '6px', color: '#e11d48', fontWeight: '700', fontSize: '11px', cursor: 'pointer' }}
+                        title="Delete / recall message"
+                      >
+                        🗑️ Delete
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -577,6 +646,55 @@ export function PortalNotificationBanner({
       )}
 
       {/* COMPOSER MODAL FOR ADMIN & TEACHERS */}
+      
+      {/* EDIT PORTAL NOTIFICATION MODAL */}
+      {editingMessage && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2500, padding: '16px' }}>
+          <div style={{ background: '#ffffff', borderRadius: '16px', maxWidth: '520px', width: '100%', padding: '24px', border: '1px solid #e2e8f0', boxShadow: '0 20px 40px rgba(15,23,42,0.18)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>✏️ Edit Portal Notification</h3>
+                <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+                  Update the title or message content for all recipients.
+                </p>
+              </div>
+              <button type="button" onClick={() => setEditingMessage(null)} style={styles.buttonSecondary}>✕</button>
+            </div>
+
+            <form onSubmit={handleSaveEditMessage} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={styles.label}>Notification Title</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={e => setEditTitle(e.target.value)}
+                  required
+                  style={styles.input}
+                />
+              </div>
+
+              <div>
+                <label style={styles.label}>Message Content</label>
+                <textarea
+                  value={editBody}
+                  onChange={e => setEditBody(e.target.value)}
+                  rows={4}
+                  required
+                  style={{ ...styles.input, resize: 'vertical' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                <button type="button" onClick={() => setEditingMessage(null)} style={styles.buttonSecondary}>Cancel</button>
+                <button type="submit" disabled={savingEdit} style={styles.buttonPrimary}>
+                  {savingEdit ? 'Saving...' : '💾 Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {showComposerModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2400, padding: '16px' }}>
           <div style={{ background: '#ffffff', borderRadius: '16px', maxWidth: '600px', width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: '24px', border: '1px solid #e2e8f0', boxShadow: '0 20px 40px rgba(15,23,42,0.18)' }}>

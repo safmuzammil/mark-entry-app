@@ -7,6 +7,7 @@ import { doc, setDoc, getDoc, getDocs, collection } from 'firebase/firestore';
 import ReportManager from './ReportManager';
 import NightAttendanceManager from './NightAttendanceManager';
 import PeriodAttendanceManager, { isAttendanceOnlyEnrollment } from './PeriodAttendanceManager';
+import MinusAttendanceManager from './MinusAttendanceManager';
 import OutPassPortal from '../outpass/page';
 import {
   WEB_APP_URL, DHIU_LOGO_URL, CCE_LEVELS, HIFZ_LEVELS,
@@ -73,7 +74,7 @@ function doesStudentBelongToTeacherEnrollment(student, env) {
   return true;
 }
 
-function TeacherPasswordSettings() {
+function TeacherPasswordSettings({ loggedInTeacher }) {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [status, setStatus] = useState('');
@@ -89,6 +90,16 @@ function TeacherPasswordSettings() {
       const user = auth.currentUser;
       if (!user) throw new Error('No active user session found. Please log in again.');
       await updatePassword(user, newPassword);
+
+      // Also persist to Firestore teacher document so old passwords are immediately invalidated
+      const uName = String(loggedInTeacher?.username || (user.email ? user.email.split('@')[0] : '')).trim().toLowerCase();
+      if (uName && uName !== 'admin') {
+        await setDoc(doc(db, 'teachers', uName), {
+          password: newPassword,
+          passwordUpdatedAt: new Date().toISOString(),
+          passwordUpdatedBy: 'teacher'
+        }, { merge: true });
+      }
       setStatus('✅ Password updated successfully!');
       setNewPassword('');
       setConfirmPassword('');
@@ -223,7 +234,7 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
     if (typeof window === 'undefined') return;
 
     const hashView = window.location.hash.replace('#', '').trim();
-    const validViews = ['marks', 'period_attendance', 'mentees', 'outpass', 'attendance', 'outreach_dept', 'academic_coord', 'settings'];
+    const validViews = ['marks', 'period_attendance', 'minus_attendance', 'mentees', 'outpass', 'attendance', 'outreach_dept', 'academic_coord', 'settings'];
     if (hashView && validViews.includes(hashView)) {
       setActiveView(hashView);
       window.history.replaceState({ teacherView: hashView }, '', '#' + hashView);
@@ -819,6 +830,7 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
 
   const teacherNavItems = [
     { id: 'period_attendance', label: 'Period Attendance', icon: '📅', onClick: () => handleSelectTeacherView('period_attendance') },
+    { id: 'minus_attendance', label: 'Minus Attendance', icon: '⚖️', onClick: () => handleSelectTeacherView('minus_attendance') },
     { id: 'marks', label: 'CCE Marks', icon: '📖', onClick: () => { handleSelectTeacherView('marks'); handleSelectSubject(''); } },
     { id: 'mentees', label: 'Mentorship & Class', icon: '👥', onClick: () => handleSelectTeacherView('mentees') },
     { id: 'outpass', label: loggedInTeacher?.outpassPrivileges?.isOfficeSecretary ? 'Office Out-Pass' : 'Out-Pass Desk', icon: '🪪', onClick: () => handleSelectTeacherView('outpass') },
@@ -1137,7 +1149,16 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
               </div>
             </div>
           ) : activeView === 'settings' ? (
-            <TeacherPasswordSettings />
+            <TeacherPasswordSettings loggedInTeacher={loggedInTeacher} />
+          ) : activeView === 'minus_attendance' ? (
+            <MinusAttendanceManager
+              userRole="teacher"
+              loggedInUser={loggedInTeacher}
+              activeTeacherObj={loggedInTeacher}
+              localStudents={allStudentsCache}
+              localTeachers={allTeachersCache}
+              onStudentsUpdated={(nextStudents) => setAllStudentsCache(nextStudents)}
+            />
           ) : activeView === 'period_attendance' ? (
             <PeriodAttendanceManager
               userRole="teacher"

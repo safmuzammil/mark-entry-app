@@ -1484,7 +1484,6 @@ export default function PeriodAttendanceManager({
             {[
               { id: 'cards', match: ['cards', 'mark_sheet'], label: `Subject Cards (${attendanceEnrollments.length})` },
               { id: 'reports_hub', match: ['reports_hub'], label: 'Monthly / Daily / Total Reports' },
-              { id: 'minus_attendance', match: ['minus_attendance'], label: 'Minus Attendance' },
               { id: 'shortage', match: ['shortage'], label: `Shortage <85% (${shortageCount})` },
               ...(userRole === 'admin' ? [
                 { id: 'clearance', match: ['clearance'], label: 'Clearance' },
