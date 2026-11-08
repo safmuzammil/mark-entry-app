@@ -352,7 +352,7 @@ export default function StudentDashboard() {
   const [authenticated, setAuthenticated] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
   const [loggedInStudent, setLoggedInStudent] = useState(null);
-  const [activeTab, setActiveTab] = useState('marks'); // 'marks' | 'attendance' | 'mentorship' | 'portfolio' | 'faculty'
+  const [activeTab, setActiveTab] = useState('marks'); // 'marks' | 'attendance' | 'mentorship' | 'portfolio'
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const [errorMsg, setErrorMsg] = useState('');
@@ -371,7 +371,9 @@ export default function StudentDashboard() {
     guidelinesNote: ''
   });
 
-  const [studentAttScope, setStudentAttScope] = useState('total');
+  const [studentAttScope, setStudentAttScope] = useState('monthly');
+  const [studentMonthSessions, setStudentMonthSessions] = useState([]);
+  const [loadingMonthSessions, setLoadingMonthSessions] = useState(false);
   const [studentAttMonth, setStudentAttMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [studentAttDate, setStudentAttDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [attendanceData, setAttendanceData] = useState({
@@ -733,7 +735,7 @@ export default function StudentDashboard() {
           <div style={{ background: '#ffffff', padding: '38px 32px', borderRadius: '16px', boxShadow: '0 4px 20px rgba(15, 23, 42, 0.05)', border: '1px solid #e2e8f0' }}>
             <div style={{ textAlign: 'center', marginBottom: '28px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <img src={DHIU_LOGO_URL} alt="DHIU Logo" style={{ width: '68px', height: '68px', borderRadius: '50%', objectFit: 'contain', marginBottom: '12px' }} />
-              <h2 style={{ color: '#0f172a', margin: '0 0 6px 0', fontSize: '24px', fontWeight: '800' }}>DHIU Campus</h2>
+              <h2 style={{ color: '#0f172a', margin: '0 0 6px 0', fontSize: '24px', fontWeight: '800' }}>DHIU Degree Campus</h2>
               <p style={{ color: '#64748b', fontSize: '14px', margin: 0, fontWeight: '500' }}>Sign in to view your marks, attendance &amp; portfolio</p>
             </div>
             <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
@@ -785,23 +787,146 @@ export default function StudentDashboard() {
   const medicalPct = attendanceData.totalPeriods > 0 ? ((attendanceData.medicalCount / attendanceData.totalPeriods) * 100).toFixed(1) : '0.0';
   const isShortage = attendanceData.totalPeriods > 0 && Number(attendancePct) < 85;
 
-  const regularAttendanceSubjects = subjectAggregates.filter(item => !item.isHifz);
-  const extraNonMarkSubjects = Object.keys(attendanceData.subjectWise || {})
-    .filter(k => {
-      const kUp = k.toUpperCase();
-      if (kUp === 'HIFZ') return false;
-      return !regularAttendanceSubjects.some(regSub => {
-        const rUp = regSub.subject.toUpperCase().replace(/\./g, '');
-        return rUp === kUp || kUp.includes(rUp);
-      });
-    })
-    .map(k => ({
-      subject: k,
-      teacherName: attendanceData.subjectWise[k]?.teacherName || 'Assigned Faculty',
-      isAttendanceOnly: true
-    }));
+  // Canonical Subject Name Normalizer
+  const canonicalSubject = (subKey) => {
+    const up = String(subKey || '').trim().toUpperCase();
+    if (up.includes('THAFSEER')) return 'Thafseer';
+    if (up.includes('HADEES') || up.includes('HADITH')) return 'Hadith';
+    if (up.includes('U :FIQH') || up.includes('U:FIQH') || up.includes('U: FIQH')) return 'U :FIQH';
+    if (up.includes('FIQH')) return 'Fiqh';
+    if (up.includes('AQEED') || up.includes('AQIDAH')) return 'Aqidah';
+    if (up.includes('BALAG')) return 'Balagha';
+    if (up.includes('MANTHIQ') || up.includes('LOGIC')) return 'Logic';
+    if (up.includes('ENGLISH')) return 'English';
+    if (up.includes('ADAB')) return 'Adab';
+    if (up.includes('URDU')) return 'Urdu';
+    if (up === 'SS' || up.startsWith('SS ') || up.endsWith(' SS') || up.includes('SOCIAL')) return 'Social Science';
+    if (up.includes('THAMAD')) return 'Thamadun';
+    if (up.includes('PKV')) return 'PKV';
+    if (up.includes('RP')) return 'RP';
+    if (up.includes('DIRASATHUL ADYAN')) return 'Dirasathul Adyan';
+    if (up.includes('TKS')) {
+      if (up.includes('QURAN') || up.includes('Q3') || up.includes('Q1') || up.includes('Q2')) return 'TKS Quran';
+      if (up.includes('HANAFI') || (up.includes('FIQH') && up.includes('F3'))) return 'TKS Fiqh Hanafi';
+      if (up.includes('FIQH')) return 'TKS Fiqh';
+      if (up.includes('HADEES') || up.includes('H3') || up.includes('H2') || up.includes('H1')) return 'TKS Hadith';
+      if (up.includes('AQEEDA') || up.includes('A3') || up.includes('A1')) return 'TKS Aqeeda';
+      if (up.includes('LANGUAGE') || up.includes('L1') || up.includes('L2') || up.includes('L3')) return 'TKS Language';
+      if (up.includes('CIVIL') || up.includes('C1') || up.includes('C2') || up.includes('C3')) return 'TKS Civil';
+      return 'TKS';
+    }
+    return subKey;
+  };
 
-  const allAttendanceSubjectsForStudent = [...regularAttendanceSubjects, ...extraNonMarkSubjects];
+  const deduplicatedSubjectsMap = new Map();
+
+  subjectAggregates.filter(item => !item.isHifz).forEach(item => {
+    const canon = canonicalSubject(item.subject);
+    deduplicatedSubjectsMap.set(canon, {
+      subject: canon,
+      teacherName: item.teacherName || '',
+      isAttendanceOnly: false
+    });
+  });
+
+  Object.keys(attendanceData.subjectWise || {}).forEach(k => {
+    if (k.toUpperCase() === 'HIFZ') return;
+    const canon = canonicalSubject(k);
+    if (!deduplicatedSubjectsMap.has(canon)) {
+      deduplicatedSubjectsMap.set(canon, {
+        subject: canon,
+        teacherName: attendanceData.subjectWise[k]?.teacherName || '',
+        isAttendanceOnly: true
+      });
+    } else {
+      const existing = deduplicatedSubjectsMap.get(canon);
+      if (!existing.teacherName && attendanceData.subjectWise[k]?.teacherName) {
+        existing.teacherName = attendanceData.subjectWise[k].teacherName;
+      }
+    }
+  });
+
+  const allAttendanceSubjectsForStudent = Array.from(deduplicatedSubjectsMap.values());
+
+  // 🌟 Load month period sessions for the student's class
+  useEffect(() => {
+    async function loadMonthSessions() {
+      if (!studentAttMonth || !loggedInStudent) return;
+      setLoadingMonthSessions(true);
+      try {
+        const studentClass = loggedInStudent.studentClass || loggedInStudent.class || (Array.isArray(loggedInStudent.classes) ? loggedInStudent.classes[0] : '');
+        const snap = await getDocs(collection(db, 'systemCache'));
+        const list = [];
+        snap.forEach(d => {
+          if (d.id.startsWith(`periodSession_${studentAttMonth}`)) {
+            const data = d.data();
+            const sessClass = String(data.classAlias || data.className || '').toUpperCase();
+            if (!studentClass || sessClass.includes(studentClass.toUpperCase())) {
+              list.push({ id: d.id, ...data });
+            }
+          }
+        });
+        setStudentMonthSessions(list);
+      } catch (err) {
+        console.error('Error loading student month sessions:', err);
+      } finally {
+        setLoadingMonthSessions(false);
+      }
+    }
+    loadMonthSessions();
+  }, [studentAttMonth, loggedInStudent]);
+
+  // Compute days in the selected month
+  const [yearStr, monthStr] = (studentAttMonth || '2026-11').split('-');
+  const y = parseInt(yearStr, 10);
+  const m = parseInt(monthStr, 10);
+  const numDays = new Date(y, m, 0).getDate();
+  const daysInMonth = [];
+  const dayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+  for (let i = 1; i <= numDays; i++) {
+    const dStr = `${yearStr}-${String(m).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+    const dateObj = new Date(y, m - 1, i);
+    const dayOfWeek = dateObj.getDay();
+    daysInMonth.push({
+      dateStr: dStr,
+      dayNum: String(i).padStart(2, '0'),
+      dayName: dayNames[dayOfWeek],
+      isFriday: dayOfWeek === 5
+    });
+  }
+
+  const getSubjectAttendanceStats = (canonSubject, scopeMonth) => {
+    const matchingEntries = Object.entries(attendanceData.subjectWise || {}).filter(([k]) => canonicalSubject(k) === canonSubject);
+
+    let total = 0;
+    const absentDatesSet = new Set();
+    let teacher = '';
+
+    matchingEntries.forEach(([k, v]) => {
+      total = Math.max(total, Number(v.total) || 0);
+      (v.absentDates || []).forEach(d => absentDatesSet.add(d));
+      if (!teacher && v.teacherName) teacher = v.teacherName;
+    });
+
+    const allAbsentDates = Array.from(absentDatesSet).sort();
+    const scopedAbsentDates = scopeMonth
+      ? allAbsentDates.filter(d => String(d).startsWith(scopeMonth))
+      : allAbsentDates;
+
+    const present = Math.max(0, total - allAbsentDates.length);
+    const pct = total > 0 ? ((present / total) * 100).toFixed(1) : null;
+
+    return {
+      total,
+      present,
+      absent: allAbsentDates.length,
+      pct,
+      teacherName: teacher,
+      allAbsentDates,
+      scopedAbsentDates
+    };
+  };
 
   const studentNavItems = [
     { id: 'marks', label: 'CCE & Hifz Marks', icon: '📊', desc: 'Curriculum performance & class rank' },
@@ -867,7 +992,7 @@ export default function StudentDashboard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '4px 10px 18px', borderBottom: '1px solid #f1f5f9' }}>
             <img src={DHIU_LOGO_URL} alt="DHIU" style={{ width: '38px', height: '38px', borderRadius: '10px', objectFit: 'contain', border: '1px solid #e2e8f0', padding: '2px' }} />
             <div>
-              <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', lineHeight: 1.2 }}>DHIU Campus</div>
+              <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', lineHeight: 1.2 }}>DHIU Degree Campus</div>
               <div style={{ fontSize: '10px', fontWeight: '800', color: '#4f46e5', letterSpacing: '0.6px', textTransform: 'uppercase', marginTop: '2px' }}>
                 👨‍🎓 STUDENT PORTAL
               </div>
@@ -1156,9 +1281,9 @@ export default function StudentDashboard() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                     {[
-                      { id: 'total', label: 'Total Semester View' },
-                      { id: 'monthly', label: 'Check by Month' },
-                      { id: 'daily', label: 'Check Specific Date' }
+                      { id: 'monthly', label: '📋 Monthly Register Grid' },
+                      { id: 'total', label: '📊 Semester Summary Table' },
+                      { id: 'daily', label: '📅 Check Specific Date' }
                     ].map(tab => (
                       <button
                         key={tab.id}
@@ -1219,64 +1344,205 @@ export default function StudentDashboard() {
                   );
                 })()}
 
-                <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '13px', minWidth: '660px' }}>
-                    <thead>
-                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-                        <th style={{ padding: '12px 16px', textAlign: 'left' }}>SUBJECT &amp; USTHAD</th>
-                        <th style={{ padding: '12px 16px' }}>TOTAL</th>
-                        <th style={{ padding: '12px 16px' }}>PRESENT</th>
-                        <th style={{ padding: '12px 16px' }}>ABSENT</th>
-                        <th style={{ padding: '12px 16px' }}>SUBJECT %</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'left' }}>ABSENT DATES</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {allAttendanceSubjectsForStudent.map((item, idx) => {
-                        const normSub = item.subject.toUpperCase().replace(/\./g, '');
-                        const matchKey = Object.keys(attendanceData.subjectWise || {}).find(k => {
-                          const kUp = k.toUpperCase().replace(/\./g, '');
-                          if (normSub.includes('U :FIQH') || normSub.includes('U:FIQH')) return kUp.includes('U :FIQH') || kUp.includes('U:FIQH') || kUp.includes('USUL');
-                          if (normSub === 'FIQH') return kUp === 'FIQH' && !kUp.includes('U :FIQH');
-                          if (normSub === 'LOGIC') return kUp === 'LOGIC' || kUp === 'MANTIQ';
-                          return kUp === normSub || kUp.includes(normSub);
-                        });
+                {studentAttScope === 'monthly' ? (
+                  /* 🌟 MONTHLY REGISTER GRID: COLUMNS = DATES, ROWS = DEDUPLICATED SUBJECTS */
+                  <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px', background: '#ffffff', boxShadow: '0 2px 4px rgba(0,0,0,0.03)' }}>
+                    <div style={{ padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>
+                        📋 Monthly Attendance Register — {studentAttMonth} (Working Days • Friday Off)
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
+                        <span style={{ display: 'inline-block', width: '10px', height: '10px', background: '#059669', borderRadius: '2px', marginRight: '4px' }}></span> Present (P) &nbsp;&nbsp;
+                        <span style={{ display: 'inline-block', width: '10px', height: '10px', background: '#e11d48', borderRadius: '2px', marginRight: '4px' }}></span> Absent (A) &nbsp;&nbsp;
+                        <span style={{ display: 'inline-block', width: '10px', height: '10px', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '2px', marginRight: '4px' }}></span> Friday Off &nbsp;&nbsp;
+                        <span style={{ color: '#94a3b8' }}>— No Class</span>
+                      </div>
+                    </div>
 
-                        const sData = matchKey ? attendanceData.subjectWise[matchKey] : { total: 0, present: 0, absentDates: [] };
-                        const total = Number(sData.total) || 0;
-                        const rawAbsDates = Array.isArray(sData.absentDates) ? sData.absentDates : [];
-                        const scopedAbsDates = studentAttScope === 'monthly'
-                          ? rawAbsDates.filter(d => String(d).startsWith(studentAttMonth))
-                          : rawAbsDates;
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'center', minWidth: '980px' }}>
+                      <thead style={{ position: 'sticky', top: 0, background: '#0f172a', color: '#ffffff', zIndex: 10 }}>
+                        <tr>
+                          <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: '160px' }}>Subject &amp; Usthad</th>
+                          <th style={{ padding: '8px 6px', minWidth: '55px', background: '#1e293b' }}>Type</th>
+                          {daysInMonth.map(d => (
+                            <th
+                              key={d.dateStr}
+                              style={{
+                                padding: '6px 3px',
+                                minWidth: '28px',
+                                background: d.isFriday ? '#475569' : '#1e293b',
+                                color: d.isFriday ? '#fbbf24' : '#ffffff',
+                                borderLeft: '1px solid #334155'
+                              }}
+                            >
+                              <div style={{ fontSize: '11px', fontWeight: '800' }}>{d.dayNum}</div>
+                              <div style={{ fontSize: '9px', opacity: 0.85 }}>{d.dayName}</div>
+                            </th>
+                          ))}
+                          <th style={{ padding: '8px 8px', minWidth: '45px', background: '#1e293b' }}>Held</th>
+                          <th style={{ padding: '8px 8px', minWidth: '45px', background: '#064e3b' }}>Pres</th>
+                          <th style={{ padding: '8px 8px', minWidth: '45px', background: '#881337' }}>Abs</th>
+                          <th style={{ padding: '8px 8px', minWidth: '55px', background: '#312e81' }}>%</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allAttendanceSubjectsForStudent.map((sub, idx) => {
+                          const stats = getSubjectAttendanceStats(sub.subject, studentAttMonth);
+                          const subAbsentDatesMonth = new Set(stats.scopedAbsentDates);
 
-                        const present = studentAttScope === 'monthly'
-                          ? Math.max(0, total - scopedAbsDates.length)
-                          : (Number(sData.present) || 0);
-                        const absent = Math.max(0, total - present);
-                        const pct = total > 0 ? ((present / total) * 100).toFixed(1) : null;
+                          const subjectMonthSessions = studentMonthSessions.filter(s => canonicalSubject(s.subject) === sub.subject);
+                          const heldDatesThisMonth = new Set(subjectMonthSessions.map(s => s.date));
 
-                        return (
-                          <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', background: '#ffffff' }}>
-                            <td style={{ padding: '12px 16px', textAlign: 'left' }}>
-                              <div style={{ fontWeight: '700', color: '#0f172a' }}>{item.subject}</div>
-                              {item.teacherName && <div style={{ fontSize: '11px', color: '#64748b' }}>{item.teacherName}</div>}
-                            </td>
-                            <td style={{ padding: '12px 16px' }}>{total > 0 ? total : '-'}</td>
-                            <td style={{ padding: '12px 16px', fontWeight: '700', color: '#047857' }}>{total > 0 ? present : '-'}</td>
-                            <td style={{ padding: '12px 16px', fontWeight: '700', color: absent > 0 ? '#e11d48' : '#64748b' }}>{total > 0 ? absent : '-'}</td>
-                            <td style={{ padding: '12px 16px', fontWeight: '700', color: pct !== null && Number(pct) < 85 ? '#e11d48' : '#4f46e5' }}>
-                              {pct !== null ? `${pct}%` : '-'}
-                            </td>
-                            <td style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', color: '#e11d48' }}>
-                              {scopedAbsDates.length > 0 ? scopedAbsDates.slice(0, 8).join(', ') : <span style={{ color: '#94a3b8' }}>—</span>}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                          const monthHeldCount = subjectMonthSessions.length > 0
+                            ? subjectMonthSessions.length
+                            : stats.scopedAbsentDates.length;
+                          const monthAbsCount = stats.scopedAbsentDates.length;
+                          const monthPresCount = subjectMonthSessions.length > 0
+                            ? Math.max(0, monthHeldCount - monthAbsCount)
+                            : (monthHeldCount > 0 ? Math.max(0, monthHeldCount - monthAbsCount) : 0);
+                          const monthPct = monthHeldCount > 0
+                            ? ((monthPresCount / monthHeldCount) * 100).toFixed(1)
+                            : null;
+
+                          return (
+                            <tr key={sub.subject} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                              <td style={{ padding: '8px 10px', textAlign: 'left' }}>
+                                <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '12px' }}>{sub.subject}</div>
+                                <div style={{ fontSize: '10px', color: '#64748b' }}>{sub.teacherName || stats.teacherName || 'Assigned Faculty'}</div>
+                              </td>
+                              <td style={{ padding: '6px 4px' }}>
+                                <span style={{
+                                  background: sub.isAttendanceOnly ? '#fef3c7' : '#ecfdf5',
+                                  color: sub.isAttendanceOnly ? '#b45309' : '#047857',
+                                  padding: '2px 5px',
+                                  borderRadius: '4px',
+                                  fontSize: '9px',
+                                  fontWeight: '800'
+                                }}>
+                                  {sub.isAttendanceOnly ? 'NON-MARK' : 'MARK'}
+                                </span>
+                              </td>
+
+                              {daysInMonth.map(d => {
+                                if (d.isFriday) {
+                                  return (
+                                    <td key={d.dateStr} style={{ padding: '3px 1px', background: '#fef3c7', color: '#b45309', fontWeight: '800', fontSize: '9px', borderLeft: '1px solid #f1f5f9' }}>
+                                      OFF
+                                    </td>
+                                  );
+                                }
+
+                                const isAbsent = subAbsentDatesMonth.has(d.dateStr);
+                                const wasHeld = heldDatesThisMonth.has(d.dateStr) || isAbsent;
+
+                                if (isAbsent) {
+                                  return (
+                                    <td key={d.dateStr} style={{ padding: '3px 1px', background: '#fff1f2', borderLeft: '1px solid #fecdd3' }}>
+                                      <span style={{ background: '#e11d48', color: '#ffffff', borderRadius: '4px', padding: '1px 5px', fontSize: '10px', fontWeight: '900' }}>
+                                        A
+                                      </span>
+                                    </td>
+                                  );
+                                }
+
+                                if (wasHeld) {
+                                  return (
+                                    <td key={d.dateStr} style={{ padding: '3px 1px', background: '#ecfdf5', borderLeft: '1px solid #a7f3d0' }}>
+                                      <span style={{ background: '#059669', color: '#ffffff', borderRadius: '4px', padding: '1px 5px', fontSize: '10px', fontWeight: '900' }}>
+                                        P
+                                      </span>
+                                    </td>
+                                  );
+                                }
+
+                                return (
+                                  <td key={d.dateStr} style={{ padding: '3px 1px', color: '#cbd5e1', borderLeft: '1px solid #f1f5f9' }}>
+                                    —
+                                  </td>
+                                );
+                              })}
+
+                              <td style={{ padding: '6px 4px', fontWeight: '700', color: '#334155' }}>
+                                {monthHeldCount > 0 ? monthHeldCount : '—'}
+                              </td>
+                              <td style={{ padding: '6px 4px', fontWeight: '800', color: '#047857' }}>
+                                {monthHeldCount > 0 ? monthPresCount : '—'}
+                              </td>
+                              <td style={{ padding: '6px 4px', fontWeight: '800', color: monthAbsCount > 0 ? '#e11d48' : '#64748b' }}>
+                                {monthHeldCount > 0 ? monthAbsCount : '—'}
+                              </td>
+                              <td style={{
+                                padding: '6px 4px',
+                                fontWeight: '800',
+                                color: monthPct !== null && Number(monthPct) < 85 ? '#e11d48' : '#4f46e5'
+                              }}>
+                                {monthPct !== null ? `${monthPct}%` : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  /* 📊 SEMESTER TOTAL SUMMARY VIEW */
+                  <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '13px', minWidth: '660px' }}>
+                      <thead>
+                        <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+                          <th style={{ padding: '12px 16px', textAlign: 'left' }}>SUBJECT &amp; USTHAD</th>
+                          <th style={{ padding: '12px 16px' }}>TYPE</th>
+                          <th style={{ padding: '12px 16px' }}>TOTAL</th>
+                          <th style={{ padding: '12px 16px' }}>PRESENT</th>
+                          <th style={{ padding: '12px 16px' }}>ABSENT</th>
+                          <th style={{ padding: '12px 16px' }}>SUBJECT %</th>
+                          <th style={{ padding: '12px 16px', textAlign: 'left' }}>ABSENT DATES</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allAttendanceSubjectsForStudent.map((item, idx) => {
+                          const stats = getSubjectAttendanceStats(item.subject, null);
+                          const total = stats.total;
+                          const present = stats.present;
+                          const absent = stats.absent;
+                          const pct = stats.pct;
+
+                          return (
+                            <tr key={item.subject} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                              <td style={{ padding: '12px 16px', textAlign: 'left' }}>
+                                <div style={{ fontWeight: '700', color: '#0f172a' }}>{item.subject}</div>
+                                <div style={{ fontSize: '11px', color: '#64748b' }}>{item.teacherName || stats.teacherName || 'Assigned Faculty'}</div>
+                              </td>
+                              <td style={{ padding: '12px 16px' }}>
+                                <span style={{
+                                  background: item.isAttendanceOnly ? '#fef3c7' : '#ecfdf5',
+                                  color: item.isAttendanceOnly ? '#b45309' : '#047857',
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '10px',
+                                  fontWeight: '800'
+                                }}>
+                                  {item.isAttendanceOnly ? 'NON-MARK' : 'MARK'}
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px 16px' }}>{total > 0 ? total : '-'}</td>
+                              <td style={{ padding: '12px 16px', fontWeight: '700', color: '#047857' }}>{total > 0 ? present : '-'}</td>
+                              <td style={{ padding: '12px 16px', fontWeight: '700', color: absent > 0 ? '#e11d48' : '#64748b' }}>{total > 0 ? absent : '-'}</td>
+                              <td style={{ padding: '12px 16px', fontWeight: '700', color: pct !== null && Number(pct) < 85 ? '#e11d48' : '#4f46e5' }}>
+                                {pct !== null ? `${pct}%` : '-'}
+                              </td>
+                              <td style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', color: '#e11d48' }}>
+                                {stats.allAbsentDates.length > 0 ? stats.allAbsentDates.slice(0, 8).join(', ') : <span style={{ color: '#94a3b8' }}>—</span>}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
+
 
               {/* 🌟 OFFICIAL ATTENDANCE CLEARANCE SLIPS & CERTIFICATES */}
               <CollapsibleCard
@@ -1583,84 +1849,7 @@ export default function StudentDashboard() {
             </div>
           )}
 
-          {/* ============================================================
-              TAB 5: MENTOR, CLASS TEACHER & 14 SUBJECT USTHADS
-             ============================================================ */}
-          {activeTab === 'faculty' && (
-            <div style={styles.card}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px', marginBottom: '22px' }}>
-                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '16px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Assigned Mentor</div>
-                    <div style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', marginTop: '2px' }}>
-                      {mentorTeacherObj?.fullName || loggedInStudent?.mentorName || loggedInStudent?.mentorUsername || 'Not Assigned'}
-                    </div>
-                  </div>
-                  {mentorTeacherObj?.whatsappNumber && (
-                    <button
-                      type="button"
-                      onClick={() => openDirectWhatsApp(mentorTeacherObj.whatsappNumber, `Assalamu Alaikum Usthad, I am ${loggedInStudent.firstName} (#${loggedInStudent.adNo}).`)}
-                      style={styles.buttonSecondary}
-                    >
-                      💬 WhatsApp
-                    </button>
-                  )}
-                </div>
 
-                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '16px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Class Teacher</div>
-                    <div style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', marginTop: '2px' }}>
-                      {classTeacherObj?.fullName || loggedInStudent?.classTeacherUsername || 'Class Faculty'}
-                    </div>
-                  </div>
-                  {classTeacherObj?.whatsappNumber && (
-                    <button
-                      type="button"
-                      onClick={() => openDirectWhatsApp(classTeacherObj.whatsappNumber, `Assalamu Alaikum Usthad, I am ${loggedInStudent.firstName} (#${loggedInStudent.adNo}).`)}
-                      style={styles.buttonSecondary}
-                    >
-                      💬 WhatsApp
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <h4 style={styles.sectionTitle}>My 14 Subject Usthads</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '12px' }}>
-                {subjectAggregates.map((item, idx) => (
-                  <div key={idx} style={{ padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0', background: '#ffffff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
-                    <div>
-                      <div style={{ fontWeight: '700', color: '#0f172a', fontSize: '14px' }}>{item.subject}</div>
-                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                        {item.teacherName || 'Assigned Faculty'}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      {item.teacherPhone && (
-                        <button
-                          type="button"
-                          onClick={() => openDirectWhatsApp(item.teacherPhone, `Assalamu Alaikum Usthad, I am ${loggedInStudent.firstName} (#${loggedInStudent.adNo}) regarding ${item.subject}:`)}
-                          style={{ padding: '6px 10px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight: '700', fontSize: '11px', cursor: 'pointer' }}
-                        >
-                          💬 WA
-                        </button>
-                      )}
-                      {item.teacherEmail && (
-                        <button
-                          type="button"
-                          onClick={() => sendDirectEmailNotification('/api/sheets', item.teacherEmail, `Question regarding ${item.subject}`, `Assalamu Alaikum Usthad,\n\n`)}
-                          style={{ padding: '6px 10px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight: '700', fontSize: '11px', cursor: 'pointer' }}
-                        >
-                          ✉️ Mail
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </main>
       </div>
     </div>
