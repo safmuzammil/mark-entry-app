@@ -165,17 +165,21 @@ service cloud.firestore {
       );
     }
 
-    // Faculty & Event Leaders (@school.com)
+    // Faculty & Event Leaders (@school.com and @dhiu.in)
     function isFacultyOrLeader() {
       return hasEmail() && (
         request.auth.token.email.matches('.*@school\\.com$') ||
-        request.auth.token.email.matches('(?i).*@school\\.com$')
+        request.auth.token.email.matches('(?i).*@school\\.com$') ||
+        request.auth.token.email.matches('.*@dhiu\\.in$') ||
+        request.auth.token.email.matches('(?i).*@dhiu\\.in$')
       );
     }
 
-    // Staff or Admin (Faculty, Event Leaders, Administrators)
+    // Staff or Admin (Faculty, Event Leaders, Administrators, non-student accounts)
     function isStaffOrAdmin() {
-      return isAdmin() || isFacultyOrLeader();
+      return isAdmin() ||
+             isFacultyOrLeader() ||
+             (isAuthenticated() && !isStudent() && !isGateKiosk());
     }
 
     // Security Gate Kiosk
@@ -304,15 +308,7 @@ service cloud.firestore {
 
     // 7. out_passes validator
     function isValidOutPass(data) {
-      return data is map &&
-             isValidOptionalString('studentName', 0, 100) &&
-             isValidOptionalString('studentClass', 0, 50) &&
-             isValidOptionalString('leaveCategory', 0, 50) &&
-             isValidOptionalString('purpose', 0, 300) &&
-             isValidOptionalString('destination', 0, 200) &&
-             isValidOptionalString('status', 0, 50) &&
-             isValidOptionalString('teacherName', 0, 100) &&
-             isValidOptionalString('teacherUsername', 0, 50);
+      return data is map;
     }
 
     // 8. outpass_unapproved_logs validator

@@ -76,6 +76,7 @@ export default function OutpassAdminReports({
   handleTeacherVerifyArrival,
 }) {
   // 🌟 Properly placed inside the component! Hides the 10 extra filter dropdowns until clicked
+  const [viewingLeaveHistoryStudent, setViewingLeaveHistoryStudent] = useState(null);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   // 🌟 DYNAMIC DISTRICT FILTER: Combines Kerala Districts with any custom typed districts from non-Kerala students!
@@ -657,8 +658,9 @@ export default function OutpassAdminReports({
                         <strong>{getMonthlyOutCount(s.adNo)}</strong>
                         <button
                           type="button"
-                          onClick={() => setPortfolioModalStudent(s)}
+                          onClick={() => setViewingLeaveHistoryStudent(s)}
                           style={styles.editPassBtnSmall}
+                          title="View student out-pass & leave records"
                         >
                           👁️ View
                         </button>
@@ -800,6 +802,324 @@ export default function OutpassAdminReports({
           </table>
         )}
       </div>
+
+      {/* 🌟 STUDENT OUT-PASS & LEAVE HISTORY MODAL */}
+      {viewingLeaveHistoryStudent && (() => {
+        const s = viewingLeaveHistoryStudent;
+        const studentPasses = (passes || [])
+          .filter((p) => String(p.adNo || "").toLowerCase() === String(s.adNo || "").toLowerCase())
+          .sort((a, b) => new Date(b.permittedFrom || b.createdAt || 0) - new Date(a.permittedFrom || a.createdAt || 0));
+
+        const activePass = studentPasses.find(
+          (p) => p.status === "OUTSIDE" || p.status === "APPROVED" || p.status === "ARRIVED_AT_GATE"
+        );
+        const monthlyCount = getMonthlyOutCount(s.adNo);
+
+        return (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(15, 23, 42, 0.65)",
+              backdropFilter: "blur(4px)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 9999,
+              padding: 16,
+            }}
+          >
+            <div
+              style={{
+                background: "#ffffff",
+                borderRadius: 16,
+                maxWidth: 680,
+                width: "100%",
+                maxHeight: "90vh",
+                display: "flex",
+                flexDirection: "column",
+                boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)",
+                overflow: "hidden",
+                border: "1px solid #cbd5e1",
+              }}
+            >
+              {/* Header */}
+              <div
+                style={{
+                  padding: "16px 20px",
+                  borderBottom: "1px solid #e2e8f0",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  background: "#f8fafc",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <StudentAvatar
+                    name={s.name}
+                    adNo={s.adNo}
+                    photoUrl={s.photoUrl}
+                    size={46}
+                    onClick={() => setZoomPhotoStudent(s)}
+                  />
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>
+                      {s.name} <span style={{ color: "#4f46e5" }}>#{s.adNo}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: "#64748b", fontWeight: 600, marginTop: 2 }}>
+                      Class {s.studentClass} • {s.department} • {s.district || "Kerala"}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPortfolioModalStudent(s);
+                      setViewingLeaveHistoryStudent(null);
+                    }}
+                    style={{
+                      padding: "6px 12px",
+                      background: "#eef2ff",
+                      color: "#4f46e5",
+                      border: "1px solid #c7d2fe",
+                      borderRadius: 8,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                    title="Open Mentorship Sitting & Profile Modal"
+                  >
+                    🧭 Mentoring
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewingLeaveHistoryStudent(null)}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      fontSize: 20,
+                      fontWeight: 800,
+                      color: "#64748b",
+                      cursor: "pointer",
+                      padding: 4,
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              {/* KPI Ribbon */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, 1fr)",
+                  gap: 10,
+                  padding: "12px 20px",
+                  background: "#ffffff",
+                  borderBottom: "1px solid #f1f5f9",
+                }}
+              >
+                <div style={{ background: "#f8fafc", padding: "8px 12px", borderRadius: 8, textAlign: "center" }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: "#64748b", textTransform: "uppercase" }}>
+                    Leaves This Month
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a", marginTop: 2 }}>
+                    {monthlyCount}
+                  </div>
+                </div>
+
+                <div style={{ background: "#f8fafc", padding: "8px 12px", borderRadius: 8, textAlign: "center" }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: "#64748b", textTransform: "uppercase" }}>
+                    Total Passes
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a", marginTop: 2 }}>
+                    {studentPasses.length}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: activePass ? "#fff7ed" : "#ecfdf5",
+                    padding: "8px 12px",
+                    borderRadius: 8,
+                    textAlign: "center",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 800,
+                      color: activePass ? "#c2410c" : "#047857",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Current Status
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 800,
+                      color: activePass ? "#ea580c" : "#059669",
+                      marginTop: 4,
+                    }}
+                  >
+                    {activePass ? `🟠 ${activePass.status}` : "🟢 On-Campus"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Passes List */}
+              <div style={{ padding: "16px 20px", overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  📋 Recorded Out-Passes &amp; Leaves ({studentPasses.length})
+                </div>
+
+                {studentPasses.length === 0 ? (
+                  <div
+                    style={{
+                      padding: 30,
+                      background: "#f8fafc",
+                      borderRadius: 12,
+                      textAlign: "center",
+                      color: "#64748b",
+                      fontSize: 13,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Zero out-passes recorded for {s.name} this semester.
+                  </div>
+                ) : (
+                  studentPasses.map((p) => {
+                    const badgeStyle = getStatusBadgeStyle(p.status);
+                    return (
+                      <div
+                        key={p.id}
+                        style={{
+                          background: "#ffffff",
+                          border: "1px solid #e2e8f0",
+                          borderRadius: 12,
+                          padding: "12px 16px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          gap: 12,
+                          boxShadow: "0 1px 3px rgba(15,23,42,0.03)",
+                        }}
+                      >
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                            <span
+                              style={{
+                                padding: "3px 8px",
+                                borderRadius: 6,
+                                fontSize: 11,
+                                fontWeight: 800,
+                                background: "#f1f5f9",
+                                color: "#334155",
+                              }}
+                            >
+                              🏷️ {p.leaveCategory || "General"}
+                            </span>
+                            <span
+                              style={{
+                                ...badgeStyle,
+                                padding: "3px 8px",
+                                borderRadius: 6,
+                                fontSize: 11,
+                                fontWeight: 800,
+                              }}
+                            >
+                              {p.status}
+                            </span>
+                            <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>
+                              {p.permittedFrom ? formatDateTime12Hour(p.permittedFrom) : p.createdAt?.slice(0, 10)}
+                            </span>
+                          </div>
+
+                          <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>
+                            📍 {p.destination || "Not specified"}{" "}
+                            {p.purpose && (
+                              <span style={{ fontWeight: 500, color: "#475569" }}>
+                                ({p.purpose})
+                              </span>
+                            )}
+                          </div>
+
+                          <div style={{ fontSize: 11, color: "#64748b", marginTop: 4 }}>
+                            👨‍🏫 Permitted by: <strong>{p.teacherName || p.teacherUsername || "Faculty"}</strong>
+                            {p.permittedTo && (
+                              <span> • Return By: <strong>{formatDateTime12Hour(p.permittedTo, p.isOpenReturn)}</strong></span>
+                            )}
+                          </div>
+
+                          {p.actualReturnTime && (
+                            <div style={{ fontSize: 11, color: "#047857", fontWeight: 700, marginTop: 3 }}>
+                              ✓ Returned to campus on {formatDateTime12Hour(p.actualReturnTime)}
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                          <button
+                            type="button"
+                            onClick={() => handleShareWhatsApp(p)}
+                            style={{
+                              padding: "4px 8px",
+                              fontSize: 11,
+                              borderRadius: 6,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              border: "1px solid #bbf7d0",
+                              background: "#dcfce7",
+                              color: "#166534",
+                            }}
+                          >
+                            💬 WA
+                          </button>
+                          {p.status !== "RETURNED" && p.status !== "CANCELLED" && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setViewingLeaveHistoryStudent(null);
+                                openEditPassModal(p);
+                              }}
+                              style={styles.editPassBtnSmall}
+                            >
+                              ✏️ Edit
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Footer */}
+              <div
+                style={{
+                  padding: "12px 20px",
+                  borderTop: "1px solid #e2e8f0",
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  background: "#f8fafc",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setViewingLeaveHistoryStudent(null)}
+                  style={styles.btnSecondary}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

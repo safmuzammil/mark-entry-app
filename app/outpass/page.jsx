@@ -1187,12 +1187,19 @@ export default function OutPassPortal({
           ? selectedTeacherOverride
           : getOfficialTeacherName(staffName);
 
+      const selectedTeacherObj = teachersList.find(
+        (t) => t.fullName === officialTeacher || t.username === officialTeacher
+      );
+
       const teacherPhoneStr = [
+        selectedTeacherObj?.whatsappNumber,
+        selectedTeacherObj?.mobileNumber,
+        selectedTeacherObj?.phone,
         myTeacherRecord?.whatsappNumber,
         myTeacherRecord?.mobileNumber,
         myTeacherRecord?.phone,
         "",
-      ].find(Boolean);
+      ].find(Boolean) || "";
 
       const groupBatchId =
         targetStudents.length > 1 ? `GRP-${Date.now()}` : null;
@@ -1202,10 +1209,10 @@ export default function OutPassPortal({
       for (const st of targetStudents) {
         const newPassData = {
           section: "DEGREE SECTION",
-          teacherPhone: teacherPhoneStr,
-          adNo: st.adNo,
-          studentName: st.name,
-          studentClass: st.studentClass,
+          teacherPhone: teacherPhoneStr || "",
+          adNo: String(st.adNo || ""),
+          studentName: st.name || st.firstName || "Student",
+          studentClass: st.studentClass || "General",
           department: st.department || "GENERAL",
           state: st.state || "Kerala",
           district: st.district || "Malappuram",
@@ -1215,25 +1222,25 @@ export default function OutPassPortal({
           ) || "",
           studentEmail: st.email || "",
           leaveCategory: leaveCategory || "General",
-          destination: destination.trim(),
-          purpose: purpose.trim(),
+          destination: (destination || "").trim(),
+          purpose: (purpose || "").trim(),
           permittedFrom: fromISO,
           permittedTo: isOpenReturn ? null : toISO,
           isOpenReturn: Boolean(isOpenReturn),
           isGroupPass: targetStudents.length > 1,
-          groupId: groupBatchId,
+          groupId: groupBatchId || null,
           groupCount: targetStudents.length,
           teacherId: currentUser?.uid || "staff",
-          teacherUsername: loggedUsername,
+          teacherUsername: loggedUsername || "staff",
           teacherEmail: currentUser?.email || "",
-          teacherName: officialTeacher,
+          teacherName: officialTeacher || "Faculty",
           status: initialStatus,
           gateDepartureTime: useGatekeeperFlow ? null : fromISO,
           actualDepartureTime: useGatekeeperFlow ? null : fromISO,
           gateArrivalTime: null,
           actualReturnTime: null,
           teacherVerifiedTime: null,
-          departureClerkName: officialTeacher,
+          departureClerkName: officialTeacher || "Faculty",
           returnClerkName: null,
           wasLateReturn: false,
           extensionReason: "",
@@ -1288,7 +1295,7 @@ export default function OutPassPortal({
       setPurpose("");
     } catch (error) {
       console.error("Error issuing pass:", error);
-      alert("Failed to create out-pass. Please check your connection.");
+      alert("Failed to create out-pass: " + (error?.message || "Please check your connection."));
     } finally {
       setSubmitting(false);
     }
