@@ -17,10 +17,23 @@ export const isHifzEnrollment = (env) => {
 
 export const isAttendanceOnlyEnrollment = (env) => {
   if (!env) return false;
-  if (env.isAttendanceOnly === true || env.onlyAttendance === true || env.nonMarkSubject === true) return true;
   const subUp = String(env.subject || '').trim().toUpperCase();
+  const aliasUp = String(env.alias || '').trim().toUpperCase();
+
+  // 🌟 Specialization is strictly a MARK ENTRY subject (max 30 marks), NEVER attendance-only!
+  if (
+    subUp.includes('SPECIALIZATION') || aliasUp.includes('SPECIALIZATION') ||
+    subUp.startsWith('TKS') || aliasUp.startsWith('TKS') ||
+    subUp.includes('THAKHASUS') || aliasUp.includes('THAKHASUS')
+  ) {
+    return false;
+  }
+  if (subUp === 'MANTIQ' || subUp === 'LOGIC' || subUp.includes('U :FIQH') || subUp.includes('U:FIQH')) {
+    return false;
+  }
+
+  if (env.isAttendanceOnly === true || env.onlyAttendance === true || env.nonMarkSubject === true) return true;
   const normDefault = DEFAULT_SUBJECTS.map(s => s.toUpperCase());
-  if (subUp === 'MANTIQ' || subUp.includes('U :FIQH') || subUp.includes('U:FIQH')) return false;
   return subUp !== '' && !normDefault.includes(subUp);
 };
 

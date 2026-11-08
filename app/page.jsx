@@ -9,7 +9,7 @@ import {
   signOut,
   onAuthStateChanged
 } from 'firebase/auth';
-import { doc, getDoc, getDocs, collection } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection, onSnapshot } from 'firebase/firestore';
 
 import InstallAppBanner from './components/InstallAppBanner';
 import TeacherPortalView from './components/TeacherPortalView';
@@ -193,9 +193,8 @@ export default function UnifiedSchoolPortal() {
     if (userRole === 'admin') {
       Promise.all([
         getDocs(collection(db, 'teachers')),
-        getDocs(collection(db, 'students')),
-        getDocs(collection(db, 'out_passes'))
-      ]).then(([tSnap, sSnap, opSnap]) => {
+        getDocs(collection(db, 'students'))
+      ]).then(([tSnap, sSnap]) => {
         const tList = [];
         tSnap.forEach(d => tList.push(d.data()));
         tList.sort((a, b) => (a.fullName || '').localeCompare(b.fullName || ''));
@@ -208,9 +207,12 @@ export default function UnifiedSchoolPortal() {
         sSnap.forEach(d => sList.push({ id: d.id, ...d.data() }));
         sList.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
         setAdminStudentsList(sList);
+      }).catch(err => console.error('Error loading admin data:', err));
 
+      // 🌟 Live Real-time listener on out_passes ensures Main Dashboard ALWAYS exactly matches Out-Pass Portal!
+      const unsubPasses = onSnapshot(collection(db, 'out_passes'), (snapshot) => {
         const opList = [];
-        opSnap.forEach(d => {
+        snapshot.forEach(d => {
           const data = d.data();
           const st = String(data.status || '').toUpperCase();
           if (st === 'OUTSIDE' || st === 'APPROVED' || st === 'ARRIVED_AT_GATE') {
@@ -218,7 +220,9 @@ export default function UnifiedSchoolPortal() {
           }
         });
         setActiveOutpassesList(opList);
-      }).catch(err => console.error('Error loading admin data:', err));
+      }, (err) => console.warn('Outpass live snapshot note:', err));
+
+      return () => unsubPasses();
     }
   }, [userRole]);
 

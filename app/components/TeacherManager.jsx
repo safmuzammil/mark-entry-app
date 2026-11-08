@@ -617,9 +617,7 @@ export default function TeacherManager({ onOpenProxyMarks }) {
         password: cleanPwd,
         passwordUpdatedAt: nowIso
       };
-      const nextList = teachers.map(t => t.username === safeUser ? updatedTeacher : t);
-      setTeachers(nextList);
-      if (onTeachersUpdated) onTeachersUpdated(nextList);
+      setRegisteredTeachers(prev => (prev || []).map(t => t.username === safeUser ? updatedTeacher : t)); fetchInitialData();
 
       setResetSuccessData({
         username: safeUser,

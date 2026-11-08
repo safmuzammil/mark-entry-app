@@ -666,7 +666,11 @@ function StudentDashboardInner() {
       if (liveTeachers.length === 0) liveTeachers = metaData.teacherDirectory || [];
       setTeacherDirectory(liveTeachers);
 
-      const expectedSubjects = DEFAULT_SUBJECTS.map(sub => ({ subject: sub }));
+      const deptCapitalized = studentData.department ? (studentData.department.charAt(0).toUpperCase() + studentData.department.slice(1).toLowerCase()) : '';
+      const specBranchSubject = deptCapitalized ? `Specialization (${deptCapitalized})` : 'Specialization';
+      const expectedSubjects = DEFAULT_SUBJECTS.map(sub => ({
+        subject: sub === 'Specialization' ? specBranchSubject : sub
+      }));
       const rankObj = (metaData.classRanks || {})[studentRegNo] || null;
 
       processMarksLocally(studentData, marksData, expectedSubjects, rankObj, metaData.startedLevels || {}, reminderData, liveTeachers);
@@ -740,7 +744,9 @@ function StudentDashboardInner() {
           : { '15': false, '20': false, '25': false, '40': false };
 
       Object.entries(startedLevelsMap).forEach(([k, lvls]) => {
-        const [clsPart, subPart] = k.split(':::');
+        const parts = k.split(':::');
+        const clsPart = parts[0] || '';
+        const subPart = parts[1] || '';
         let isSubPartMatch = false;
         const sUp = sub.toUpperCase();
         const pUp = subPart.toUpperCase();
@@ -934,15 +940,14 @@ function StudentDashboardInner() {
     if (up.includes('THAMAD')) return 'Thamadun';
     if (up.includes('PKV')) return 'PKV';
     if (up.includes('RP')) return 'RP';
-    if (up.includes('TKS')) {
-      if (up.includes('QURAN') || up.includes('Q3') || up.includes('Q1') || up.includes('Q2')) return 'TKS Quran';
-      if (up.includes('HANAFI') || (up.includes('FIQH') && up.includes('F3'))) return 'TKS Fiqh Hanafi';
-      if (up.includes('FIQH')) return 'TKS Fiqh';
-      if (up.includes('HADEES') || up.includes('H3') || up.includes('H2') || up.includes('H1')) return 'TKS Hadith';
-      if (up.includes('AQEEDA') || up.includes('A3') || up.includes('A1')) return 'TKS Aqeeda';
-      if (up.includes('LANGUAGE') || up.includes('L1') || up.includes('L2') || up.includes('L3')) return 'TKS Language';
-      if (up.includes('CIVIL') || up.includes('C1') || up.includes('C2') || up.includes('C3')) return 'TKS Civil';
-      return 'TKS';
+    if (up.includes('SPECIALIZATION') || up.includes('TAKASSUS') || up.includes('THAKHASUS') || up.includes('TKS')) {
+      if (up.includes('FIQH') || up.includes('HANAFI')) return 'Specialization (Fiqh)';
+      if (up.includes('QURAN') || up.includes('Q3') || up.includes('Q1') || up.includes('Q2')) return 'Specialization (Quran)';
+      if (up.includes('HADEES') || up.includes('HADITH') || up.includes('H3') || up.includes('H2') || up.includes('H1')) return 'Specialization (Hadith)';
+      if (up.includes('CIVIL') || up.includes('C1') || up.includes('C2') || up.includes('C3')) return 'Specialization (Civil)';
+      if (up.includes('LANGUAGE') || up.includes('L1') || up.includes('L2') || up.includes('L3')) return 'Specialization (Language)';
+      if (up.includes('AQEED') || up.includes('AQIDAH') || up.includes('A3') || up.includes('A1')) return 'Specialization (Aqidah)';
+      return 'Specialization';
     }
     return subKey;
   };

@@ -261,7 +261,12 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
   const handleSelectSubject = (envId) => {
     setSelectedEnrollmentId(envId);
     const chosenEnv = teacherEnrollments.find(e => e.id === envId);
-    const isSpec = chosenEnv?.subject?.toUpperCase() === 'SPECIALIZATION' || chosenEnv?.alias?.toUpperCase().includes('SPECIALIZATION');
+    const isSpec = Boolean(
+      chosenEnv?.subject?.toUpperCase()?.includes('SPECIALIZATION') ||
+      chosenEnv?.alias?.toUpperCase()?.includes('SPECIALIZATION') ||
+      chosenEnv?.subject?.toUpperCase()?.startsWith('TKS') ||
+      chosenEnv?.alias?.toUpperCase()?.startsWith('TKS')
+    );
     setCceLevel(isSpec ? 'Direct Mark (Max 30)' : '');
     setIsEditingUnlocked(false);
     setStatusMsg('');
