@@ -79,6 +79,61 @@ export default function PeriodAttendanceMinusAndClearance({
   const [importAuditReport, setImportAuditReport] = useState(null);
   const [bulkMinusResultReport, setBulkMinusResultReport] = useState(null);
 
+  // 🌟 Scoped teacher privileges and student rosters for Shortage & Minus
+  const myCtClasses = React.useMemo(() => {
+    const set = new Set();
+    const direct = activeTeacherObj?.outpassPrivileges?.classTeacherOf || activeTeacherObj?.classTeacherOf;
+    if (Array.isArray(direct)) direct.forEach(c => set.add(String(c).toUpperCase().trim()));
+    else if (direct) set.add(String(direct).toUpperCase().trim());
+
+    const myUser = String(loggedInUser?.username || activeTeacherObj?.username || '').toLowerCase().trim();
+    if (myUser && Array.isArray(localStudents)) {
+      localStudents.forEach(st => {
+        const ctU = String(st.classTeacherUsername || '').toLowerCase().trim();
+        if (ctU && ctU === myUser) {
+          (st.classes || [st.class]).filter(Boolean).forEach(c => set.add(String(c).toUpperCase().trim()));
+        }
+      });
+    }
+    return Array.from(set);
+  }, [activeTeacherObj, loggedInUser, localStudents]);
+
+  const teacherAllowedClasses = React.useMemo(() => {
+    const set = new Set(myCtClasses);
+    (attendanceEnrollments || []).forEach(env => {
+      if (env.targetClass) set.add(String(env.targetClass).toUpperCase().trim());
+      const enrolled = getStudentsForEnrollment ? getStudentsForEnrollment(env) : [];
+      enrolled.forEach(st => {
+        (st.classes || [st.class] || []).filter(Boolean).forEach(c => set.add(String(c).toUpperCase().trim()));
+      });
+    });
+    return Array.from(set);
+  }, [myCtClasses, attendanceEnrollments, getStudentsForEnrollment]);
+
+  const teacherAllowedStudentRegs = React.useMemo(() => {
+    const set = new Set();
+    (attendanceEnrollments || []).forEach(env => {
+      const enrolled = getStudentsForEnrollment ? getStudentsForEnrollment(env) : [];
+      enrolled.forEach(st => set.add(String(st.regNo || st.id || '').trim()));
+      if (Array.isArray(env.studentIds)) {
+        env.studentIds.forEach(id => set.add(String(id).trim()));
+      }
+    });
+    if (myCtClasses.length > 0 && Array.isArray(localStudents)) {
+      localStudents.forEach(st => {
+        const stClasses = (st.classes || [st.class] || []).map(c => String(c).toUpperCase().trim());
+        if (stClasses.some(c => myCtClasses.includes(c))) {
+          set.add(String(st.regNo || st.id || '').trim());
+        }
+      });
+    }
+    return set;
+  }, [attendanceEnrollments, getStudentsForEnrollment, myCtClasses, localStudents]);
+
+  const shortageDropdownClasses = userRole === 'admin'
+    ? DEFAULT_CLASSES
+    : teacherAllowedClasses;
+
   // Smart Teacher Ownership Matcher
   const canUserModifyMinusLog = (logItem) => {
     if (userRole === 'admin') return true;
@@ -3138,8 +3193,12 @@ export default function PeriodAttendanceMinusAndClearance({
                 onChange={e => setShortageClassFilter(e.target.value)}
                 style={{ ...styles.input, width: 'auto', fontWeight: '700' }}
               >
-                <option value="ALL">All Classes</option>
-                {DEFAULT_CLASSES.map(c => <option key={c} value={c}>Class {c}</option>)}
+                <option value="ALL">{userRole === 'admin' ? 'All Classes' : `All My Classes (${shortageDropdownClasses.length})`}</option>
+                {shortageDropdownClasses.map(c => (
+                  <option key={c} value={c}>
+                    Class {c}{myCtClasses.includes(c) ? ' (Class Teacher)' : ''}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -3162,6 +3221,14 @@ export default function PeriodAttendanceMinusAndClearance({
               <tbody>
                 {localStudents
                   .filter(st => {
+                    if (userRole !== 'admin') {
+                      const reg = String(st.regNo || st.id || '').trim();
+                      const ad = String(st.adNo || '').trim().toUpperCase();
+                      const stClasses = (st.classes || [st.class] || []).map(c => String(c).toUpperCase().trim());
+                      const isCtStudent = stClasses.some(c => myCtClasses.includes(c));
+                      const isTeachingStudent = teacherAllowedStudentRegs.has(reg) || teacherAllowedStudentRegs.has(ad) || teacherAllowedStudentRegs.has(st.regNo);
+                      if (!isCtStudent && !isTeachingStudent) return false;
+                    }
                     const stCls = (st.classes || [])[0] || st.class || '';
                     if (shortageClassFilter !== 'ALL' && !stCls.includes(shortageClassFilter)) return false;
                     const stat = getStudentAttStat(st);

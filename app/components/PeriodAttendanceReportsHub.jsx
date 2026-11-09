@@ -198,6 +198,23 @@ export default function PeriodAttendanceReportsHub({
     });
   }
 
+  // 🌟 For Class Teachers: also collect all subjects taken by students in their CT class so they can see all subject attendance
+  const ctClassSubKeys = new Set();
+  if (myCtClasses.length > 0 && Array.isArray(localStudents)) {
+    localStudents.forEach(st => {
+      const stCls = (st.classes || [st.class] || []).map(c => String(c).toUpperCase().trim());
+      if (stCls.some(c => myCtClasses.includes(c))) {
+        const sw = getStudentAttStat(st).subjectWise || {};
+        Object.keys(sw).forEach(k => {
+          if (k.toUpperCase() !== 'HIFZ') {
+            ctClassSubKeys.add(k);
+            subjectColsSet.add(k);
+          }
+        });
+      }
+    });
+  }
+
   const allDaysInSelectedMonth = React.useMemo(() => {
     if (!repMonth) return [];
     const parts = repMonth.split('-');
@@ -226,7 +243,14 @@ export default function PeriodAttendanceReportsHub({
     : (repScope === 'fn_an_monthly' ? (myCtClasses.length > 0 ? myCtClasses : Array.from(teacherAllowedClassesSet)) : Array.from(teacherAllowedClassesSet));
 
   const filteredReportStudents = localStudents.filter(st => {
-    if (userRole !== 'admin' && !teacherAllowedStudentRegs.has(st.regNo)) return false;
+    if (userRole !== 'admin') {
+      const reg = String(st.regNo || st.id || '').trim();
+      const ad = String(st.adNo || '').trim().toUpperCase();
+      const stClasses = (st.classes || [st.class] || []).map(c => String(c).toUpperCase().trim());
+      const isCtStudent = stClasses.some(c => myCtClasses.includes(c));
+      const isTeachingStudent = teacherAllowedStudentRegs.has(reg) || teacherAllowedStudentRegs.has(ad) || teacherAllowedStudentRegs.has(st.regNo);
+      if (!isCtStudent && !isTeachingStudent) return false;
+    }
     const stClasses = Array.isArray(st.classes) ? st.classes : [st.class];
     if (repClass !== 'ALL' && !stClasses.includes(repClass)) return false;
     if (repSearch.trim()) {
@@ -250,7 +274,35 @@ export default function PeriodAttendanceReportsHub({
   );
   let subjectColumns = Array.from(subjectColsSet);
   if (userRole !== 'admin') {
-    subjectColumns = subjectColumns.filter(s => teacherSubKeys.has(s));
+    const isViewingCtClass = repClass !== 'ALL' && myCtClasses.includes(repClass);
+    if (isViewingCtClass) {
+      // 🌟 Class Teacher viewing their designated class: show ALL subjects taken by this class!
+      const classSubKeys = new Set();
+      filteredReportStudents.forEach(st => {
+        const sw = getStudentAttStat(st).subjectWise || {};
+        Object.keys(sw).forEach(k => {
+          if (k.toUpperCase() !== 'HIFZ') classSubKeys.add(k);
+        });
+      });
+      subjectColumns = subjectColumns.filter(s => classSubKeys.has(s));
+    } else if (repClass !== 'ALL') {
+      // 🌟 Viewing a class where they only teach as subject faculty:
+      // Show ONLY the subjects this teacher teaches in this class!
+      const classEnrollmentSubs = new Set(
+        attendanceEnrollments
+          .filter(env => {
+            const tCls = String(env.targetClass || '').toUpperCase().trim();
+            const alias = String(env.alias || '').toUpperCase().trim();
+            return tCls === repClass || alias.includes(repClass);
+          })
+          .map(env => normalizeSubKey(isAttendanceOnlyEnrollment(env) ? (env.alias || env.subject) : env.subject))
+      );
+      subjectColumns = subjectColumns.filter(s => classEnrollmentSubs.size > 0 ? classEnrollmentSubs.has(s) : teacherSubKeys.has(s));
+    } else {
+      // repClass === 'ALL'
+      // Show teacher's own subjects, plus subjects of their CT class if they are a Class Teacher
+      subjectColumns = subjectColumns.filter(s => teacherSubKeys.has(s) || ctClassSubKeys.has(s));
+    }
   }
   if (repSubject !== 'ALL') {
     subjectColumns = subjectColumns.filter(s => s === repSubject);
@@ -935,35 +987,22 @@ export default function PeriodAttendanceReportsHub({
             const teacherEnvs = Array.isArray(activeTeacherObj?.enrollments) ? activeTeacherObj.enrollments : (loggedInUser?.enrollments || []);
 
             const filteredDailySessions = dailySessionsCache.filter(sess => {
-              if (userRole === 'admin') return true;
-
               const sessUname = String(sess.teacherUsername || '').toLowerCase().trim();
-              if (currentUname && sessUname && (currentUname === sessUname || sessUname.includes(currentUname) || currentUname.includes(sessUname))) {
-                return true;
-              }
-
               const sessTeacherName = String(sess.teacherName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-              if (currentFullName && sessTeacherName && (currentFullName.includes(sessTeacherName) || sessTeacherName.includes(currentFullName))) {
-                return true;
+
+              const isMySession = Boolean(
+                (currentUname && sessUname && (currentUname === sessUname || sessUname === currentUname.replace('@', '') || currentUname.replace('@', '') === sessUname)) ||
+                (currentFullName && sessTeacherName && (currentFullName === sessTeacherName || currentFullName.includes(sessTeacherName) || sessTeacherName.includes(currentFullName)))
+              );
+
+              if (userRole === 'admin') {
+                if (repTeacher === 'ALL') return true;
+                const filterUname = String(repTeacher).toLowerCase().trim();
+                return sessUname === filterUname;
               }
 
-              const matchesEnv = teacherEnvs.some(e => {
-                if (sess.enrollmentId && sess.enrollmentId === e.id) return true;
-                const eSub = normalizeSubKey(e.subject);
-                const sSub = normalizeSubKey(sess.subject);
-                if (eSub && sSub && eSub === sSub) return true;
-                const eAlias = String(e.alias || e.subject || '').toUpperCase();
-                const sAlias = String(sess.classAlias || sess.subject || '').toUpperCase();
-                if (eAlias && sAlias && (eAlias.includes(sAlias) || sAlias.includes(eAlias))) return true;
-                return false;
-              });
-              if (matchesEnv) return true;
-
-              if (isClassTeacher && myCtClasses.some(c => String(sess.classAlias || '').toUpperCase().includes(c) || String(sess.targetClass || '').toUpperCase() === c)) {
-                return true;
-              }
-
-              return false;
+              // 🌟 Non-admin teachers must ONLY see their own recorded period sessions under "My Recorded Periods"
+              return isMySession;
             });
 
             return (
@@ -1003,27 +1042,37 @@ export default function PeriodAttendanceReportsHub({
                               👨‍🏫 {sess.teacherName} • Pres: <strong style={{ color: '#059669' }}>{presC}</strong> / Abs: <strong style={{ color: '#e11d48' }}>{absC}</strong>
                             </div>
                           </div>
-                          {(userRole === 'admin' || currentUname === String(sess.teacherUsername || '').toLowerCase().trim() || currentFullName.includes(String(sess.teacherName || '').toLowerCase().replace(/[^a-z0-9]/g, '')) || teacherEnvs.some(e => e.id === sess.enrollmentId || normalizeSubKey(e.subject) === normalizeSubKey(sess.subject))) && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (userRole === 'admin' && sess.teacherUsername) {
-                                  setSelectedTeacherUsername(sess.teacherUsername);
-                                }
-                                const tObj = localTeachers.find(t => t.username === sess.teacherUsername) || activeTeacherObj;
-                                const matchEnv = (tObj?.enrollments || []).find(
-                                  e => (sess.enrollmentId && e.id === sess.enrollmentId) || (e.alias || e.subject) === sess.classAlias || normalizeSubKey(e.subject) === sess.subject
-                                );
-                                if (matchEnv) setAttEnrollmentId(matchEnv.id);
-                                setAttDate(repDate);
-                                setAttSession(String(sess.session));
-                                setActiveTab('mark_sheet');
-                              }}
-                              style={styles.buttonSecondary}
-                            >
-                              ✏️ Edit
-                            </button>
-                          )}
+                          {(() => {
+                            const sUname = String(sess.teacherUsername || '').toLowerCase().trim();
+                            const sTeacherName = String(sess.teacherName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                            const isMySess = Boolean(
+                              (currentUname && sUname && (currentUname === sUname || sUname === currentUname.replace('@', '') || currentUname.replace('@', '') === sUname)) ||
+                              (currentFullName && sTeacherName && (currentFullName === sTeacherName || currentFullName.includes(sTeacherName) || sTeacherName.includes(currentFullName)))
+                            );
+                            const canEdit = userRole === 'admin' || isMySess;
+                            if (!canEdit) return null;
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (userRole === 'admin' && sess.teacherUsername) {
+                                    setSelectedTeacherUsername(sess.teacherUsername);
+                                  }
+                                  const tObj = localTeachers.find(t => t.username === sess.teacherUsername) || activeTeacherObj;
+                                  const matchEnv = (tObj?.enrollments || []).find(
+                                    e => (sess.enrollmentId && e.id === sess.enrollmentId) || (e.alias || e.subject) === sess.classAlias || normalizeSubKey(e.subject) === sess.subject
+                                  );
+                                  if (matchEnv) setAttEnrollmentId(matchEnv.id);
+                                  setAttDate(repDate);
+                                  setAttSession(String(sess.session));
+                                  setActiveTab('mark_sheet');
+                                }}
+                                style={styles.buttonSecondary}
+                              >
+                                ✏️ Edit
+                              </button>
+                            );
+                          })()}
                         </div>
                       );
                     })}

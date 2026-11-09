@@ -1429,7 +1429,53 @@ export default function PeriodAttendanceManager({
     })
   );
 
+  const myCtClasses = React.useMemo(() => {
+    const set = new Set();
+    const direct = activeTeacherObj?.outpassPrivileges?.classTeacherOf || activeTeacherObj?.classTeacherOf;
+    if (Array.isArray(direct)) direct.forEach(c => set.add(String(c).toUpperCase().trim()));
+    else if (direct) set.add(String(direct).toUpperCase().trim());
+
+    const myUser = String(loggedInUser?.username || activeTeacherObj?.username || '').toLowerCase().trim();
+    if (myUser && Array.isArray(localStudents)) {
+      localStudents.forEach(st => {
+        const ctU = String(st.classTeacherUsername || '').toLowerCase().trim();
+        if (ctU && ctU === myUser) {
+          (st.classes || [st.class]).filter(Boolean).forEach(c => set.add(String(c).toUpperCase().trim()));
+        }
+      });
+    }
+    return Array.from(set);
+  }, [activeTeacherObj, loggedInUser, localStudents]);
+
+  const teacherAllowedStudentRegs = React.useMemo(() => {
+    const set = new Set();
+    (attendanceEnrollments || []).forEach(env => {
+      const enrolled = getStudentsForEnrollment ? getStudentsForEnrollment(env) : [];
+      enrolled.forEach(st => set.add(String(st.regNo || st.id || '').trim()));
+      if (Array.isArray(env.studentIds)) {
+        env.studentIds.forEach(id => set.add(String(id).trim()));
+      }
+    });
+    if (myCtClasses.length > 0 && Array.isArray(localStudents)) {
+      localStudents.forEach(st => {
+        const stClasses = (st.classes || [st.class] || []).map(c => String(c).toUpperCase().trim());
+        if (stClasses.some(c => myCtClasses.includes(c))) {
+          set.add(String(st.regNo || st.id || '').trim());
+        }
+      });
+    }
+    return set;
+  }, [attendanceEnrollments, myCtClasses, localStudents]);
+
   const shortageCount = localStudents.filter(st => {
+    if (userRole !== 'admin') {
+      const reg = String(st.regNo || st.id || '').trim();
+      const ad = String(st.adNo || '').trim().toUpperCase();
+      const stClasses = (st.classes || [st.class] || []).map(c => String(c).toUpperCase().trim());
+      const isCtStudent = stClasses.some(c => myCtClasses.includes(c));
+      const isTeachingStudent = teacherAllowedStudentRegs.has(reg) || teacherAllowedStudentRegs.has(ad) || teacherAllowedStudentRegs.has(st.regNo);
+      if (!isCtStudent && !isTeachingStudent) return false;
+    }
     const stat = getStudentAttStat(st);
     const total = Number(stat.totalPeriods) || 0;
     if (total <= 0) return false;
