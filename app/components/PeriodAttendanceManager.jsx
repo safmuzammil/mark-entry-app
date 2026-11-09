@@ -1,9 +1,10 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { auth, db } from '../../lib/firebase';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, getDocs, setDoc, deleteDoc, collection, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, getDocs, setDoc, deleteDoc, collection, writeBatch, query, orderBy, limit } from 'firebase/firestore';
 import { DEFAULT_CLASSES, DEFAULT_SUBJECTS, DHIU_LOGO_URL, styles, sortStudentsByDepartment } from './erpConstants';
 import { doesClassMatchAlias, openDirectWhatsApp, resolveClassTeacherForStudent, CollapsibleCard } from './ErpExtensions';
 import PeriodAttendanceReportsHub from './PeriodAttendanceReportsHub';
@@ -176,6 +177,17 @@ export default function PeriodAttendanceManager({
   const [leaderStudentSearch, setLeaderStudentSearch] = useState('');
   const [leaderSelectedRegs, setLeaderSelectedRegs] = useState([]);
   const [bulkAdNoPasteText, setBulkAdNoPasteText] = useState('');
+
+  // --- 3b. EVENT LEADER ATTENDANCE AUDIT & VERIFICATION STATE ---
+  const [leaderManagerSubTab, setLeaderManagerSubTab] = useState('setup'); // 'setup' | 'logs'
+  const [eventLeaderLogs, setEventLeaderLogs] = useState([]);
+  const [loadingLeaderLogs, setLoadingLeaderLogs] = useState(false);
+  const [leaderLogFilterLeader, setLeaderLogFilterLeader] = useState('ALL');
+  const [leaderLogFilterDate, setLeaderLogFilterDate] = useState('');
+  const [leaderLogFilterSession, setLeaderLogFilterSession] = useState('ALL');
+  const [leaderLogFilterStatus, setLeaderLogFilterStatus] = useState('ALL'); // 'ALL' | 'SUBMITTED' | 'VERIFIED'
+  const [leaderLogSearch, setLeaderLogSearch] = useState('');
+  const [inspectingLeaderLog, setInspectingLeaderLog] = useState(null);
 
   // --- 4. NON-MARK SUBJECT CREATOR & MASS ASSIGN STATE ---
   const [nmTeacherUsername, setNmTeacherUsername] = useState('');
@@ -1042,6 +1054,46 @@ export default function PeriodAttendanceManager({
           }, { merge: true });
         }
 
+        // 🌟 Dedicated Storage for Event Leader Attendance Verification & Admin Audit
+        const eventLeaderRecord = {
+          id: `eventLeaderAtt_${rehDate}_${activeLeaderObj.username}_${rehSessionId}`,
+          date: rehDate,
+          sessionId: rehSessionId,
+          sessionLabel: sessionConfig.label || 'Rehearsal',
+          sessionTime: sessionConfig.time || '',
+          coveredPeriods,
+          weight: sessionConfig.weight || 1,
+          leaderUsername: activeLeaderObj.username,
+          leaderName: activeLeaderObj.fullName || 'Event Leader',
+          totalAssigned: leaderStudentsSorted.length,
+          presentCount: presentRegs.length,
+          absentCount: rehAbsentRegNos.length,
+          presentRegNos: presentRegs,
+          absentRegNos: rehAbsentRegNos,
+          students: leaderStudentsSorted.map(st => ({
+            regNo: st.regNo,
+            adNo: st.adNo,
+            name: st.firstName,
+            classes: st.classes || [st.class] || [],
+            status: rehAbsentRegNos.includes(st.regNo) ? 'ABSENT' : 'PRESENT'
+          })),
+          status: 'SUBMITTED',
+          savedAt: new Date().toISOString(),
+          verifiedAt: null,
+          verifiedBy: null,
+          adminNotes: ''
+        };
+
+        try {
+          await setDoc(doc(db, 'event_leader_attendance', eventLeaderRecord.id), eventLeaderRecord, { merge: true });
+          await setDoc(doc(db, 'systemCache', `eventLeaderLog_${rehDate}_${activeLeaderObj.username}_${rehSessionId}`), eventLeaderRecord, { merge: true });
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('dhiu_event_leader_att_' + eventLeaderRecord.id, JSON.stringify(eventLeaderRecord));
+          }
+        } catch (logErr) {
+          console.warn('Dedicated event leader log write note:', logErr);
+        }
+
         const dayIndexRef = doc(db, 'systemCache', `daySessionsIndex_${rehDate}`);
         const dayIndexSnap = await getDoc(dayIndexRef);
         const existingList = dayIndexSnap.exists() ? (dayIndexSnap.data().sessions || []) : [];
@@ -1308,6 +1360,181 @@ export default function PeriodAttendanceManager({
       setLoading(false);
     }
   };
+
+  // 🌟 Load & Query Event Leader Attendance Logs
+  const loadEventLeaderLogs = async () => {
+    setLoadingLeaderLogs(true);
+    try {
+      const logs = [];
+      const seenIds = new Set();
+
+      // 1. Fetch from dedicated event_leader_attendance collection
+      try {
+        const snap = await getDocs(query(collection(db, 'event_leader_attendance'), orderBy('savedAt', 'desc'), limit(200)));
+        snap.forEach(d => {
+          seenIds.add(d.id);
+          logs.push({ id: d.id, ...d.data() });
+        });
+      } catch (err) {
+        console.warn('Query event_leader_attendance note:', err);
+      }
+
+      // 2. Also scan systemCache for any existing/older rehearsalSession_ docs
+      try {
+        const cacheSnap = await getDocs(query(collection(db, 'systemCache'), limit(400)));
+        cacheSnap.forEach(d => {
+          if (d.id.startsWith('rehearsalSession_')) {
+            const data = d.data();
+            const logId = `eventLeaderAtt_${data.date}_${data.leaderUsername}_${data.sessionId}`;
+            if (!seenIds.has(logId) && !seenIds.has(d.id)) {
+              seenIds.add(d.id);
+              const presRegs = data.presentRegNos || [];
+              const absRegs = data.absentRegNos || [];
+              const allRegs = Array.from(new Set([...presRegs, ...absRegs]));
+              const studentRecs = allRegs.map(reg => {
+                const st = localStudents.find(s => s.regNo === reg || s.id === reg || s.adNo === reg);
+                return {
+                  regNo: reg,
+                  adNo: st?.adNo || reg,
+                  name: st?.firstName || 'Student',
+                  classes: st?.classes || [st?.class] || [],
+                  status: absRegs.includes(reg) ? 'ABSENT' : 'PRESENT'
+                };
+              });
+              logs.push({
+                id: d.id,
+                date: data.date,
+                sessionId: data.sessionId,
+                sessionLabel: data.sessionLabel || 'Rehearsal',
+                coveredPeriods: data.coveredPeriods || [],
+                weight: data.weight || 1,
+                leaderUsername: data.leaderUsername,
+                leaderName: data.leaderName || 'Event Leader',
+                totalAssigned: allRegs.length,
+                presentCount: presRegs.length,
+                absentCount: absRegs.length,
+                presentRegNos: presRegs,
+                absentRegNos: absRegs,
+                students: studentRecs,
+                status: data.verifiedAt ? 'VERIFIED' : 'SUBMITTED',
+                savedAt: data.updatedAt || `${data.date}T00:00:00Z`,
+                verifiedAt: data.verifiedAt || null,
+                verifiedBy: data.verifiedBy || null
+              });
+            }
+          }
+        });
+      } catch (err) {
+        console.warn('systemCache fallback scan note:', err);
+      }
+
+      logs.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(b.savedAt || '').localeCompare(String(a.savedAt || '')));
+      setEventLeaderLogs(logs);
+    } catch (err) {
+      console.error('Error loading event leader logs:', err);
+    } finally {
+      setLoadingLeaderLogs(false);
+    }
+  };
+
+  const handleVerifyLeaderLog = async (logItem) => {
+    if (!window.confirm(`Confirm verification for Event Leader attendance marked by ${logItem.leaderName} on ${logItem.date} (${logItem.sessionLabel})?`)) return;
+
+    setLoading(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const patch = {
+        status: 'VERIFIED',
+        verifiedAt: nowIso,
+        verifiedBy: loggedInUser?.username || 'admin',
+        verifiedByName: loggedInUser?.fullName || 'Central Admin'
+      };
+
+      const ref = doc(db, 'event_leader_attendance', logItem.id);
+      await setDoc(ref, patch, { merge: true });
+
+      try {
+        const cacheRef = doc(db, 'systemCache', logItem.id);
+        await setDoc(cacheRef, patch, { merge: true });
+      } catch (_) {}
+
+      setEventLeaderLogs(prev => prev.map(l => l.id === logItem.id ? { ...l, ...patch } : l));
+      if (inspectingLeaderLog && inspectingLeaderLog.id === logItem.id) {
+        setInspectingLeaderLog(prev => ({ ...prev, ...patch }));
+      }
+
+      alert('✅ Verified and confirmed event leader attendance record.');
+    } catch (err) {
+      console.error('Error verifying log:', err);
+      alert('Error verifying record: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExportLeaderLogsExcel = () => {
+    if (filteredLeaderLogs.length === 0) return alert('No records to export.');
+
+    const rows = filteredLeaderLogs.map((l, idx) => ({
+      '#': idx + 1,
+      'DATE': l.date,
+      'LEADER NAME': l.leaderName,
+      'LEADER USERNAME': l.leaderUsername,
+      'SITTING / SESSION': l.sessionLabel,
+      'COVERED PERIODS': (l.coveredPeriods || []).join(', '),
+      'TOTAL STUDENTS': l.totalAssigned,
+      'PRESENT COUNT': l.presentCount,
+      'ABSENT COUNT': l.absentCount,
+      'ATTENDANCE %': l.totalAssigned > 0 ? `${((l.presentCount / l.totalAssigned) * 100).toFixed(1)}%` : '100%',
+      'VERIFICATION STATUS': l.status === 'VERIFIED' ? `Verified by ${l.verifiedBy || 'Admin'}` : 'Pending Verification',
+      'SUBMITTED AT': l.savedAt ? String(l.savedAt).replace('T', ' ').substring(0, 19) : ''
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'EventLeaderAttendance');
+    XLSX.writeFile(wb, `Event_Leader_Attendance_Summary_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const filteredLeaderLogs = useMemo(() => {
+    return eventLeaderLogs.filter(l => {
+      if (leaderLogFilterLeader !== 'ALL' && l.leaderUsername !== leaderLogFilterLeader) return false;
+      if (leaderLogFilterDate && l.date !== leaderLogFilterDate) return false;
+      if (leaderLogFilterSession !== 'ALL' && l.sessionId !== leaderLogFilterSession) return false;
+      if (leaderLogFilterStatus !== 'ALL' && l.status !== leaderLogFilterStatus) return false;
+      if (leaderLogSearch.trim()) {
+        const q = leaderLogSearch.trim().toLowerCase();
+        const matchLeader = String(l.leaderName || '').toLowerCase().includes(q) || String(l.leaderUsername || '').toLowerCase().includes(q);
+        const matchStudent = (l.students || []).some(s =>
+          String(s.name || '').toLowerCase().includes(q) || String(s.adNo || '').toLowerCase().includes(q)
+        );
+        if (!matchLeader && !matchStudent) return false;
+      }
+      return true;
+    });
+  }, [eventLeaderLogs, leaderLogFilterLeader, leaderLogFilterDate, leaderLogFilterSession, leaderLogFilterStatus, leaderLogSearch]);
+
+  const leaderAggregatedStats = useMemo(() => {
+    const map = {};
+    filteredLeaderLogs.forEach(l => {
+      const u = l.leaderUsername || 'unknown';
+      if (!map[u]) {
+        map[u] = {
+          username: u,
+          fullName: l.leaderName || u,
+          sessionsCount: 0,
+          totalAssigned: 0,
+          presentCount: 0,
+          absentCount: 0
+        };
+      }
+      map[u].sessionsCount += 1;
+      map[u].totalAssigned += Number(l.totalAssigned) || 0;
+      map[u].presentCount += Number(l.presentCount) || 0;
+      map[u].absentCount += Number(l.absentCount) || 0;
+    });
+    return Object.values(map);
+  }, [filteredLeaderLogs]);
 
   const handleDownloadAbsentReport = () => {
     let csv = 'data:text/csv;charset=utf-8,Subject Batch,Ad.No,Student Name,Class,Total Periods,Present,Absent,Attendance %,Absent Dates\n';
@@ -2120,165 +2347,517 @@ export default function PeriodAttendanceManager({
       {/* VIEW 2B: ADMIN EVENT LEADER MANAGER WITH SLIDING DRAWER */}
       {activeTab === 'manage_leaders' && userRole === 'admin' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <CollapsibleCard
-            title="1. Create Temporary Student Leader / Event Attendance Account"
-            subtitle="Create temporary leader logins; revoking them later keeps all recorded attendance 100% permanent"
-            badgeText={`${eventLeadersList.length} Leaders`}
-            icon="🎭"
-            accentColor="#4f46e5"
-            defaultOpen={eventLeadersList.length === 0}
-          >
-            <form onSubmit={handleCreateEventLeaderAccount} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', alignItems: 'end', marginBottom: '20px' }}>
-              <div>
-                <label style={styles.label}>Leader Name</label>
-                <input type="text" value={newLeaderName} onChange={e => setNewLeaderName(e.target.value)} placeholder="e.g. Sinan QLA3" required style={styles.input} />
-              </div>
-              <div>
-                <label style={styles.label}>Event / Team Name</label>
-                <input type="text" value={newLeaderEventTitle} onChange={e => setNewLeaderEventTitle(e.target.value)} placeholder="e.g. Arts Fest Zone A" required style={styles.input} />
-              </div>
-              <div>
-                <label style={styles.label}>Login Username</label>
-                <input type="text" value={newLeaderUsername} onChange={e => setNewLeaderUsername(e.target.value)} placeholder="e.g. leader_zone1" required style={styles.input} />
-              </div>
-              <div>
-                <label style={styles.label}>Password (Min 6 chars)</label>
-                <input type="text" value={newLeaderPassword} onChange={e => setNewLeaderPassword(e.target.value)} placeholder="e.g. fest123" required style={styles.input} />
-              </div>
-              <button type="submit" disabled={loading} style={styles.buttonPrimary}>
-                ➕ Create Leader Login
-              </button>
-            </form>
 
-            {eventLeadersList.length > 0 && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-                {eventLeadersList.map(l => {
-                  const sIds = l.enrollments?.[0]?.studentIds || l.assignedStudentIds || [];
-                  return (
-                    <div key={l.username} style={{ padding: '14px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
-                      <div>
-                        <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '14px' }}>🎭 {l.fullName}</div>
-                        <div style={{ fontSize: '12px', color: '#475569', fontWeight: '600', marginTop: '2px' }}>
-                          Login: <code>@{l.username}</code> • <strong>{sIds.length} Students Mapped</strong>
-                        </div>
-                      </div>
-                      <button type="button" onClick={() => handleDeleteEventLeaderAccount(l)} style={styles.buttonDanger}>
-                        🗑️ Revoke
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CollapsibleCard>
-
-          <div style={styles.card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
-              <h3 style={{ margin: 0, fontSize: '17px', color: '#0f172a', fontWeight: '800' }}>
-                2. Map Students &amp; Set Rehearsal Deadline Date
-              </h3>
-              {eventLeadersList.length > 0 && (
-                <button type="button" onClick={() => setActiveTab('rehearsal_leader')} style={styles.buttonPrimary}>
-                  📋 Open Rehearsal Roll-Call Screen ➔
-                </button>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '16px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', alignItems: 'center' }}>
-              <div style={{ flex: '1 1 280px', display: 'flex', gap: '8px' }}>
-                <input
-                  type="text"
-                  value={bulkAdNoPasteText}
-                  onChange={e => setBulkAdNoPasteText(e.target.value)}
-                  placeholder="Paste Ad.Nos separated by comma (e.g. 3538, U1127)..."
-                  style={styles.input}
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const tokens = bulkAdNoPasteText.split(/[\s,;\n]+/).map(t => t.replace(/^#/, '').trim().toUpperCase()).filter(Boolean);
-                    if (tokens.length === 0) return alert('Paste at least one Admission Number first.');
-                    const matchedRegs = localStudents
-                      .filter(s => tokens.includes(String(s.adNo || '').trim().toUpperCase()) || tokens.includes(String(s.regNo || '').trim().toUpperCase()))
-                      .map(s => s.regNo);
-                    if (matchedRegs.length === 0) return alert('No matching students found.');
-                    setLeaderSelectedRegs(prev => Array.from(new Set([...prev, ...matchedRegs])));
-                    setBulkAdNoPasteText('');
-                  }}
-                  style={{ ...styles.buttonSecondary, whiteSpace: 'nowrap' }}
-                >
-                  ☑️ Auto-Check
-                </button>
-              </div>
-
-              <select value={assignLeaderUsername} onChange={e => setAssignLeaderUsername(e.target.value)} style={{ ...styles.input, maxWidth: '240px' }}>
-                <option value="">-- Select Event Leader --</option>
-                {eventLeadersList.map(l => (
-                  <option key={l.username} value={l.username}>{l.fullName} (@{l.username})</option>
-                ))}
-              </select>
-
-              <input type="date" value={leaderAssignDeadline} onChange={e => setLeaderAssignDeadline(e.target.value)} style={{ ...styles.input, maxWidth: '160px' }} />
-
-              <button type="button" onClick={handleAssignStudentsToLeader} disabled={loading} style={styles.buttonPrimary}>
-                🚀 Assign {leaderSelectedRegs.length} Checked
-              </button>
-            </div>
-
-            {assignLeaderUsername && (
-              <div style={{ marginBottom: '16px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                {sortStudentsForEventLeader(
-                  localStudents.filter(s => (localTeachers.find(t => t.username === assignLeaderUsername)?.enrollments?.[0]?.studentIds || []).includes(s.regNo))
-                ).map(st => {
-                  const dlMap = localTeachers.find(t => t.username === assignLeaderUsername)?.enrollments?.[0]?.studentDeadlines || {};
-                  return (
-                    <span key={st.regNo} style={{ background: '#eef2ff', color: '#4f46e5', padding: '4px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                      [{(st.classes || []).join(',')}] {st.firstName} (#{st.adNo}) • Until: {dlMap[st.regNo] || 'Open'}
-                      <button type="button" onClick={() => handleRemoveStudentFromLeader(assignLeaderUsername, st.regNo)} style={{ border: 'none', background: 'transparent', color: '#e11d48', cursor: 'pointer', fontWeight: '800' }}>✕</button>
+          {/* INSPECTION MODAL FOR EVENT LEADER ATTENDANCE RECORD */}
+          {inspectingLeaderLog && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2500, padding: '16px' }}>
+              <div style={{ background: '#ffffff', padding: '28px', borderRadius: '16px', maxWidth: '780px', width: '100%', color: '#0f172a', maxHeight: '85vh', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '14px', marginBottom: '18px' }}>
+                  <div>
+                    <span style={{ background: '#eef2ff', color: '#4f46e5', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
+                      🎭 {inspectingLeaderLog.sessionLabel || 'Rehearsal Sitting'}
                     </span>
-                  );
-                })}
+                    <h3 style={{ margin: '6px 0 0', fontSize: '18px', fontWeight: '800' }}>
+                      {inspectingLeaderLog.date} • Marked by {inspectingLeaderLog.leaderName} (@{inspectingLeaderLog.leaderUsername})
+                    </h3>
+                  </div>
+                  <button type="button" onClick={() => setInspectingLeaderLog(null)} style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '6px 12px', borderRadius: '8px', fontWeight: '800', cursor: 'pointer' }}>✕ Close</button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px', marginBottom: '18px', background: '#f8fafc', padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                  <div><strong style={{ color: '#64748b', fontSize: '11px' }}>COVERED PERIODS:</strong> <div style={{ fontWeight: '800' }}>Periods {(inspectingLeaderLog.coveredPeriods || []).join(', ')}</div></div>
+                  <div><strong style={{ color: '#64748b', fontSize: '11px' }}>TOTAL ASSIGNED:</strong> <div style={{ fontWeight: '800' }}>{inspectingLeaderLog.totalAssigned} Students</div></div>
+                  <div><strong style={{ color: '#047857', fontSize: '11px' }}>PRESENT:</strong> <div style={{ fontWeight: '800', color: '#047857' }}>{inspectingLeaderLog.presentCount} ({inspectingLeaderLog.totalAssigned > 0 ? ((inspectingLeaderLog.presentCount / inspectingLeaderLog.totalAssigned) * 100).toFixed(1) : 100}%)</div></div>
+                  <div><strong style={{ color: '#e11d48', fontSize: '11px' }}>ABSENT:</strong> <div style={{ fontWeight: '800', color: '#e11d48' }}>{inspectingLeaderLog.absentCount}</div></div>
+                  <div>
+                    <strong style={{ color: '#64748b', fontSize: '11px' }}>STATUS:</strong>
+                    <div>
+                      <span style={{
+                        padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '800',
+                        background: inspectingLeaderLog.status === 'VERIFIED' ? '#ecfdf5' : '#fffbeb',
+                        color: inspectingLeaderLog.status === 'VERIFIED' ? '#047857' : '#b45309'
+                      }}>
+                        {inspectingLeaderLog.status === 'VERIFIED' ? `✅ Verified by ${inspectingLeaderLog.verifiedBy || 'Admin'}` : '⏳ Pending Verification'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '18px' }}>
+                  <div style={{ fontWeight: '800', fontSize: '13px', color: '#0f172a', marginBottom: '10px' }}>
+                    Student Roll-Call Breakdown ({(inspectingLeaderLog.students || []).length} Students):
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '8px', maxHeight: '340px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px' }}>
+                    {(inspectingLeaderLog.students || []).map((st, idx) => {
+                      const isAbs = st.status === 'ABSENT';
+                      return (
+                        <div
+                          key={st.regNo || idx}
+                          style={{
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            background: isAbs ? '#fff1f2' : '#f0fdf4',
+                            border: isAbs ? '1px solid #fecdd3' : '1px solid #bbf7d0',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: '8px'
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: '700', fontSize: '12px', color: '#0f172a' }}>{st.name}</div>
+                            <div style={{ fontSize: '11px', color: '#64748b' }}>#{st.adNo} • {(st.classes || []).join(', ')}</div>
+                          </div>
+                          <span style={{
+                            padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '800',
+                            background: isAbs ? '#e11d48' : '#10b981', color: '#ffffff'
+                          }}>
+                            {isAbs ? 'ABSENT' : 'PRESENT'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: '1px solid #e2e8f0', paddingTop: '14px' }}>
+                  {inspectingLeaderLog.status !== 'VERIFIED' && (
+                    <button
+                      type="button"
+                      onClick={() => handleVerifyLeaderLog(inspectingLeaderLog)}
+                      disabled={loading}
+                      style={styles.buttonPrimary}
+                    >
+                      {loading ? 'Verifying...' : '✅ Confirm & Mark Verified'}
+                    </button>
+                  )}
+                  <button type="button" onClick={() => setInspectingLeaderLog(null)} style={styles.buttonSecondary}>
+                    Close
+                  </button>
+                </div>
               </div>
-            )}
-
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '12px' }}>
-              <input type="text" value={leaderStudentSearch} onChange={e => setLeaderStudentSearch(e.target.value)} placeholder="Search student name or Ad.No..." style={{ ...styles.input, maxWidth: '260px' }} />
-              <select value={leaderFilterClass} onChange={e => setLeaderFilterClass(e.target.value)} style={{ ...styles.input, maxWidth: '180px' }}>
-                <option value="All">All Classes</option>
-                {LEADER_CLASS_ORDER.map(c => <option key={c} value={c}>Class {c}</option>)}
-              </select>
             </div>
+          )}
 
-            <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-                <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                  <tr>
-                    <th style={{ padding: '10px 14px', width: '40px' }}>✓</th>
-                    <th style={{ padding: '10px 14px' }}>CLASS</th>
-                    <th style={{ padding: '10px 14px' }}>AD.NO</th>
-                    <th style={{ padding: '10px 14px' }}>STUDENT NAME</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredLeaderAssignStudents.map((st) => {
-                    const checked = leaderSelectedRegs.includes(st.regNo);
-                    return (
-                      <tr
-                        key={st.regNo}
-                        onClick={() => setLeaderSelectedRegs(prev => prev.includes(st.regNo) ? prev.filter(r => r !== st.regNo) : [...prev, st.regNo])}
-                        style={{ borderBottom: '1px solid #f1f5f9', background: checked ? '#eef2ff' : '#ffffff', cursor: 'pointer' }}
-                      >
-                        <td style={{ padding: '10px 14px' }}><input type="checkbox" checked={checked} readOnly /></td>
-                        <td style={{ padding: '10px 14px', fontWeight: '700', color: '#4f46e5' }}>{(st.classes || []).join(', ')}</td>
-                        <td style={{ padding: '10px 14px', fontWeight: '600' }}>#{st.adNo}</td>
-                        <td style={{ padding: '10px 14px', fontWeight: '700' }}>{st.firstName}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+          {/* SUB-TABS: LEADER ACCOUNTS vs ATTENDANCE LOGS & VERIFICATION */}
+          <div style={{ display: 'flex', gap: '8px', background: '#f1f5f9', padding: '4px', borderRadius: '10px', width: 'fit-content' }}>
+            <button
+              type="button"
+              onClick={() => setLeaderManagerSubTab('setup')}
+              style={{
+                padding: '8px 16px',
+                borderRadius: '8px',
+                fontWeight: '800',
+                fontSize: '13px',
+                cursor: 'pointer',
+                border: 'none',
+                background: leaderManagerSubTab === 'setup' ? '#4f46e5' : 'transparent',
+                color: leaderManagerSubTab === 'setup' ? '#ffffff' : '#64748b',
+                boxShadow: leaderManagerSubTab === 'setup' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              👥 Leader Accounts &amp; Student Mappings
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setLeaderManagerSubTab('logs');
+                loadEventLeaderLogs();
+              }}
+              style={{
+                padding: '8px 16px',
+                borderRadius: '8px',
+                fontWeight: '800',
+                fontSize: '13px',
+                cursor: 'pointer',
+                border: 'none',
+                background: leaderManagerSubTab === 'logs' ? '#4f46e5' : 'transparent',
+                color: leaderManagerSubTab === 'logs' ? '#ffffff' : '#64748b',
+                boxShadow: leaderManagerSubTab === 'logs' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              📋 Event Leader Attendance Logs &amp; Verification
+            </button>
           </div>
+
+          {leaderManagerSubTab === 'setup' ? (
+            <>
+              <CollapsibleCard
+                title="1. Create Temporary Student Leader / Event Attendance Account"
+                subtitle="Create temporary leader logins; revoking them later keeps all recorded attendance 100% permanent"
+                badgeText={`${eventLeadersList.length} Leaders`}
+                icon="🎭"
+                accentColor="#4f46e5"
+                defaultOpen={eventLeadersList.length === 0}
+              >
+                <form onSubmit={handleCreateEventLeaderAccount} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', alignItems: 'end', marginBottom: '20px' }}>
+                  <div>
+                    <label style={styles.label}>Leader Name</label>
+                    <input type="text" value={newLeaderName} onChange={e => setNewLeaderName(e.target.value)} placeholder="e.g. Sinan QLA3" required style={styles.input} />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Event / Team Name</label>
+                    <input type="text" value={newLeaderEventTitle} onChange={e => setNewLeaderEventTitle(e.target.value)} placeholder="e.g. Arts Fest Zone A" required style={styles.input} />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Login Username</label>
+                    <input type="text" value={newLeaderUsername} onChange={e => setNewLeaderUsername(e.target.value)} placeholder="e.g. leader_zone1" required style={styles.input} />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Password (Min 6 chars)</label>
+                    <input type="text" value={newLeaderPassword} onChange={e => setNewLeaderPassword(e.target.value)} placeholder="e.g. fest123" required style={styles.input} />
+                  </div>
+                  <button type="submit" disabled={loading} style={styles.buttonPrimary}>
+                    ➕ Create Leader Login
+                  </button>
+                </form>
+
+                {eventLeadersList.length > 0 && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
+                    {eventLeadersList.map(l => {
+                      const sIds = l.enrollments?.[0]?.studentIds || l.assignedStudentIds || [];
+                      return (
+                        <div key={l.username} style={{ padding: '14px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                          <div>
+                            <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '14px' }}>🎭 {l.fullName}</div>
+                            <div style={{ fontSize: '12px', color: '#475569', fontWeight: '600', marginTop: '2px' }}>
+                              Login: <code>@{l.username}</code> • <strong>{sIds.length} Students Mapped</strong>
+                            </div>
+                          </div>
+                          <button type="button" onClick={() => handleDeleteEventLeaderAccount(l)} style={styles.buttonDanger}>
+                            🗑️ Revoke
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CollapsibleCard>
+
+              <div style={styles.card}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+                  <h3 style={{ margin: 0, fontSize: '17px', color: '#0f172a', fontWeight: '800' }}>
+                    2. Map Students &amp; Set Rehearsal Deadline Date
+                  </h3>
+                  {eventLeadersList.length > 0 && (
+                    <button type="button" onClick={() => setActiveTab('rehearsal_leader')} style={styles.buttonPrimary}>
+                      📋 Open Rehearsal Roll-Call Screen ➔
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '16px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', alignItems: 'center' }}>
+                  <div style={{ flex: '1 1 280px', display: 'flex', gap: '8px' }}>
+                    <input
+                      type="text"
+                      value={bulkAdNoPasteText}
+                      onChange={e => setBulkAdNoPasteText(e.target.value)}
+                      placeholder="Paste Ad.Nos separated by comma (e.g. 3538, U1127)..."
+                      style={styles.input}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const tokens = bulkAdNoPasteText.split(/[\s,;\n]+/).map(t => t.replace(/^#/, '').trim().toUpperCase()).filter(Boolean);
+                        if (tokens.length === 0) return alert('Paste at least one Admission Number first.');
+                        const matchedRegs = localStudents
+                          .filter(s => tokens.includes(String(s.adNo || '').trim().toUpperCase()) || tokens.includes(String(s.regNo || '').trim().toUpperCase()))
+                          .map(s => s.regNo);
+                        if (matchedRegs.length === 0) return alert('No matching students found.');
+                        setLeaderSelectedRegs(prev => Array.from(new Set([...prev, ...matchedRegs])));
+                        setBulkAdNoPasteText('');
+                      }}
+                      style={{ ...styles.buttonSecondary, whiteSpace: 'nowrap' }}
+                    >
+                      ☑️ Auto-Check
+                    </button>
+                  </div>
+
+                  <select value={assignLeaderUsername} onChange={e => setAssignLeaderUsername(e.target.value)} style={{ ...styles.input, maxWidth: '240px' }}>
+                    <option value="">-- Select Event Leader --</option>
+                    {eventLeadersList.map(l => (
+                      <option key={l.username} value={l.username}>{l.fullName} (@{l.username})</option>
+                    ))}
+                  </select>
+
+                  <input type="date" value={leaderAssignDeadline} onChange={e => setLeaderAssignDeadline(e.target.value)} style={{ ...styles.input, maxWidth: '160px' }} />
+
+                  <button type="button" onClick={handleAssignStudentsToLeader} disabled={loading} style={styles.buttonPrimary}>
+                    🚀 Assign {leaderSelectedRegs.length} Checked
+                  </button>
+                </div>
+
+                {assignLeaderUsername && (
+                  <div style={{ marginBottom: '16px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {sortStudentsForEventLeader(
+                      localStudents.filter(s => (localTeachers.find(t => t.username === assignLeaderUsername)?.enrollments?.[0]?.studentIds || []).includes(s.regNo))
+                    ).map(st => {
+                      const dlMap = localTeachers.find(t => t.username === assignLeaderUsername)?.enrollments?.[0]?.studentDeadlines || {};
+                      return (
+                        <span key={st.regNo} style={{ background: '#eef2ff', color: '#4f46e5', padding: '4px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                          [{(st.classes || []).join(',')}] {st.firstName} (#{st.adNo}) • Until: {dlMap[st.regNo] || 'Open'}
+                          <button type="button" onClick={() => handleRemoveStudentFromLeader(assignLeaderUsername, st.regNo)} style={{ border: 'none', background: 'transparent', color: '#e11d48', cursor: 'pointer', fontWeight: '800' }}>✕</button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                  <input type="text" value={leaderStudentSearch} onChange={e => setLeaderStudentSearch(e.target.value)} placeholder="Search student name or Ad.No..." style={{ ...styles.input, maxWidth: '260px' }} />
+                  <select value={leaderFilterClass} onChange={e => setLeaderFilterClass(e.target.value)} style={{ ...styles.input, maxWidth: '180px' }}>
+                    <option value="All">All Classes</option>
+                    {LEADER_CLASS_ORDER.map(c => <option key={c} value={c}>Class {c}</option>)}
+                  </select>
+                </div>
+
+                <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                    <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                      <tr>
+                        <th style={{ padding: '10px 14px', width: '40px' }}>✓</th>
+                        <th style={{ padding: '10px 14px' }}>CLASS</th>
+                        <th style={{ padding: '10px 14px' }}>AD.NO</th>
+                        <th style={{ padding: '10px 14px' }}>STUDENT NAME</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredLeaderAssignStudents.map((st) => {
+                        const checked = leaderSelectedRegs.includes(st.regNo);
+                        return (
+                          <tr
+                            key={st.regNo}
+                            onClick={() => setLeaderSelectedRegs(prev => prev.includes(st.regNo) ? prev.filter(r => r !== st.regNo) : [...prev, st.regNo])}
+                            style={{ borderBottom: '1px solid #f1f5f9', background: checked ? '#eef2ff' : '#ffffff', cursor: 'pointer' }}
+                          >
+                            <td style={{ padding: '10px 14px' }}><input type="checkbox" checked={checked} readOnly /></td>
+                            <td style={{ padding: '10px 14px', fontWeight: '700', color: '#4f46e5' }}>{(st.classes || []).join(', ')}</td>
+                            <td style={{ padding: '10px 14px', fontWeight: '600' }}>#{st.adNo}</td>
+                            <td style={{ padding: '10px 14px', fontWeight: '700' }}>{st.firstName}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          ) : (
+            /* ============================================================
+               VIEW 2B-2: EVENT LEADER ATTENDANCE AUDIT, SUMMARY & VERIFICATION
+               ============================================================ */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+              {/* KPI STRIP */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                  <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748b' }}>TOTAL SESSIONS LOGGED</div>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>{filteredLeaderLogs.length}</div>
+                </div>
+                <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                  <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748b' }}>STUDENT SITTINGS CHECKED</div>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#4f46e5', marginTop: '4px' }}>
+                    {filteredLeaderLogs.reduce((acc, l) => acc + (Number(l.totalAssigned) || 0), 0)}
+                  </div>
+                </div>
+                <div style={{ background: '#ecfdf5', padding: '16px', borderRadius: '12px', border: '1px solid #a7f3d0', textAlign: 'center' }}>
+                  <div style={{ fontSize: '11px', fontWeight: '800', color: '#047857' }}>TOTAL PRESENT</div>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#065f46', marginTop: '4px' }}>
+                    {filteredLeaderLogs.reduce((acc, l) => acc + (Number(l.presentCount) || 0), 0)}
+                  </div>
+                </div>
+                <div style={{ background: '#fff1f2', padding: '16px', borderRadius: '12px', border: '1px solid #fecdd3', textAlign: 'center' }}>
+                  <div style={{ fontSize: '11px', fontWeight: '800', color: '#be123c' }}>TOTAL ABSENT</div>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#9f1239', marginTop: '4px' }}>
+                    {filteredLeaderLogs.reduce((acc, l) => acc + (Number(l.absentCount) || 0), 0)}
+                  </div>
+                </div>
+                <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                  <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748b' }}>VERIFICATION STATUS</div>
+                  <div style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginTop: '6px' }}>
+                    <span style={{ color: '#059669' }}>{filteredLeaderLogs.filter(l => l.status === 'VERIFIED').length} Verified</span>
+                    {' • '}
+                    <span style={{ color: '#d97706' }}>{filteredLeaderLogs.filter(l => l.status !== 'VERIFIED').length} Pending</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* FILTER TOOLBAR */}
+              <div style={styles.card}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <select
+                      value={leaderLogFilterLeader}
+                      onChange={e => setLeaderLogFilterLeader(e.target.value)}
+                      style={{ ...styles.input, width: 'auto', fontWeight: '700' }}
+                    >
+                      <option value="ALL">All Event Leaders ({eventLeadersList.length})</option>
+                      {eventLeadersList.map(l => (
+                        <option key={l.username} value={l.username}>{l.fullName} (@{l.username})</option>
+                      ))}
+                    </select>
+
+                    <input
+                      type="date"
+                      value={leaderLogFilterDate}
+                      onChange={e => setLeaderLogFilterDate(e.target.value)}
+                      style={{ ...styles.input, width: 'auto' }}
+                    />
+                    {leaderLogFilterDate && (
+                      <button type="button" onClick={() => setLeaderLogFilterDate('')} style={{ fontSize: '11px', color: '#64748b', background: 'transparent', border: 'none', cursor: 'pointer' }}>✕ Clear Date</button>
+                    )}
+
+                    <select
+                      value={leaderLogFilterSession}
+                      onChange={e => setLeaderLogFilterSession(e.target.value)}
+                      style={{ ...styles.input, width: 'auto' }}
+                    >
+                      <option value="ALL">All Sittings</option>
+                      {REHEARSAL_SESSIONS.map(s => (
+                        <option key={s.id} value={s.id}>{s.label}</option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={leaderLogFilterStatus}
+                      onChange={e => setLeaderLogFilterStatus(e.target.value)}
+                      style={{ ...styles.input, width: 'auto' }}
+                    >
+                      <option value="ALL">All Statuses</option>
+                      <option value="SUBMITTED">Pending Verification</option>
+                      <option value="VERIFIED">Verified Only</option>
+                    </select>
+
+                    <input
+                      type="text"
+                      value={leaderLogSearch}
+                      onChange={e => setLeaderLogSearch(e.target.value)}
+                      placeholder="🔍 Search leader or student name..."
+                      style={{ ...styles.input, width: '220px' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button type="button" onClick={loadEventLeaderLogs} disabled={loadingLeaderLogs} style={styles.buttonSecondary}>
+                      {loadingLeaderLogs ? '⏳ Loading...' : '🔄 Refresh Logs'}
+                    </button>
+                    <button type="button" onClick={handleExportLeaderLogsExcel} style={styles.buttonPrimary}>
+                      📥 Export Excel
+                    </button>
+                  </div>
+                </div>
+
+                {/* SUMMARY BY LEADER BREAKDOWN */}
+                {leaderAggregatedStats.length > 0 && (
+                  <div style={{ marginBottom: '20px', padding: '14px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontWeight: '800', fontSize: '13px', color: '#0f172a', marginBottom: '8px' }}>
+                      Leader Attendance Summary Breakdown ({leaderAggregatedStats.length} Leaders):
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px' }}>
+                      {leaderAggregatedStats.map(s => {
+                        const pct = s.totalAssigned > 0 ? ((s.presentCount / s.totalAssigned) * 100).toFixed(1) : '100.0';
+                        return (
+                          <div key={s.username} style={{ background: '#ffffff', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontWeight: '800', fontSize: '13px', color: '#0f172a' }}>{s.fullName}</div>
+                              <div style={{ fontSize: '11px', color: '#64748b' }}>@{s.username} • {s.sessionsCount} sessions</div>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontWeight: '800', fontSize: '13px', color: '#047857' }}>{s.presentCount}/{s.totalAssigned} Pres</div>
+                              <div style={{ fontSize: '11px', color: '#64748b' }}>{pct}% rate ({s.absentCount} abs)</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* DETAILED SESSIONS TABLE */}
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
+                        <th style={{ padding: '12px 14px' }}>#</th>
+                        <th style={{ padding: '12px 14px' }}>DATE</th>
+                        <th style={{ padding: '12px 14px' }}>EVENT LEADER</th>
+                        <th style={{ padding: '12px 14px' }}>SITTING &amp; PERIODS</th>
+                        <th style={{ padding: '12px 14px', textAlign: 'center' }}>ASSIGNED</th>
+                        <th style={{ padding: '12px 14px', textAlign: 'center' }}>PRESENT</th>
+                        <th style={{ padding: '12px 14px', textAlign: 'center' }}>ABSENT</th>
+                        <th style={{ padding: '12px 14px', textAlign: 'center' }}>STATUS</th>
+                        <th style={{ padding: '12px 14px', textAlign: 'right' }}>ACTIONS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredLeaderLogs.length === 0 ? (
+                        <tr>
+                          <td colSpan="9" style={{ padding: '32px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
+                            {loadingLeaderLogs ? 'Loading event leader logs from database...' : 'No event leader attendance records match the current filter.'}
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredLeaderLogs.map((logItem, idx) => (
+                          <tr key={logItem.id} style={{ borderBottom: '1px solid #f1f5f9', background: '#ffffff' }}>
+                            <td style={{ padding: '12px 14px', color: '#64748b' }}>{idx + 1}</td>
+                            <td style={{ padding: '12px 14px', fontWeight: '700', color: '#0f172a' }}>{logItem.date}</td>
+                            <td style={{ padding: '12px 14px' }}>
+                              <div style={{ fontWeight: '700', color: '#0f172a' }}>{logItem.leaderName}</div>
+                              <div style={{ fontSize: '11px', color: '#64748b' }}>@{logItem.leaderUsername}</div>
+                            </td>
+                            <td style={{ padding: '12px 14px' }}>
+                              <span style={{ fontWeight: '700', color: '#4f46e5' }}>{logItem.sessionLabel}</span>
+                              <div style={{ fontSize: '11px', color: '#64748b' }}>Periods: {(logItem.coveredPeriods || []).join(', ')}</div>
+                            </td>
+                            <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: '700' }}>{logItem.totalAssigned}</td>
+                            <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: '700', color: '#047857' }}>{logItem.presentCount}</td>
+                            <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: '700', color: logItem.absentCount > 0 ? '#e11d48' : '#64748b' }}>
+                              {logItem.absentCount}
+                            </td>
+                            <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                              <span style={{
+                                padding: '3px 10px',
+                                borderRadius: '999px',
+                                fontSize: '11px',
+                                fontWeight: '800',
+                                background: logItem.status === 'VERIFIED' ? '#ecfdf5' : '#fffbeb',
+                                color: logItem.status === 'VERIFIED' ? '#047857' : '#b45309'
+                              }}>
+                                {logItem.status === 'VERIFIED' ? '✅ Verified' : '⏳ Submitted'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                              <div style={{ display: 'inline-flex', gap: '6px' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setInspectingLeaderLog(logItem)}
+                                  style={{ padding: '4px 10px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
+                                >
+                                  👁️ Inspect
+                                </button>
+                                {logItem.status !== 'VERIFIED' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleVerifyLeaderLog(logItem)}
+                                    disabled={loading}
+                                    style={{ padding: '4px 10px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
+                                  >
+                                    ✅ Verify
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

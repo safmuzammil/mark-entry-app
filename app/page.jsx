@@ -22,6 +22,7 @@ import NightAttendanceManager from './components/NightAttendanceManager';
 import OutPassPortal from './outpass/page';
 import PeriodAttendanceManager from './components/PeriodAttendanceManager';
 import MinusAttendanceManager from './components/MinusAttendanceManager';
+import AbsenceClearanceManager from './components/AbsenceClearanceManager';
 import { DHIU_LOGO_URL, styles } from './components/erpConstants';
 import {
   HighContrastStyles,
@@ -112,7 +113,7 @@ export default function UnifiedSchoolPortal() {
     if (typeof window === 'undefined') return;
 
     const hashTab = window.location.hash.replace('#', '').trim();
-    const validTabs = ['dashboard', 'students', 'teachers', 'subjects', 'attendance_minus', 'attendance', 'reports', 'outpass', 'gate_security', 'mentorship', 'reminders', 'proxy_marks'];
+    const validTabs = ['dashboard', 'students', 'teachers', 'subjects', 'attendance_minus', 'minus_attendance', 'absence_clearance', 'attendance', 'reports', 'outpass', 'gate_security', 'mentorship', 'reminders', 'proxy_marks'];
     if (hashTab && validTabs.includes(hashTab)) {
       setActiveAdminTab(hashTab);
       window.history.replaceState({ portalTab: hashTab }, '', '#' + hashTab);
@@ -459,6 +460,7 @@ export default function UnifiedSchoolPortal() {
       { id: 'subjects', label: 'Subjects', icon: '📚', desc: 'Course catalog, faculty assignments & student enrollments' },
       { id: 'attendance_minus', label: 'Period Attendance', icon: '📅', desc: 'Roll-call, monthly reports & shortage' },
       { id: 'minus_attendance', label: 'Minus Attendance', icon: '⚖️', desc: 'Deduct minus periods, edit records, filter & summary' },
+      { id: 'absence_clearance', label: 'Absence Clearance', icon: '🎟️', desc: 'Issue & inspect official absence clearance certificates' },
       { id: 'attendance', label: 'Night Attendance', icon: '🌙', desc: 'Hostel roll-call & out-pass verification' },
       { id: 'reports', label: 'Marks & Auditor', icon: '📊', desc: 'CCE mark auditor & level-by-level inspector' },
       { id: 'outpass', label: 'Out-Pass Portal', icon: '🪪', desc: 'Live campus movement & leave approvals' },
@@ -803,6 +805,16 @@ export default function UnifiedSchoolPortal() {
 
             {activeAdminTab === 'minus_attendance' && (
               <MinusAttendanceManager
+                userRole="admin"
+                loggedInUser={{ username: 'admin', fullName: 'Central Admin' }}
+                localStudents={adminStudentsList}
+                localTeachers={adminTeachersList}
+                onStudentsUpdated={(nextStudents) => setAdminStudentsList(nextStudents)}
+              />
+            )}
+
+            {activeAdminTab === 'absence_clearance' && (
+              <AbsenceClearanceManager
                 userRole="admin"
                 loggedInUser={{ username: 'admin', fullName: 'Central Admin' }}
                 localStudents={adminStudentsList}
