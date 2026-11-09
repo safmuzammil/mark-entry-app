@@ -1915,14 +1915,6 @@ export default function PeriodAttendanceManager({
                             </div>
                           </div>
                         )}
-                        {op && op.isReturned && (
-                          <div style={{ marginTop: '6px', background: '#f0fdf4', color: '#166534', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', lineHeight: 1.35, border: '1px solid #bbf7d0' }}>
-                            <div>🟢 <strong>Back Inside Campus (Verified Return)</strong></div>
-                            <div style={{ fontSize: '10px', marginTop: '2px', color: '#15803d' }}>
-                              Previous leave: &ldquo;{op.reason || op.category}&rdquo; by Usthad {op.teacherName} • Tap card to mark Absent if absent from class
-                            </div>
-                          </div>
-                        )}
                       </div>
                       <span style={{
                         padding: '4px 10px',

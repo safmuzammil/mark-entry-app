@@ -917,7 +917,6 @@ export default function NightAttendanceManager({
                 const ad = String(st.adNo || '').trim();
                 const curStatus = statusMap[ad] || 'PRESENT';
                 const activePass = getActiveOutpassForStudent(ad);
-                const returnedPass = getReturnedOutpassForStudent(ad);
 
                 const cardThemes = {
                   PRESENT: { bg: '#ffffff', border: '#e2e8f0', badgeBg: '#dcfce7', badgeColor: '#15803d', label: 'Present' },
@@ -969,17 +968,6 @@ export default function NightAttendanceManager({
                         </div>
                         <div style={{ fontSize: '10px', marginTop: '2px', color: '#b45309' }}>
                           Reason: &ldquo;{activePass.purpose || activePass.reason || 'Leave'}&rdquo; • Approved by: Usthad {activePass.teacherName}
-                        </div>
-                      </div>
-                    )}
-
-                    {returnedPass && !activePass && (
-                      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '7px 10px', borderRadius: '8px', fontSize: '11px', color: '#166534', lineHeight: 1.35 }}>
-                        <div style={{ fontWeight: '700' }}>
-                          🟢 Back Inside Campus (Verified at Gate)
-                        </div>
-                        <div style={{ fontSize: '10px', marginTop: '2px', color: '#15803d' }}>
-                          Reason was: &ldquo;{returnedPass.purpose || returnedPass.reason || returnedPass.leaveCategory}&rdquo; • Permitted by Usthad {returnedPass.teacherName}
                         </div>
                       </div>
                     )}
@@ -1542,7 +1530,6 @@ export default function NightAttendanceManager({
             {extraStudentsList.map(st => {
               const ad = String(st.adNo || '').trim();
               const activePass = getActiveOutpassForStudent(ad);
-                const returnedPass = getReturnedOutpassForStudent(ad);
               const isUrdu = isUrduStudent(st);
 
               let curStatus = extraStatusMap[ad];
