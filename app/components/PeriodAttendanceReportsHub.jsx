@@ -941,6 +941,14 @@ export default function PeriodAttendanceReportsHub({
                             const val = (s.attendanceMap || {})[reg] || (s.attendanceMap || {})[st.id] || (s.attendanceMap || {})[ad];
                             return val === 'P' || val === 'O';
                           });
+                          const isFnMed = fnSess.some(s => {
+                            const val = (s.attendanceMap || {})[reg] || (s.attendanceMap || {})[st.id] || (s.attendanceMap || {})[ad];
+                            return val === 'M';
+                          });
+                          const isAnMed = anSess.some(s => {
+                            const val = (s.attendanceMap || {})[reg] || (s.attendanceMap || {})[st.id] || (s.attendanceMap || {})[ad];
+                            return val === 'M';
+                          });
 
                           let badgeText = 'A';
                           let bg = '#fee2e2';
@@ -950,15 +958,16 @@ export default function PeriodAttendanceReportsHub({
                             if (isFnPres && isAnPres) { badgeText = 'P'; bg = '#dcfce7'; textCol = '#15803d'; }
                             else if (isFnPres) { badgeText = 'FN'; bg = '#fef3c7'; textCol = '#d97706'; }
                             else if (isAnPres) { badgeText = 'AN'; bg = '#e0f2fe'; textCol = '#0284c7'; }
+                            else if (isFnMed || isAnMed) { badgeText = 'ML'; bg = '#fef3c7'; textCol = '#b45309'; }
                             else { badgeText = 'A'; bg = '#fee2e2'; textCol = '#dc2626'; }
                           } else if (fnSess.length > 0) {
-                            badgeText = isFnPres ? 'FN' : 'A';
-                            bg = isFnPres ? '#fef3c7' : '#fee2e2';
-                            textCol = isFnPres ? '#d97706' : '#dc2626';
+                            badgeText = isFnPres ? 'FN' : isFnMed ? 'ML' : 'A';
+                            bg = isFnPres ? '#fef3c7' : isFnMed ? '#fef3c7' : '#fee2e2';
+                            textCol = isFnPres ? '#d97706' : isFnMed ? '#b45309' : '#dc2626';
                           } else if (anSess.length > 0) {
-                            badgeText = isAnPres ? 'AN' : 'A';
-                            bg = isAnPres ? '#e0f2fe' : '#fee2e2';
-                            textCol = isAnPres ? '#0284c7' : '#dc2626';
+                            badgeText = isAnPres ? 'AN' : isAnMed ? 'ML' : 'A';
+                            bg = isAnPres ? '#e0f2fe' : isAnMed ? '#fef3c7' : '#fee2e2';
+                            textCol = isAnPres ? '#0284c7' : isAnMed ? '#b45309' : '#dc2626';
                           }
 
                           return (
@@ -1021,7 +1030,8 @@ export default function PeriodAttendanceReportsHub({
                     {filteredDailySessions.map((sess, sIdx) => {
                       const mapVals = Object.values(sess.attendanceMap || {});
                       const presC = mapVals.filter(v => v === 'P' || v === 'O').length;
-                      const absC = mapVals.length - presC;
+                      const medC = mapVals.filter(v => v === 'M').length;
+                      const absC = mapVals.filter(v => v === 'A').length;
                       const isReh = Boolean(sess.isRehearsal || String(sess.subject || '').startsWith('REHEARSAL'));
                       const uniqueKey = sess.sessionDocId || sess.id || `${sess.date}_${sess.session}_${sess.subject}_${sIdx}`;
 
@@ -1039,7 +1049,7 @@ export default function PeriodAttendanceReportsHub({
                                 : (sess.subject || sess.classAlias || 'Period Session')}
                             </div>
                             <div style={{ fontSize: '12px', color: '#475569', fontWeight: '600', marginTop: '2px' }}>
-                              👨‍🏫 {sess.teacherName} • Pres: <strong style={{ color: '#059669' }}>{presC}</strong> / Abs: <strong style={{ color: '#e11d48' }}>{absC}</strong>
+                              👨‍🏫 {sess.teacherName} • Pres: <strong style={{ color: '#059669' }}>{presC}</strong> {medC > 0 && <span>• Med: <strong style={{ color: '#d97706' }}>{medC}</strong> </span>}/ Abs: <strong style={{ color: '#e11d48' }}>{absC}</strong>
                             </div>
                           </div>
                           {(() => {

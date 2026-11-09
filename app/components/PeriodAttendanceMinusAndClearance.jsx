@@ -911,8 +911,24 @@ export default function PeriodAttendanceMinusAndClearance({
 
         newCerts.push(certObj);
 
-        // Store in clearance_certificates collection
+        // Store in clearance_certificates and clearance_history collection
         batch.set(doc(db, 'clearance_certificates', certDocId), certObj);
+        batch.set(doc(db, 'clearance_history', certDocId), {
+          ...certObj,
+          studentRegNo: student.regNo,
+          studentAdNo: student.adNo,
+          studentClasses: student.classes || [],
+          clearanceType: clearReason === 'medical' ? 'MEDICAL_LEAVE' : 'OFFICIAL_PRESENT',
+          clearanceTypeLabel: clearReason === 'medical' ? '🏥 Medical Leave' : '🏛️ Official Leave (Present)',
+          totalPeriodsCleared: selectedPeriodObjs.length || clearSelectedSubjects.length || 1,
+          issuedByUsername: loggedInUser?.username || 'admin',
+          issuedByName: loggedInUser?.fullName || 'Central Admin',
+          verificationStatus: 'PENDING',
+          verifiedBy: null,
+          verifiedByName: null,
+          verifiedAt: null,
+          verificationNotes: ''
+        });
 
         // Append to student's periodAttendance stat
         const curStat = studentStatsDraft[student.regNo];

@@ -40,27 +40,38 @@ export default function AbsenceClearanceManager({
   localTeachers = [],
   onStudentsUpdated = null
 }) {
-  const [clearanceSubTab, setClearanceSubTab] = useState('issue'); // 'issue' | 'inspect' | 'registry'
+  const [clearanceSubTab, setClearanceSubTab] = useState('issue'); // 'issue' | 'history' | 'inspect'
 
-  // --- ISSUE NEW CLEARANCE STATE ---
+  // --- 1. ISSUE NEW CLEARANCE STATE ---
   const [clearAdNo, setClearAdNo] = useState('');
   const [fetchedClearStudentsList, setFetchedClearStudentsList] = useState([]);
-  const [fetchedAbsentPeriodSessions, setFetchedAbsentPeriodSessions] = useState([]); // [{ sessionDocId, date, session, subject, classAlias, teacherName, absentStudentRegs }]
+  const [fetchedAbsentPeriodSessions, setFetchedAbsentPeriodSessions] = useState([]);
   const [selectedClearSessionIds, setSelectedClearSessionIds] = useState([]);
   const [fetchedAbsentSubjects, setFetchedAbsentSubjects] = useState([]);
   const [showLegacySubjectFallback, setShowLegacySubjectFallback] = useState(false);
   const [clearSelectedSubjects, setClearSelectedSubjects] = useState([]);
-  const [clearReason, setClearReason] = useState('official'); // 'official' | 'medical' | 'permitted'
+  const [clearReason, setClearReason] = useState('medical'); // 'medical' | 'official' | 'permitted'
   const [clearDateMode, setClearDateMode] = useState('single'); // 'single' | 'range'
   const [clearDate, setClearDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [clearStartDate, setClearStartDate] = useState('');
   const [clearEndDate, setClearEndDate] = useState('');
   const [fetchingClearance, setFetchingClearance] = useState(false);
   const [clearanceRemarks, setClearanceRemarks] = useState('');
-  const [issuedClearanceCerts, setIssuedClearanceCerts] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // --- INSPECT & EDIT CLEARANCES STATE ---
+  // --- 2. CLEARANCE HISTORY & ADMIN VERIFICATION STATE ---
+  const [clearanceHistoryList, setClearanceHistoryList] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyTypeFilter, setHistoryTypeFilter] = useState('ALL'); // 'ALL' | 'MEDICAL_LEAVE' | 'OFFICIAL_PRESENT'
+  const [historyVerifyFilter, setHistoryVerifyFilter] = useState('ALL'); // 'ALL' | 'PENDING' | 'VERIFIED'
+  const [historyDateFrom, setHistoryDateFrom] = useState('');
+  const [historyDateTo, setHistoryDateTo] = useState('');
+  const [inspectingHistoryItem, setInspectingHistoryItem] = useState(null);
+  const [verifyingHistoryItem, setVerifyingHistoryItem] = useState(null);
+  const [verifyNotesInput, setVerifyNotesInput] = useState('');
+
+  // --- 3. INSPECT & EDIT STUDENT SESSIONS STATE ---
   const [inspectAdNo, setInspectAdNo] = useState('');
   const [inspectStudent, setInspectStudent] = useState(null);
   const [inspectDateStart, setInspectDateStart] = useState(() => {
@@ -69,51 +80,161 @@ export default function AbsenceClearanceManager({
     return d.toISOString().split('T')[0];
   });
   const [inspectDateEnd, setInspectDateEnd] = useState(() => new Date().toISOString().split('T')[0]);
-  const [inspectFilterStatus, setInspectFilterStatus] = useState('ALL'); // 'ALL' | 'CLEARED' | 'ABSENT'
+  const [inspectFilterStatus, setInspectFilterStatus] = useState('ALL'); // 'ALL' | 'MEDICAL' | 'OFFICIAL' | 'ABSENT' | 'CLEARED'
   const [inspectSessionsList, setInspectSessionsList] = useState([]);
-  const [selectedInspectSessionIds, setSelectedInspectSessionIds] = useState([]);
   const [fetchingInspect, setFetchingInspect] = useState(false);
-  const [editingCertRemarksId, setEditingCertRemarksId] = useState(null);
-  const [editedRemarksText, setEditedRemarksText] = useState('');
 
-  // --- REGISTRY STATE ---
-  const [registryCertificates, setRegistryCertificates] = useState([]);
-  const [loadingRegistry, setLoadingRegistry] = useState(false);
-  const [registrySearch, setRegistrySearch] = useState('');
-  const [registryReasonFilter, setRegistryReasonFilter] = useState('ALL');
-
-  // --- PRINTABLE CERTIFICATE MODAL STATE ---
+  // --- 4. PRINTABLE CERTIFICATE MODAL STATE ---
   const [activeCertToPrint, setActiveCertToPrint] = useState(null);
 
-  // Load existing registry certificates
-  const loadRegistryCertificates = async () => {
-    setLoadingRegistry(true);
+  // Load existing clearance history
+  const loadClearanceHistory = async () => {
+    setLoadingHistory(true);
     try {
-      const snap = await getDocs(query(collection(db, 'clearance_certificates'), orderBy('issuedAt', 'desc'), limit(150)));
       const list = [];
-      snap.forEach(d => list.push({ id: d.id, ...d.data() }));
-      setRegistryCertificates(list);
-    } catch (err) {
-      console.warn('Failed to load certificates from clearance_certificates collection, falling back to students:', err);
-      // Fallback: collect from localStudents
-      const allCerts = [];
+      const seenIds = new Set();
+
+      // 1. Check clearance_history collection
+      try {
+        const histSnap = await getDocs(query(collection(db, 'clearance_history'), orderBy('issuedAt', 'desc'), limit(200)));
+        histSnap.forEach(d => {
+          if (!seenIds.has(d.id)) {
+            seenIds.add(d.id);
+            list.push({ id: d.id, ...d.data() });
+          }
+        });
+      } catch (err) {
+        console.warn('clearance_history collection read notice:', err);
+      }
+
+      // 2. Check clearance_certificates collection for backward compatibility
+      try {
+        const certSnap = await getDocs(query(collection(db, 'clearance_certificates'), orderBy('issuedAt', 'desc'), limit(150)));
+        certSnap.forEach(d => {
+          if (!seenIds.has(d.id)) {
+            seenIds.add(d.id);
+            const data = d.data();
+            const isMed = data.reason === 'medical' || data.clearanceType === 'MEDICAL_LEAVE';
+            list.push({
+              id: d.id,
+              certNumber: data.certNumber || d.id,
+              studentRegNo: data.regNo,
+              studentAdNo: data.adNo,
+              studentName: data.studentName,
+              studentClasses: data.classes || [],
+              department: data.department || 'GENERAL',
+              clearanceType: isMed ? 'MEDICAL_LEAVE' : 'OFFICIAL_PRESENT',
+              clearanceTypeLabel: isMed ? '🏥 Medical Leave' : '🏛️ Official Leave (Present)',
+              reason: data.reason || (isMed ? 'medical' : 'official'),
+              remarks: data.remarks || '',
+              dates: data.dates || [],
+              totalPeriodsCleared: Array.isArray(data.clearedSessions) ? data.clearedSessions.length : (data.totalPeriodsCleared || 1),
+              clearedSessions: data.clearedSessions || [],
+              clearedLegacySubjects: data.clearedLegacySubjects || [],
+              issuedByUsername: data.clearedBy || 'admin',
+              issuedByName: data.clearedBy || 'Central Admin',
+              issuedByRole: data.clearedByRole || 'admin',
+              issuedAt: data.issuedAt || new Date().toISOString(),
+              verificationStatus: data.verificationStatus || 'PENDING',
+              verifiedBy: data.verifiedBy || null,
+              verifiedByName: data.verifiedByName || null,
+              verifiedAt: data.verifiedAt || null,
+              verificationNotes: data.verificationNotes || ''
+            });
+          }
+        });
+      } catch (certErr) {
+        console.warn('clearance_certificates collection read notice:', certErr);
+      }
+
+      // 3. Fallback: collect from localStudents periodAttendance
       localStudents.forEach(st => {
         const stat = getStudentAttStat(st);
         const certs = stat.clearanceCertificates || [];
-        certs.forEach(c => allCerts.push(c));
+        certs.forEach(c => {
+          const cId = c.id || c.certNumber;
+          if (cId && !seenIds.has(cId)) {
+            seenIds.add(cId);
+            const isMed = c.reason === 'medical' || c.clearanceType === 'MEDICAL_LEAVE';
+            list.push({
+              id: cId,
+              certNumber: c.certNumber || cId,
+              studentRegNo: st.regNo,
+              studentAdNo: st.adNo,
+              studentName: st.firstName,
+              studentClasses: st.classes || [st.class] || [],
+              department: st.department || 'GENERAL',
+              clearanceType: isMed ? 'MEDICAL_LEAVE' : 'OFFICIAL_PRESENT',
+              clearanceTypeLabel: isMed ? '🏥 Medical Leave' : '🏛️ Official Leave (Present)',
+              reason: c.reason || (isMed ? 'medical' : 'official'),
+              remarks: c.remarks || '',
+              dates: c.dates || [],
+              totalPeriodsCleared: Array.isArray(c.clearedSessions) ? c.clearedSessions.length : 1,
+              clearedSessions: c.clearedSessions || [],
+              clearedLegacySubjects: c.clearedLegacySubjects || [],
+              issuedByUsername: c.clearedBy || 'admin',
+              issuedByName: c.clearedBy || 'Central Admin',
+              issuedByRole: 'admin',
+              issuedAt: c.issuedAt || new Date().toISOString(),
+              verificationStatus: c.verificationStatus || 'PENDING',
+              verifiedBy: c.verifiedBy || null,
+              verifiedByName: c.verifiedByName || null,
+              verifiedAt: c.verifiedAt || null,
+              verificationNotes: c.verificationNotes || ''
+            });
+          }
+        });
       });
-      allCerts.sort((a, b) => String(b.issuedAt || '').localeCompare(String(a.issuedAt || '')));
-      setRegistryCertificates(allCerts);
+
+      list.sort((a, b) => String(b.issuedAt || '').localeCompare(String(a.issuedAt || '')));
+      setClearanceHistoryList(list);
+    } catch (err) {
+      console.error('Error loading clearance history:', err);
     } finally {
-      setLoadingRegistry(false);
+      setLoadingHistory(false);
     }
   };
 
   useEffect(() => {
-    if (clearanceSubTab === 'registry') {
-      loadRegistryCertificates();
+    if (clearanceSubTab === 'history') {
+      loadClearanceHistory();
     }
   }, [clearanceSubTab]);
+
+  // Filtered clearance history list
+  const filteredClearanceHistory = useMemo(() => {
+    return clearanceHistoryList.filter(item => {
+      if (historyTypeFilter !== 'ALL' && item.clearanceType !== historyTypeFilter) return false;
+      if (historyVerifyFilter !== 'ALL' && item.verificationStatus !== historyVerifyFilter) return false;
+      if (historyDateFrom) {
+        const itemDate = String(item.issuedAt || '').split('T')[0];
+        if (itemDate < historyDateFrom) return false;
+      }
+      if (historyDateTo) {
+        const itemDate = String(item.issuedAt || '').split('T')[0];
+        if (itemDate > historyDateTo) return false;
+      }
+      if (historySearch.trim()) {
+        const q = historySearch.trim().toLowerCase();
+        const matchName = String(item.studentName || '').toLowerCase().includes(q);
+        const matchAd = String(item.studentAdNo || '').toLowerCase().includes(q);
+        const matchCert = String(item.certNumber || item.id || '').toLowerCase().includes(q);
+        const matchIssuer = String(item.issuedByName || item.issuedByUsername || '').toLowerCase().includes(q);
+        if (!matchName && !matchAd && !matchCert && !matchIssuer) return false;
+      }
+      return true;
+    });
+  }, [clearanceHistoryList, historyTypeFilter, historyVerifyFilter, historyDateFrom, historyDateTo, historySearch]);
+
+  // Live KPI Summary
+  const historyKpis = useMemo(() => {
+    const total = clearanceHistoryList.length;
+    const medical = clearanceHistoryList.filter(i => i.clearanceType === 'MEDICAL_LEAVE' || i.reason === 'medical').length;
+    const official = clearanceHistoryList.filter(i => i.clearanceType === 'OFFICIAL_PRESENT' || i.reason === 'official' || i.reason === 'permitted').length;
+    const verified = clearanceHistoryList.filter(i => i.verificationStatus === 'VERIFIED').length;
+    const pending = total - verified;
+    return { total, medical, official, verified, pending };
+  }, [clearanceHistoryList]);
 
   // ==========================================
   // 1. FETCH ABSENT PERIOD SESSIONS FOR CLEARANCE
@@ -168,10 +289,10 @@ export default function AbsenceClearanceManager({
           const sData = sSnap.data();
           const attMap = sData.attendanceMap || {};
 
-          // Check which of the fetched students were marked Absent ('A') in this exact period
+          // Check if ANY of our target students were marked ABSENT in this session
           const absentStInThisPeriod = foundStudents.filter(st => {
-            const code = attMap[st.regNo] || attMap[st.id] || attMap[st.adNo];
-            return code === 'A';
+            const status = attMap[st.regNo] || attMap[st.id] || attMap[st.adNo];
+            return status === 'A';
           });
 
           if (absentStInThisPeriod.length > 0) {
@@ -191,10 +312,10 @@ export default function AbsenceClearanceManager({
 
       absentSessionItems.sort((a, b) => a.date.localeCompare(b.date) || a.session - b.session);
       setFetchedAbsentPeriodSessions(absentSessionItems);
-      // Pre-select all found absent periods automatically for 1-click convenience!
+      // Automatically pre-select all found absent periods for 1-click convenience
       setSelectedClearSessionIds(absentSessionItems.map(x => x.sessionDocId));
 
-      // Also check legacy subjectWise absentDates in case of older imported data without period numbers
+      // Also check legacy subjectWise absentDates in case of older imported records
       const subSet = new Set();
       foundStudents.forEach(st => {
         const stat = getStudentAttStat(st);
@@ -226,13 +347,17 @@ export default function AbsenceClearanceManager({
     e.preventDefault();
     if (fetchedClearStudentsList.length === 0) return alert('Please fetch students first.');
     if (selectedClearSessionIds.length === 0 && clearSelectedSubjects.length === 0) {
-      return alert('Please select at least one absent period (or legacy subject) to clear.');
+      return alert('Please select at least one absent period (or subject) to clear.');
     }
 
     setLoading(true);
     try {
       const batch = writeBatch(db);
       const updatedMap = {};
+
+      const isMedical = clearReason === 'medical';
+      const clearanceType = isMedical ? 'MEDICAL_LEAVE' : 'OFFICIAL_PRESENT';
+      const clearanceTypeLabel = isMedical ? '🏥 Medical Leave' : '🏛️ Official Leave (Present)';
 
       // Clone student stats for batch update
       const studentStatsDraft = {};
@@ -241,7 +366,7 @@ export default function AbsenceClearanceManager({
         if (!studentStatsDraft[st.regNo].subjectWise) studentStatsDraft[st.regNo].subjectWise = {};
       });
 
-      // 1. Apply Period-Specific Clearance (Updates both systemCache session & student stats!)
+      // 1. Apply Period-Specific Clearance (Updates both systemCache session & student stats)
       const selectedPeriodObjs = fetchedAbsentPeriodSessions.filter(p => selectedClearSessionIds.includes(p.sessionDocId));
 
       for (const pItem of selectedPeriodObjs) {
@@ -256,30 +381,36 @@ export default function AbsenceClearanceManager({
 
           const subKey = normalizeSubKey(pItem.subject);
           if (!curStat.subjectWise[subKey]) {
-            curStat.subjectWise[subKey] = { total: 1, present: 0, official: 0, medical: 0, permitted: 0, absentDates: [] };
+            curStat.subjectWise[subKey] = { total: 1, present: 0, official: 0, medical: 0, permitted: 0, absentDates: [], medicalDates: [] };
           }
           const subObj = curStat.subjectWise[subKey];
           if (!Array.isArray(subObj.absentDates)) subObj.absentDates = [];
+          if (!Array.isArray(subObj.medicalDates)) subObj.medicalDates = [];
 
+          // Remove date from unexcused absentDates
           const dateIdx = subObj.absentDates.indexOf(pItem.date);
           if (dateIdx !== -1) subObj.absentDates.splice(dateIdx, 1);
 
-          if (clearReason === 'official') {
-            attMap[regNo] = 'O';
-            curStat.presentCount = Math.min(curStat.totalPeriods || 9999, (curStat.presentCount || 0) + 1);
-            curStat.officialCount = (curStat.officialCount || 0) + 1;
-            subObj.present = Math.min(subObj.total || 9999, (subObj.present || 0) + 1);
-            subObj.official = (subObj.official || 0) + 1;
-          } else if (clearReason === 'medical') {
+          if (isMedical) {
+            // 🌟 1. MEDICAL CLEARANCE: Recorded & displayed explicitly as Medical Leave, NOT simple present
             attMap[regNo] = 'M';
             curStat.medicalCount = (curStat.medicalCount || 0) + 1;
             subObj.medical = (subObj.medical || 0) + 1;
+            if (!subObj.medicalDates.includes(pItem.date)) {
+              subObj.medicalDates.push(pItem.date);
+            }
           } else {
-            attMap[regNo] = 'O';
+            // 🌟 2. OFFICIAL LEAVE: Absence cleared as NORMAL PRESENT
+            attMap[regNo] = 'P';
             curStat.presentCount = Math.min(curStat.totalPeriods || 9999, (curStat.presentCount || 0) + 1);
-            curStat.permittedCount = (curStat.permittedCount || 0) + 1;
+            if (clearReason === 'official') {
+              curStat.officialCount = (curStat.officialCount || 0) + 1;
+              subObj.official = (subObj.official || 0) + 1;
+            } else {
+              curStat.permittedCount = (curStat.permittedCount || 0) + 1;
+              subObj.permitted = (subObj.permitted || 0) + 1;
+            }
             subObj.present = Math.min(subObj.total || 9999, (subObj.present || 0) + 1);
-            subObj.permitted = (subObj.permitted || 0) + 1;
           }
         });
 
@@ -295,28 +426,34 @@ export default function AbsenceClearanceManager({
           clearSelectedSubjects.forEach(sub => {
             const subKey = normalizeSubKey(sub);
             if (!curStat.subjectWise[subKey]) {
-              curStat.subjectWise[subKey] = { total: 0, present: 0, official: 0, medical: 0, permitted: 0, absentDates: [] };
+              curStat.subjectWise[subKey] = { total: 0, present: 0, official: 0, medical: 0, permitted: 0, absentDates: [], medicalDates: [] };
             }
             const subObj = curStat.subjectWise[subKey];
             if (!Array.isArray(subObj.absentDates)) subObj.absentDates = [];
+            if (!Array.isArray(subObj.medicalDates)) subObj.medicalDates = [];
 
             const matchingDates = subObj.absentDates.filter(d =>
               clearDateMode === 'single' ? d === clearDate : (d >= clearStartDate && d <= clearEndDate)
             );
             const countToClear = Math.max(1, matchingDates.length);
+            subObj.absentDates = subObj.absentDates.filter(d => !matchingDates.includes(d));
 
-            if (clearReason === 'official') {
-              curStat.presentCount = Math.min(curStat.totalPeriods || 9999, (curStat.presentCount || 0) + countToClear);
-              curStat.officialCount = (curStat.officialCount || 0) + countToClear;
-              subObj.present = Math.min(subObj.total || 9999, (subObj.present || 0) + countToClear);
-              subObj.official = (subObj.official || 0) + countToClear;
-              subObj.absentDates = subObj.absentDates.filter(d => !matchingDates.includes(d));
-            } else if (clearReason === 'medical') {
+            if (isMedical) {
               curStat.medicalCount = (curStat.medicalCount || 0) + countToClear;
               subObj.medical = (subObj.medical || 0) + countToClear;
+              matchingDates.forEach(d => {
+                if (!subObj.medicalDates.includes(d)) subObj.medicalDates.push(d);
+              });
             } else {
-              curStat.permittedCount = (curStat.permittedCount || 0) + countToClear;
-              subObj.permitted = (subObj.permitted || 0) + countToClear;
+              curStat.presentCount = Math.min(curStat.totalPeriods || 9999, (curStat.presentCount || 0) + countToClear);
+              subObj.present = Math.min(subObj.total || 9999, (subObj.present || 0) + countToClear);
+              if (clearReason === 'official') {
+                curStat.officialCount = (curStat.officialCount || 0) + countToClear;
+                subObj.official = (subObj.official || 0) + countToClear;
+              } else {
+                curStat.permittedCount = (curStat.permittedCount || 0) + countToClear;
+                subObj.permitted = (subObj.permitted || 0) + countToClear;
+              }
             }
           });
         });
@@ -330,48 +467,76 @@ export default function AbsenceClearanceManager({
         updatedMap[student.regNo] = { ...student, periodAttendance: finalStat };
       });
 
-      // Generate Official Clearance Certificates
-      const newCerts = [];
+      // 🌟 3. STORE DETAILED CLEARANCE HISTORY FOR ADMIN AUDIT & VERIFICATION
       const nowIso = new Date().toISOString();
       const targetDates = clearDateMode === 'single' ? [clearDate] : getDatesBetween(clearStartDate, clearEndDate);
+      const newHistoryRecords = [];
 
       fetchedClearStudentsList.forEach(student => {
         const certNumber = `DHIU/CLR/${new Date().getFullYear()}/${student.adNo || student.regNo}/${Math.floor(1000 + Math.random() * 9000)}`;
-        const certDocId = `cert_${Date.now()}_${student.regNo}`;
-        const certObj = {
-          id: certDocId,
+        const histDocId = `clearance_hist_${Date.now()}_${student.regNo}`;
+
+        const histObj = {
+          id: histDocId,
           certNumber,
-          regNo: student.regNo,
-          adNo: student.adNo,
+          studentRegNo: student.regNo,
+          studentAdNo: student.adNo,
           studentName: student.firstName,
-          classes: student.classes || [],
+          studentClasses: student.classes || [student.class] || [],
           department: student.department || 'GENERAL',
+          clearanceType,
+          clearanceTypeLabel,
+          reason: clearReason,
+          reasonLabel: isMedical
+            ? 'Medical / Hospitalization Leave (Excused)'
+            : clearReason === 'official'
+            ? 'Official College Duty / Outreach (Normal Present)'
+            : 'Special Rehearsal Duty / Waiver (Normal Present)',
+          remarks: clearanceRemarks || (isMedical
+            ? `Excused Medical Leave granted by ${loggedInUser?.fullName || 'Central Admin'}`
+            : `Official duty cleared as Normal Present by ${loggedInUser?.fullName || 'Central Admin'}`),
           dateMode: clearDateMode,
           dates: targetDates,
-          reason: clearReason,
-          remarks: clearanceRemarks || `Official attendance clearance granted by ${loggedInUser?.fullName || 'Attendance Clearance Desk'}`,
+          totalPeriodsCleared: selectedPeriodObjs.length || clearSelectedSubjects.length || 1,
           clearedSessions: selectedPeriodObjs.map(p => ({
             sessionDocId: p.sessionDocId,
             date: p.date,
             session: p.session,
             subject: p.subject,
-            teacherName: p.teacherName
+            teacherName: p.teacherName,
+            originalStatus: 'ABSENT',
+            newStatus: isMedical ? 'MEDICAL_LEAVE' : 'PRESENT'
           })),
           clearedLegacySubjects: clearSelectedSubjects,
-          clearedBy: loggedInUser?.fullName || loggedInUser?.username || 'Attendance Clearance Desk',
-          clearedByRole: userRole,
+          issuedByUsername: loggedInUser?.username || 'admin',
+          issuedByName: loggedInUser?.fullName || loggedInUser?.username || 'Central Admin',
+          issuedByRole: userRole,
           issuedAt: nowIso,
-          status: 'ISSUED'
+          verificationStatus: 'PENDING',
+          verifiedBy: null,
+          verifiedByName: null,
+          verifiedAt: null,
+          verificationNotes: ''
         };
 
-        newCerts.push(certObj);
-        batch.set(doc(db, 'clearance_certificates', certDocId), certObj);
+        newHistoryRecords.push(histObj);
 
+        // Save to clearance_history collection
+        batch.set(doc(db, 'clearance_history', histDocId), histObj);
+        // Mirror to clearance_certificates for backward compatibility
+        batch.set(doc(db, 'clearance_certificates', histDocId), {
+          ...histObj,
+          regNo: student.regNo,
+          adNo: student.adNo,
+          classes: student.classes || []
+        });
+
+        // Store in student object local certs cache
         const curStat = studentStatsDraft[student.regNo];
         if (curStat) {
           curStat.clearanceCertificates = [
-            certObj,
-            ...(Array.isArray(curStat.clearanceCertificates) ? curStat.clearanceCertificates : []).slice(0, 15)
+            histObj,
+            ...(Array.isArray(curStat.clearanceCertificates) ? curStat.clearanceCertificates : []).slice(0, 20)
           ];
         }
       });
@@ -383,12 +548,18 @@ export default function AbsenceClearanceManager({
         onStudentsUpdated(nextStudents);
       }
 
-      setIssuedClearanceCerts(newCerts);
-      if (newCerts.length > 0) {
-        setActiveCertToPrint(newCerts[0]);
+      setClearanceHistoryList(prev => [...newHistoryRecords, ...prev]);
+
+      if (newHistoryRecords.length > 0) {
+        setActiveCertToPrint(newHistoryRecords[0]);
       }
 
-      alert(`✅ Successfully cleared attendance for ${fetchedClearStudentsList.length} student(s) across ${selectedPeriodObjs.length} period session(s)!`);
+      alert(
+        isMedical
+          ? `✅ Successfully recorded MEDICAL LEAVE for ${fetchedClearStudentsList.length} student(s) across ${selectedPeriodObjs.length} period session(s)!`
+          : `✅ Successfully cleared attendance as NORMAL PRESENT for ${fetchedClearStudentsList.length} student(s) across ${selectedPeriodObjs.length} period session(s)!`
+      );
+
       setFetchedClearStudentsList([]);
       setFetchedAbsentPeriodSessions([]);
       setSelectedClearSessionIds([]);
@@ -403,7 +574,71 @@ export default function AbsenceClearanceManager({
   };
 
   // ==========================================
-  // 3. INSPECT & EDIT CLEARANCES
+  // 3. ADMIN VERIFICATION ACTIONS
+  // ==========================================
+  const handleVerifyClearanceHistory = async (histItem, customNotes = '') => {
+    setLoading(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const verifierUsername = loggedInUser?.username || 'admin';
+      const verifierName = loggedInUser?.fullName || 'Central Admin';
+      const verifiedUpdate = {
+        verificationStatus: 'VERIFIED',
+        verifiedBy: verifierUsername,
+        verifiedByName: verifierName,
+        verifiedAt: nowIso,
+        verificationNotes: customNotes.trim() || 'Formally verified and approved by Central Admin.'
+      };
+
+      await setDoc(doc(db, 'clearance_history', histItem.id), verifiedUpdate, { merge: true });
+      await setDoc(doc(db, 'clearance_certificates', histItem.id), verifiedUpdate, { merge: true });
+
+      setClearanceHistoryList(prev =>
+        prev.map(item => (item.id === histItem.id ? { ...item, ...verifiedUpdate } : item))
+      );
+
+      alert(`✅ Clearance for #${histItem.studentAdNo} (${histItem.studentName}) marked as VERIFIED!`);
+      setVerifyingHistoryItem(null);
+      setVerifyNotesInput('');
+    } catch (err) {
+      console.error('Error verifying clearance history item:', err);
+      alert('Error verifying clearance: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Export clearance history to Excel
+  const handleExportHistoryExcel = () => {
+    if (filteredClearanceHistory.length === 0) return alert('No clearance records to export.');
+
+    const rows = filteredClearanceHistory.map((item, idx) => ({
+      '#': idx + 1,
+      'Certificate Ref': item.certNumber || item.id,
+      'Issue Date': String(item.issuedAt || '').split('T')[0],
+      'Student Name': item.studentName,
+      'Admission No': item.studentAdNo,
+      'Reg No': item.studentRegNo,
+      'Class': Array.isArray(item.studentClasses) ? item.studentClasses.join(', ') : item.studentClasses,
+      'Clearance Type': item.clearanceType === 'MEDICAL_LEAVE' ? 'Medical Leave' : 'Normal Present (Official Leave)',
+      'Reason Category': item.reason,
+      'Total Periods Cleared': item.totalPeriodsCleared || 0,
+      'Target Dates': (item.dates || []).join(', '),
+      'Issued By': `${item.issuedByName} (@${item.issuedByUsername})`,
+      'Verification Status': item.verificationStatus === 'VERIFIED' ? 'Verified' : 'Pending Verification',
+      'Verified By': item.verifiedByName ? `${item.verifiedByName} on ${String(item.verifiedAt || '').split('T')[0]}` : '-',
+      'Verification Notes': item.verificationNotes || '-',
+      'Remarks': item.remarks || '-'
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Absence Clearances');
+    XLSX.writeFile(wb, `DHIU_Absence_Clearance_History_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  // ==========================================
+  // 4. INSPECT & EDIT STUDENT SESSIONS
   // ==========================================
   const handleLoadInspectStudent = async (targetAdNo) => {
     const qAd = String(targetAdNo || inspectAdNo).trim().toUpperCase();
@@ -418,7 +653,6 @@ export default function AbsenceClearanceManager({
     setInspectStudent(foundSt);
     setFetchingInspect(true);
     setInspectSessionsList([]);
-    setSelectedInspectSessionIds([]);
 
     try {
       const dates = getDatesBetween(inspectDateStart, inspectDateEnd);
@@ -436,8 +670,15 @@ export default function AbsenceClearanceManager({
           const attMap = sData.attendanceMap || {};
           const status = attMap[foundSt.regNo] || attMap[foundSt.id] || attMap[foundSt.adNo] || 'P';
 
+          if (inspectFilterStatus === 'MEDICAL' && status !== 'M') continue;
+          if (inspectFilterStatus === 'OFFICIAL' && status !== 'O' && status !== 'P') continue;
           if (inspectFilterStatus === 'CLEARED' && status !== 'O' && status !== 'M') continue;
           if (inspectFilterStatus === 'ABSENT' && status !== 'A') continue;
+
+          let displayStatus = 'PRESENT';
+          if (status === 'M') displayStatus = 'MEDICAL_LEAVE';
+          else if (status === 'O') displayStatus = 'OFFICIAL_PRESENT';
+          else if (status === 'A') displayStatus = 'ABSENT';
 
           list.push({
             sessionDocId: item.sessionDocId,
@@ -446,7 +687,8 @@ export default function AbsenceClearanceManager({
             subject: normalizeSubKey(sData.subject || item.subject || ''),
             classAlias: sData.classAlias || sData.subject || '',
             teacherName: sData.teacherName || 'Faculty',
-            status: status === 'O' ? 'CLEARED (OFFICIAL)' : status === 'M' ? 'CLEARED (MEDICAL)' : status === 'A' ? 'ABSENT' : 'PRESENT'
+            rawStatus: status,
+            displayStatus
           });
         }
       }
@@ -463,7 +705,12 @@ export default function AbsenceClearanceManager({
 
   const handleRevokeSessionClearance = async (sessionItem) => {
     if (!inspectStudent) return;
-    if (!window.confirm(`Are you sure you want to REVOKE clearance for Period ${sessionItem.session} on ${sessionItem.date}? This will restore the absence.`)) return;
+    const isMedRevoke = sessionItem.rawStatus === 'M';
+    const confirmPrompt = isMedRevoke
+      ? `Revoke Medical Leave for Period ${sessionItem.session} on ${sessionItem.date}? This will restore the absence.`
+      : `Revoke clearance for Period ${sessionItem.session} on ${sessionItem.date}? This will restore the absence.`;
+
+    if (!window.confirm(confirmPrompt)) return;
 
     setLoading(true);
     try {
@@ -481,14 +728,19 @@ export default function AbsenceClearanceManager({
 
       if (curStat.subjectWise && curStat.subjectWise[subKey]) {
         const subObj = curStat.subjectWise[subKey];
-        if (sessionItem.status.includes('OFFICIAL')) {
-          curStat.presentCount = Math.max(0, (curStat.presentCount || 0) - 1);
-          curStat.officialCount = Math.max(0, (curStat.officialCount || 0) - 1);
-          subObj.present = Math.max(0, (subObj.present || 0) - 1);
-          subObj.official = Math.max(0, (subObj.official || 0) - 1);
-        } else if (sessionItem.status.includes('MEDICAL')) {
+        if (sessionItem.rawStatus === 'M') {
           curStat.medicalCount = Math.max(0, (curStat.medicalCount || 0) - 1);
           subObj.medical = Math.max(0, (subObj.medical || 0) - 1);
+          if (Array.isArray(subObj.medicalDates)) {
+            subObj.medicalDates = subObj.medicalDates.filter(d => d !== sessionItem.date);
+          }
+        } else {
+          curStat.presentCount = Math.max(0, (curStat.presentCount || 0) - 1);
+          subObj.present = Math.max(0, (subObj.present || 0) - 1);
+          if (sessionItem.rawStatus === 'O') {
+            curStat.officialCount = Math.max(0, (curStat.officialCount || 0) - 1);
+            subObj.official = Math.max(0, (subObj.official || 0) - 1);
+          }
         }
         if (!Array.isArray(subObj.absentDates)) subObj.absentDates = [];
         if (!subObj.absentDates.includes(sessionItem.date)) subObj.absentDates.push(sessionItem.date);
@@ -499,10 +751,10 @@ export default function AbsenceClearanceManager({
       const updatedSt = { ...inspectStudent, periodAttendance: curStat };
       setInspectStudent(updatedSt);
       if (typeof onStudentsUpdated === 'function') {
-        onStudentsUpdated(localStudents.map(s => s.regNo === updatedSt.regNo ? updatedSt : s));
+        onStudentsUpdated(localStudents.map(s => (s.regNo === updatedSt.regNo ? updatedSt : s)));
       }
 
-      alert('✅ Clearance revoked and marked Absent.');
+      alert('✅ Clearance revoked and student restored to Absent.');
       handleLoadInspectStudent(inspectStudent.adNo);
     } catch (err) {
       console.error('Error revoking clearance:', err);
@@ -512,60 +764,85 @@ export default function AbsenceClearanceManager({
     }
   };
 
-  const handleSaveEditedRemarks = async (certId) => {
-    if (!editedRemarksText.trim()) return alert('Remarks cannot be empty.');
-    try {
-      await setDoc(doc(db, 'clearance_certificates', certId), {
-        remarks: editedRemarksText.trim(),
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
-      alert('✅ Clearance remarks updated.');
-      setEditingCertRemarksId(null);
-      loadRegistryCertificates();
-    } catch (e) {
-      alert('Error updating remarks: ' + e.message);
-    }
-  };
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
-      {/* PRINTABLE OFFICIAL ABSENCE & SHORTAGE CLEARANCE FORM MODAL */}
+      {/* 🌟 1. PRINTABLE OFFICIAL ABSENCE & MEDICAL LEAVE CERTIFICATE MODAL */}
       {activeCertToPrint && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2500, padding: '16px' }}>
-          <div style={{ background: '#ffffff', padding: '32px', borderRadius: '16px', maxWidth: '720px', width: '100%', color: '#0f172a', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2500, padding: '16px' }}>
+          <div style={{ background: '#ffffff', padding: '32px', borderRadius: '16px', maxWidth: '740px', width: '100%', color: '#0f172a', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #0f172a', paddingBottom: '14px', marginBottom: '20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <img src={DHIU_LOGO_URL} alt="DHIU" style={{ width: '52px', height: '52px', objectFit: 'contain' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <img src={DHIU_LOGO_URL} alt="DHIU" style={{ width: '56px', height: '56px', objectFit: 'contain' }} />
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '900' }}>DARUL HUDA DEGREE INSTITUTION</h3>
-                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#059669' }}>OFFICIAL ATTENDANCE CLEARANCE CERTIFICATE</div>
+                  <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '900', color: '#0f172a' }}>
+                    DARUL HUDA ISLAMIC UNIVERSITY
+                  </h3>
+                  <div style={{ fontSize: '13px', fontWeight: '800', color: activeCertToPrint.clearanceType === 'MEDICAL_LEAVE' ? '#d97706' : '#059669', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    {activeCertToPrint.clearanceType === 'MEDICAL_LEAVE'
+                      ? '🏥 Official Medical Leave Certificate (Excused)'
+                      : '🎟️ Official Attendance Clearance Certificate (Normal Present)'}
+                  </div>
                 </div>
               </div>
-              <button onClick={() => setActiveCertToPrint(null)} className="no-print" style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '8px 12px', borderRadius: '8px', fontWeight: '800', cursor: 'pointer' }}>✕ Close</button>
+              <button
+                onClick={() => setActiveCertToPrint(null)}
+                className="no-print"
+                style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '8px 14px', borderRadius: '8px', fontWeight: '800', cursor: 'pointer' }}
+              >
+                ✕ Close
+              </button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px', marginBottom: '20px', background: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
-              <div><strong>Certificate No:</strong> <code>{activeCertToPrint.certNumber || activeCertToPrint.id}</code></div>
-              <div><strong>Issue Date:</strong> {String(activeCertToPrint.issuedAt || '').split('T')[0] || 'Today'}</div>
-              <div><strong>Student Name:</strong> {activeCertToPrint.studentName}</div>
-              <div><strong>Admission No:</strong> #{activeCertToPrint.adNo} (Reg: {activeCertToPrint.regNo})</div>
-              <div><strong>Class:</strong> {(activeCertToPrint.classes || []).join(', ')}</div>
-              <div><strong>Reason Category:</strong> <span style={{ textTransform: 'uppercase', fontWeight: '800', color: '#059669' }}>{activeCertToPrint.reason}</span></div>
+              <div><strong>Reference No:</strong> <code>{activeCertToPrint.certNumber || activeCertToPrint.id}</code></div>
+              <div><strong>Issued Date:</strong> {String(activeCertToPrint.issuedAt || '').split('T')[0] || 'Today'}</div>
+              <div><strong>Student Name:</strong> <strong style={{ color: '#0f172a' }}>{activeCertToPrint.studentName}</strong></div>
+              <div><strong>Admission No:</strong> #{activeCertToPrint.studentAdNo || activeCertToPrint.adNo} (Reg: {activeCertToPrint.studentRegNo || activeCertToPrint.regNo})</div>
+              <div><strong>Class Batch:</strong> {Array.isArray(activeCertToPrint.studentClasses) ? activeCertToPrint.studentClasses.join(', ') : (activeCertToPrint.classes || []).join(', ')}</div>
+              <div>
+                <strong>Recorded Status:</strong>{' '}
+                <span style={{
+                  padding: '3px 10px',
+                  borderRadius: '999px',
+                  fontSize: '11px',
+                  fontWeight: '800',
+                  background: activeCertToPrint.clearanceType === 'MEDICAL_LEAVE' ? '#fef3c7' : '#ecfdf5',
+                  color: activeCertToPrint.clearanceType === 'MEDICAL_LEAVE' ? '#b45309' : '#047857'
+                }}>
+                  {activeCertToPrint.clearanceType === 'MEDICAL_LEAVE' ? '🏥 Medical Leave' : '✅ Normal Present'}
+                </span>
+              </div>
             </div>
 
             <div style={{ border: '1px solid #cbd5e1', borderRadius: '10px', padding: '16px', marginBottom: '20px', fontSize: '13px', background: '#ffffff' }}>
-              <strong style={{ color: '#0f172a' }}>Official Justification &amp; Authority Remarks:</strong>
+              <strong style={{ color: '#0f172a' }}>Official Approval &amp; Authority Statement:</strong>
               <p style={{ margin: '6px 0 0', color: '#334155', fontStyle: 'italic', lineHeight: 1.6 }}>
                 &ldquo;{activeCertToPrint.remarks}&rdquo;
               </p>
+
+              {activeCertToPrint.verificationStatus === 'VERIFIED' && (
+                <div style={{ marginTop: '10px', padding: '8px 12px', background: '#ecfdf5', borderRadius: '6px', border: '1px solid #a7f3d0', fontSize: '12px', color: '#047857', fontWeight: '700' }}>
+                  ✅ Formally verified by {activeCertToPrint.verifiedByName || 'Central Admin'} on {String(activeCertToPrint.verifiedAt || '').split('T')[0]}.
+                  {activeCertToPrint.verificationNotes ? ` (${activeCertToPrint.verificationNotes})` : ''}
+                </div>
+              )}
+
               {Array.isArray(activeCertToPrint.clearedSessions) && activeCertToPrint.clearedSessions.length > 0 && (
                 <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px dashed #e2e8f0' }}>
-                  <strong>Cleared Period Sessions ({activeCertToPrint.clearedSessions.length}):</strong>
+                  <strong>Cleared Sessions ({activeCertToPrint.clearedSessions.length}):</strong>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
                     {activeCertToPrint.clearedSessions.map((s, idx) => (
-                      <span key={idx} style={{ background: '#ecfdf5', color: '#065f46', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '700' }}>
-                        {s.date} • Period {s.session} ({s.subject})
+                      <span key={idx} style={{
+                        background: activeCertToPrint.clearanceType === 'MEDICAL_LEAVE' ? '#fef3c7' : '#ecfdf5',
+                        color: activeCertToPrint.clearanceType === 'MEDICAL_LEAVE' ? '#92400e' : '#065f46',
+                        padding: '3px 8px',
+                        borderRadius: '4px',
+                        fontSize: '11px',
+                        fontWeight: '700',
+                        border: activeCertToPrint.clearanceType === 'MEDICAL_LEAVE' ? '1px solid #fde68a' : '1px solid #a7f3d0'
+                      }}>
+                        {s.date} • Period {s.session} ({s.subject}) → {s.newStatus === 'MEDICAL_LEAVE' ? '🏥 Medical Leave' : '✅ Present'}
                       </span>
                     ))}
                   </div>
@@ -574,57 +851,156 @@ export default function AbsenceClearanceManager({
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginTop: '36px', textAlign: 'center', fontSize: '12px', fontWeight: '800' }}>
-              <div style={{ borderTop: '1.5px solid #0f172a', paddingTop: '8px' }}>Authorized Staff Signature</div>
-              <div style={{ borderTop: '1.5px solid #0f172a', paddingTop: '8px' }}>Class Teacher Signature</div>
+              <div style={{ borderTop: '1.5px solid #0f172a', paddingTop: '8px' }}>Authorized Officer / Admin</div>
+              <div style={{ borderTop: '1.5px solid #0f172a', paddingTop: '8px' }}>Class Teacher</div>
               <div style={{ borderTop: '1.5px solid #0f172a', paddingTop: '8px' }}>Principal / Academic HoD</div>
             </div>
 
             <div className="no-print" style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button type="button" onClick={() => window.print()} style={styles.buttonPrimary}>
-                🖨️ Print Clearance Certificate
+                🖨️ Print Certificate
               </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* 🌟 2. ADMIN VERIFICATION MODAL */}
+      {verifyingHistoryItem && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2600, padding: '16px' }}>
+          <div style={{ background: '#ffffff', padding: '28px', borderRadius: '16px', maxWidth: '520px', width: '100%', color: '#0f172a', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
+            <h3 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: '800' }}>
+              ✅ Verify Attendance Clearance
+            </h3>
+            <p style={{ fontSize: '13px', color: '#475569', marginBottom: '16px' }}>
+              You are verifying the {verifyingHistoryItem.clearanceType === 'MEDICAL_LEAVE' ? 'Medical Leave' : 'Official Leave'} clearance issued for <strong>{verifyingHistoryItem.studentName}</strong> (#{verifyingHistoryItem.studentAdNo}) covering {verifyingHistoryItem.totalPeriodsCleared} periods.
+            </p>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={styles.label}>Admin Verification Notes / Document Ref (Optional):</label>
+              <textarea
+                rows={3}
+                value={verifyNotesInput}
+                onChange={e => setVerifyNotesInput(e.target.value)}
+                placeholder="e.g. Doctor certificate verified & filed in academic records..."
+                style={{ ...styles.input, width: '100%', resize: 'vertical' }}
+              />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setVerifyingHistoryItem(null);
+                  setVerifyNotesInput('');
+                }}
+                style={styles.buttonSecondary}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleVerifyClearanceHistory(verifyingHistoryItem, verifyNotesInput)}
+                disabled={loading}
+                style={{ ...styles.buttonPrimary, background: '#059669' }}
+              >
+                {loading ? '⏳ Verifying...' : '✅ Confirm & Mark Verified'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🌟 3. SESSION INSPECTION MODAL */}
+      {inspectingHistoryItem && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2600, padding: '16px' }}>
+          <div style={{ background: '#ffffff', padding: '28px', borderRadius: '16px', maxWidth: '640px', width: '100%', color: '#0f172a', maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '17px', fontWeight: '800' }}>
+                📋 Session Breakdown: #{inspectingHistoryItem.studentAdNo} ({inspectingHistoryItem.studentName})
+              </h3>
+              <button onClick={() => setInspectingHistoryItem(null)} style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '6px 10px', borderRadius: '6px', fontWeight: '800', cursor: 'pointer' }}>✕</button>
+            </div>
+
+            <div style={{ marginBottom: '14px', fontSize: '13px', background: '#f8fafc', padding: '12px', borderRadius: '8px' }}>
+              <div><strong>Clearance Type:</strong> {inspectingHistoryItem.clearanceType === 'MEDICAL_LEAVE' ? '🏥 Medical Leave' : '🏛️ Official Leave (Present)'}</div>
+              <div><strong>Dates:</strong> {(inspectingHistoryItem.dates || []).join(', ')}</div>
+              <div><strong>Remarks:</strong> {inspectingHistoryItem.remarks}</div>
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1', color: '#475569', fontWeight: '800' }}>
+                    <th style={{ padding: '8px 10px' }}>Date</th>
+                    <th style={{ padding: '8px 10px' }}>Period</th>
+                    <th style={{ padding: '8px 10px' }}>Subject</th>
+                    <th style={{ padding: '8px 10px' }}>Faculty</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'center' }}>Cleared As</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(inspectingHistoryItem.clearedSessions || []).map((s, sIdx) => (
+                    <tr key={sIdx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '8px 10px', fontWeight: '700' }}>{s.date}</td>
+                      <td style={{ padding: '8px 10px' }}>Period {s.session}</td>
+                      <td style={{ padding: '8px 10px', fontWeight: '700', color: '#4f46e5' }}>{s.subject}</td>
+                      <td style={{ padding: '8px 10px', color: '#64748b' }}>{s.teacherName}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                        <span style={{
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: '800',
+                          background: s.newStatus === 'MEDICAL_LEAVE' ? '#fef3c7' : '#ecfdf5',
+                          color: s.newStatus === 'MEDICAL_LEAVE' ? '#b45309' : '#047857'
+                        }}>
+                          {s.newStatus === 'MEDICAL_LEAVE' ? '🏥 Medical Leave' : '✅ Present'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TOP NAVIGATION HEADER & SUB-TABS */}
-      <div style={{ background: '#ffffff', padding: '18px 24px', borderRadius: '14px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+      <div style={{ background: '#ffffff', padding: '18px 24px', borderRadius: '14px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px', boxShadow: '0 1px 3px rgba(15,23,42,0.05)' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '24px' }}>🎟️</span>
             <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '800', color: '#0f172a' }}>
-              Official Absence Clearance Desk
+              Official Absence &amp; Medical Leave Clearance Desk
             </h2>
             <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
               Admin Exclusive
             </span>
           </div>
           <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
-            Authorize and grant legitimate absence waivers for official college duties, medical hospitalization, and rehearsal performances.
+            Authorize and grant legitimate absence waivers: record <strong>Medical Leave</strong> (excused) or clear <strong>Official Leave</strong> as <strong>Normal Present</strong>, with full audit history and admin verification.
           </p>
         </div>
 
         <div style={{ display: 'flex', gap: '8px', background: '#f1f5f9', padding: '4px', borderRadius: '10px' }}>
           {[
             { id: 'issue', label: '🎟️ Issue New Clearance' },
-            { id: 'inspect', label: '🔍 Inspect & Edit Clearances' },
-            { id: 'registry', label: '📜 Certificates Registry' }
+            { id: 'history', label: `📋 Clearance History & Verification (${historyKpis.total})` },
+            { id: 'inspect', label: '🔍 Inspect Student Sessions' }
           ].map(tab => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setClearanceSubTab(tab.id)}
               style={{
-                padding: '8px 16px',
+                padding: '8px 14px',
                 borderRadius: '8px',
-                fontWeight: '800',
-                fontSize: '13px',
-                cursor: 'pointer',
                 border: 'none',
+                fontWeight: '700',
+                fontSize: '12px',
+                cursor: 'pointer',
                 background: clearanceSubTab === tab.id ? '#4f46e5' : 'transparent',
-                color: clearanceSubTab === tab.id ? '#ffffff' : '#64748b',
-                boxShadow: clearanceSubTab === tab.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                color: clearanceSubTab === tab.id ? '#ffffff' : '#475569',
                 transition: 'all 0.15s ease'
               }}
             >
@@ -638,14 +1014,15 @@ export default function AbsenceClearanceManager({
           VIEW 1: ISSUE NEW CLEARANCE
          ============================================================ */}
       {clearanceSubTab === 'issue' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-          <form onSubmit={handleSaveClearance} style={styles.card}>
-            {/* STEP 1: STUDENT ADMISSION NUMBER INPUT */}
+        <div style={styles.card}>
+          <form onSubmit={handleSaveClearance}>
+            {/* STEP 1: STUDENTS & DATE SELECTION */}
             <div style={{ background: '#f8fafc', padding: '18px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '18px' }}>
-              <label style={{ ...styles.label, fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '10px' }}>
-                Step 1: Enter Admission Number(s) &amp; Date Scope
+              <label style={{ ...styles.label, fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>
+                Step 1: Target Students &amp; Dates for Clearance
               </label>
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '14px', flexWrap: 'wrap' }}>
+
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '12px' }}>
                 <input
                   type="text"
                   value={clearAdNo}
@@ -828,39 +1205,69 @@ export default function AbsenceClearanceManager({
             {fetchedClearStudentsList.length > 0 && (
               <div style={{ background: '#f8fafc', padding: '18px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '18px' }}>
                 <label style={{ ...styles.label, fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '10px' }}>
-                  Step 3: Clearance Reason &amp; Official Remarks
+                  Step 3: Clearance Type &amp; Status Effect
                 </label>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginBottom: '14px' }}>
                   {[
-                    { id: 'official', label: '🏛️ Official College Duty / Outreach', desc: 'Approved representation or field task', countAsPresent: true },
-                    { id: 'medical', label: '🏥 Medical / Hospitalization Leave', desc: 'Medical case under doctor advice', countAsPresent: false },
-                    { id: 'permitted', label: '🎭 Rehearsal / Special Waiver', desc: 'Special institution approved activity', countAsPresent: true }
+                    {
+                      id: 'medical',
+                      label: '🏥 Medical Clearance / Hospitalization',
+                      desc: 'Recorded and displayed as Medical Leave (not simple present). Excused absence with medical certificate.',
+                      badge: '🏥 Medical Leave'
+                    },
+                    {
+                      id: 'official',
+                      label: '🏛️ Official Duty / College Outreach',
+                      desc: 'Cleared and converted into Normal Present in all registers, monthly reports, and attendance totals.',
+                      badge: '✅ Normal Present'
+                    },
+                    {
+                      id: 'permitted',
+                      label: '🎭 Rehearsal / Approved Special Duty',
+                      desc: 'Special authorized representation - cleared and converted into Normal Present.',
+                      badge: '✅ Normal Present'
+                    }
                   ].map(r => (
                     <div
                       key={r.id}
                       onClick={() => setClearReason(r.id)}
                       style={{
-                        padding: '12px 14px',
+                        padding: '14px 16px',
                         borderRadius: '10px',
                         border: clearReason === r.id ? '2px solid #4f46e5' : '1px solid #cbd5e1',
                         background: clearReason === r.id ? '#eef2ff' : '#ffffff',
-                        cursor: 'pointer'
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
                       }}
                     >
-                      <div style={{ fontWeight: '800', fontSize: '13px', color: clearReason === r.id ? '#4f46e5' : '#0f172a' }}>{r.label}</div>
-                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{r.desc}</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontWeight: '800', fontSize: '13px', color: clearReason === r.id ? '#4f46e5' : '#0f172a' }}>{r.label}</div>
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', lineHeight: 1.4 }}>{r.desc}</div>
+                      <div style={{ marginTop: '8px' }}>
+                        <span style={{
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          fontSize: '10px',
+                          fontWeight: '800',
+                          background: r.id === 'medical' ? '#fef3c7' : '#ecfdf5',
+                          color: r.id === 'medical' ? '#b45309' : '#047857'
+                        }}>
+                          Result: {r.badge}
+                        </span>
+                      </div>
                     </div>
                   ))}
                 </div>
 
                 <div>
-                  <label style={styles.label}>Official Remarks / Justification (Will appear on Certificate)</label>
+                  <label style={styles.label}>Official Remarks / Justification (Appears on Certificate &amp; History):</label>
                   <input
                     type="text"
                     value={clearanceRemarks}
                     onChange={e => setClearanceRemarks(e.target.value)}
-                    placeholder="e.g. Participated in University Outreach Program with prior principal approval..."
+                    placeholder="e.g. Admitted under doctor care; medical fitness certificate submitted..."
                     style={styles.input}
                   />
                 </div>
@@ -879,7 +1286,11 @@ export default function AbsenceClearanceManager({
                   opacity: selectedClearSessionIds.length === 0 ? 0.6 : 1
                 }}
               >
-                {loading ? '⏳ Applying Official Clearance...' : `🎟️ Clear ${selectedClearSessionIds.length} Absent Period(s) for ${fetchedClearStudentsList.length} Student(s)`}
+                {loading
+                  ? '⏳ Applying Official Clearance...'
+                  : clearReason === 'medical'
+                  ? `🏥 Record Medical Leave for ${selectedClearSessionIds.length} Period(s) (${fetchedClearStudentsList.length} Student)`
+                  : `🎟️ Clear ${selectedClearSessionIds.length} Period(s) as Normal Present (${fetchedClearStudentsList.length} Student)`}
               </button>
             )}
           </form>
@@ -887,7 +1298,227 @@ export default function AbsenceClearanceManager({
       )}
 
       {/* ============================================================
-          VIEW 2: INSPECT & EDIT CLEARANCES
+          VIEW 2: CLEARANCE HISTORY & ADMIN VERIFICATION DESK
+         ============================================================ */}
+      {clearanceSubTab === 'history' && (
+        <div style={styles.card}>
+          {/* LIVE KPI METRICS STRIP */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+            <div style={{ background: '#f8fafc', padding: '14px 16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '800', textTransform: 'uppercase' }}>Total Clearances</div>
+              <div style={{ fontSize: '24px', fontWeight: '900', color: '#0f172a', marginTop: '2px' }}>{historyKpis.total}</div>
+            </div>
+            <div style={{ background: '#fffbeb', padding: '14px 16px', borderRadius: '12px', border: '1px solid #fde68a' }}>
+              <div style={{ fontSize: '11px', color: '#b45309', fontWeight: '800', textTransform: 'uppercase' }}>🏥 Medical Leaves</div>
+              <div style={{ fontSize: '24px', fontWeight: '900', color: '#b45309', marginTop: '2px' }}>{historyKpis.medical}</div>
+            </div>
+            <div style={{ background: '#ecfdf5', padding: '14px 16px', borderRadius: '12px', border: '1px solid #a7f3d0' }}>
+              <div style={{ fontSize: '11px', color: '#047857', fontWeight: '800', textTransform: 'uppercase' }}>🏛️ Official (Present)</div>
+              <div style={{ fontSize: '24px', fontWeight: '900', color: '#047857', marginTop: '2px' }}>{historyKpis.official}</div>
+            </div>
+            <div style={{ background: '#f0fdf4', padding: '14px 16px', borderRadius: '12px', border: '1px solid #bbf7d0' }}>
+              <div style={{ fontSize: '11px', color: '#15803d', fontWeight: '800', textTransform: 'uppercase' }}>✅ Verified by Admin</div>
+              <div style={{ fontSize: '24px', fontWeight: '900', color: '#15803d', marginTop: '2px' }}>{historyKpis.verified}</div>
+            </div>
+            <div style={{ background: '#fff1f2', padding: '14px 16px', borderRadius: '12px', border: '1px solid #fecdd3' }}>
+              <div style={{ fontSize: '11px', color: '#be123c', fontWeight: '800', textTransform: 'uppercase' }}>⏳ Pending Verification</div>
+              <div style={{ fontSize: '24px', fontWeight: '900', color: '#be123c', marginTop: '2px' }}>{historyKpis.pending}</div>
+            </div>
+          </div>
+
+          {/* INTERACTIVE FILTERS & EXPORT */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={historySearch}
+                onChange={e => setHistorySearch(e.target.value)}
+                placeholder="🔍 Search name, Ad.No or ref..."
+                style={{ ...styles.input, width: '220px', padding: '7px 12px', fontSize: '12px' }}
+              />
+
+              <select
+                value={historyTypeFilter}
+                onChange={e => setHistoryTypeFilter(e.target.value)}
+                style={{ ...styles.input, width: 'auto', padding: '7px 12px', fontSize: '12px', fontWeight: '700' }}
+              >
+                <option value="ALL">All Clearance Types</option>
+                <option value="MEDICAL_LEAVE">🏥 Medical Leave Only</option>
+                <option value="OFFICIAL_PRESENT">🏛️ Official Leave (Present) Only</option>
+              </select>
+
+              <select
+                value={historyVerifyFilter}
+                onChange={e => setHistoryVerifyFilter(e.target.value)}
+                style={{ ...styles.input, width: 'auto', padding: '7px 12px', fontSize: '12px', fontWeight: '700' }}
+              >
+                <option value="ALL">All Statuses</option>
+                <option value="PENDING">⏳ Pending Verification</option>
+                <option value="VERIFIED">✅ Verified Only</option>
+              </select>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <input
+                  type="date"
+                  value={historyDateFrom}
+                  onChange={e => setHistoryDateFrom(e.target.value)}
+                  style={{ ...styles.input, width: 'auto', padding: '6px 8px', fontSize: '11px' }}
+                />
+                <span style={{ fontSize: '11px', color: '#64748b' }}>to</span>
+                <input
+                  type="date"
+                  value={historyDateTo}
+                  onChange={e => setHistoryDateTo(e.target.value)}
+                  style={{ ...styles.input, width: 'auto', padding: '6px 8px', fontSize: '11px' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={loadClearanceHistory}
+                disabled={loadingHistory}
+                style={{ ...styles.buttonSecondary, fontSize: '12px', padding: '7px 12px' }}
+              >
+                🔄 Refresh
+              </button>
+              <button
+                type="button"
+                onClick={handleExportHistoryExcel}
+                style={{ ...styles.buttonPrimary, background: '#059669', fontSize: '12px', padding: '7px 14px' }}
+              >
+                📥 Export Excel
+              </button>
+            </div>
+          </div>
+
+          {/* CLEARANCE HISTORY AUDIT TABLE */}
+          <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '12px 14px' }}>#</th>
+                  <th style={{ padding: '12px 14px' }}>DATE / REF</th>
+                  <th style={{ padding: '12px 14px' }}>STUDENT NAME</th>
+                  <th style={{ padding: '12px 14px' }}>CLEARANCE TYPE</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>PERIODS</th>
+                  <th style={{ padding: '12px 14px' }}>REMARKS</th>
+                  <th style={{ padding: '12px 14px' }}>ISSUED BY</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>VERIFICATION</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredClearanceHistory.length === 0 ? (
+                  <tr>
+                    <td colSpan="9" style={{ padding: '32px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
+                      {loadingHistory ? 'Loading clearance history...' : 'No clearance records match your current filter.'}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredClearanceHistory.map((item, idx) => {
+                    const isMed = item.clearanceType === 'MEDICAL_LEAVE' || item.reason === 'medical';
+                    const isVer = item.verificationStatus === 'VERIFIED';
+                    return (
+                      <tr key={item.id || idx} style={{ borderBottom: '1px solid #f1f5f9', background: '#ffffff' }}>
+                        <td style={{ padding: '12px 14px', color: '#64748b' }}>{idx + 1}</td>
+                        <td style={{ padding: '12px 14px' }}>
+                          <div style={{ fontWeight: '700', color: '#0f172a' }}>{String(item.issuedAt || '').split('T')[0]}</div>
+                          <code style={{ fontSize: '10px', color: '#64748b' }}>{item.certNumber || item.id}</code>
+                        </td>
+                        <td style={{ padding: '12px 14px' }}>
+                          <div style={{ fontWeight: '700', color: '#0f172a' }}>{item.studentName}</div>
+                          <div style={{ fontSize: '11px', color: '#64748b' }}>
+                            #{item.studentAdNo} • {Array.isArray(item.studentClasses) ? item.studentClasses.join(', ') : item.studentClasses}
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 14px' }}>
+                          <span style={{
+                            padding: '3px 10px',
+                            borderRadius: '999px',
+                            fontSize: '11px',
+                            fontWeight: '800',
+                            background: isMed ? '#fef3c7' : '#ecfdf5',
+                            color: isMed ? '#b45309' : '#047857'
+                          }}>
+                            {isMed ? '🏥 Medical Leave' : '🏛️ Normal Present'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                          <span style={{ fontWeight: '800', color: '#0f172a' }}>{item.totalPeriodsCleared || 1}</span>
+                          <div style={{ fontSize: '10px', color: '#64748b' }}>
+                            {(item.dates || []).length} day(s)
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 14px', maxWidth: '180px' }}>
+                          <div style={{ fontSize: '11px', color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.remarks}>
+                            {item.remarks || '-'}
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 14px' }}>
+                          <div style={{ fontWeight: '700', color: '#0f172a' }}>{item.issuedByName || 'Admin'}</div>
+                          <div style={{ fontSize: '10px', color: '#64748b' }}>@{item.issuedByUsername || 'admin'}</div>
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                          <span style={{
+                            padding: '3px 10px',
+                            borderRadius: '999px',
+                            fontSize: '11px',
+                            fontWeight: '800',
+                            background: isVer ? '#ecfdf5' : '#fffbeb',
+                            color: isVer ? '#047857' : '#b45309'
+                          }}>
+                            {isVer ? '✅ Verified' : '⏳ Pending'}
+                          </span>
+                          {isVer && item.verifiedByName && (
+                            <div style={{ fontSize: '9px', color: '#047857', marginTop: '2px' }}>
+                              by {item.verifiedByName}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                          <div style={{ display: 'inline-flex', gap: '6px' }}>
+                            <button
+                              type="button"
+                              onClick={() => setInspectingHistoryItem(item)}
+                              style={{ padding: '4px 8px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
+                              title="Inspect session breakdown"
+                            >
+                              👁️ Sessions
+                            </button>
+                            {!isVer && (
+                              <button
+                                type="button"
+                                onClick={() => setVerifyingHistoryItem(item)}
+                                style={{ padding: '4px 8px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}
+                                title="Mark clearance verified"
+                              >
+                                ✅ Verify
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setActiveCertToPrint(item)}
+                              style={{ padding: '4px 8px', background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
+                              title="View printable certificate"
+                            >
+                              📜 Cert
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          VIEW 3: INSPECT & EDIT STUDENT SESSIONS
          ============================================================ */}
       {clearanceSubTab === 'inspect' && (
         <div style={styles.card}>
@@ -925,11 +1556,13 @@ export default function AbsenceClearanceManager({
               <select
                 value={inspectFilterStatus}
                 onChange={e => setInspectFilterStatus(e.target.value)}
-                style={{ ...styles.input, width: 'auto' }}
+                style={{ ...styles.input, width: 'auto', fontWeight: '700' }}
               >
                 <option value="ALL">All Recorded Sessions</option>
-                <option value="CLEARED">Cleared Only (Official / Medical)</option>
-                <option value="ABSENT">Absent Only</option>
+                <option value="MEDICAL">🏥 Medical Leave Only</option>
+                <option value="OFFICIAL">🏛️ Official Leave (Present)</option>
+                <option value="ABSENT">❌ Absent Only</option>
+                <option value="CLEARED">All Cleared (Medical + Official)</option>
               </select>
             </div>
             <button
@@ -953,7 +1586,7 @@ export default function AbsenceClearanceManager({
             </div>
           )}
 
-          <div style={{ overflowX: 'auto' }}>
+          <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
@@ -962,7 +1595,7 @@ export default function AbsenceClearanceManager({
                   <th style={{ padding: '12px 14px' }}>PERIOD</th>
                   <th style={{ padding: '12px 14px' }}>SUBJECT</th>
                   <th style={{ padding: '12px 14px' }}>FACULTY</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>STATUS</th>
+                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>RECORDED STATUS</th>
                   <th style={{ padding: '12px 14px', textAlign: 'right' }}>ACTION</th>
                 </tr>
               </thead>
@@ -974,146 +1607,45 @@ export default function AbsenceClearanceManager({
                     </td>
                   </tr>
                 ) : (
-                  inspectSessionsList.map((item, idx) => (
-                    <tr key={item.sessionDocId} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '12px 14px', color: '#64748b' }}>{idx + 1}</td>
-                      <td style={{ padding: '12px 14px', fontWeight: '700' }}>{item.date}</td>
-                      <td style={{ padding: '12px 14px' }}>Period {item.session}</td>
-                      <td style={{ padding: '12px 14px', fontWeight: '700', color: '#4f46e5' }}>{item.subject}</td>
-                      <td style={{ padding: '12px 14px', color: '#475569' }}>{item.teacherName}</td>
-                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                        <span style={{
-                          padding: '3px 10px',
-                          borderRadius: '999px',
-                          fontSize: '11px',
-                          fontWeight: '800',
-                          background: item.status.includes('CLEARED') ? '#ecfdf5' : item.status === 'ABSENT' ? '#ffe4e6' : '#f8fafc',
-                          color: item.status.includes('CLEARED') ? '#047857' : item.status === 'ABSENT' ? '#e11d48' : '#64748b'
-                        }}>
-                          {item.status}
-                        </span>
-                      </td>
-                      <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                        {item.status.includes('CLEARED') && (
-                          <button
-                            type="button"
-                            onClick={() => handleRevokeSessionClearance(item)}
-                            disabled={loading}
-                            style={{ padding: '4px 10px', background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
-                          >
-                            Revoke Clearance
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================
-          VIEW 3: CERTIFICATES REGISTRY
-         ============================================================ */}
-      {clearanceSubTab === 'registry' && (
-        <div style={styles.card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <input
-                type="text"
-                value={registrySearch}
-                onChange={e => setRegistrySearch(e.target.value)}
-                placeholder="🔍 Search student, Ad.No or certificate..."
-                style={{ ...styles.input, width: '260px' }}
-              />
-              <select
-                value={registryReasonFilter}
-                onChange={e => setRegistryReasonFilter(e.target.value)}
-                style={{ ...styles.input, width: 'auto' }}
-              >
-                <option value="ALL">All Reason Types</option>
-                <option value="official">Official Duty Only</option>
-                <option value="medical">Medical Only</option>
-                <option value="permitted">Rehearsal / Special Only</option>
-              </select>
-            </div>
-            <button
-              type="button"
-              onClick={loadRegistryCertificates}
-              disabled={loadingRegistry}
-              style={styles.buttonSecondary}
-            >
-              🔄 Refresh List
-            </button>
-          </div>
-
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '12px 14px' }}>#</th>
-                  <th style={{ padding: '12px 14px' }}>CERT NUMBER</th>
-                  <th style={{ padding: '12px 14px' }}>STUDENT NAME</th>
-                  <th style={{ padding: '12px 14px' }}>AD.NO</th>
-                  <th style={{ padding: '12px 14px' }}>REASON</th>
-                  <th style={{ padding: '12px 14px' }}>PERIODS</th>
-                  <th style={{ padding: '12px 14px' }}>ISSUED AT</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>ACTION</th>
-                </tr>
-              </thead>
-              <tbody>
-                {registryCertificates
-                  .filter(c => {
-                    if (registryReasonFilter !== 'ALL' && c.reason !== registryReasonFilter) return false;
-                    if (registrySearch.trim()) {
-                      const q = registrySearch.trim().toLowerCase();
-                      const matchName = String(c.studentName || '').toLowerCase().includes(q);
-                      const matchAd = String(c.adNo || '').toLowerCase().includes(q);
-                      const matchCert = String(c.certNumber || c.id || '').toLowerCase().includes(q);
-                      if (!matchName && !matchAd && !matchCert) return false;
-                    }
-                    return true;
+                  inspectSessionsList.map((item, idx) => {
+                    const isMed = item.rawStatus === 'M';
+                    const isOff = item.rawStatus === 'O';
+                    const isAbs = item.rawStatus === 'A';
+                    return (
+                      <tr key={item.sessionDocId} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '12px 14px', color: '#64748b' }}>{idx + 1}</td>
+                        <td style={{ padding: '12px 14px', fontWeight: '700' }}>{item.date}</td>
+                        <td style={{ padding: '12px 14px' }}>Period {item.session}</td>
+                        <td style={{ padding: '12px 14px', fontWeight: '700', color: '#4f46e5' }}>{item.subject}</td>
+                        <td style={{ padding: '12px 14px', color: '#475569' }}>{item.teacherName}</td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                          <span style={{
+                            padding: '3px 10px',
+                            borderRadius: '999px',
+                            fontSize: '11px',
+                            fontWeight: '800',
+                            background: isMed ? '#fef3c7' : isOff ? '#ecfdf5' : isAbs ? '#fee2e2' : '#f0fdf4',
+                            color: isMed ? '#b45309' : isOff ? '#047857' : isAbs ? '#dc2626' : '#15803d'
+                          }}>
+                            {isMed ? '🏥 Medical Leave' : isOff ? '🏛️ Official Leave (Present)' : isAbs ? '❌ Absent' : '✅ Present'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                          {(isMed || isOff) && (
+                            <button
+                              type="button"
+                              onClick={() => handleRevokeSessionClearance(item)}
+                              disabled={loading}
+                              style={{ padding: '4px 10px', background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
+                            >
+                              Revoke Clearance
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
                   })
-                  .map((c, idx) => (
-                    <tr key={c.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '12px 14px', color: '#64748b' }}>{idx + 1}</td>
-                      <td style={{ padding: '12px 14px', fontWeight: '700', color: '#0f172a' }}>
-                        <code>{c.certNumber || c.id}</code>
-                      </td>
-                      <td style={{ padding: '12px 14px', fontWeight: '700' }}>{c.studentName}</td>
-                      <td style={{ padding: '12px 14px', color: '#475569' }}>#{c.adNo}</td>
-                      <td style={{ padding: '12px 14px' }}>
-                        <span style={{
-                          padding: '2px 8px',
-                          borderRadius: '6px',
-                          fontSize: '11px',
-                          fontWeight: '800',
-                          textTransform: 'uppercase',
-                          background: c.reason === 'official' ? '#ecfdf5' : c.reason === 'medical' ? '#fef3c7' : '#eef2ff',
-                          color: c.reason === 'official' ? '#047857' : c.reason === 'medical' ? '#b45309' : '#4338ca'
-                        }}>
-                          {c.reason}
-                        </span>
-                      </td>
-                      <td style={{ padding: '12px 14px', color: '#64748b' }}>
-                        {Array.isArray(c.clearedSessions) ? `${c.clearedSessions.length} periods` : 'Legacy'}
-                      </td>
-                      <td style={{ padding: '12px 14px', color: '#64748b', fontSize: '12px' }}>
-                        {String(c.issuedAt || '').split('T')[0]}
-                      </td>
-                      <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                        <button
-                          type="button"
-                          onClick={() => setActiveCertToPrint(c)}
-                          style={{ padding: '5px 12px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}
-                        >
-                          🖨️ View &amp; Print
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                )}
               </tbody>
             </table>
           </div>
