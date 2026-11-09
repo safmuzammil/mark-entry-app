@@ -646,13 +646,18 @@ export default function MinusAttendanceManager({
                     type="button"
                     onClick={() => handleAddEntireClass(cls)}
                     style={{
-                      padding: '5px 10px',
-                      background: '#f8fafc',
-                      border: '1px solid #cbd5e1',
-                      borderRadius: '6px',
-                      fontSize: '11px',
-                      fontWeight: '700',
-                      cursor: 'pointer'
+                      padding: '8px 14px',
+                      background: '#ffffff',
+                      color: '#0f172a',
+                      border: '1.5px solid #94a3b8',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                      fontWeight: '800',
+                      cursor: 'pointer',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px'
                     }}
                     title={`Add all students in ${cls}`}
                   >
@@ -697,13 +702,15 @@ export default function MinusAttendanceManager({
                         setMinusSearchQuery('');
                       }}
                       style={{
-                        padding: '4px 10px',
+                        padding: '6px 12px',
                         background: '#ffffff',
-                        border: '1px solid #cbd5e1',
-                        borderRadius: '6px',
-                        fontSize: '11px',
-                        fontWeight: '700',
-                        cursor: 'pointer'
+                        color: '#0f172a',
+                        border: '1.5px solid #94a3b8',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        fontWeight: '800',
+                        cursor: 'pointer',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                       }}
                     >
                       + {st.firstName} (#{st.adNo} • {(st.classes || [st.class]).join(',')})

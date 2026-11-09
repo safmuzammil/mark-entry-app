@@ -491,6 +491,12 @@ export default function UnifiedSchoolPortal() {
             }
             .dhiu-mobile-menu-btn {
               display: inline-flex !important;
+              align-items: center;
+              justify-content: center;
+              color: #0f172a !important;
+              background-color: #ffffff !important;
+              border: 1.5px solid #94a3b8 !important;
+              box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
             }
           }
         `}</style>
@@ -598,7 +604,20 @@ export default function UnifiedSchoolPortal() {
                 type="button"
                 className="dhiu-mobile-menu-btn"
                 onClick={() => setMobileSidebarOpen(true)}
-                style={{ display: 'none', padding: '8px 12px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '16px' }}
+                style={{
+                  display: 'none',
+                  padding: '8px 14px',
+                  background: '#ffffff',
+                  color: '#0f172a',
+                  border: '1.5px solid #94a3b8',
+                  borderRadius: '10px',
+                  fontWeight: '900',
+                  cursor: 'pointer',
+                  fontSize: '22px',
+                  lineHeight: '1',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                }}
+                aria-label="Toggle navigation menu"
               >
                 ☰
               </button>
