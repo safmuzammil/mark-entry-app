@@ -397,8 +397,8 @@ export default function NightAttendanceManager({
 
     classStudents.forEach(st => {
       const ad = String(st.adNo || '').trim();
+      const activePass = getActiveOutpassForStudent(ad);
       const returnedPass = getReturnedOutpassForStudent(ad);
-                const activePass = getActiveOutpassForStudent(ad);
       const isOfficialPass = activePass && (
         String(activePass.leaveCategory || '').toLowerCase().includes('official') ||
         String(activePass.leaveCategory || '').toLowerCase().includes('outreach')
@@ -917,6 +917,7 @@ export default function NightAttendanceManager({
                 const ad = String(st.adNo || '').trim();
                 const curStatus = statusMap[ad] || 'PRESENT';
                 const activePass = getActiveOutpassForStudent(ad);
+                const returnedPass = getReturnedOutpassForStudent(ad);
 
                 const cardThemes = {
                   PRESENT: { bg: '#ffffff', border: '#e2e8f0', badgeBg: '#dcfce7', badgeColor: '#15803d', label: 'Present' },
@@ -1541,6 +1542,7 @@ export default function NightAttendanceManager({
             {extraStudentsList.map(st => {
               const ad = String(st.adNo || '').trim();
               const activePass = getActiveOutpassForStudent(ad);
+                const returnedPass = getReturnedOutpassForStudent(ad);
               const isUrdu = isUrduStudent(st);
 
               let curStatus = extraStatusMap[ad];

@@ -820,11 +820,13 @@ export default function UnifiedSchoolPortal() {
             )}
 
             {activeAdminTab === 'attendance' && (
-              <NightAttendanceManager
-                isAdmin={true}
-                preloadedStudents={adminStudentsList}
-                preloadedTeachers={adminTeachersList}
-              />
+              <PortalErrorBoundary tabLabel="Night Attendance Register">
+                <NightAttendanceManager
+                  isAdmin={true}
+                  preloadedStudents={adminStudentsList}
+                  preloadedTeachers={adminTeachersList}
+                />
+              </PortalErrorBoundary>
             )}
 
             {activeAdminTab === 'mentorship' && (
