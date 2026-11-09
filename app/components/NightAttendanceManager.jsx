@@ -70,6 +70,13 @@ export default function NightAttendanceManager({
   const [nightRepMonth, setNightRepMonth] = useState(() => getTodayDateString().slice(0, 7));
   const [nightRepClass, setNightRepClass] = useState('ALL');
 
+  // 🌟 MORNING ADVANCE ABSENCE PRE-RECORDING STATE
+  const [isMorningPreRecordMode, setIsMorningPreRecordMode] = useState(false);
+  const [preRecordSelectedAdNos, setPreRecordSelectedAdNos] = useState([]);
+  const [preRecordReason, setPreRecordReason] = useState('🤒 Sick / Fever in Room');
+  const [preRecordStatusType, setPreRecordStatusType] = useState('ABSENT'); // 'ABSENT' | 'SICK_ROOM'
+  const [preRecordSaving, setPreRecordSaving] = useState(false);
+
   // 🌟 EXTRA ATTENDANCE STATE (Same-Day Multi-Session Recording & Reports)
   const [extraDate, setExtraDate] = useState(getTodayDateString());
   const [extraClass, setExtraClass] = useState(
@@ -425,7 +432,12 @@ export default function NightAttendanceManager({
           newStatus[ad] = 'PRESENT';
         }
       } else {
-        if (activePass) {
+        // Attendance not finalized yet tonight!
+        // 🌟 Check if student was pre-recorded absent in the morning:
+        const preRecordedForClass = (dailyDocData.preRecordedAbsences || {})[selectedClass] || {};
+        if (preRecordedForClass[ad]) {
+          newStatus[ad] = preRecordedForClass[ad].status || 'ABSENT';
+        } else if (activePass) {
           newStatus[ad] = isOfficialPass ? 'OFFICIAL' : 'OUTPASS';
         } else {
           newStatus[ad] = 'PRESENT';
@@ -464,9 +476,109 @@ export default function NightAttendanceManager({
   const handleCardQuickTap = (adNo) => {
     setStatusMap(prev => {
       const cur = prev[adNo] || 'PRESENT';
-      
       return { ...prev, [adNo]: cur === 'PRESENT' ? 'ABSENT' : 'PRESENT' };
     });
+  };
+
+  const handleToggleCardPreRecord = (adNo) => {
+    setPreRecordSelectedAdNos(prev =>
+      prev.includes(adNo) ? prev.filter(x => x !== adNo) : [...prev, adNo]
+    );
+  };
+
+  const handleSavePreRecordedAbsences = async () => {
+    if (preRecordSelectedAdNos.length === 0) {
+      return alert('Please select at least one student card to pre-record as absent.');
+    }
+    const finalReason = preRecordReason.trim() || 'Excused absence reported in morning';
+
+    setPreRecordSaving(true);
+    try {
+      const existingPre = (dailyDocData.preRecordedAbsences || {})[selectedClass] || {};
+      const updatedClassPre = { ...existingPre };
+
+      preRecordSelectedAdNos.forEach(ad => {
+        const st = classStudents.find(s => String(s.adNo || '').trim() === ad);
+        updatedClassPre[ad] = {
+          adNo: ad,
+          studentName: st?.firstName || 'Student',
+          studentRegNo: st?.regNo || '',
+          status: preRecordStatusType || 'ABSENT',
+          reason: finalReason,
+          recordedBy: recorderName || 'Teacher',
+          recordedAt: new Date().toISOString()
+        };
+      });
+
+      const updatedPreMap = {
+        ...(dailyDocData.preRecordedAbsences || {}),
+        [selectedClass]: updatedClassPre
+      };
+
+      await setDoc(doc(db, 'night_attendance', selectedDate), {
+        date: selectedDate,
+        preRecordedAbsences: updatedPreMap,
+        lastUpdated: new Date().toISOString()
+      }, { merge: true });
+
+      setDailyDocData(prev => ({
+        ...prev,
+        preRecordedAbsences: updatedPreMap
+      }));
+
+      // Update statusMap for immediate UI feedback
+      setStatusMap(prev => {
+        const next = { ...prev };
+        preRecordSelectedAdNos.forEach(ad => {
+          next[ad] = preRecordStatusType || 'ABSENT';
+        });
+        return next;
+      });
+
+      setIsMorningPreRecordMode(false);
+      setPreRecordSelectedAdNos([]);
+
+      alert(`✅ Pre-recorded ${preRecordSelectedAdNos.length} absent student(s) for Class ${selectedClass} (${selectedDate})!\n\nReason: "${finalReason}"\n\nOther students remain pending for night roll-call.`);
+    } catch (err) {
+      console.error('Error saving pre-recorded absences:', err);
+      alert('Error saving pre-recorded absences: ' + err.message);
+    } finally {
+      setPreRecordSaving(false);
+    }
+  };
+
+  const handleRemovePreRecordedAbsence = async (adNo) => {
+    if (!window.confirm(`Clear morning pre-recorded absence for student #${adNo}?`)) return;
+
+    try {
+      const existingPre = (dailyDocData.preRecordedAbsences || {})[selectedClass] || {};
+      const updatedClassPre = { ...existingPre };
+      delete updatedClassPre[adNo];
+
+      const updatedPreMap = {
+        ...(dailyDocData.preRecordedAbsences || {}),
+        [selectedClass]: updatedClassPre
+      };
+
+      await setDoc(doc(db, 'night_attendance', selectedDate), {
+        preRecordedAbsences: updatedPreMap,
+        lastUpdated: new Date().toISOString()
+      }, { merge: true });
+
+      setDailyDocData(prev => ({
+        ...prev,
+        preRecordedAbsences: updatedPreMap
+      }));
+
+      setStatusMap(prev => ({
+        ...prev,
+        [adNo]: 'PRESENT'
+      }));
+
+      alert(`✅ Pre-recorded absence cleared for #${adNo}.`);
+    } catch (err) {
+      alert('Error clearing pre-record: ' + err.message);
+    }
   };
 
   const handleSaveClassAttendance = async () => {
@@ -486,6 +598,19 @@ export default function NightAttendanceManager({
         if (stStatus === 'SICK_ROOM') sickAdNos.push(ad);
       });
 
+      const preRecordedForClass = (dailyDocData.preRecordedAbsences || {})[selectedClass] || {};
+      const absentReasonsMap = {};
+      absentAdNos.forEach(ad => {
+        if (preRecordedForClass[ad]) {
+          absentReasonsMap[ad] = preRecordedForClass[ad].reason;
+        }
+      });
+      sickAdNos.forEach(ad => {
+        if (preRecordedForClass[ad]) {
+          absentReasonsMap[ad] = preRecordedForClass[ad].reason;
+        }
+      });
+
       const classPayload = {
         className: selectedClass,
         totalStrength: classStudents.length,
@@ -498,6 +623,7 @@ export default function NightAttendanceManager({
         outpassAdNos,
         officialAdNos,
         sickAdNos,
+        absentReasonsMap,
         takenBy: recorderName || 'Teacher',
         updatedAt: new Date().toISOString()
       };
@@ -661,6 +787,8 @@ export default function NightAttendanceManager({
 
   const instSummary = computeInstitutionSummaryForDate();
   const savedCurrentClassMeta = (dailyDocData.classes || {})[selectedClass];
+  const preRecordedForSelectedClass = (dailyDocData.preRecordedAbsences || {})[selectedClass] || {};
+  const preRecordedCountForSelectedClass = Object.keys(preRecordedForSelectedClass).length;
 
   const presentInCurrentClass = classStudents.filter(s => (statusMap[s.adNo] || 'PRESENT') === 'PRESENT').length;
   const absentInCurrentClass = classStudents.filter(s => statusMap[s.adNo] === 'ABSENT').length;
@@ -728,6 +856,7 @@ export default function NightAttendanceManager({
               {DEFAULT_CLASSES.map(cls => {
                 const isSelected = selectedClass === cls;
                 const isDoneTonight = Boolean((dailyDocData.classes || {})[cls]);
+                const preCount = Object.keys((dailyDocData.preRecordedAbsences || {})[cls] || {}).length;
                 return (
                   <button
                     key={cls}
@@ -735,22 +864,29 @@ export default function NightAttendanceManager({
                     onClick={() => { setSelectedClass(cls); setClassSubmittedSuccess(null); }}
                     style={{
                       padding: '7px 14px', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'pointer',
-                      background: isSelected ? '#4f46e5' : isDoneTonight ? '#ecfdf5' : '#f8fafc',
-                      color: isSelected ? '#ffffff' : isDoneTonight ? '#047857' : '#334155',
-                      border: isSelected ? '1px solid #4f46e5' : isDoneTonight ? '1px solid #a7f3d0' : '1px solid #e2e8f0'
+                      background: isSelected ? '#4f46e5' : isDoneTonight ? '#ecfdf5' : preCount > 0 ? '#fffbeb' : '#f8fafc',
+                      color: isSelected ? '#ffffff' : isDoneTonight ? '#047857' : preCount > 0 ? '#b45309' : '#334155',
+                      border: isSelected ? '1px solid #4f46e5' : isDoneTonight ? '1px solid #a7f3d0' : preCount > 0 ? '1px solid #fde68a' : '1px solid #e2e8f0'
                     }}
                   >
-                    {isDoneTonight ? `✓ ${cls}` : cls}
+                    {isDoneTonight ? `✓ ${cls}` : preCount > 0 ? `🌅 ${cls} (${preCount})` : cls}
                   </button>
                 );
               })}
             </div>
 
-            {savedCurrentClassMeta && (
-              <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: '700' }}>
-                ✓ Saved by {savedCurrentClassMeta.takenBy}
-              </span>
-            )}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              {preRecordedCountForSelectedClass > 0 && !savedCurrentClassMeta && (
+                <span style={{ background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a', padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: '800' }}>
+                  🌅 {preRecordedCountForSelectedClass} Pre-Marked in Morning
+                </span>
+              )}
+              {savedCurrentClassMeta && (
+                <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: '700' }}>
+                  ✓ Saved by {savedCurrentClassMeta.takenBy}
+                </span>
+              )}
+            </div>
           </div>
 
           
@@ -874,16 +1010,49 @@ export default function NightAttendanceManager({
             )}
           </div>
 
-          {/* SEARCH + QUICK ALL PRESENT + SAVE BUTTON */}
+          {/* SEARCH + PRE-RECORD (MORNING) + QUICK ALL PRESENT + SAVE BUTTON */}
           <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
             <input
               type="text"
               placeholder="🔍 Quick search student in this class..."
               value={searchFilter}
               onChange={(e) => setSearchFilter(e.target.value)}
-              style={{ ...styles.input, maxWidth: '300px', padding: '8px 12px', fontSize: '13px' }}
+              style={{ ...styles.input, maxWidth: '280px', padding: '8px 12px', fontSize: '13px' }}
             />
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMorningPreRecordMode(prev => !prev);
+                  if (!isMorningPreRecordMode) {
+                    setPreRecordSelectedAdNos([]);
+                    if (!preRecordReason) setPreRecordReason('🤒 Sick / Fever in Room');
+                  }
+                }}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '8px',
+                  fontWeight: '800',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  background: isMorningPreRecordMode ? '#fffbeb' : '#ffffff',
+                  color: isMorningPreRecordMode ? '#b45309' : '#92400e',
+                  border: isMorningPreRecordMode ? '2px solid #b45309' : '1px solid #fde68a',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span>🌅</span>
+                <span>{isMorningPreRecordMode ? '✕ Close Pre-Record' : 'Pre-Record Absences (Morning)'}</span>
+                {preRecordedCountForSelectedClass > 0 && (
+                  <span style={{ background: '#b45309', color: '#ffffff', padding: '1px 7px', borderRadius: '999px', fontSize: '10px', fontWeight: '800' }}>
+                    {preRecordedCountForSelectedClass}
+                  </span>
+                )}
+              </button>
+
               <button
                 type="button"
                 onClick={() => {
@@ -909,7 +1078,127 @@ export default function NightAttendanceManager({
             </div>
           </div>
 
-          {/* 🌟 MINIMALIST MOBILE-FRIENDLY STUDENT CARDS (With Official option & No Note clutter!) */}
+          {/* 🌟 MORNING ADVANCE ABSENCE PRE-RECORDING PANEL */}
+          {isMorningPreRecordMode && (
+            <div style={{ marginBottom: '18px', padding: '16px 20px', background: '#fffbeb', borderRadius: '12px', border: '1.5px solid #fde68a', boxShadow: '0 2px 6px rgba(217,119,6,0.08)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '18px' }}>🌅</span>
+                    <h4 style={{ margin: 0, fontSize: '15px', fontWeight: '800', color: '#92400e' }}>
+                      Morning Advance Absence Pre-Recording — Class {selectedClass} ({selectedDate})
+                    </h4>
+                  </div>
+                  <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#78350f' }}>
+                    Click student cards below to select known absentees. <strong>Other students will NOT be marked as present now</strong>, leaving the class ready for the regular night roll-call.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMorningPreRecordMode(false);
+                    setPreRecordSelectedAdNos([]);
+                  }}
+                  style={{ ...styles.buttonSecondary, fontSize: '12px', padding: '6px 12px' }}
+                >
+                  ✕ Exit Pre-Record Mode
+                </button>
+              </div>
+
+              {/* Quick reason badge selectors */}
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', marginBottom: '6px', display: 'block' }}>
+                  1. Choose or Type Absence Reason:
+                </label>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                  {[
+                    '🤒 Sick / Fever in Room',
+                    '🏥 Hospital / Doctor Care',
+                    '🏡 Approved Home Leave',
+                    '🚗 Outstation / Travel',
+                    '👨‍👩‍👦 Family Emergency',
+                    '🏛️ Campus / Official Duty',
+                    '⚠️ Unexcused / Missing'
+                  ].map(rStr => (
+                    <button
+                      key={rStr}
+                      type="button"
+                      onClick={() => setPreRecordReason(rStr)}
+                      style={{
+                        padding: '5px 10px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        border: preRecordReason === rStr ? '1.5px solid #b45309' : '1px solid #cbd5e1',
+                        background: preRecordReason === rStr ? '#b45309' : '#ffffff',
+                        color: preRecordReason === rStr ? '#ffffff' : '#334155'
+                      }}
+                    >
+                      {rStr}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  value={preRecordReason}
+                  onChange={e => setPreRecordReason(e.target.value)}
+                  placeholder="Or enter custom reason (e.g. Fever, resting in room 204 with principal permission)..."
+                  style={{ ...styles.input, fontSize: '12px', padding: '8px 12px', background: '#ffffff' }}
+                />
+              </div>
+
+              {/* Status choice & save action */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', paddingTop: '10px', borderTop: '1px dashed #fde68a' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '800', color: '#78350f' }}>2. Category:</span>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: '700', color: '#92400e', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="preRecordStatusType"
+                      checked={preRecordStatusType === 'ABSENT'}
+                      onChange={() => setPreRecordStatusType('ABSENT')}
+                      style={{ accentColor: '#b45309' }}
+                    />
+                    🔴 Absent
+                  </label>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: '700', color: '#b45309', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="preRecordStatusType"
+                      checked={preRecordStatusType === 'SICK_ROOM'}
+                      onChange={() => setPreRecordStatusType('SICK_ROOM')}
+                      style={{ accentColor: '#b45309' }}
+                    />
+                    🤒 Sick / In Room
+                  </label>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '800', color: '#92400e' }}>
+                    Selected Cards: <strong>{preRecordSelectedAdNos.length}</strong> student(s)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleSavePreRecordedAbsences}
+                    disabled={preRecordSaving || preRecordSelectedAdNos.length === 0}
+                    style={{
+                      ...styles.buttonPrimary,
+                      background: '#b45309',
+                      fontSize: '12px',
+                      fontWeight: '800',
+                      padding: '9px 18px',
+                      opacity: preRecordSelectedAdNos.length === 0 ? 0.6 : 1
+                    }}
+                  >
+                    {preRecordSaving ? 'Saving...' : `💾 Save ${preRecordSelectedAdNos.length} Pre-Recorded Absence(s)`}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 🌟 MINIMALIST MOBILE-FRIENDLY STUDENT CARDS (With Official option & Morning Pre-Record display!) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(285px, 1fr))', gap: '12px' }}>
             {classStudents
               .filter(s => !searchFilter.trim() || (s.firstName || '').toLowerCase().includes(searchFilter.toLowerCase()) || String(s.adNo || '').toLowerCase().includes(searchFilter.toLowerCase()))
@@ -917,6 +1206,8 @@ export default function NightAttendanceManager({
                 const ad = String(st.adNo || '').trim();
                 const curStatus = statusMap[ad] || 'PRESENT';
                 const activePass = getActiveOutpassForStudent(ad);
+                const preRecord = (dailyDocData.preRecordedAbsences || {})[selectedClass]?.[ad];
+                const isSelectedInPreRecord = preRecordSelectedAdNos.includes(ad);
 
                 const cardThemes = {
                   PRESENT: { bg: '#ffffff', border: '#e2e8f0', badgeBg: '#dcfce7', badgeColor: '#15803d', label: 'Present' },
@@ -930,17 +1221,28 @@ export default function NightAttendanceManager({
                 return (
                   <div
                     key={st.regNo}
-                    onClick={() => handleCardQuickTap(ad)}
+                    onClick={() => {
+                      if (isMorningPreRecordMode) {
+                        handleToggleCardPreRecord(ad);
+                      } else {
+                        handleCardQuickTap(ad);
+                      }
+                    }}
                     style={{
                       padding: '14px',
                       borderRadius: '12px',
-                      background: theme.bg,
-                      border: `1.5px solid ${theme.border}`,
+                      background: isMorningPreRecordMode
+                        ? (isSelectedInPreRecord ? '#fffbeb' : preRecord ? '#fefce8' : '#ffffff')
+                        : theme.bg,
+                      border: isMorningPreRecordMode
+                        ? (isSelectedInPreRecord ? '2.5px solid #b45309' : preRecord ? '1.5px solid #fde68a' : '1.5px solid #e2e8f0')
+                        : `1.5px solid ${theme.border}`,
                       cursor: 'pointer',
                       display: 'flex',
                       flexDirection: 'column',
                       gap: '10px',
-                      transition: 'all 0.15s ease'
+                      transition: 'all 0.15s ease',
+                      boxShadow: isSelectedInPreRecord ? '0 4px 6px -1px rgba(180, 83, 9, 0.15)' : 'none'
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
@@ -956,10 +1258,52 @@ export default function NightAttendanceManager({
                         </div>
                       </div>
 
-                      <span style={{ background: theme.badgeBg, color: theme.badgeColor, padding: '3px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap' }}>
-                        {theme.label}
-                      </span>
+                      {isMorningPreRecordMode ? (
+                        <span style={{
+                          background: isSelectedInPreRecord ? '#b45309' : '#f1f5f9',
+                          color: isSelectedInPreRecord ? '#ffffff' : '#64748b',
+                          border: isSelectedInPreRecord ? '1px solid #92400e' : '1px solid #cbd5e1',
+                          padding: '3px 10px',
+                          borderRadius: '999px',
+                          fontSize: '11px',
+                          fontWeight: '800',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {isSelectedInPreRecord ? '✓ Selected Absent' : '+ Select for Absence'}
+                        </span>
+                      ) : (
+                        <span style={{ background: theme.badgeBg, color: theme.badgeColor, padding: '3px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap' }}>
+                          {theme.label}
+                        </span>
+                      )}
                     </div>
+
+                    {/* 🌅 MORNING PRE-RECORDED ABSENCE BANNER */}
+                    {preRecord && (
+                      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '7px 10px', borderRadius: '8px', fontSize: '11px', color: '#92400e', lineHeight: 1.35 }}>
+                        <div style={{ fontWeight: '800', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>🌅 Pre-Marked Absent ({preRecord.status === 'SICK_ROOM' ? 'Sick' : 'Absent'}):</span>
+                          {!isMorningPreRecordMode && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRemovePreRecordedAbsence(ad);
+                              }}
+                              style={{ background: 'transparent', border: 'none', color: '#b45309', cursor: 'pointer', fontSize: '10px', fontWeight: '800', textDecoration: 'underline' }}
+                            >
+                              ✕ Clear
+                            </button>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '11px', marginTop: '3px', color: '#78350f', fontWeight: '600' }}>
+                          Reason: &ldquo;{preRecord.reason}&rdquo;
+                        </div>
+                        <div style={{ fontSize: '10px', marginTop: '2px', color: '#92400e' }}>
+                          By {preRecord.recordedBy} on {new Date(preRecord.recordedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                        </div>
+                      </div>
+                    )}
 
                     {activePass && (
                       <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '7px 10px', borderRadius: '8px', fontSize: '11px', color: '#92400e', lineHeight: 1.35 }}>
@@ -972,42 +1316,44 @@ export default function NightAttendanceManager({
                       </div>
                     )}
 
-                    {/* 🌟 5 CLEAN STATUS PILLS (Pres | Abs | Leave | Official | Sick — No Note button!) */}
-                    <div
-                      onClick={(e) => e.stopPropagation()}
-                      style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}
-                    >
-                      {[
-                        { id: 'PRESENT', label: 'Pres', activeBg: '#10b981' },
-                        { id: 'ABSENT', label: 'Abs', activeBg: '#e11d48' },
-                        { id: 'OUTPASS', label: 'Leave', activeBg: '#4f46e5' },
-                        { id: 'OFFICIAL', label: 'Official', activeBg: '#0d9488' },
-                        { id: 'SICK_ROOM', label: 'Sick', activeBg: '#d97706' }
-                      ].map(btn => {
-                        const active = curStatus === btn.id;
-                        return (
-                          <button
-                            key={btn.id}
-                            type="button"
-                            onClick={() => setStatusMap(prev => ({ ...prev, [ad]: btn.id }))}
-                            style={{
-                              flex: 1,
-                              padding: '6px 8px',
-                              borderRadius: '6px',
-                              fontSize: '11px',
-                              fontWeight: '700',
-                              cursor: 'pointer',
-                              background: active ? btn.activeBg : '#f8fafc',
-                              color: active ? '#ffffff' : '#475569',
-                              border: active ? `1px solid ${btn.activeBg}` : '1px solid #e2e8f0',
-                              textAlign: 'center'
-                            }}
-                          >
-                            {btn.label}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    {/* 🌟 5 CLEAN STATUS PILLS (Pres | Abs | Leave | Official | Sick — Only active outside Pre-Record Mode) */}
+                    {!isMorningPreRecordMode && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}
+                      >
+                        {[
+                          { id: 'PRESENT', label: 'Pres', activeBg: '#10b981' },
+                          { id: 'ABSENT', label: 'Abs', activeBg: '#e11d48' },
+                          { id: 'OUTPASS', label: 'Leave', activeBg: '#4f46e5' },
+                          { id: 'OFFICIAL', label: 'Official', activeBg: '#0d9488' },
+                          { id: 'SICK_ROOM', label: 'Sick', activeBg: '#d97706' }
+                        ].map(btn => {
+                          const active = curStatus === btn.id;
+                          return (
+                            <button
+                              key={btn.id}
+                              type="button"
+                              onClick={() => setStatusMap(prev => ({ ...prev, [ad]: btn.id }))}
+                              style={{
+                                flex: 1,
+                                padding: '6px 8px',
+                                borderRadius: '6px',
+                                fontSize: '11px',
+                                fontWeight: '700',
+                                cursor: 'pointer',
+                                background: active ? btn.activeBg : '#f8fafc',
+                                color: active ? '#ffffff' : '#475569',
+                                border: active ? `1px solid ${btn.activeBg}` : '1px solid #e2e8f0',
+                                textAlign: 'center'
+                              }}
+                            >
+                              {btn.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}
