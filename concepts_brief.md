@@ -5,12 +5,12 @@
 
 ## Overview
 
-This specification establishes an authoritative three-tiered campus leave architecture and zero-friction roll-call engine across the Darul Huda Degree Campus ERP. 
+This specification establishes an authoritative three-tiered campus leave architecture and a zero-friction roll-call engine across the Darul Huda Degree Campus ERP.
 
-Rather than fragmenting navigation with multiple sidebar items, the existing `Out-Pass Desk` is elevated into a unified **`Leaves & Outpass`** desk (`🪪`), partitioned into three clear sub-tabs:
+Rather than fragmenting navigation with multiple sidebar items, the existing `Out-Pass Desk` is elevated into a unified **`Leaves & Outpass`** desk (`🪪`), partitioned into three dedicated sub-tabs:
 1. **Sub-Tab 1: 🪪 Gate Outpass (Off-Campus Leave)**:
    * Permission to leave the campus perimeter.
-   * Full existing outpass lifecycle (parent approval, class teacher consent, gate security scanner check-out/check-in).
+   * Full outpass lifecycle (parent approval, class teacher verification, gate security scanner check-out/check-in).
    * Reflected in Period Attendance, Night Attendance, and Extra Attendance as `🪪 Outside Campus`.
 2. **Sub-Tab 2: 🤒 Sick in Room (Internal Bed Rest / Acute Illness)**:
    * Excused from academic classes and congregational Jamath to rest in hostel room.
@@ -27,20 +27,39 @@ Rather than fragmenting navigation with multiple sidebar items, the existing `Ou
    * Completely eliminates modal dialogs and mandatory text inputs during roll-call across both **Night Attendance** and **Extra Attendance**.
    * **Night Isolation Invariant**: Night attendance records remain strictly isolated to the night report and do not automatically alter next morning's period attendance.
 
-## Navigation & Tab Architecture
+## Multi-Lens Goldfish Review Analysis
 
-### Selected Approach: Unified `Leaves & Outpass` Tab (`🪪`)
-* **Sidebar Consistency**:
-  * Avoids sidebar bloat while consolidating all student leaves under one authoritative desk.
-  * Sidebar item: `🪪 Leaves & Outpass` (or `🪪 Leaves Desk`).
-* **Sub-Tab Structure**:
-  1. `🪪 Gate Outpasses` (External campus exits — strictly connected to Gate Security).
-  2. `🤒 Sick in Room` (Internal hostel bed rest — strictly connected to Period Attendance & Jamath excuse).
-  3. `🩹 Masjid Exemptions` (Mobility waivers — strictly connected to Minus Attendance jamath protection).
-* **Access Control**:
-  * **Class Teachers**: Manage leaves strictly for students of their assigned class (`classTeacherOf`).
-  * **Central Admin / Office Secretary**: Full institutional access across all classes.
-  * **Gate Security Kiosk**: Strictly filtered to Sub-Tab 1 (`Gate Outpass`). Gate scanners have zero access or visibility to internal Sick in Room or Masjid Exemptions, preserving gate security perimeter integrity.
+### 1. UX & Mobile Ergonomics (`egm-design`)
+* **Friction Elimination**: Eliminates modal dialogs during roll-call. Teachers tap directly between 4 tactile states with instant visual feedback and color tokens (Green for Present, Rose for Absent, Amber for Sick in Room, Cyan for Official Duty).
+* **Locked Outpass Badging**: Students marked `OUTSIDE` at the gate are auto-badged in Indigo (`#e0e7ff`/`#4338ca`) and locked against accidental roll-call overwrites.
+
+### 2. Codebase Data Architecture (`egm-codebase-details`)
+* **Collection Schema**: Introduces `campus_medical_waivers`:
+  * `id`: Document ID (`waiver_${Date.now()}_${adNo}`)
+  * `studentRegNo`: string
+  * `adNo`: string
+  * `studentName`: string
+  * `className`: string
+  * `waiverType`: `'SICK_IN_ROOM'` | `'JAMATH_EXEMPTION'`
+  * `injuryReason`: string (e.g. `Leg Fracture / Plaster Cast`, `Acute Viral Fever`)
+  * `roomNumber`: string (optional hostel room number)
+  * `issuedBy`: string (teacher username or "admin")
+  * `issuedByRole`: `'CLASS_TEACHER'` | `'ADMIN'`
+  * `issuedAt`: ISO string
+  * `status`: `'ACTIVE'` | `'REVOKED'`
+  * `revokedAt`: ISO string (nullable)
+  * `revokedBy`: string (nullable)
+
+### 3. Macro Architecture & Perimeter Security (`egm-zoom-out`)
+* **The Gate Invariant**: The Gate Security Kiosk remains strictly quarantined to physical campus exits. Gate security personnel never see internal sick room or prayer waivers. An internal sick student attempting to leave the gate will be stopped with "No valid gate outpass."
+
+### 4. Conflict Precedence Rules (`egm-comprehension`)
+* **Precedence Hierarchy**:
+  * Physical Gate Outpass (`OUTSIDE`) takes precedence over internal waivers. If a student with an active Masjid Exemption or Sick in Room waiver is granted an outpass to go home or to a hospital, their global status becomes `🪪 Outside Campus`.
+  * Upon gate check-in (`RETURNED`), internal active waivers automatically resume.
+
+### 5. Poka-Yoke Jamath Protection (`egm-inventive-catalyst`)
+* When a teacher or warden enters `Minus Attendance` for `Jamath Missing`, selecting a student with an active Category 3 waiver prompts an immediate shield alert: `🛡️ Protected Waiver: Student has an active Masjid Exemption (Reason: Leg Fracture). Jamath deduction blocked.`
 
 ## System Cross-Tab Visibility Matrix
 
@@ -53,28 +72,10 @@ Rather than fragmenting navigation with multiple sidebar items, the existing `Ou
 | **Minus Attendance** | Exempt from Jamath Minus | Exempt from Jamath Minus | 🛡️ **Protected: Jamath Minus Blocked** |
 | **Absence Clearance** | Linked to Outpass | Logged as `MEDICAL_LEAVE` | Not applicable (No class absence) |
 
-## Data Model & Collections
-
-* **Collection `campus_medical_waivers`**:
-  * `id`: Document ID (`waiver_${Date.now()}_${adNo}`)
-  * `studentRegNo`: string
-  * `adNo`: string
-  * `studentName`: string
-  * `className`: string
-  * `waiverType`: `'SICK_IN_ROOM'` | `'JAMATH_EXEMPTION'`
-  * `injuryReason`: string (e.g. `Leg Fracture / Plaster Cast`, `High Fever / Bed Rest`, `Crutches`)
-  * `roomNumber`: string (optional hostel room number)
-  * `issuedBy`: string
-  * `issuedByRole`: string
-  * `issuedAt`: ISO string
-  * `status`: `'ACTIVE'` | `'REVOKED'`
-  * `revokedAt`: ISO string (nullable)
-  * `revokedBy`: string (nullable)
-
 ## Goals vs. Non-Goals
 
 * **In-Scope Goals:**
-  * Modal-free 1-tap status selector (`Present`, `Absent`, `Sick`, `Official`) in both Night Attendance and Extra Attendance.
+  * Inline 4-way single-tap selector (`Present`, `Absent`, `Sick`, `Official`) in both Night Attendance and Extra Attendance.
   * Consolidation of `Out-Pass Desk` into `Leaves & Outpass` with 3 sub-tabs.
   * Period Attendance automatically badges Category 2 as `🤒 Sick in Room` (Amber).
   * Minus Attendance cross-checks Category 3 to prevent erroneous "Jamath Missing" minus deductions.
