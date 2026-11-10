@@ -1,55 +1,95 @@
-# Attendance Clearance History, Night Roll-Call Polish & Student Portal Evaluation Logic
+# Three-Tiered Campus Leave Architecture & Zero-Friction Attendance Workflows
 
 * **Author:** safmuzammil
 * **Date:** 2026-11-10
 
 ## Overview
 
-This specification establishes an authoritative architecture and user experience across three interrelated academic and residential subsystems in the Darul Huda Degree ERP:
-1. **Attendance Clearance History Subsystem**: Unifying absence clearance from an isolated issuance utility into a permanent, verifiable, two-way audit trail that synchronizes across academic registries, period session caches, and the student portal.
-2. **Night Roll-Call Subsystem**: Providing high-velocity mobile roll-call with single-tap gestures, live gate outpass cross-checks, dorm/room grouping, and unexcused absentee filtering.
-3. **Student Portal Evaluation Logic**: Resolving mid-semester denominator skew ("35/490") by providing dynamic progress-weighted evaluation, transparent attendance shortage alerts (<85%), and clear distinction between Medical Leaves (Amber) and Official Duty (Teal).
+This specification establishes a unified three-tiered leave architecture for Darul Huda Degree Campus, separating external gate movements from internal residential sick leaves and prayer exemptions. It also removes all mandatory modal interruptions from Night Attendance to support rapid roll-call throughput.
 
-## Analysis
+### The Three Campus Leave Categories:
+1. **Category 1: Gate Outpass (Off-Campus Leave)**:
+   * Permission to leave the campus perimeter.
+   * *Managed in*: Outpass Module (`/outpass`, `OutpassManager.jsx`).
+   * *Attendance Impact*: Excused in Period Attendance (`🪪 OUTPASS`), Night Attendance (`OUTPASS`), and Jamath/Prayer roll-call.
+   * *Security Invariant*: Only Category 1 permits gate security exit.
+2. **Category 2: Sick in Room Leave (Internal Bed Rest / Acute Illness)**:
+   * Permission to stay in hostel room resting due to fever, flu, or acute illness.
+   * *Attendance Impact*:
+     * **Academic Period Attendance**: Displayed in Amber (`🤒 Sick in Room`) with zero academic penalty (excused medical leave).
+     * **Masjid Jamath / Minus Attendance**: Excused from masjid congregational prayer without triggering "Jamath Missing" disciplinary minus penalties.
+     * **Night Attendance**: Accounted for as present in hostel under `🤒 SICK IN ROOM`.
+3. **Category 3: Jamath / Masjid Exemption Leave (Mobility / Fracture Waiver)**:
+   * Student has an orthopedic or mobility impairment (fracture, plaster cast, crutches, open surgical dressing) that prevents walking to the campus central masjid 5 times daily, but does **not** impede classroom learning.
+   * *Attendance Impact*:
+     * **Academic Period Attendance**: Normal classroom attendance (`🟢 PRESENT`).
+     * **Masjid Jamath / Minus Attendance**: Badged as `🩹 MASJID EXEMPT (FRACTURE/INJURY)`. Minus Attendance explicitly blocks or flags warnings against deducting minus periods for missed jamath.
+     * **Night Attendance**: Present in hostel (`🟢 PRESENT`).
 
-### 1. Unified Clearance History & Two-Way Sync (`egm-codebase-details`, `egm-design`)
-* **Collection Divergence**: Currently, `AbsenceClearanceManager.jsx` reads from both `clearance_history` and `clearance_certificates`, while `app/student/page.jsx` reads `clearance_certificates`.
-* **Resolution**: Standardize on `clearance_history` as the primary collection with dual-key indexing on both registration number (`regNo`) and admission number (`adNo`).
-* **Audit Integrity**: Store an immutable audit trail capturing who cleared the session, the exact category (`MEDICAL_LEAVE` vs `OFFICIAL_PRESENT`), issuing timestamps, and admin verification status (`PENDING` vs `VERIFIED`).
+---
 
-### 2. Elimination of the Mid-Semester Denominator Fallacy (`egm-comprehension`)
-* **Cognitive Issue**: When a faculty member has only graded Level 1 (out of 15 marks), calculating aggregate semester marks against the full 490 total creates an artificial failing score (e.g., 35/490 = 7.1%), alarming students and parents.
-* **Resolution**:
-  1. **Published Score to Date**: Evaluates solely completed components (e.g. `35 / 45` = 77.8%).
-  2. **Curriculum Target Progress**: Displays a progress indicator showing components completed (e.g. `3 of 14 components recorded`).
+## Zero-Friction Night Attendance Roll-Call
 
-### 3. Night Attendance Gesture Velocity & Cross-Pass Verification (`egm-design`, `egm-inventive-catalyst`)
-* **Hallway Roll-Call Ergonomics**: Roll-calls are executed in dorm corridors on mobile phones under strict time constraints. Modals introduce unacceptable latency.
-* **Resolution**: Maintain single-tap toggle (`PRESENT` ↔ `ABSENT`) by default, with pre-recorded leaves clearly badged.
-* **Gate Outpass Integration**: Outpasses spanning across midnight are evaluated via timestamp ranges rather than simple date matching to prevent false absentee alerts for students legitimately outside on overnight leave.
+### Eliminating Modal Overhead
+In hostel corridors, wardens verify up to 40 students across multiple rooms in 10 minutes. Opening a modal requiring text reasons, medical end-dates, and timestamps destroys roll-call velocity.
+
+### Proposed Card Interaction Model:
+* Each student card presents an inline 4-way direct status selector:
+  `[🟢 Present] [🔴 Absent] [🤒 Sick] [🏛️ Official]`
+* Tapping any option commits the status instantly in client state with zero modal dialogs.
+* Active Category 1 Outpasses are preloaded and rendered as locked badges (`🪪 Outside Campus`), preventing accidental overwrites.
+* The redundant configuration modal is eliminated from standard roll-call flow.
+
+---
+
+## Placement & Workflow for Categories 2 and 3
+
+### Where Should Internal Waivers Be Issued?
+* **Dedicated "Campus Medical & Jamath Waivers" Desk**:
+  * Located as a distinct tab within `TeacherPortalView.jsx` (accessible to Class Teachers, Wardens, and Health In-Charge) and Admin Dashboard.
+  * **Sick in Room (Category 2)**:
+    - Inputs: Student picker, Date (default today), Duration (Today Only / Multi-Day), Resting Room Number.
+    - Effect: Auto-flags Period Attendance (Periods 1-9) as Medical and excuses Jamath.
+  * **Masjid Jamath Exemption (Category 3)**:
+    - Inputs: Student picker, Exemption Reason (`Leg Fracture / Cast`, `Bandage / Open Dressing`, `Crutches / Sprain`, `Other Mobility Issue`), Valid Until Date.
+    - Effect: Zero effect on class periods. Synchronizes to Minus Attendance & Jamath monitor to block "Jamath Missing" deductions.
+
+---
+
+## System Cross-Tab Visibility Matrix
+
+| Module / Tab | Category 1: Gate Outpass | Category 2: Sick in Room | Category 3: Jamath Exemption |
+| :--- | :--- | :--- | :--- |
+| **Gate Security Kiosk** | ✅ Allowed to Exit Gate | ❌ Prohibited (Must stay in hostel) | ❌ Prohibited (Must stay in campus) |
+| **Period Attendance** | `🪪 Outside Campus` (Indigo) | `🤒 Sick in Room` (Amber) | `🟢 Normal Class Student` (Green) |
+| **Night Roll-Call** | `🪪 Outside Campus` (Indigo) | `🤒 In Room (Sick)` (Amber) | `🟢 Present in Hostel` (Green) |
+| **Minus Attendance** | Exempt from Jamath Minus | Exempt from Jamath Minus | 🛡️ **Protected: Jamath Minus Blocked** |
+| **Absence Clearance** | Automatically linked to Outpass | Logged as `MEDICAL_LEAVE` | Not applicable (No class absence) |
+
+---
+
+## Technical Stress-Testing & Critical Vulnerabilities
+
+1. **Overnight Spillover Ambiguity**:
+   * If a warden marks a student `🤒 Sick` during 10:00 PM Night Attendance, does that automatically excuse the student from 7:45 AM Period 1 tomorrow morning?
+   * *Risk*: Students might report minor evening headaches to skip morning exams or first-period classes without waking up.
+   * *Proposed Rule*: Night Attendance `Sick` status applies strictly to the night roll-call record. Academic Period 1-9 medical leave must originate from Class Teacher or Warden entry in the Medical Waiver desk.
+2. **Minus Attendance Race Condition**:
+   * Disciplinary wardens frequently bulk-upload "Jamath Missing" spreadsheets or select all absentees during Fajr prayer.
+   * *Risk*: Students with leg fractures get penalized if Minus Attendance does not cross-check active Jamath Exemptions before applying deductions.
+   * *Proposed Invariant*: `MinusAttendanceManager` must inspect `systemCache/jamathExemptions` on submit and display an override prompt if a teacher attempts to apply minus marks to an exempt student.
+3. **Data Storage & Reversibility**:
+   * Store internal medical leaves under `campus_medical_waivers` collection with fields: `studentRegNo`, `adNo`, `waiverType` (`SICK_IN_ROOM` | `JAMATH_EXEMPTION`), `validFrom`, `validTo`, `approvedBy`, `reason`.
+
+---
 
 ## Goals vs. Non-Goals
 
 * **In-Scope Goals:**
-  * Single-collection clearance record architecture with explicit `clearanceType` enums (`MEDICAL_LEAVE` vs `OFFICIAL_PRESENT`).
-  * Deep-merged mark retrieval combining `marks/{regNo}` and `marks/{adNo}`.
-  * Published score vs curriculum completion progress separation on Student Portal.
-  * Explicit color differentiation everywhere: Amber for Medical Leave, Teal for Official Duty, Rose for Unexcused Absent, Green for Present.
-  * Removal of redundant stacked save buttons and addition of 1-tap Undo rollback in Night Attendance.
-
+  * Modal-free 1-tap status selection in Night Attendance (`Present`, `Absent`, `Sick`, `Official`).
+  * Institutional data model for Category 2 (Sick in Room) and Category 3 (Masjid Jamath Exemption).
+  * Period Attendance reflects Category 2 as Amber `Sick in Room`.
+  * Minus Attendance / Jamath reflects Category 3 and prevents erroneous penalties.
 * **Out-of-Scope Non-Goals:**
-  * Merging Medical Leave into normal attendance credit (Medical Leave remains an excused absence exempt from condonation penalties, not a presence credit).
-  * Automated background WhatsApp bot dispatch (remains manual clipboard copy and direct `wa.me` links).
-
-## Alternatives Weighed
-
-* **Alternative 1: Separate Collections for Medical vs Official Clearances**
-  * *Rejected*: Fragmenting into `medical_clearances` and `official_clearances` multiplies Firestore queries and complicates admin filtering. A unified `clearance_history` with indexed `clearanceType` provides clean queryability with zero schema bloat.
-* **Alternative 2: Modal On Every Absent Tap in Night Roll-Call**
-  * *Rejected*: Slows hostel wardens significantly when recording attendance for 35+ students in 10 minutes. Resolved via the dedicated `Pre-Record Mode` toggle.
-
-## Key Decisions & Staging for Next Steps
-
-1. **Clearance Auditing**: Ensure atomic batch updates synchronize `clearance_history`, student document `periodAttendance`, and `systemCache/periodSession_*` caches.
-2. **Student Portal Presentation**: Keep the CCE mark table transparent by displaying published scores against active levels, accompanied by a curriculum completion count.
-3. **Roll-Call Hardening**: Preserve the single-tap toggle and rollback snapshot for Night Attendance.
+  * Bluetooth or biometric automated masjid attendance scanners.
+  * Pharmacy prescription inventory tracking.
