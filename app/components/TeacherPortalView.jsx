@@ -713,7 +713,15 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
           setStatusMsg('');
           return alert(`Marks for ${student.firstName} exceed limit!`);
         }
-        marksPayload.push({ studentId: student.regNo, subject: finalSubjectKey, maxMarks: assessmentMaxMark, marksObtained: val });
+        marksPayload.push({
+          studentId: student.regNo,
+          regNo: student.regNo,
+          adNo: student.adNo || '',
+          subject: finalSubjectKey,
+          maxMarks: assessmentMaxMark,
+          marksObtained: val,
+          score: val
+        });
         firestorePromises.push(setDoc(doc(db, 'marks', student.regNo), { [finalSubjectKey]: { [assessmentMaxMark]: Number(val) } }, { merge: true }));
       }
     }
@@ -773,16 +781,30 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
         setStatusMsg('Database saved! Syncing to Google Sheets...');
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000);
+          const timeoutId = setTimeout(() => controller.abort(), 15000);
+          const targetClassStr = String(
+            currentEnrollment.targetClass ||
+            currentEnrollment.alias ||
+            classStudents[0]?.class ||
+            ''
+          ).trim().toUpperCase();
+
+          const syncPayload = {
+            targetClass: targetClassStr,
+            subject: finalSubjectKey,
+            maxMarks: String(assessmentMaxMark),
+            marks: marksPayload
+          };
+
           const res = await fetch(WEB_APP_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ marks: marksPayload }),
+            body: JSON.stringify(syncPayload),
             signal: controller.signal
           });
           clearTimeout(timeoutId);
           const result = await res.json();
-          setStatusMsg(result.status === 'success' ? '✅ Marks saved to database AND Google Sheets!' : '⚠️ Firebase updated, Sheets note: ' + result.message);
+          setStatusMsg(result.status === 'success' ? '✅ Marks saved to database AND Google Sheets!' : '⚠️ Firebase updated, Sheets note: ' + (result.message || 'Updated'));
         } catch (fetchErr) {
           setStatusMsg('✅ Marks saved to Database securely!');
         }

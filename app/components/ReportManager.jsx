@@ -759,11 +759,18 @@ export default function ReportManager() {
           const levels = data[subjectKey];
           Object.keys(levels).forEach(levelMax => {
             if (levels[levelMax] !== undefined && levels[levelMax] !== '') {
+              const stObj = (adminStudentsList || []).find(s => s.regNo === studentId || s.id === studentId || s.adNo === studentId);
+              const targetClassStr = stObj ? String(stObj.class || (stObj.classes || [])[0] || '').trim().toUpperCase() : '';
               allMarksPayload.push({
                 studentId: studentId,
+                regNo: studentId,
+                adNo: stObj?.adNo || '',
+                targetClass: targetClassStr,
+                class: targetClassStr,
                 subject: subjectKey,
                 maxMarks: levelMax,
-                marksObtained: levels[levelMax]
+                marksObtained: levels[levelMax],
+                score: levels[levelMax]
               });
             }
           });
