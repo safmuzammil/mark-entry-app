@@ -618,11 +618,15 @@ function StudentDashboardInner() {
       ]);
 
       if (myMarksSnap && myMarksSnap.exists()) {
-        marksData = myMarksSnap.data() || {};
-      } else if (studentAdNo) {
+        marksData = { ...(myMarksSnap.data() || {}) };
+      }
+      if (studentAdNo) {
         const adSnap = await getDoc(doc(db, 'marks', studentAdNo));
         if (adSnap.exists()) {
-          marksData = adSnap.data() || {};
+          const adMarks = adSnap.data() || {};
+          Object.keys(adMarks).forEach(k => {
+            marksData[k] = { ...(marksData[k] || {}), ...(adMarks[k] || {}) };
+          });
         }
       }
       setRawStudentMarks(marksData);
@@ -1765,14 +1769,16 @@ function StudentDashboardInner() {
                     {clearanceCerts.map(cert => {
                       const isConfirmed = cert.status === 'CONFIRMED' || Boolean(cert.studentConfirmedAt);
                       const isAcknowledging = acknowledgingCertId === cert.id;
+                      const isMed = cert.clearanceType === 'MEDICAL_LEAVE' || cert.reason === 'medical';
+                      const isOff = cert.clearanceType === 'OFFICIAL_PRESENT' || cert.reason === 'official' || cert.reason === 'permitted';
 
                       return (
                         <div
                           key={cert.id}
                           style={{
-                            background: isConfirmed ? '#f8fafc' : '#fffbeb',
+                            background: isMed ? '#fffbeb' : isOff ? '#f0fdfa' : isConfirmed ? '#f8fafc' : '#fffbeb',
                             borderRadius: '12px',
-                            border: isConfirmed ? '1px solid #cbd5e1' : '2px solid #f59e0b',
+                            border: isMed ? (isConfirmed ? '1.5px solid #fde68a' : '2px solid #f59e0b') : isOff ? (isConfirmed ? '1.5px solid #99f6e4' : '2px solid #0d9488') : isConfirmed ? '1px solid #cbd5e1' : '2px solid #f59e0b',
                             padding: '16px 18px',
                             display: 'flex',
                             justifyContent: 'space-between',
@@ -1785,6 +1791,19 @@ function StudentDashboardInner() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                               <span style={{ fontWeight: '800', color: '#0f172a', fontSize: '14px' }}>
                                 🎟️ {cert.certNumber || cert.id}
+                              </span>
+                              <span
+                                style={{
+                                  background: isMed ? '#fef3c7' : isOff ? '#ccfbf1' : '#eef2ff',
+                                  color: isMed ? '#92400e' : isOff ? '#0f766e' : '#4338ca',
+                                  border: `1px solid ${isMed ? '#fde68a' : isOff ? '#99f6e4' : '#c7d2fe'}`,
+                                  padding: '2px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '11px',
+                                  fontWeight: '800'
+                                }}
+                              >
+                                {isMed ? '🏥 Medical Leave' : isOff ? '🏛️ Official Leave' : '🎟️ Clearance Slip'}
                               </span>
                               <span
                                 style={{
@@ -1802,7 +1821,7 @@ function StudentDashboardInner() {
                             </div>
 
                             <div style={{ fontSize: '12px', color: '#475569', marginTop: '4px' }}>
-                              Cleared Dates: <strong>{(cert.dates || []).join(', ')}</strong> • Category: <strong style={{ textTransform: 'capitalize' }}>{cert.reason}</strong>
+                              Cleared Dates: <strong>{(cert.dates || []).join(', ')}</strong> • Type: <strong style={{ textTransform: 'capitalize', color: isMed ? '#b45309' : isOff ? '#0d9488' : '#475569' }}>{cert.clearanceTypeLabel || cert.reason}</strong>
                             </div>
 
                             <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
