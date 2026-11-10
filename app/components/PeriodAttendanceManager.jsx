@@ -9,6 +9,7 @@ import { DEFAULT_CLASSES, DEFAULT_SUBJECTS, DHIU_LOGO_URL, styles, sortStudentsB
 import { doesClassMatchAlias, openDirectWhatsApp, resolveClassTeacherForStudent, CollapsibleCard } from './ErpExtensions';
 import PeriodAttendanceReportsHub from './PeriodAttendanceReportsHub';
 import PeriodAttendanceMinusAndClearance from './PeriodAttendanceMinusAndClearance';
+import ClassPeriodMonitorTab from './ClassPeriodMonitorTab';
 
 export const isHifzEnrollment = (env) => {
   const subUp = String(env?.subject || '').trim().toUpperCase();
@@ -814,7 +815,8 @@ export default function PeriodAttendanceManager({
         targetClass: env.targetClass || '',
         classAlias: safeAlias,
         teacherUsername: safeTeacherUsername,
-        teacherName: safeTeacherName
+        teacherName: safeTeacherName,
+        attendanceMap: newAttendanceMap
       };
 
       try {
@@ -1198,7 +1200,9 @@ export default function PeriodAttendanceManager({
           sessionDocId: `periodSession_${rehDate}_Rehearsal_${rehSessionId}_S${pNum}`,
           session: Number(pNum),
           subject: `REHEARSAL_${rehSessionId.toUpperCase()}`,
-          classAlias: `Rehearsal - ${sessionConfig.label || 'Event'}`
+          classAlias: `Rehearsal - ${sessionConfig.label || 'Event'}`,
+          attendanceMap: rehAttendanceMap,
+          teacherName: activeLeaderObj.fullName || 'Event Leader'
         }));
         const filteredList = existingList.filter(x => !newEntries.some(n => n.sessionDocId === x.sessionDocId));
         await setDoc(dayIndexRef, { date: rehDate, sessions: [...filteredList, ...newEntries] }, { merge: true });
@@ -1860,6 +1864,7 @@ export default function PeriodAttendanceManager({
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
             {[
               { id: 'cards', match: ['cards', 'mark_sheet'], label: `Subject Cards (${attendanceEnrollments.length})` },
+              { id: 'live_monitor', match: ['live_monitor'], label: '⏱️ Class & Period Monitor' },
               { id: 'reports_hub', match: ['reports_hub'], label: 'Monthly / Daily / Total Reports' },
               { id: 'shortage', match: ['shortage'], label: `Shortage <85% (${shortageCount})` },
               ...(userRole === 'admin' ? [
@@ -3085,6 +3090,21 @@ export default function PeriodAttendanceManager({
             </div>
           </div>
         </div>
+      )}
+
+      {/* 🌟 LIVE CLASS & PERIOD ATTENDANCE MONITOR */}
+      {activeTab === 'live_monitor' && !isEventLeaderUser && (
+        <ClassPeriodMonitorTab
+          loggedInUser={loggedInUser}
+          userRole={userRole}
+          localStudents={localStudents}
+          localTeachers={localTeachers}
+          activeOutpassesByReg={activeOutpassesByReg}
+          recordedAbsencesByReg={recordedAbsencesByReg}
+          todayRecordedSessions={todayRecordedSessions}
+          attDate={attDate}
+          myCtClasses={myCtClasses}
+        />
       )}
 
       {/* DELEGATE REPORTS HUB TO MODULAR COMPONENT */}

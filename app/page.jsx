@@ -458,7 +458,7 @@ export default function UnifiedSchoolPortal() {
       { id: 'students', label: 'Students', icon: '👥', desc: 'Manage student profiles & subject mappings' },
       { id: 'teachers', label: 'Teachers', icon: '🎓', desc: 'Manage all faculty members and roles' },
       { id: 'subjects', label: 'Subjects', icon: '📚', desc: 'Course catalog, faculty assignments & student enrollments' },
-      { id: 'attendance_minus', label: 'Period Attendance', icon: '📅', desc: 'Roll-call, monthly reports & shortage' },
+      { id: 'attendance_minus', label: 'Period Attendance', icon: '📅', desc: 'Live 9-period monitor, roll-call, monthly reports & shortage' },
       { id: 'minus_attendance', label: 'Minus Attendance', icon: '⚖️', desc: 'Deduct minus periods, edit records, filter & summary' },
       { id: 'absence_clearance', label: 'Absence Clearance', icon: '🎟️', desc: 'Issue & inspect official absence clearance certificates' },
       { id: 'attendance', label: 'Night Attendance', icon: '🌙', desc: 'Hostel roll-call & out-pass verification' },
