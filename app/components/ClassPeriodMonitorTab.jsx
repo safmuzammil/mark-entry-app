@@ -318,6 +318,9 @@ export default function ClassPeriodMonitorTab({
         const untakenStudents = [];
         const unexcusedAbsentees = [];
         const excusedAbsentees = [];
+        const medicalAbsentees = [];
+        const officialDutyStudents = [];
+        const outpassStudents = [];
         const presentStudents = [];
 
         classStudents.forEach(st => {
@@ -346,16 +349,23 @@ export default function ClassPeriodMonitorTab({
               finalStatusCode = isOfficialDuty ? 'O' : 'P';
               finalStatusLabel = isOfficialDuty ? 'Official Duty' : 'Present';
               presentStudents.push({ student: st, status: finalStatusCode, label: finalStatusLabel, sessionInfo: rec });
+              if (isOfficialDuty) {
+                officialDutyStudents.push({ student: st, status: 'O', label: 'Official Duty', reason: recAbs?.reason || 'Official duty assignment', sessionInfo: rec });
+              }
             } else if (isOutpassOutside) {
-              finalStatusCode = 'M';
+              finalStatusCode = 'OUT';
               finalStatusLabel = 'Gate Outpass';
               leaveReason = `Approved Outpass (${op.reason || 'General Permitted Outpass'})`;
-              excusedAbsentees.push({ student: st, status: finalStatusCode, label: finalStatusLabel, reason: leaveReason, sessionInfo: rec });
+              const obj = { student: st, status: finalStatusCode, label: finalStatusLabel, reason: leaveReason, sessionInfo: rec };
+              excusedAbsentees.push(obj);
+              outpassStudents.push(obj);
             } else if (isMedicalLeave) {
-              finalStatusCode = 'M';
+              finalStatusCode = 'MED';
               finalStatusLabel = 'Medical Leave';
               leaveReason = recAbs.reason || 'Sick Room / Medical Excusal';
-              excusedAbsentees.push({ student: st, status: finalStatusCode, label: finalStatusLabel, reason: leaveReason, sessionInfo: rec });
+              const obj = { student: st, status: finalStatusCode, label: finalStatusLabel, reason: leaveReason, sessionInfo: rec };
+              excusedAbsentees.push(obj);
+              medicalAbsentees.push(obj);
             } else if (rec.status === 'M') {
               finalStatusCode = 'M';
               finalStatusLabel = 'Excused Leave';
@@ -387,6 +397,9 @@ export default function ClassPeriodMonitorTab({
         const presentCount = presentStudents.length;
         const unexcusedCount = unexcusedAbsentees.length;
         const excusedCount = excusedAbsentees.length;
+        const medicalCount = medicalAbsentees.length;
+        const officialCount = officialDutyStudents.length;
+        const outpassCount = outpassStudents.length;
         const totalAbsentCount = unexcusedCount + excusedCount;
 
         totalUnexcusedAbsentCount += unexcusedCount;
@@ -413,12 +426,18 @@ export default function ClassPeriodMonitorTab({
           presentCount,
           unexcusedCount,
           excusedCount,
+          medicalCount,
+          officialCount,
+          outpassCount,
           totalAbsentCount,
           recordedTeachers,
           takenStudents,
           untakenStudents,
           unexcusedAbsentees,
           excusedAbsentees,
+          medicalAbsentees,
+          officialDutyStudents,
+          outpassStudents,
           presentStudents
         };
       });
@@ -565,6 +584,55 @@ export default function ClassPeriodMonitorTab({
       alert(`Could not automatically copy. Please select and copy manually:\n\n${text}`);
     }
   };
+
+  const handleCopyPeriodTeachers = useCallback((cls, periodNum) => {
+    const classData = classPeriodReport[cls];
+    if (!classData) return;
+    const periodData = classData.periods[periodNum];
+    if (!periodData) return;
+
+    const recorded = periodData.recordedTeachers || [];
+    const ctName = classData.classTeacher?.fullName || 'Unassigned';
+
+    const lines = [
+      `👨‍🏫 *PERIOD ATTENDANCE FACULTY STATUS*`,
+      `🏫 *Darul Huda Degree Institution*`,
+      `📚 *Class:* ${cls} | *Class Teacher:* Usthad ${ctName}`,
+      `⏰ *Period:* ${periodData.slot.label} (${periodData.slot.start} - ${periodData.slot.end}) • ${selectedDate}`,
+      `📊 *Roster Summary:* ${periodData.totalEnrolled} Enrolled • ${periodData.takenCount} Taken • ${periodData.untakenCount} Pending`,
+      `-----------------------------------------`
+    ];
+
+    if (recorded.length > 0) {
+      lines.push(`✅ *Teachers Who Recorded Attendance (${recorded.length}):*`);
+      recorded.forEach((t, i) => {
+        lines.push(`${i + 1}. Usthad *${t.teacherName}* — Subject: ${t.subject} (${t.count} students marked)`);
+      });
+    } else {
+      lines.push(`⚠️ *Zero teachers recorded attendance yet for this period.*`);
+    }
+
+    if (periodData.untakenCount > 0) {
+      lines.push(``);
+      lines.push(`⏳ *Pending Untaken Students:* ${periodData.untakenCount} of ${periodData.totalEnrolled}`);
+    }
+
+    lines.push(`-----------------------------------------`);
+    const textToCopy = lines.join('\n');
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(textToCopy).then(() => {
+        setToastMsg({
+          type: 'success',
+          text: `📋 Copied Faculty list for ${cls} (${periodData.slot.label}) to Clipboard!`
+        });
+        setTimeout(() => setToastMsg(null), 3500);
+      }).catch(err => {
+        fallbackCopyText(textToCopy, recorded.length, cls, periodData.slot.label);
+      });
+    } else {
+      fallbackCopyText(textToCopy, recorded.length, cls, periodData.slot.label);
+    }
+  }, [classPeriodReport, selectedDate]);
 
   // If teacher has zero class teacher assignments and is not admin
   if (!isSuperAdminOrOfficeSec && availableClasses.length === 0) {
@@ -987,8 +1055,32 @@ export default function ClassPeriodMonitorTab({
                             </div>
                           </div>
 
-                          {/* 🌟 ACTION: One-Click Copy Unexcused Absentees */}
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          {/* 🌟 ACTION: One-Click Copy Unexcused Absentees & Faculty Status */}
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyPeriodTeachers(cls, selectedPeriodNum)}
+                              style={{
+                                padding: '8px 14px',
+                                borderRadius: '10px',
+                                fontWeight: '800',
+                                fontSize: '13px',
+                                border: '1px solid #cbd5e1',
+                                cursor: 'pointer',
+                                background: '#f8fafc',
+                                color: '#334155',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              <span>👨‍🏫</span>
+                              <span>
+                                Copy Faculty Status ({activePeriodData.recordedTeachers.length})
+                              </span>
+                            </button>
+
                             <button
                               type="button"
                               onClick={() => handleCopyUnexcusedAbsentees(cls, selectedPeriodNum)}
@@ -1019,48 +1111,55 @@ export default function ClassPeriodMonitorTab({
                         {/* Roster Metrics Counters */}
                         <div style={{
                           display: 'grid',
-                          gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(125px, 1fr))',
                           gap: '10px',
                           marginBottom: '20px'
                         }}>
                           <div style={{ padding: '10px 14px', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-                            <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700' }}>TOTAL ROSTER</div>
-                            <div style={{ fontSize: '18px', fontWeight: '800', color: '#1e293b' }}>{activePeriodData.totalEnrolled}</div>
+                            <div style={{ fontSize: '10px', color: '#64748b', fontWeight: '800' }}>TOTAL ROSTER</div>
+                            <div style={{ fontSize: '18px', fontWeight: '900', color: '#1e293b' }}>{activePeriodData.totalEnrolled}</div>
                           </div>
 
                           <div style={{ padding: '10px 14px', borderRadius: '10px', background: '#ecfdf5', border: '1px solid #a7f3d0' }}>
-                            <div style={{ fontSize: '11px', color: '#047857', fontWeight: '700' }}>TAKEN / RECORDED</div>
-                            <div style={{ fontSize: '18px', fontWeight: '800', color: '#059669' }}>
+                            <div style={{ fontSize: '10px', color: '#047857', fontWeight: '800' }}>PERIOD ATTENDANCE</div>
+                            <div style={{ fontSize: '18px', fontWeight: '900', color: '#059669' }}>
                               {activePeriodData.takenCount}
-                              <span style={{ fontSize: '12px', fontWeight: '600', marginLeft: '4px', opacity: 0.8 }}>
+                              <span style={{ fontSize: '11px', fontWeight: '700', marginLeft: '4px', opacity: 0.85 }}>
                                 ({activePeriodData.totalEnrolled > 0 ? Math.round((activePeriodData.takenCount / activePeriodData.totalEnrolled) * 100) : 0}%)
                               </span>
                             </div>
                           </div>
 
                           <div style={{ padding: '10px 14px', borderRadius: '10px', background: activePeriodData.untakenCount > 0 ? '#fffbeb' : '#f8fafc', border: `1px solid ${activePeriodData.untakenCount > 0 ? '#fde68a' : '#e2e8f0'}` }}>
-                            <div style={{ fontSize: '11px', color: activePeriodData.untakenCount > 0 ? '#b45309' : '#64748b', fontWeight: '700' }}>UNTAKEN / PENDING</div>
-                            <div style={{ fontSize: '18px', fontWeight: '800', color: activePeriodData.untakenCount > 0 ? '#d97706' : '#64748b' }}>
+                            <div style={{ fontSize: '10px', color: activePeriodData.untakenCount > 0 ? '#b45309' : '#64748b', fontWeight: '800' }}>UNTAKEN / PENDING</div>
+                            <div style={{ fontSize: '18px', fontWeight: '900', color: activePeriodData.untakenCount > 0 ? '#d97706' : '#64748b' }}>
                               {activePeriodData.untakenCount}
                             </div>
                           </div>
 
                           <div style={{ padding: '10px 14px', borderRadius: '10px', background: '#ecfdf5', border: '1px solid #a7f3d0' }}>
-                            <div style={{ fontSize: '11px', color: '#047857', fontWeight: '700' }}>PRESENT</div>
-                            <div style={{ fontSize: '18px', fontWeight: '800', color: '#059669' }}>{activePeriodData.presentCount}</div>
+                            <div style={{ fontSize: '10px', color: '#047857', fontWeight: '800' }}>PRESENT</div>
+                            <div style={{ fontSize: '18px', fontWeight: '900', color: '#059669' }}>{activePeriodData.presentCount}</div>
                           </div>
 
                           <div style={{ padding: '10px 14px', borderRadius: '10px', background: activePeriodData.unexcusedCount > 0 ? '#fff1f2' : '#f8fafc', border: `1px solid ${activePeriodData.unexcusedCount > 0 ? '#fecdd3' : '#e2e8f0'}` }}>
-                            <div style={{ fontSize: '11px', color: activePeriodData.unexcusedCount > 0 ? '#e11d48' : '#64748b', fontWeight: '700' }}>UNEXCUSED ABSENT</div>
-                            <div style={{ fontSize: '18px', fontWeight: '800', color: activePeriodData.unexcusedCount > 0 ? '#e11d48' : '#64748b' }}>
+                            <div style={{ fontSize: '10px', color: activePeriodData.unexcusedCount > 0 ? '#e11d48' : '#64748b', fontWeight: '800' }}>UNEXCUSED ABSENT</div>
+                            <div style={{ fontSize: '18px', fontWeight: '900', color: activePeriodData.unexcusedCount > 0 ? '#e11d48' : '#64748b' }}>
                               {activePeriodData.unexcusedCount}
                             </div>
                           </div>
 
-                          <div style={{ padding: '10px 14px', borderRadius: '10px', background: activePeriodData.excusedCount > 0 ? '#eff6ff' : '#f8fafc', border: `1px solid ${activePeriodData.excusedCount > 0 ? '#bfdbfe' : '#e2e8f0'}` }}>
-                            <div style={{ fontSize: '11px', color: activePeriodData.excusedCount > 0 ? '#1d4ed8' : '#64748b', fontWeight: '700' }}>EXCUSED / LEAVE</div>
-                            <div style={{ fontSize: '18px', fontWeight: '800', color: activePeriodData.excusedCount > 0 ? '#2563eb' : '#64748b' }}>
-                              {activePeriodData.excusedCount}
+                          <div style={{ padding: '10px 14px', borderRadius: '10px', background: '#fffbeb', border: '1.5px solid #fde68a' }}>
+                            <div style={{ fontSize: '10px', color: '#b45309', fontWeight: '800' }}>🤒 MEDICAL ABSENCE</div>
+                            <div style={{ fontSize: '18px', fontWeight: '900', color: '#d97706' }}>
+                              {activePeriodData.medicalCount || 0}
+                            </div>
+                          </div>
+
+                          <div style={{ padding: '10px 14px', borderRadius: '10px', background: '#f0fdfa', border: '1.5px solid #99f6e4' }}>
+                            <div style={{ fontSize: '10px', color: '#0f766e', fontWeight: '800' }}>🏛️ OFFICIAL ABSENT</div>
+                            <div style={{ fontSize: '18px', fontWeight: '900', color: '#0d9488' }}>
+                              {activePeriodData.officialCount || 0}
                             </div>
                           </div>
                         </div>
@@ -1114,36 +1213,43 @@ export default function ClassPeriodMonitorTab({
 
                           {/* 2. Excused Leaves (Medical / Gate Outpass / Official) */}
                           {activePeriodData.excusedCount > 0 && (
-                            <div style={{ padding: '14px', borderRadius: '12px', background: '#eff6ff', border: '1px solid #bfdbfe' }}>
-                              <div style={{ fontSize: '13px', fontWeight: '800', color: '#1e40af', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span>🏥</span>
-                                <span>Approved Excused Leaves / Outpasses:</span>
+                            <div style={{ padding: '14px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                              <div style={{ fontSize: '13px', fontWeight: '800', color: '#1e293b', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span>📋</span>
+                                <span>Approved Excused Leaves, Medical &amp; Duty Outpasses ({activePeriodData.excusedCount}):</span>
                               </div>
                               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '8px' }}>
                                 {activePeriodData.excusedAbsentees.map((item, idx) => {
                                   const st = item.student;
+                                  const isMed = item.status === 'MED' || String(item.label || '').toLowerCase().includes('medical') || String(item.reason || '').toLowerCase().includes('sick');
+                                  const isOff = item.status === 'O' || String(item.label || '').toLowerCase().includes('official');
+                                  const cardBg = isMed ? '#fffbeb' : isOff ? '#f0fdfa' : '#ffffff';
+                                  const cardBorder = isMed ? '1.5px solid #fde68a' : isOff ? '1.5px solid #99f6e4' : '1px solid #c7d2fe';
+                                  const badgeBg = isMed ? '#fef3c7' : isOff ? '#ccfbf1' : '#e0e7ff';
+                                  const badgeColor = isMed ? '#b45309' : isOff ? '#0f766e' : '#4338ca';
+
                                   return (
                                     <div
                                       key={st.id || idx}
                                       style={{
-                                        padding: '8px 12px',
-                                        borderRadius: '8px',
-                                        background: '#ffffff',
-                                        border: '1px solid #93c5fd',
+                                        padding: '10px 12px',
+                                        borderRadius: '10px',
+                                        background: cardBg,
+                                        border: cardBorder,
                                         display: 'flex',
                                         justifyContent: 'space-between',
                                         alignItems: 'center'
                                       }}
                                     >
                                       <div>
-                                        <div style={{ fontSize: '13px', fontWeight: '800', color: '#1e40af' }}>
+                                        <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>
                                           #{st.rollNo || idx + 1} • {st.firstName || st.name}
                                         </div>
-                                        <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
                                           {item.reason}
                                         </div>
                                       </div>
-                                      <span style={{ fontSize: '10px', fontWeight: '800', color: '#2563eb', background: '#dbeafe', padding: '3px 8px', borderRadius: '6px' }}>
+                                      <span style={{ fontSize: '10px', fontWeight: '800', color: badgeColor, background: badgeBg, padding: '3px 8px', borderRadius: '6px' }}>
                                         {item.label}
                                       </span>
                                     </div>

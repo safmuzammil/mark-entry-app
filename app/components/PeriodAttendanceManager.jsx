@@ -2139,25 +2139,55 @@ export default function PeriodAttendanceManager({
           ) : classStudents.length > 0 && (
             <form onSubmit={handleSaveAttendance}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '12px 16px', borderRadius: '10px', marginBottom: '14px', fontWeight: '700', fontSize: '13px', flexWrap: 'wrap', gap: '10px', border: '1px solid #e2e8f0' }}>
-                <span style={{ color: '#0f172a' }}>Total: {classStudents.length}</span>
-                <span style={{ color: '#047857' }}>Present: {classStudents.filter(st => {
-                  const sReg = String(st.regNo || '').trim();
-                  const sAd = String(st.adNo || '').trim();
-                  const sId = String(st.id || '').trim();
-                  return !absentRegNos.some(r => {
-                    const str = String(r).trim();
-                    return (sReg && str === sReg) || (sAd && str === sAd) || (sId && str === sId);
+                {(() => {
+                  let medCount = 0;
+                  let offCount = 0;
+                  let unexcusedCount = 0;
+                  let presentCount = 0;
+
+                  classStudents.forEach(st => {
+                    const sReg = String(st.regNo || '').trim();
+                    const sAd = String(st.adNo || '').trim();
+                    const sId = String(st.id || '').trim();
+                    const rehPresentHere = (rehearsalPresentMapForDate[String(attSession)] || []).some(r => {
+                      const str = String(r || '').trim().toUpperCase();
+                      return (sReg && str === sReg.toUpperCase()) || 
+                             (sAd && str === sAd.toUpperCase()) || 
+                             (sId && str === sId.toUpperCase());
+                    });
+                    const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
+                    const recAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
+                    const isOfficialPass = Boolean((op && op.isOfficial) || (recAbs && recAbs.isOfficial));
+                    const isAbsent = !rehPresentHere && !isOfficialPass && absentRegNos.some(r => {
+                      const str = String(r).trim().toUpperCase();
+                      return (sReg && str === sReg.toUpperCase()) || (sAd && str === sAd.toUpperCase()) || (sId && str === sId.toUpperCase());
+                    });
+
+                    if (isOfficialPass) {
+                      offCount++;
+                    } else if (recAbs?.isMedical && isAbsent) {
+                      medCount++;
+                    } else if (isAbsent) {
+                      unexcusedCount++;
+                    } else {
+                      presentCount++;
+                    }
                   });
-                }).length}</span>
-                <span style={{ color: '#e11d48' }}>Absent: {classStudents.filter(st => {
-                  const sReg = String(st.regNo || '').trim();
-                  const sAd = String(st.adNo || '').trim();
-                  const sId = String(st.id || '').trim();
-                  return absentRegNos.some(r => {
-                    const str = String(r).trim();
-                    return (sReg && str === sReg) || (sAd && str === sAd) || (sId && str === sId);
-                  });
-                }).length}</span>
+
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                      <span style={{ color: '#0f172a' }}>Total: {classStudents.length}</span>
+                      <span style={{ color: '#047857' }}>Present: {presentCount}</span>
+                      <span style={{ color: '#e11d48' }}>Absent: {unexcusedCount}</span>
+                      <span style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#d97706', padding: '2px 8px', borderRadius: '6px', fontSize: '12px' }}>
+                        🤒 Medical: {medCount}
+                      </span>
+                      <span style={{ background: '#f0fdfa', border: '1px solid #99f6e4', color: '#0d9488', padding: '2px 8px', borderRadius: '6px', fontSize: '12px' }}>
+                        🏛️ Official: {offCount}
+                      </span>
+                    </div>
+                  );
+                })()}
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button type="button" onClick={() => setAbsentRegNos([])} style={{ padding: '5px 10px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>All Present</button>
                   <button

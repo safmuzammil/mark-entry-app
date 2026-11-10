@@ -216,9 +216,10 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
     return base;
   }, [loggedInTeacher, myClassTeacherOf]);
 
-  const [activeView, setActiveView] = useState('period_attendance');
+  const [activeView, setActiveView] = useState(embeddedInAdmin ? 'marks' : 'period_attendance');
   // 📱 Mobile Back-Swipe & Hardware Back Navigation: Return to Marks (Home) instead of exiting app
   const handleSelectTeacherView = (viewId, skipHistory = false) => {
+    if (embeddedInAdmin) return;
     if (viewId === activeView) return;
     if (!skipHistory && typeof window !== 'undefined') {
       window.history.pushState(
@@ -232,6 +233,10 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (embeddedInAdmin) {
+      setActiveView('marks');
+      return;
+    }
 
     const hashView = window.location.hash.replace('#', '').trim();
     const validViews = ['marks', 'period_attendance', 'minus_attendance', 'mentees', 'outpass', 'attendance', 'outreach_dept', 'academic_coord', 'settings'];
@@ -250,7 +255,7 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [embeddedInAdmin]);
 
   const [selectedEnrollmentId, setSelectedEnrollmentId] = useState('');
   const [cceLevel, setCceLevel] = useState('');
@@ -916,161 +921,193 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
         />
       )}
 
-      {/* 🌟 LEFT SIDEBAR FOR TEACHER PORTAL */}
-      <aside
-        className={`shuhood-teacher-sidebar ${mobileSidebarOpen ? 'open' : ''}`}
-        style={{
-          width: '245px',
-          minWidth: '245px',
-          backgroundColor: '#ffffff',
-          borderRight: '1px solid #e2e8f0',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-between',
-          position: embeddedInAdmin ? 'relative' : 'sticky',
-          top: 0,
-          height: embeddedInAdmin ? 'auto' : '100vh',
-          padding: '20px 14px',
-          boxSizing: 'border-box'
-        }}
-      >
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '4px 10px 18px', borderBottom: '1px solid #f1f5f9' }}>
-            <img src={DHIU_LOGO_URL} alt="DHIU" style={{ width: '38px', height: '38px', borderRadius: '10px', objectFit: 'contain', border: '1px solid #e2e8f0', padding: '2px' }} />
-            <div>
-              <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', lineHeight: 1.2 }}>DHIU Campus</div>
-              <div style={{ fontSize: '10px', fontWeight: '800', color: '#4f46e5', letterSpacing: '0.6px', textTransform: 'uppercase', marginTop: '2px' }}>
-                🎓 FACULTY PORTAL
+      {/* 🌟 LEFT SIDEBAR FOR TEACHER PORTAL (Hidden in Admin Proxy Mode!) */}
+      {!embeddedInAdmin && (
+        <aside
+          className={`shuhood-teacher-sidebar ${mobileSidebarOpen ? 'open' : ''}`}
+          style={{
+            width: '245px',
+            minWidth: '245px',
+            backgroundColor: '#ffffff',
+            borderRight: '1px solid #e2e8f0',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            position: 'sticky',
+            top: 0,
+            height: '100vh',
+            padding: '20px 14px',
+            boxSizing: 'border-box'
+          }}
+        >
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '4px 10px 18px', borderBottom: '1px solid #f1f5f9' }}>
+              <img src={DHIU_LOGO_URL} alt="DHIU" style={{ width: '38px', height: '38px', borderRadius: '10px', objectFit: 'contain', border: '1px solid #e2e8f0', padding: '2px' }} />
+              <div>
+                <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', lineHeight: 1.2 }}>DHIU Campus</div>
+                <div style={{ fontSize: '10px', fontWeight: '800', color: '#4f46e5', letterSpacing: '0.6px', textTransform: 'uppercase', marginTop: '2px' }}>
+                  🎓 FACULTY PORTAL
+                </div>
               </div>
             </div>
+
+            <div style={{ fontSize: '11px', fontWeight: '800', color: '#94a3b8', letterSpacing: '0.8px', padding: '16px 12px 8px', textTransform: 'uppercase' }}>
+              NAVIGATION
+            </div>
+
+            <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {teacherNavItems.map(item => {
+                const isActive = activeView === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      item.onClick();
+                      setMobileSidebarOpen(false);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      width: '100%',
+                      padding: '11px 14px',
+                      borderRadius: '10px',
+                      border: isActive ? '1.5px solid #1e1b4b' : '1.5px solid transparent',
+                      backgroundColor: isActive ? '#4f46e5' : 'transparent',
+                      color: isActive ? '#ffffff' : '#475569',
+                      fontWeight: isActive ? '700' : '600',
+                      fontSize: '14px',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <span style={{ fontSize: '16px' }}>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
           </div>
 
-          <div style={{ fontSize: '11px', fontWeight: '800', color: '#94a3b8', letterSpacing: '0.8px', padding: '16px 12px 8px', textTransform: 'uppercase' }}>
-            NAVIGATION
+          <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '14px' }}>
+            <button
+              type="button"
+              onClick={onLogout}
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '8px', background: '#fff1f2', color: '#e11d48', border: '1px solid #ffe4e6', fontSize: '13px', fontWeight: '700', cursor: 'pointer', width: '100%', textAlign: 'left' }}
+            >
+              <span>🚪</span> Sign Out
+            </button>
           </div>
-
-          <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {teacherNavItems.map(item => {
-              const isActive = activeView === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => {
-                    item.onClick();
-                    setMobileSidebarOpen(false);
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    width: '100%',
-                    padding: '11px 14px',
-                    borderRadius: '10px',
-                    border: isActive ? '1.5px solid #1e1b4b' : '1.5px solid transparent',
-                    backgroundColor: isActive ? '#4f46e5' : 'transparent',
-                    color: isActive ? '#ffffff' : '#475569',
-                    fontWeight: isActive ? '700' : '600',
-                    fontSize: '14px',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <span style={{ fontSize: '16px' }}>{item.icon}</span>
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-
-        <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '14px' }}>
-          <button
-            type="button"
-            onClick={onLogout}
-            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '8px', background: '#fff1f2', color: '#e11d48', border: '1px solid #ffe4e6', fontSize: '13px', fontWeight: '700', cursor: 'pointer', width: '100%', textAlign: 'left' }}
-          >
-            <span>🚪</span> {embeddedInAdmin ? 'Exit Proxy Mode' : 'Sign Out'}
-          </button>
-        </div>
-      </aside>
+        </aside>
+      )}
 
       {/* 🌟 MAIN TEACHER CONTENT AREA */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        {/* Clean Minimalist Top Bar with Live Class & Mentee Campus/Medical Badges */}
-        <header style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '14px 26px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              className="shuhood-teacher-menu-btn"
-              onClick={() => setMobileSidebarOpen(true)}
-              style={{
-                display: 'none',
-                padding: '8px 14px',
-                background: '#ffffff',
-                color: '#0f172a',
-                border: '1.5px solid #94a3b8',
-                borderRadius: '10px',
-                fontWeight: '900',
-                cursor: 'pointer',
-                fontSize: '22px',
-                lineHeight: '1',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-              }}
-              aria-label="Toggle navigation menu"
-            >
-              ☰
-            </button>
-
-            {myClassTeacherOf.length > 0 && (
-              <span
-                onClick={() => setActiveView('mentees')}
-                style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '5px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}
-              >
-                🏫 Class {myClassTeacherOf.join(', ')}: 🟢 {myClassInCount} In • 🟠 {myClassOutCount} Out {myClassMedCount > 0 ? `(🏥 ${myClassMedCount} Med)` : ''}
-              </span>
-            )}
-
-            {myAssignedMentees.length > 0 && (
-              <span
-                onClick={() => setActiveView('mentees')}
-                style={{ background: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe', padding: '5px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}
-              >
-                🧭 Mentees ({myAssignedMentees.length}): 🟢 {myMenteesInCount} In • 🟠 {myMenteesOutCount} Out {myMenteesMedCount > 0 ? `(🏥 ${myMenteesMedCount} Med)` : ''} • Sittings {menteesMetTargetCount}/{myAssignedMentees.length}
-              </span>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <ProfileAvatar name={loggedInTeacher?.fullName} code={loggedInTeacher?.username} photoUrl={loggedInTeacher?.photoUrl} size={36} />
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>{loggedInTeacher?.fullName}</div>
-              <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>@{loggedInTeacher?.username}</div>
+        {embeddedInAdmin ? (
+          <div style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '16px 26px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ width: '42px', height: '42px', borderRadius: '12px', background: '#eef2ff', color: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px', border: '1px solid #c7d2fe' }}>
+                ✍️
+              </div>
+              <div>
+                <div style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>
+                  Proxy Mark Entry: Usthad {loggedInTeacher?.fullName} <span style={{ fontSize: '13px', color: '#4f46e5', fontWeight: '700' }}>(@{loggedInTeacher?.username})</span>
+                </div>
+                <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600', marginTop: '2px' }}>
+                  Restricted Access: Only Curriculum &amp; CCE Mark Entry grid is visible. Teacher personal details, attendance tabs, and mentorship logs are suppressed.
+                </div>
+              </div>
             </div>
+            {onLogout && (
+              <button
+                type="button"
+                onClick={onLogout}
+                style={{ ...styles.buttonSecondary, fontSize: '12px', color: '#e11d48', border: '1px solid #fecdd3', background: '#fff1f2', fontWeight: '800' }}
+              >
+                🚪 Exit Proxy Mode
+              </button>
+            )}
           </div>
-        </header>
+        ) : (
+          <header style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '14px 26px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="shuhood-teacher-menu-btn"
+                onClick={() => setMobileSidebarOpen(true)}
+                style={{
+                  display: 'none',
+                  padding: '8px 14px',
+                  background: '#ffffff',
+                  color: '#0f172a',
+                  border: '1.5px solid #94a3b8',
+                  borderRadius: '10px',
+                  fontWeight: '900',
+                  cursor: 'pointer',
+                  fontSize: '22px',
+                  lineHeight: '1',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                }}
+                aria-label="Toggle navigation menu"
+              >
+                ☰
+              </button>
+
+              {myClassTeacherOf.length > 0 && (
+                <span
+                  onClick={() => setActiveView('mentees')}
+                  style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '5px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}
+                >
+                  🏫 Class {myClassTeacherOf.join(', ')}: 🟢 {myClassInCount} In • 🟠 {myClassOutCount} Out {myClassMedCount > 0 ? `(🏥 ${myClassMedCount} Med)` : ''}
+                </span>
+              )}
+
+              {myAssignedMentees.length > 0 && (
+                <span
+                  onClick={() => setActiveView('mentees')}
+                  style={{ background: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe', padding: '5px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}
+                >
+                  🧭 Mentees ({myAssignedMentees.length}): 🟢 {myMenteesInCount} In • 🟠 {myMenteesOutCount} Out {myMenteesMedCount > 0 ? `(🏥 ${myMenteesMedCount} Med)` : ''} • Sittings {menteesMetTargetCount}/{myAssignedMentees.length}
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <ProfileAvatar name={loggedInTeacher?.fullName} code={loggedInTeacher?.username} photoUrl={loggedInTeacher?.photoUrl} size={36} />
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>{loggedInTeacher?.fullName}</div>
+                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>@{loggedInTeacher?.username}</div>
+              </div>
+            </div>
+          </header>
+        )}
 
         <main style={{ padding: '26px', maxWidth: '1220px', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
           {/* 🌟 TARGETED PORTAL NOTIFICATION CENTER FOR TEACHERS (Send & Receive) */}
-          <PortalNotificationBanner
-            viewerRole="teacher"
-            viewerId={loggedInTeacher?.username || ''}
-            canSendMessages={true}
-            senderName={loggedInTeacher?.fullName || 'Faculty'}
-            senderRole="teacher"
-            senderUsername={loggedInTeacher?.username || ''}
-            studentsList={allStudentsCache}
-            teachersList={allTeachersCache}
-            loggedInTeacher={loggedInTeacher}
-          />
+          {!embeddedInAdmin && (
+            <>
+              <PortalNotificationBanner
+                viewerRole="teacher"
+                viewerId={loggedInTeacher?.username || ''}
+                canSendMessages={true}
+                senderName={loggedInTeacher?.fullName || 'Faculty'}
+                senderRole="teacher"
+                senderUsername={loggedInTeacher?.username || ''}
+                studentsList={allStudentsCache}
+                teachersList={allTeachersCache}
+                loggedInTeacher={loggedInTeacher}
+              />
 
-          {adminBroadcast && (
-            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '12px 18px', borderRadius: '10px', marginBottom: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-              <div style={{ fontSize: '13px', color: '#92400e', fontWeight: '600' }}>
-                <strong style={{ fontWeight: '800' }}>📢 Notice ({adminBroadcast.title}):</strong> {adminBroadcast.message}
-              </div>
-            </div>
+              {adminBroadcast && (
+                <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '12px 18px', borderRadius: '10px', marginBottom: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ fontSize: '13px', color: '#92400e', fontWeight: '600' }}>
+                    <strong style={{ fontWeight: '800' }}>📢 Notice ({adminBroadcast.title}):</strong> {adminBroadcast.message}
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           {/* MINIMALIST 1-LINE WEEKLY REMINDER STRIP (Expands on Click!) */}

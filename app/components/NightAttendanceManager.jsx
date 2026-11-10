@@ -78,6 +78,8 @@ export default function NightAttendanceManager({
   const [nightRepClass, setNightRepClass] = useState('ALL');
 
   // 🌟 RECORDED STUDENT ABSENCES (Persistent Multi-Day & Reason Storage)
+  const [preRecordMode, setPreRecordMode] = useState(false);
+  const [previousSavedState, setPreviousSavedState] = useState(null);
   const [recordedAbsencesMap, setRecordedAbsencesMap] = useState({});
   const [absenceModalStudent, setAbsenceModalStudent] = useState(null);
   const [absenceModalStatus, setAbsenceModalStatus] = useState('ABSENT');
@@ -694,6 +696,12 @@ export default function NightAttendanceManager({
   const handleSaveClassAttendance = async () => {
     setSaving(true);
     try {
+      // 🌟 Snapshot current state for 1-click Undo
+      setPreviousSavedState({
+        statusMap: { ...statusMap },
+        dailyClassesMap: dailyDocData.classes ? { ...dailyDocData.classes } : {}
+      });
+
       const absentAdNos = [];
       const outpassAdNos = [];
       const officialAdNos = [];
@@ -758,6 +766,151 @@ export default function NightAttendanceManager({
       alert('Error saving attendance: ' + err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleUndoLastSave = async () => {
+    if (!previousSavedState) return alert('No previous save state recorded to restore.');
+    if (!confirm(`Undo and restore previous saved attendance state for Class ${selectedClass}?`)) return;
+    setSaving(true);
+    try {
+      setStatusMap(previousSavedState.statusMap);
+      const restoredClassesMap = {
+        ...(dailyDocData.classes || {}),
+        [selectedClass]: previousSavedState.dailyClassesMap[selectedClass]
+      };
+      await setDoc(doc(db, 'night_attendance', selectedDate), {
+        date: selectedDate,
+        classes: restoredClassesMap,
+        lastUpdated: new Date().toISOString()
+      }, { merge: true });
+      setDailyDocData(prev => ({ ...prev, classes: restoredClassesMap }));
+      alert(`↺ Restored previous attendance for Class ${selectedClass}!`);
+    } catch (e) {
+      alert('Error during undo: ' + e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleStudentQuickToggle = (st) => {
+    const ad = String(st.adNo || '').trim();
+    const curStatus = statusMap[ad] || 'PRESENT';
+    const activeRecAbs = getActiveRecordedAbsenceForStudent(ad, selectedDate);
+    const activePass = getActiveOutpassForStudent(ad);
+
+    if (activeRecAbs || activePass) {
+      if (curStatus !== 'PRESENT') {
+        handleMarkPresentAndClearAbsence(st);
+      } else {
+        openAbsenceModal(st, 'ABSENT', activeRecAbs);
+      }
+      return;
+    }
+
+    setStatusMap(prev => ({
+      ...prev,
+      [ad]: curStatus === 'PRESENT' ? 'ABSENT' : 'PRESENT'
+    }));
+  };
+
+  const fallbackCopyText = (text) => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      alert('📋 Copied text to Clipboard!');
+    } catch (e) {
+      alert(`Please select and copy manually:\n\n${text}`);
+    }
+  };
+
+  const handleCopyClassUnexcusedAbsentees = () => {
+    const unexcusedList = classStudents.filter(s => {
+      const st = statusMap[s.adNo];
+      if (st !== 'ABSENT') return false;
+      const activeRec = getActiveRecordedAbsenceForStudent(s.adNo, selectedDate);
+      const activePass = getActiveOutpassForStudent(s.adNo);
+      return !activeRec && !activePass;
+    });
+
+    const activeRecs = classStudents.filter(s => Boolean(getActiveRecordedAbsenceForStudent(s.adNo, selectedDate)));
+    const activePassesList = classStudents.filter(s => Boolean(getActiveOutpassForStudent(s.adNo)));
+    const totalAbsentTonight = unexcusedList.length + activeRecs.length + activePassesList.length;
+    const presentCount = classStudents.length - totalAbsentTonight;
+
+    const lines = [
+      `*🌙 DHIU DEGREE SECTION — NIGHT ATTENDANCE ABSENTEES*`,
+      `*Class:* ${selectedClass} | *Date:* ${selectedDate}`,
+      `*Roll-Call Recorded By:* ${recorderName || 'Teacher'}`,
+      `*Class Teacher:* ${classTeacherObj?.fullName || 'Unassigned'}`,
+      `*Class Metrics:* Total: ${classStudents.length} | Present: ${presentCount} | Total Absent: ${totalAbsentTonight} (Unexcused: ${unexcusedList.length})`,
+      `-----------------------------------------`
+    ];
+
+    if (unexcusedList.length > 0) {
+      lines.push(`🔴 *UNEXCUSED ABSENTEES TONIGHT (Recorded by Night Attendance Taker):*`);
+      unexcusedList.forEach((s, idx) => {
+        lines.push(`${idx + 1}. *${s.firstName}* (#${s.adNo}) - Missing in hostel`);
+      });
+    } else {
+      lines.push(`✅ *Zero Unexcused Absentees Tonight!*`);
+    }
+
+    if (activeRecs.length > 0) {
+      lines.push(``);
+      lines.push(`ℹ️ _Pre-Recorded Known Absences / Medical / Official: ${activeRecs.length}_`);
+    }
+
+    lines.push(`-----------------------------------------`);
+    const fullText = lines.join('\n');
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(fullText).then(() => {
+        alert(`📋 Copied ${unexcusedList.length} unexcused absent students of Class ${selectedClass} to Clipboard!`);
+      }).catch(() => fallbackCopyText(fullText));
+    } else {
+      fallbackCopyText(fullText);
+    }
+  };
+
+  const handleCopyAllClassesNightReport = () => {
+    const inst = computeInstitutionSummaryForDate();
+    const lines = [
+      `*🌙 DHIU DEGREE SECTION — ALL CLASSES NIGHT ATTENDANCE*`,
+      `*Date:* ${selectedDate}`,
+      `*Total Strength:* ${inst.totalStrength} | *Present:* ${inst.totalPresent} | *Absent:* ${inst.totalUnexcusedAbsent} | *Medical:* ${inst.totalSick} | *Official:* ${inst.totalOfficial || 0}`,
+      `-----------------------------------------`
+    ];
+
+    inst.classSummaries.forEach(c => {
+      lines.push(`📚 *CLASS ${c.className}* (Strength: ${c.strength})`);
+      if (!c.isTaken) {
+        lines.push(`   ⏳ *Status:* Attendance Not Taken (CT: ${c.classTeacherName})`);
+      } else {
+        lines.push(`   📊 *Summary:* Present: ${c.presentCount} | Absent: ${c.absentCount} | Medical: ${c.sickCount} | Leave/Official: ${c.outpassCount}`);
+        if (c.absentStudents && c.absentStudents.length > 0) {
+          const names = c.absentStudents.map((s, idx) => `${idx + 1}. ${s.firstName} (#${s.adNo})`).join('\n      ');
+          lines.push(`   🔴 *Absentees Tonight:*\n      ${names}`);
+        } else {
+          lines.push(`   ✅ *Zero Unexcused Absentees*`);
+        }
+      }
+      lines.push(`-----------------------------------------`);
+    });
+
+    lines.push(`_Report Generated from MarkPortal Night Attendance System_`);
+    const fullText = lines.join('\n');
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(fullText).then(() => {
+        alert('📋 Copied Master All-Classes Absentee Report to Clipboard for WhatsApp!');
+      }).catch(() => fallbackCopyText(fullText));
+    } else {
+      fallbackCopyText(fullText);
     }
   };
 
@@ -887,7 +1040,8 @@ export default function NightAttendanceManager({
         takenBy: saved?.takenBy || 'Pending',
         presentCount: saved ? saved.presentCount : '-',
         absentCount: saved ? (saved.absentAdNos || []).length : '-',
-        outpassCount: saved ? (saved.outpassAdNos || []).length + (saved.officialAdNos || []).length : '-',
+        outpassCount: saved ? (saved.outpassAdNos || []).length : '-',
+        officialCount: saved ? (saved.officialAdNos || []).length : '-',
         sickCount: saved ? (saved.sickAdNos || []).length : '-',
         absentStudents: saved
           ? clsStudents.filter(s => (saved.absentAdNos || []).includes(String(s.adNo)))
@@ -903,7 +1057,8 @@ export default function NightAttendanceManager({
       totalStrength,
       totalPresent,
       totalUnexcusedAbsent,
-      totalOnOutpass: totalOnOutpass + totalOfficial,
+      totalOnOutpass,
+      totalOfficial,
       totalSick,
       classesTakenCount,
       classSummaries
@@ -943,7 +1098,8 @@ export default function NightAttendanceManager({
 
   const presentInCurrentClass = classStudents.filter(s => (statusMap[s.adNo] || 'PRESENT') === 'PRESENT').length;
   const absentInCurrentClass = classStudents.filter(s => statusMap[s.adNo] === 'ABSENT').length;
-  const outpassInCurrentClass = classStudents.filter(s => statusMap[s.adNo] === 'OUTPASS' || statusMap[s.adNo] === 'OFFICIAL').length;
+  const outpassInCurrentClass = classStudents.filter(s => statusMap[s.adNo] === 'OUTPASS').length;
+  const officialInCurrentClass = classStudents.filter(s => statusMap[s.adNo] === 'OFFICIAL').length;
   const sickInCurrentClass = classStudents.filter(s => statusMap[s.adNo] === 'SICK_ROOM').length;
 
   return (
@@ -1086,23 +1242,31 @@ export default function NightAttendanceManager({
             </div>
           )}
 
-          {/* SOFT PASTEL 4-COUNTER BAR */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '16px' }}>
-            <div style={{ padding: '14px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-              <div style={{ fontSize: '10px', fontWeight: '800', color: '#64748b' }}>CLASS {selectedClass} TOTAL</div>
-              <div style={{ fontSize: '22px', fontWeight: '900', color: '#0f172a', marginTop: '2px' }}>{classStudents.length}</div>
+          {/* SOFT PASTEL 6-COUNTER BAR (Total, Present, Unexcused, Medical, Official, Outpass) */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', marginBottom: '16px' }}>
+            <div style={{ padding: '12px 14px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+              <div style={{ fontSize: '10px', fontWeight: '800', color: '#64748b' }}>TOTAL STUDENTS</div>
+              <div style={{ fontSize: '20px', fontWeight: '900', color: '#0f172a', marginTop: '2px' }}>{classStudents.length}</div>
             </div>
-            <div style={{ padding: '14px', borderRadius: '12px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center' }}>
+            <div style={{ padding: '12px 14px', borderRadius: '12px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center' }}>
               <div style={{ fontSize: '10px', fontWeight: '800', color: '#047857' }}>PRESENT</div>
-              <div style={{ fontSize: '22px', fontWeight: '900', color: '#065f46', marginTop: '2px' }}>{presentInCurrentClass}</div>
+              <div style={{ fontSize: '20px', fontWeight: '900', color: '#065f46', marginTop: '2px' }}>{presentInCurrentClass}</div>
             </div>
-            <div style={{ padding: '14px', borderRadius: '12px', background: '#fff1f2', border: '1px solid #fecdd3', textAlign: 'center' }}>
+            <div style={{ padding: '12px 14px', borderRadius: '12px', background: '#fff1f2', border: '1px solid #fecdd3', textAlign: 'center' }}>
               <div style={{ fontSize: '10px', fontWeight: '800', color: '#be123c' }}>UNEXCUSED ABSENT</div>
-              <div style={{ fontSize: '22px', fontWeight: '900', color: '#e11d48', marginTop: '2px' }}>{absentInCurrentClass}</div>
+              <div style={{ fontSize: '20px', fontWeight: '900', color: '#e11d48', marginTop: '2px' }}>{absentInCurrentClass}</div>
             </div>
-            <div style={{ padding: '14px', borderRadius: '12px', background: '#eef2ff', border: '1px solid #c7d2fe', textAlign: 'center' }}>
-              <div style={{ fontSize: '10px', fontWeight: '800', color: '#4338ca' }}>LEAVE / OFFICIAL / SICK</div>
-              <div style={{ fontSize: '22px', fontWeight: '900', color: '#4f46e5', marginTop: '2px' }}>{outpassInCurrentClass} / {sickInCurrentClass}</div>
+            <div style={{ padding: '12px 14px', borderRadius: '12px', background: '#fffbeb', border: '1.5px solid #fde68a', textAlign: 'center' }}>
+              <div style={{ fontSize: '10px', fontWeight: '800', color: '#b45309' }}>🤒 MEDICAL ABSENCE</div>
+              <div style={{ fontSize: '20px', fontWeight: '900', color: '#d97706', marginTop: '2px' }}>{sickInCurrentClass}</div>
+            </div>
+            <div style={{ padding: '12px 14px', borderRadius: '12px', background: '#f0fdfa', border: '1.5px solid #99f6e4', textAlign: 'center' }}>
+              <div style={{ fontSize: '10px', fontWeight: '800', color: '#0f766e' }}>🏛️ OFFICIAL ABSENT</div>
+              <div style={{ fontSize: '20px', fontWeight: '900', color: '#0d9488', marginTop: '2px' }}>{officialInCurrentClass}</div>
+            </div>
+            <div style={{ padding: '12px 14px', borderRadius: '12px', background: '#eef2ff', border: '1px solid #c7d2fe', textAlign: 'center' }}>
+              <div style={{ fontSize: '10px', fontWeight: '800', color: '#4338ca' }}>🪪 GATE OUTPASS</div>
+              <div style={{ fontSize: '20px', fontWeight: '900', color: '#4f46e5', marginTop: '2px' }}>{outpassInCurrentClass}</div>
             </div>
           </div>
 
@@ -1161,7 +1325,7 @@ export default function NightAttendanceManager({
             )}
           </div>
 
-          {/* SEARCH + QUICK ALL PRESENT + SAVE BUTTON */}
+          {/* SEARCH + PRE-RECORD TOGGLE + UNDO + QUICK ACTIONS */}
           <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
             <input
               type="text"
@@ -1171,6 +1335,32 @@ export default function NightAttendanceManager({
               style={{ ...styles.input, maxWidth: '280px', padding: '8px 12px', fontSize: '13px' }}
             />
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => setPreRecordMode(p => !p)}
+                style={{
+                  ...styles.buttonSecondary,
+                  background: preRecordMode ? '#eef2ff' : '#ffffff',
+                  color: preRecordMode ? '#4f46e5' : '#334155',
+                  border: preRecordMode ? '2px solid #4f46e5' : '1px solid #cbd5e1',
+                  fontWeight: '800'
+                }}
+              >
+                {preRecordMode ? '✓ Done Pre-Recording (Roll-Call Mode)' : '📝 Pre-Record Leaves & Reasons'}
+              </button>
+
+              {previousSavedState && (
+                <button
+                  type="button"
+                  onClick={handleUndoLastSave}
+                  disabled={saving}
+                  style={{ ...styles.buttonSecondary, background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a', fontWeight: '800' }}
+                  title="Roll back to previous saved attendance"
+                >
+                  ↺ Undo Last Save
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => {
@@ -1185,6 +1375,16 @@ export default function NightAttendanceManager({
               >
                 ✓ All Present
               </button>
+
+              <button
+                type="button"
+                onClick={handleCopyClassUnexcusedAbsentees}
+                style={styles.buttonSecondary}
+                title="Copy unexcused absentees of tonight to clipboard"
+              >
+                📋 Copy Absentees
+              </button>
+
               <button
                 type="button"
                 onClick={handleSaveClassAttendance}
@@ -1211,7 +1411,7 @@ export default function NightAttendanceManager({
                   ABSENT: { bg: '#fff1f2', border: '#fecdd3', badgeBg: '#ffe4e6', badgeColor: '#e11d48', label: 'Absent' },
                   OUTPASS: { bg: '#eef2ff', border: '#c7d2fe', badgeBg: '#e0e7ff', badgeColor: '#4338ca', label: 'Leave' },
                   OFFICIAL: { bg: '#f0fdfa', border: '#99f6e4', badgeBg: '#ccfbf1', badgeColor: '#0f766e', label: 'Official' },
-                  SICK_ROOM: { bg: '#fffbeb', border: '#fde68a', badgeBg: '#fef3c7', badgeColor: '#b45309', label: 'Sick' }
+                  SICK_ROOM: { bg: '#fffbeb', border: '#fde68a', badgeBg: '#fef3c7', badgeColor: '#b45309', label: 'Medical' }
                 };
                 const theme = cardThemes[curStatus] || cardThemes.PRESENT;
 
@@ -1219,10 +1419,10 @@ export default function NightAttendanceManager({
                   <div
                     key={st.regNo || st.adNo || idx}
                     onClick={() => {
-                      if (curStatus === 'PRESENT') {
-                        openAbsenceModal(st, 'ABSENT');
+                      if (preRecordMode) {
+                        openAbsenceModal(st, curStatus === 'PRESENT' ? 'ABSENT' : curStatus, activeRecAbs);
                       } else {
-                        handleMarkPresentAndClearAbsence(st);
+                        handleStudentQuickToggle(st);
                       }
                     }}
                     style={{
@@ -1250,7 +1450,7 @@ export default function NightAttendanceManager({
                         </div>
                       </div>
 
-                      <span style={{ background: theme.badgeBg, color: theme.badgeColor, padding: '3px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap' }}>
+                      <span style={{ background: theme.badgeBg, color: theme.badgeColor, padding: '3px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: '800', whiteSpace: 'nowrap' }}>
                         {theme.label}
                       </span>
                     </div>
@@ -1259,92 +1459,221 @@ export default function NightAttendanceManager({
                     {activeRecAbs && (
                       <div
                         onClick={(e) => e.stopPropagation()}
-                        style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '7px 10px', borderRadius: '8px', fontSize: '11px', color: '#92400e', lineHeight: 1.35 }}
+                        style={{
+                          background: activeRecAbs.status === 'SICK_ROOM' ? '#fffbeb' : activeRecAbs.status === 'OFFICIAL' ? '#f0fdfa' : '#fff1f2',
+                          border: `1px solid ${activeRecAbs.status === 'SICK_ROOM' ? '#fde68a' : activeRecAbs.status === 'OFFICIAL' ? '#99f6e4' : '#fecdd3'}`,
+                          padding: '7px 10px',
+                          borderRadius: '8px',
+                          fontSize: '11px',
+                          color: activeRecAbs.status === 'SICK_ROOM' ? '#92400e' : activeRecAbs.status === 'OFFICIAL' ? '#0f766e' : '#be123c',
+                          lineHeight: 1.35
+                        }}
                       >
                         <div style={{ fontWeight: '800', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span>📌 Reason: &ldquo;{activeRecAbs.reason}&rdquo;</span>
+                          <span>📌 {activeRecAbs.status === 'SICK_ROOM' ? '🤒 Medical / Sick' : activeRecAbs.status === 'OFFICIAL' ? '🏛️ Official Duty' : '🔴 Reason'}: &ldquo;{activeRecAbs.reason}&rdquo;</span>
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <button
                               type="button"
                               onClick={() => openAbsenceModal(st, activeRecAbs.status, activeRecAbs)}
-                              style={{ background: 'transparent', border: 'none', color: '#b45309', cursor: 'pointer', fontSize: '10px', fontWeight: '800', textDecoration: 'underline' }}
+                              style={{ background: 'transparent', border: 'none', color: '#4f46e5', cursor: 'pointer', fontSize: '10px', fontWeight: '800', textDecoration: 'underline' }}
                             >
                               ✏️ Edit
                             </button>
                             <button
                               type="button"
                               onClick={() => handleMarkPresentAndClearAbsence(st)}
-                              style={{ background: 'transparent', border: 'none', color: '#b45309', cursor: 'pointer', fontSize: '10px', fontWeight: '800', textDecoration: 'underline' }}
+                              style={{ background: 'transparent', border: 'none', color: '#e11d48', cursor: 'pointer', fontSize: '10px', fontWeight: '800', textDecoration: 'underline' }}
                             >
                               ✕ Clear
                             </button>
                           </div>
                         </div>
                         {activeRecAbs.hasDuration && activeRecAbs.endDate && (
-                          <div style={{ fontSize: '10px', marginTop: '3px', color: '#b45309', fontWeight: '700' }}>
+                          <div style={{ fontSize: '10px', marginTop: '3px', fontWeight: '700' }}>
                             ⏳ Active until: {activeRecAbs.endDate} ({activeRecAbs.endTime || '22:00'})
                           </div>
                         )}
-                        <div style={{ fontSize: '10px', marginTop: '2px', color: '#78350f' }}>
-                          Recorded by {activeRecAbs.recordedBy}
+                        <div style={{ fontSize: '10px', marginTop: '2px', opacity: 0.85 }}>
+                          Recorded by Usthad {activeRecAbs.recordedBy}
                         </div>
                       </div>
                     )}
 
                     {activePass && (
-                      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '7px 10px', borderRadius: '8px', fontSize: '11px', color: '#92400e', lineHeight: 1.35 }}>
+                      <div style={{ background: '#eef2ff', border: '1px solid #c7d2fe', padding: '7px 10px', borderRadius: '8px', fontSize: '11px', color: '#4338ca', lineHeight: 1.35 }}>
                         <div style={{ fontWeight: '700' }}>
                           🪪 Outside Campus ({activePass.leaveCategory || 'Leave'}): {activePass.destination}
                         </div>
-                        <div style={{ fontSize: '10px', marginTop: '2px', color: '#b45309' }}>
+                        <div style={{ fontSize: '10px', marginTop: '2px' }}>
                           Reason: &ldquo;{activePass.purpose || activePass.reason || 'Leave'}&rdquo; • Approved by: Usthad {activePass.teacherName}
                         </div>
                       </div>
                     )}
 
-                    {/* 🌟 5 CLEAN STATUS PILLS (Pres | Abs | Leave | Official | Sick) */}
-                    <div
-                      onClick={(e) => e.stopPropagation()}
-                      style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}
-                    >
-                      {[
-                        { id: 'PRESENT', label: 'Pres', activeBg: '#10b981' },
-                        { id: 'ABSENT', label: 'Abs', activeBg: '#e11d48' },
-                        { id: 'OUTPASS', label: 'Leave', activeBg: '#4f46e5' },
-                        { id: 'OFFICIAL', label: 'Official', activeBg: '#0d9488' },
-                        { id: 'SICK_ROOM', label: 'Sick', activeBg: '#d97706' }
-                      ].map(btn => {
-                        const active = curStatus === btn.id;
-                        return (
+                    {/* 🌟 ROLL CALL TOGGLE PILL vs PRE-RECORD 5-BUTTON PALETTE */}
+                    {!preRecordMode ? (
+                      <div onClick={(e) => e.stopPropagation()} style={{ paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}>
+                        {curStatus === 'PRESENT' ? (
                           <button
-                            key={btn.id}
                             type="button"
-                            onClick={() => {
-                              if (btn.id === 'PRESENT') {
-                                handleMarkPresentAndClearAbsence(st);
-                              } else {
-                                openAbsenceModal(st, btn.id);
-                              }
-                            }}
+                            onClick={() => handleStudentQuickToggle(st)}
                             style={{
-                              flex: 1,
-                              padding: '6px 8px',
-                              borderRadius: '6px',
-                              fontSize: '11px',
-                              fontWeight: '700',
+                              width: '100%',
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              fontWeight: '800',
                               cursor: 'pointer',
-                              background: active ? btn.activeBg : '#f8fafc',
-                              color: active ? '#ffffff' : '#475569',
-                              border: active ? `1px solid ${btn.activeBg}` : '1px solid #e2e8f0',
-                              textAlign: 'center',
-                              transition: 'all 0.15s ease'
+                              background: '#ecfdf5',
+                              color: '#047857',
+                              border: '1.5px solid #10b981',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '6px'
                             }}
                           >
-                            {btn.label}
+                            <span>✓ PRESENT</span>
+                            <span style={{ fontSize: '10px', opacity: 0.75 }}>(Tap to mark Absent)</span>
                           </button>
-                        );
-                      })}
-                    </div>
+                        ) : curStatus === 'ABSENT' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleStudentQuickToggle(st)}
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              fontWeight: '800',
+                              cursor: 'pointer',
+                              background: '#fff1f2',
+                              color: '#be123c',
+                              border: '1.5px solid #e11d48',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '6px'
+                            }}
+                          >
+                            <span>🔴 ABSENT</span>
+                            <span style={{ fontSize: '10px', opacity: 0.75 }}>(Tap to mark Present)</span>
+                          </button>
+                        ) : curStatus === 'SICK_ROOM' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleMarkPresentAndClearAbsence(st)}
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              fontWeight: '800',
+                              cursor: 'pointer',
+                              background: '#fffbeb',
+                              color: '#b45309',
+                              border: '1.5px solid #d97706',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '6px'
+                            }}
+                          >
+                            <span>🤒 MEDICAL / SICK</span>
+                            <span style={{ fontSize: '10px', opacity: 0.75 }}>(Tap to clear &amp; mark Present)</span>
+                          </button>
+                        ) : curStatus === 'OFFICIAL' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleMarkPresentAndClearAbsence(st)}
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              fontWeight: '800',
+                              cursor: 'pointer',
+                              background: '#f0fdfa',
+                              color: '#0f766e',
+                              border: '1.5px solid #0d9488',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '6px'
+                            }}
+                          >
+                            <span>🏛️ OFFICIAL DUTY</span>
+                            <span style={{ fontSize: '10px', opacity: 0.75 }}>(Tap to clear &amp; mark Present)</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleMarkPresentAndClearAbsence(st)}
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              fontWeight: '800',
+                              cursor: 'pointer',
+                              background: '#eef2ff',
+                              color: '#4338ca',
+                              border: '1.5px solid #4f46e5',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '6px'
+                            }}
+                          >
+                            <span>🪪 GATE LEAVE</span>
+                            <span style={{ fontSize: '10px', opacity: 0.75 }}>(Tap to clear &amp; mark Present)</span>
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}
+                      >
+                        {[
+                          { id: 'PRESENT', label: 'Pres', activeBg: '#10b981' },
+                          { id: 'ABSENT', label: 'Abs', activeBg: '#e11d48' },
+                          { id: 'OUTPASS', label: 'Leave', activeBg: '#4f46e5' },
+                          { id: 'OFFICIAL', label: 'Official', activeBg: '#0d9488' },
+                          { id: 'SICK_ROOM', label: 'Sick', activeBg: '#d97706' }
+                        ].map(btn => {
+                          const active = curStatus === btn.id;
+                          return (
+                            <button
+                              key={btn.id}
+                              type="button"
+                              onClick={() => {
+                                if (btn.id === 'PRESENT') {
+                                  handleMarkPresentAndClearAbsence(st);
+                                } else {
+                                  openAbsenceModal(st, btn.id);
+                                }
+                              }}
+                              style={{
+                                flex: 1,
+                                padding: '6px 8px',
+                                borderRadius: '6px',
+                                fontSize: '11px',
+                                fontWeight: '700',
+                                cursor: 'pointer',
+                                background: active ? btn.activeBg : '#f8fafc',
+                                color: active ? '#ffffff' : '#475569',
+                                border: active ? `1px solid ${btn.activeBg}` : '1px solid #e2e8f0',
+                                textAlign: 'center',
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              {btn.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1629,53 +1958,51 @@ export default function NightAttendanceManager({
               </div>
             </div>
           )}
-
-          <div style={{ marginTop: '20px' }}>
-            <button
-              type="button"
-              onClick={handleSaveClassAttendance}
-              disabled={saving}
-              style={{ ...styles.buttonPrimary, width: '100%', padding: '14px', fontSize: '15px' }}
-            >
-              {saving ? 'Saving Roll-Call...' : `💾 Save Class ${selectedClass} Night Attendance (${selectedDate})`}
-            </button>
-          </div>
         </div>
       )}
 
       {/* =========================================================
-          MODE 2: ADMIN INSTITUTION-WIDE & MONTHLY/TOTAL SUMMARY
-         ========================================================= */}
-      {viewMode === 'admin_summary' && canViewAdminAnalytics && (
-        <div style={styles.card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '18px' }}>
-            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
-              Institution-Wide Night Attendance Summary
-            </h3>
-            <button
-              type="button"
-              onClick={() => {
-                const lines = [
-                  `*🌙 DHIU DEGREE SECTION — INSTITUTION NIGHT ATTENDANCE SUMMARY*`,
-                  `*Date:* ${selectedDate}`,
-                  `*Total Strength:* ${instSummary.totalStrength} | *Present:* ${instSummary.totalPresent} | *Unexcused Absent:* ${instSummary.totalUnexcusedAbsent} | *Leave/Official:* ${instSummary.totalOnOutpass}`,
-                  `-----------------------------------------`
-                ];
-                instSummary.classSummaries.forEach(c => {
-                  if (!c.isTaken) {
-                    lines.push(`• *${c.className}:* ⏳ Pending (CT: ${c.classTeacherName})`);
-                  } else {
-                    const absNames = c.absentStudents.map(s => `${s.firstName} (#${s.adNo})`).join(', ');
-                    lines.push(`• *${c.className}:* Present ${c.presentCount}/${c.strength} | Absent: ${c.absentCount} | Leave: ${c.outpassCount}${absNames ? `\n   🔴 _Absent:_ ${absNames}` : ''}`);
-                  }
-                });
-                openWhatsAppGroupAndCopy(staffGroupLink, lines.join('\n'), 'Staff WhatsApp Group');
-              }}
-              style={styles.buttonPrimary}
-            >
-              💬 Share Summary to Staff WA Group
-            </button>
-          </div>
+              MODE 2: ADMIN INSTITUTION-WIDE & MONTHLY/TOTAL SUMMARY
+             ========================================================= */}
+          {viewMode === 'admin_summary' && canViewAdminAnalytics && (
+            <div style={styles.card}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '18px' }}>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
+                  Institution-Wide Night Attendance Summary
+                </h3>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={handleCopyAllClassesNightReport}
+                    style={styles.buttonSecondary}
+                  >
+                    📋 Copy All Classes Summary
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const lines = [
+                        `*🌙 DHIU DEGREE SECTION — INSTITUTION NIGHT ATTENDANCE SUMMARY*`,
+                        `*Date:* ${selectedDate}`,
+                        `*Total Strength:* ${instSummary.totalStrength} | *Present:* ${instSummary.totalPresent} | *Unexcused Absent:* ${instSummary.totalUnexcusedAbsent} | *Medical:* ${instSummary.totalSick} | *Official:* ${instSummary.totalOfficial || 0}`,
+                        `-----------------------------------------`
+                      ];
+                      instSummary.classSummaries.forEach(c => {
+                        if (!c.isTaken) {
+                          lines.push(`• *${c.className}:* ⏳ Pending (CT: ${c.classTeacherName})`);
+                        } else {
+                          const absNames = c.absentStudents.map(s => `${s.firstName} (#${s.adNo})`).join(', ');
+                          lines.push(`• *${c.className}:* Present ${c.presentCount}/${c.strength} | Absent: ${c.absentCount} | Medical: ${c.sickCount} | Leave: ${c.outpassCount}${absNames ? `\n   🔴 _Absent:_ ${absNames}` : ''}`);
+                        }
+                      });
+                      openWhatsAppGroupAndCopy(staffGroupLink, lines.join('\n'), 'Staff WhatsApp Group');
+                    }}
+                    style={styles.buttonPrimary}
+                  >
+                    💬 Share Summary to Staff WA Group
+                  </button>
+                </div>
+              </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', background: '#f8fafc', padding: '12px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '18px' }}>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -1796,8 +2123,16 @@ export default function NightAttendanceManager({
                   <span style={{ fontSize: '11px', fontWeight: '800', color: '#be123c' }}>UNEXCUSED ABSENT</span>
                   <div style={{ fontSize: '24px', fontWeight: '900', color: '#e11d48', marginTop: '4px' }}>{instSummary.totalUnexcusedAbsent}</div>
                 </div>
+                <div style={{ padding: '16px', borderRadius: '12px', background: '#fffbeb', border: '1.5px solid #fde68a', textAlign: 'center' }}>
+                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#b45309' }}>🤒 MEDICAL ABSENCE</span>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#d97706', marginTop: '4px' }}>{instSummary.totalSick}</div>
+                </div>
+                <div style={{ padding: '16px', borderRadius: '12px', background: '#f0fdfa', border: '1.5px solid #99f6e4', textAlign: 'center' }}>
+                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#0f766e' }}>🏛️ OFFICIAL ABSENT</span>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#0d9488', marginTop: '4px' }}>{instSummary.totalOfficial || 0}</div>
+                </div>
                 <div style={{ padding: '16px', borderRadius: '12px', background: '#eef2ff', border: '1px solid #c7d2fe', textAlign: 'center' }}>
-                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#4338ca' }}>LEAVE / OFFICIAL</span>
+                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#4338ca' }}>🪪 GATE LEAVE</span>
                   <div style={{ fontSize: '24px', fontWeight: '900', color: '#4f46e5', marginTop: '4px' }}>{instSummary.totalOnOutpass}</div>
                 </div>
               </div>
@@ -1820,6 +2155,12 @@ export default function NightAttendanceManager({
                       </div>
                       <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600', marginBottom: '8px' }}>
                         CT: {c.classTeacherName} • Present: <strong>{c.presentCount} / {c.strength}</strong>
+                        {c.isTaken && (
+                          <span style={{ marginLeft: '6px' }}>
+                            • <span style={{ color: '#d97706', fontWeight: '700' }}>Med: {c.sickCount}</span>
+                            • <span style={{ color: '#0d9488', fontWeight: '700' }}>Off: {c.officialCount || 0}</span>
+                          </span>
+                        )}
                       </div>
 
                       {c.absentStudents.length > 0 && (

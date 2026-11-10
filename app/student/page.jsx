@@ -606,15 +606,25 @@ function StudentDashboardInner() {
   const loadStudentPortalDataSecurely = async (studentData) => {
     setIsLoadingMarks(true);
     try {
-      const studentRegNo = studentData.regNo;
+      const studentRegNo = String(studentData.regNo || '').trim();
+      const studentAdNo = String(studentData.adNo || '').trim();
+      let marksData = {};
+
       const [myMarksSnap, metaSnap, reminderSnap, mentorCfgSnap] = await Promise.all([
-        getDoc(doc(db, 'marks', studentRegNo)),
+        studentRegNo ? getDoc(doc(db, 'marks', studentRegNo)) : null,
         getDoc(doc(db, 'systemCache', 'studentPortalMeta')),
         getDoc(doc(db, 'systemCache', 'activeReminder')),
         getDoc(doc(db, 'systemCache', 'mentorshipConfig'))
       ]);
 
-      const marksData = myMarksSnap.exists() ? myMarksSnap.data() : {};
+      if (myMarksSnap && myMarksSnap.exists()) {
+        marksData = myMarksSnap.data() || {};
+      } else if (studentAdNo) {
+        const adSnap = await getDoc(doc(db, 'marks', studentAdNo));
+        if (adSnap.exists()) {
+          marksData = adSnap.data() || {};
+        }
+      }
       setRawStudentMarks(marksData);
 
       const metaData = metaSnap.exists() ? metaSnap.data() : {};
@@ -696,15 +706,16 @@ function StudentDashboardInner() {
       const sub = subObj.subject;
       let normKey = sub.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
       if (sub.toUpperCase().includes('U :FIQH') || sub.toUpperCase().includes('U:FIQH')) normKey = 'U :FIQH';
-      const isHifz = sub.toUpperCase() === 'HIFZ';
+      const isHifz = sub.toUpperCase() === 'HIFZ' || sub.toUpperCase().includes('HIFZ') || sub.toUpperCase() === 'QURAN' || sub.toUpperCase().includes('QURAN');
       const isSpecialization = sub.toUpperCase() === 'SPECIALIZATION';
 
       const matchingMarkKeys = Object.keys(marksData).filter(k => {
-        const kUp = k.toUpperCase();
-        const subUp = sub.toUpperCase();
+        const kUp = k.trim().toUpperCase();
+        const subUp = sub.trim().toUpperCase();
         if (subUp === 'U :FIQH' || subUp === 'U:FIQH') return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
-        if (subUp === 'FIQH') return kUp === 'FIQH' && !kUp.includes('U :FIQH');
+        if (subUp === 'FIQH') return (kUp === 'FIQH' || kUp === 'FIQH ') && !kUp.includes('U :FIQH') && !kUp.includes('U:FIQH');
         if (subUp === 'LOGIC' || subUp === 'MANTIQ') return kUp === 'LOGIC' || kUp === 'MANTIQ' || kUp.includes('DIRASATH') || kUp.includes('ADYAN');
+        if (isHifz) return kUp === 'HIFZ' || kUp.includes('HIFZ') || kUp === 'QURAN' || kUp.includes('QURAN') || kUp === 'HIFDH';
         return kUp === subUp;
       });
       let subMarks = {};
@@ -745,17 +756,24 @@ function StudentDashboardInner() {
 
       Object.entries(startedLevelsMap).forEach(([k, lvls]) => {
         const parts = k.split(':::');
-        const clsPart = parts[0] || '';
-        const subPart = parts[1] || '';
+        const clsPart = (parts[0] || '').trim().toUpperCase();
+        const subPart = (parts[1] || '').trim().toUpperCase();
         let isSubPartMatch = false;
-        const sUp = sub.toUpperCase();
-        const pUp = subPart.toUpperCase();
+        const sUp = sub.trim().toUpperCase();
+        const pUp = subPart;
         if (sUp === 'U :FIQH' || sUp === 'U:FIQH') isSubPartMatch = pUp.includes('U :FIQH') || pUp.includes('U:FIQH');
         else if (sUp === 'FIQH') isSubPartMatch = pUp === 'FIQH' && !pUp.includes('U :FIQH');
         else if (sUp === 'LOGIC' || sUp === 'MANTIQ') isSubPartMatch = pUp === 'LOGIC' || pUp === 'MANTIQ' || pUp.includes('DIRASATH') || pUp.includes('ADYAN');
+        else if (isHifz) isSubPartMatch = pUp === 'HIFZ' || pUp.includes('HIFZ') || pUp === 'QURAN' || pUp.includes('QURAN') || pUp === 'HIFDH';
         else isSubPartMatch = sUp === pUp;
 
-        if ((clsPart === myPrimaryClass || (matchedTeacherEnv && clsPart === String(matchedTeacherEnv.targetClass || matchedTeacherEnv.alias || '').toUpperCase())) && isSubPartMatch) {
+        const primaryClsNorm = myPrimaryClass.replace(/\s+/g, '');
+        const clsPartNorm = clsPart.replace(/\s+/g, '').replace('HIFZ', '');
+        const isClassMatch = clsPart === myPrimaryClass ||
+                             clsPartNorm === primaryClsNorm ||
+                             (matchedTeacherEnv && clsPart === String(matchedTeacherEnv.targetClass || matchedTeacherEnv.alias || '').toUpperCase());
+
+        if (isClassMatch && isSubPartMatch) {
           (lvls || []).forEach(l => { levelGradingStarted[String(l)] = true; });
         }
       });
@@ -766,6 +784,7 @@ function StudentDashboardInner() {
         if (subUp === 'U :FIQH' || subUp === 'U:FIQH') return kUp.includes('U :FIQH') || kUp.includes('U:FIQH');
         if (subUp === 'FIQH') return kUp === 'FIQH' && !kUp.includes('U :FIQH');
         if (subUp === 'LOGIC' || subUp === 'MANTIQ') return kUp === 'LOGIC' || kUp === 'MANTIQ';
+        if (isHifz) return kUp === 'HIFZ' || kUp.includes('HIFZ') || kUp === 'QURAN';
         return kUp === subUp;
       });
       if (remSubKey) {
@@ -779,8 +798,11 @@ function StudentDashboardInner() {
       let assessments = {};
 
       if (isHifz) {
-        let h1 = subMarks['50_1'] !== undefined && subMarks['50_1'] !== '' && !isNaN(Number(subMarks['50_1'])) ? Number(subMarks['50_1']) : '-';
-        let h2 = subMarks['50_2'] !== undefined && subMarks['50_2'] !== '' && !isNaN(Number(subMarks['50_2'])) ? Number(subMarks['50_2']) : '-';
+        const rawH1 = subMarks['50_1'] ?? subMarks['50-1'] ?? subMarks['501'] ?? subMarks['Part 1'] ?? subMarks['part1'] ?? subMarks['1'] ?? (subMarks['50_2'] === undefined && subMarks['50-2'] === undefined ? subMarks['50'] : undefined);
+        const rawH2 = subMarks['50_2'] ?? subMarks['50-2'] ?? subMarks['502'] ?? subMarks['Part 2'] ?? subMarks['part2'] ?? subMarks['2'];
+
+        let h1 = rawH1 !== undefined && rawH1 !== '' && !isNaN(Number(rawH1)) ? Number(rawH1) : '-';
+        let h2 = rawH2 !== undefined && rawH2 !== '' && !isNaN(Number(rawH2)) ? Number(rawH2) : '-';
         assessments = { '50_1': h1, '50_2': h2 };
         if (h1 !== '-') { subSumObtained += h1; subSumMax += 50; hasData = true; }
         if (h2 !== '-') { subSumObtained += h2; subSumMax += 50; hasData = true; }
