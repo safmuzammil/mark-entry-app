@@ -1,68 +1,55 @@
-# Google Sheets Mark Entry Sync Pipeline Optimization
+# Attendance Clearance History, Night Roll-Call Polish & Student Portal Evaluation Logic
 
 * **Author:** safmuzammil
 * **Date:** 2026-11-10
 
 ## Overview
 
-This proposal optimizes the mark synchronization bridge between the Next.js portal (`TeacherPortalView.jsx` & `app/api/sheets/route.js`) and Google Sheets (`QH1`, `AL1`, `FC1`, `QH2`, `AL2`, `FC2`, `QLA3`, `HFC3`). 
-
-The current Google Apps Script (`doPost`) performs up to 280+ remote spreadsheet RPC calls per class submission, leading to execution timeouts (>20 seconds) and triggering the frontend client's 10-second `AbortController` timeout. Furthermore, merged header rows and lack of formula protection create risks of formula corruption and misassigned marks.
-
-The revised pipeline introduces $O(1)$ class sheet targeting, single-pass in-memory row/column resolution, formula collision shielding, strict curricular subject separation (`FIQH` vs `U :FIQH`, `LOGIC` vs `MANTIQ`), and deliberate exclusion of Specialization marks.
+This specification establishes an authoritative architecture and user experience across three interrelated academic and residential subsystems in the Darul Huda Degree ERP:
+1. **Attendance Clearance History Subsystem**: Unifying absence clearance from an isolated issuance utility into a permanent, verifiable, two-way audit trail that synchronizes across academic registries, period session caches, and the student portal.
+2. **Night Roll-Call Subsystem**: Providing high-velocity mobile roll-call with single-tap gestures, live gate outpass cross-checks, dorm/room grouping, and unexcused absentee filtering.
+3. **Student Portal Evaluation Logic**: Resolving mid-semester denominator skew ("35/490") by providing dynamic progress-weighted evaluation, transparent attendance shortage alerts (<85%), and clear distinction between Medical Leaves (Amber) and Official Duty (Teal).
 
 ## Analysis
 
-### 1. Root Cause Breakdown of Current Bottlenecks
-* **RPC Call Storm**: The legacy `doPost` iterates over all spreadsheet tabs and calls `sheet.getDataRange().getValues()` repeatedly inside the student mark loop. For 35 students across 8 class tabs, this triggers 280+ remote spreadsheet reads.
-* **Client-Side Abort Mismatch**: In `TeacherPortalView.jsx` (lines 775–783), an `AbortController` enforces a 10-second timeout. Because Google Apps Script takes 15–40 seconds to process the unoptimized nested loops, the browser aborts the request, falsely reporting a sync error to the user even after Firestore writes have completed.
-* **Merged Header State Machine**: In Google Sheets, merged cells only store data in the top-left cell. When searching for column positions across sub-levels (`15`, `20`, `25`, `40`), the script must carry the active subject header across empty merged cells in Row 2.
-* **Curricular Collisions**:
-  * `FIQH` vs `U :FIQH` (Usulul Fiqh): Naïve substring checks (e.g. `sheetSub.includes('FIQH')`) cause false matches between Fiqh and Usulul Fiqh.
-  * `LOGIC` vs `MANTIQ`: Requires bidirectional aliasing.
-  * `Social Science`: Normalized to match `SOCIAL SCIENCE` and variations.
-  * `HIFZ`: Uses two 50-mark evaluations (`50_1` and `50_2`), differing from standard CCE 4-level matrices.
-  * `Specialization`: Explicitly skipped from Google Sheets sync by author confirmation (managed solely in Firebase).
+### 1. Unified Clearance History & Two-Way Sync (`egm-codebase-details`, `egm-design`)
+* **Collection Divergence**: Currently, `AbsenceClearanceManager.jsx` reads from both `clearance_history` and `clearance_certificates`, while `app/student/page.jsx` reads `clearance_certificates`.
+* **Resolution**: Standardize on `clearance_history` as the primary collection with dual-key indexing on both registration number (`regNo`) and admission number (`adNo`).
+* **Audit Integrity**: Store an immutable audit trail capturing who cleared the session, the exact category (`MEDICAL_LEAVE` vs `OFFICIAL_PRESENT`), issuing timestamps, and admin verification status (`PENDING` vs `VERIFIED`).
 
-### 2. High-Performance Algorithmic Redesign
-* **Direct Class Sheet Targeting**: The client payload passes `targetClass` (e.g. `'QH1'`). Google Apps Script calls `ss.getSheetByName(targetClass)` directly in $O(1)$, bypassing all other class tabs.
-* **Single-Pass Ingestion & In-Memory Lookup**:
-  1. Call `sheet.getDataRange().getValues()` and `getFormulas()` exactly **once**.
-  2. Traverse Row 2 (Subjects) and Row 3 (Levels) once to locate `targetColIndex` for the batch.
-  3. Index Col B (`Reg.no`) and Col C (`Ad.No`) into in-memory lookup maps (`regMap` and `adMap`) in $O(N)$.
-  4. Perform $O(1)$ row resolution for each student in the batch.
-  5. Check `formulas[row][targetColIndex] === ""` before writing to guarantee formulas (`100`, `30`, `Status`, `Total`, `Rank`) are never overwritten.
-  6. Execute atomic cell writes under a 6-second `LockService` lock.
+### 2. Elimination of the Mid-Semester Denominator Fallacy (`egm-comprehension`)
+* **Cognitive Issue**: When a faculty member has only graded Level 1 (out of 15 marks), calculating aggregate semester marks against the full 490 total creates an artificial failing score (e.g., 35/490 = 7.1%), alarming students and parents.
+* **Resolution**:
+  1. **Published Score to Date**: Evaluates solely completed components (e.g. `35 / 45` = 77.8%).
+  2. **Curriculum Target Progress**: Displays a progress indicator showing components completed (e.g. `3 of 14 components recorded`).
+
+### 3. Night Attendance Gesture Velocity & Cross-Pass Verification (`egm-design`, `egm-inventive-catalyst`)
+* **Hallway Roll-Call Ergonomics**: Roll-calls are executed in dorm corridors on mobile phones under strict time constraints. Modals introduce unacceptable latency.
+* **Resolution**: Maintain single-tap toggle (`PRESENT` ↔ `ABSENT`) by default, with pre-recorded leaves clearly badged.
+* **Gate Outpass Integration**: Outpasses spanning across midnight are evaluated via timestamp ranges rather than simple date matching to prevent false absentee alerts for students legitimately outside on overnight leave.
 
 ## Goals vs. Non-Goals
 
 * **In-Scope Goals:**
-  * Eliminate Google Apps Script timeouts by reducing remote RPC calls from 280+ to $\le 2$ reads and localized updates (< 600ms total runtime).
-  * Update `TeacherPortalView.jsx` payload to include `targetClass`, `adNo`, and `regNo`.
-  * Support exact subject matching: strict `FIQH` vs `U :FIQH`, `LOGIC` vs `MANTIQ`, `Social Science`, and `HIFZ` (`50_1` / `50_2`).
-  * Shield all formula columns (`100`, `30`, `Current Status`, `TOTAL`, `RANK`) from accidental data overwrites.
-  * Gracefully skip Specialization marks from Google Sheets sync while preserving them in Firestore.
+  * Single-collection clearance record architecture with explicit `clearanceType` enums (`MEDICAL_LEAVE` vs `OFFICIAL_PRESENT`).
+  * Deep-merged mark retrieval combining `marks/{regNo}` and `marks/{adNo}`.
+  * Published score vs curriculum completion progress separation on Student Portal.
+  * Explicit color differentiation everywhere: Amber for Medical Leave, Teal for Official Duty, Rose for Unexcused Absent, Green for Present.
+  * Removal of redundant stacked save buttons and addition of 1-tap Undo rollback in Night Attendance.
 
 * **Out-of-Scope Non-Goals:**
-  * Modifying the Google Sheets structure or visual cell layouts (all column positions and formula calculations remain untouched).
-  * Syncing Attendance or Outpass logs to Google Sheets (restricted strictly to Academic Marks).
-  * Replacing Google Sheets with an alternate external spreadsheet provider.
+  * Merging Medical Leave into normal attendance credit (Medical Leave remains an excused absence exempt from condonation penalties, not a presence credit).
+  * Automated background WhatsApp bot dispatch (remains manual clipboard copy and direct `wa.me` links).
 
-## Key Technical Trade-Offs & Decisions
+## Alternatives Weighed
 
-| Decision | Selected Option | Alternative Rejected | Rationale |
-| :--- | :--- | :--- | :--- |
-| **Class Sheet Resolution** | Payload-driven `targetClass` routing (`ss.getSheetByName`) | Scanning all sheets sequentially | Reduces sheet access time by 87% (from 8 sheets down to 1). |
-| **Formula Protection** | Verify `formulas[r][c] === ""` prior to writing | Full-grid `setValues(grid)` writeback | Writing full grid values overwrites and destroys formula chains in Sheets. |
-| **Specialization Sync** | Skip sheet write completely | Writing to a custom /30 column | Author confirmed Specialization is handled in portal only and absent from standard class CCE tabs. |
-| **Student Identification** | Dual-key matching (`Reg.no` or `Ad.No`) | `Reg.no` only | Accommodates older batches and Urdu-stream students whose identifier might be populated as admission number. |
+* **Alternative 1: Separate Collections for Medical vs Official Clearances**
+  * *Rejected*: Fragmenting into `medical_clearances` and `official_clearances` multiplies Firestore queries and complicates admin filtering. A unified `clearance_history` with indexed `clearanceType` provides clean queryability with zero schema bloat.
+* **Alternative 2: Modal On Every Absent Tap in Night Roll-Call**
+  * *Rejected*: Slows hostel wardens significantly when recording attendance for 35+ students in 10 minutes. Resolved via the dedicated `Pre-Record Mode` toggle.
 
-## Open Questions / Follow-ups
+## Key Decisions & Staging for Next Steps
 
-1. **Client Timeout Threshold**: Should the frontend `AbortController` timeout in `TeacherPortalView.jsx` be expanded from 10s to 15s as an extra safety margin for slower network connections?
-2. **Batch Admin Force Sync**: In `ReportManager.jsx` ("Force Sync ALL Marks"), should the client group marks by class and dispatch them in parallel class batches rather than one massive monolithic payload?
-
-## Sign-off & Next Steps
-
-The design resolves the Google Apps Script execution timeout, preserves all sheet formulas, and enforces curricular mapping invariants.
-Recommended next step: Proceed to drafting (`/egm-draft`) to formalize the revised `Code.gs` script and client-side payload updates.
+1. **Clearance Auditing**: Ensure atomic batch updates synchronize `clearance_history`, student document `periodAttendance`, and `systemCache/periodSession_*` caches.
+2. **Student Portal Presentation**: Keep the CCE mark table transparent by displaying published scores against active levels, accompanied by a curriculum completion count.
+3. **Roll-Call Hardening**: Preserve the single-tap toggle and rollback snapshot for Night Attendance.
