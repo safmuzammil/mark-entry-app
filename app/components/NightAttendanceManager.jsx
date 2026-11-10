@@ -24,6 +24,13 @@ function getTodayDateString() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function addDaysToDate(baseDateStr, days) {
+  const parts = String(baseDateStr || getTodayDateString()).split('-');
+  const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 const isoToLocalYMD = (isoStr) => {
   if (!isoStr) return '';
   const d = new Date(isoStr);
@@ -70,12 +77,15 @@ export default function NightAttendanceManager({
   const [nightRepMonth, setNightRepMonth] = useState(() => getTodayDateString().slice(0, 7));
   const [nightRepClass, setNightRepClass] = useState('ALL');
 
-  // 🌟 MORNING ADVANCE ABSENCE PRE-RECORDING STATE
-  const [isMorningPreRecordMode, setIsMorningPreRecordMode] = useState(false);
-  const [preRecordSelectedAdNos, setPreRecordSelectedAdNos] = useState([]);
-  const [preRecordReason, setPreRecordReason] = useState('🤒 Sick / Fever in Room');
-  const [preRecordStatusType, setPreRecordStatusType] = useState('ABSENT'); // 'ABSENT' | 'SICK_ROOM'
-  const [preRecordSaving, setPreRecordSaving] = useState(false);
+  // 🌟 RECORDED STUDENT ABSENCES (Persistent Multi-Day & Reason Storage)
+  const [recordedAbsencesMap, setRecordedAbsencesMap] = useState({});
+  const [absenceModalStudent, setAbsenceModalStudent] = useState(null);
+  const [absenceModalStatus, setAbsenceModalStatus] = useState('ABSENT');
+  const [absenceModalReason, setAbsenceModalReason] = useState('🤒 Sick / Fever in Room');
+  const [absenceModalHasDuration, setAbsenceModalHasDuration] = useState(false);
+  const [absenceModalEndDate, setAbsenceModalEndDate] = useState('');
+  const [absenceModalEndTime, setAbsenceModalEndTime] = useState('22:00');
+  const [absenceModalSaving, setAbsenceModalSaving] = useState(false);
 
   // 🌟 EXTRA ATTENDANCE STATE (Same-Day Multi-Session Recording & Reports)
   const [extraDate, setExtraDate] = useState(getTodayDateString());
@@ -304,7 +314,8 @@ export default function NightAttendanceManager({
       try {
         const promises = [
           getDocs(query(collection(db, 'out_passes'), orderBy('createdAt', 'desc'), limit(300))),
-          getDoc(doc(db, 'systemCache', 'whatsappGroups'))
+          getDoc(doc(db, 'systemCache', 'whatsappGroups')),
+          getDoc(doc(db, 'systemCache', 'recordedStudentAbsences'))
         ];
         if (students.length === 0) promises.push(getDocs(collection(db, 'students')));
         if (teachers.length === 0) promises.push(getDocs(collection(db, 'teachers')));
@@ -312,6 +323,7 @@ export default function NightAttendanceManager({
         const results = await Promise.all(promises);
         const passSnap = results[0];
         const groupSnap = results[1];
+        const absencesSnap = results[2];
 
         const pList = [];
         passSnap.forEach(d => pList.push({ id: d.id, ...d.data() }));
@@ -321,15 +333,19 @@ export default function NightAttendanceManager({
           setStaffGroupLink(groupSnap.data().staffGroupLink);
         }
 
-        if (students.length === 0 && results[2]) {
+        if (absencesSnap && absencesSnap.exists()) {
+          setRecordedAbsencesMap(absencesSnap.data().absences || {});
+        }
+
+        if (students.length === 0 && results[3]) {
           const sList = [];
-          results[2].forEach(d => sList.push({ id: d.id, ...d.data() }));
+          results[3].forEach(d => sList.push({ id: d.id, ...d.data() }));
           sList.sort((a, b) => (Number(a.rollNo) || 999) - (Number(b.rollNo) || 999));
           setStudents(sList);
         }
-        if (teachers.length === 0 && results[3]) {
+        if (teachers.length === 0 && results[4]) {
           const tList = [];
-          results[3].forEach(d => tList.push(d.data()));
+          results[4].forEach(d => tList.push(d.data()));
           setTeachers(tList);
         }
       } catch (err) {
@@ -379,6 +395,39 @@ export default function NightAttendanceManager({
     });
   };
 
+  const getActiveRecordedAbsenceForStudent = (adNo, dateStr) => {
+    const cleanAd = String(adNo || '').trim().toUpperCase();
+    if (!cleanAd) return null;
+
+    let rec = recordedAbsencesMap[cleanAd];
+    if (!rec || rec.isCancelled) {
+      const dailyPre = (dailyDocData.preRecordedAbsences || {})[selectedClass]?.[String(adNo).trim()];
+      if (dailyPre && !dailyPre.isCancelled) rec = dailyPre;
+    }
+
+    if (!rec || rec.isCancelled) return null;
+
+    const targetDate = dateStr || selectedDate || getTodayDateString();
+    const startDate = rec.startDate || rec.date || '';
+    const endDate = rec.hasDuration && rec.endDate ? rec.endDate : startDate;
+
+    if (startDate && targetDate < startDate) return null;
+    if (endDate && targetDate > endDate) return null;
+
+    if (rec.hasDuration && rec.endDateTimeIso) {
+      const endMs = new Date(rec.endDateTimeIso).getTime();
+      if (!isNaN(endMs)) {
+        const todayStr = getTodayDateString();
+        if (targetDate === todayStr && Date.now() > endMs) {
+          // Duration expired! Automatically revert student to normal
+          return null;
+        }
+      }
+    }
+
+    return rec;
+  };
+
   const loadDateAttendance = async (dateStr) => {
     setLoading(true);
     try {
@@ -411,6 +460,7 @@ export default function NightAttendanceManager({
         String(activePass.leaveCategory || '').toLowerCase().includes('outreach')
       );
 
+      const activeRec = getActiveRecordedAbsenceForStudent(ad, selectedDate);
 
       if (savedClassRecord) {
         if ((savedClassRecord.absentAdNos || []).includes(ad)) {
@@ -418,7 +468,6 @@ export default function NightAttendanceManager({
         } else if ((savedClassRecord.officialAdNos || []).includes(ad)) {
           newStatus[ad] = 'OFFICIAL';
         } else if ((savedClassRecord.outpassAdNos || []).includes(ad)) {
-          // 🌟 If saved as outpass earlier, but student has returned & verified inside campus:
           if (returnedPass) {
             newStatus[ad] = 'PRESENT';
           } else {
@@ -433,10 +482,8 @@ export default function NightAttendanceManager({
         }
       } else {
         // Attendance not finalized yet tonight!
-        // 🌟 Check if student was pre-recorded absent in the morning:
-        const preRecordedForClass = (dailyDocData.preRecordedAbsences || {})[selectedClass] || {};
-        if (preRecordedForClass[ad]) {
-          newStatus[ad] = preRecordedForClass[ad].status || 'ABSENT';
+        if (activeRec) {
+          newStatus[ad] = activeRec.status || 'ABSENT';
         } else if (activePass) {
           newStatus[ad] = isOfficialPass ? 'OFFICIAL' : 'OUTPASS';
         } else {
@@ -446,7 +493,7 @@ export default function NightAttendanceManager({
     });
 
     setStatusMap(newStatus);
-  }, [selectedClass, dailyDocData, students, activePasses]);
+  }, [selectedClass, dailyDocData, students, activePasses, recordedAbsencesMap, selectedDate]);
 
   const loadRecent30DaysForAnalytics = async () => {
     setLoading(true);
@@ -473,43 +520,80 @@ export default function NightAttendanceManager({
     }
   }, [viewMode, nightRepScope]);
 
-  const handleCardQuickTap = (adNo) => {
-    setStatusMap(prev => {
-      const cur = prev[adNo] || 'PRESENT';
-      return { ...prev, [adNo]: cur === 'PRESENT' ? 'ABSENT' : 'PRESENT' };
-    });
-  };
-
-  const handleToggleCardPreRecord = (adNo) => {
-    setPreRecordSelectedAdNos(prev =>
-      prev.includes(adNo) ? prev.filter(x => x !== adNo) : [...prev, adNo]
-    );
-  };
-
-  const handleSavePreRecordedAbsences = async () => {
-    if (preRecordSelectedAdNos.length === 0) {
-      return alert('Please select at least one student card to pre-record as absent.');
+  const openAbsenceModal = (student, initialStatus = 'ABSENT', existingRec = null) => {
+    setAbsenceModalStudent(student);
+    setAbsenceModalStatus(initialStatus || 'ABSENT');
+    if (existingRec) {
+      setAbsenceModalReason(existingRec.reason || '');
+      setAbsenceModalHasDuration(Boolean(existingRec.hasDuration));
+      setAbsenceModalEndDate(existingRec.endDate || selectedDate);
+      setAbsenceModalEndTime(existingRec.endTime || '22:00');
+    } else {
+      setAbsenceModalReason(
+        initialStatus === 'SICK_ROOM' ? '🤒 Sick / Fever in Room' :
+        initialStatus === 'OUTPASS' ? '🏡 Home Leave (Approved)' :
+        initialStatus === 'OFFICIAL' ? '🏛️ Campus / Official Duty' :
+        '🤒 Sick / Fever in Room'
+      );
+      setAbsenceModalHasDuration(false);
+      setAbsenceModalEndDate(selectedDate);
+      setAbsenceModalEndTime('22:00');
     }
-    const finalReason = preRecordReason.trim() || 'Excused absence reported in morning';
+  };
 
-    setPreRecordSaving(true);
+  const handleSaveSingleStudentAbsence = async () => {
+    if (!absenceModalStudent) return;
+    const st = absenceModalStudent;
+    const ad = String(st.adNo || '').trim();
+    const cleanAd = ad.toUpperCase();
+    const now = new Date();
+
+    const effectiveReason = (absenceModalReason || '').trim() || (
+      absenceModalStatus === 'SICK_ROOM' ? 'Sick / In Room' :
+      absenceModalStatus === 'OUTPASS' ? 'Home / Permitted Leave' :
+      absenceModalStatus === 'OFFICIAL' ? 'Campus / Official Duty' : 'Absent'
+    );
+
+    const effectiveEndDate = absenceModalHasDuration && absenceModalEndDate ? absenceModalEndDate : selectedDate;
+    const effectiveEndTime = absenceModalHasDuration && absenceModalEndTime ? absenceModalEndTime : '22:00';
+    const endDateTimeIso = new Date(`${effectiveEndDate}T${effectiveEndTime}:00`).toISOString();
+
+    const absenceRecord = {
+      adNo: ad,
+      studentName: st.firstName || st.name || 'Student',
+      studentRegNo: st.regNo || '',
+      className: selectedClass,
+      status: absenceModalStatus || 'ABSENT',
+      reason: effectiveReason,
+      startDate: selectedDate,
+      startTime: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+      hasDuration: Boolean(absenceModalHasDuration),
+      endDate: effectiveEndDate,
+      endTime: effectiveEndTime,
+      endDateTimeIso,
+      recordedBy: recorderName || 'Teacher',
+      recordedAt: now.toISOString(),
+      isCancelled: false
+    };
+
+    setAbsenceModalSaving(true);
     try {
-      const existingPre = (dailyDocData.preRecordedAbsences || {})[selectedClass] || {};
-      const updatedClassPre = { ...existingPre };
+      const newMap = {
+        ...recordedAbsencesMap,
+        [cleanAd]: absenceRecord
+      };
 
-      preRecordSelectedAdNos.forEach(ad => {
-        const st = classStudents.find(s => String(s.adNo || '').trim() === ad);
-        updatedClassPre[ad] = {
-          adNo: ad,
-          studentName: st?.firstName || 'Student',
-          studentRegNo: st?.regNo || '',
-          status: preRecordStatusType || 'ABSENT',
-          reason: finalReason,
-          recordedBy: recorderName || 'Teacher',
-          recordedAt: new Date().toISOString()
-        };
-      });
+      await setDoc(doc(db, 'systemCache', 'recordedStudentAbsences'), {
+        absences: newMap,
+        lastUpdated: now.toISOString()
+      }, { merge: true });
 
+      // Also mirror into night_attendance doc for selected date
+      const existingClassPre = (dailyDocData.preRecordedAbsences || {})[selectedClass] || {};
+      const updatedClassPre = {
+        ...existingClassPre,
+        [ad]: absenceRecord
+      };
       const updatedPreMap = {
         ...(dailyDocData.preRecordedAbsences || {}),
         [selectedClass]: updatedClassPre
@@ -517,67 +601,70 @@ export default function NightAttendanceManager({
 
       await setDoc(doc(db, 'night_attendance', selectedDate), {
         date: selectedDate,
+        classes: dailyDocData.classes || {},
         preRecordedAbsences: updatedPreMap,
-        lastUpdated: new Date().toISOString()
+        lastUpdated: now.toISOString()
       }, { merge: true });
 
+      setRecordedAbsencesMap(newMap);
       setDailyDocData(prev => ({
         ...prev,
         preRecordedAbsences: updatedPreMap
       }));
+      setStatusMap(prev => ({
+        ...prev,
+        [ad]: absenceModalStatus || 'ABSENT'
+      }));
 
-      // Update statusMap for immediate UI feedback
-      setStatusMap(prev => {
-        const next = { ...prev };
-        preRecordSelectedAdNos.forEach(ad => {
-          next[ad] = preRecordStatusType || 'ABSENT';
-        });
-        return next;
-      });
-
-      setIsMorningPreRecordMode(false);
-      setPreRecordSelectedAdNos([]);
-
-      alert(`✅ Pre-recorded ${preRecordSelectedAdNos.length} absent student(s) for Class ${selectedClass} (${selectedDate})!\n\nReason: "${finalReason}"\n\nOther students remain pending for night roll-call.`);
+      setAbsenceModalStudent(null);
     } catch (err) {
-      console.error('Error saving pre-recorded absences:', err);
-      alert('Error saving pre-recorded absences: ' + err.message);
+      console.error('Error saving single student absence:', err);
+      alert('Error saving absence: ' + err.message);
     } finally {
-      setPreRecordSaving(false);
+      setAbsenceModalSaving(false);
     }
   };
 
-  const handleRemovePreRecordedAbsence = async (adNo) => {
-    if (!window.confirm(`Clear morning pre-recorded absence for student #${adNo}?`)) return;
+  const handleMarkPresentAndClearAbsence = async (st) => {
+    const ad = String(st.adNo || '').trim();
+    const cleanAd = ad.toUpperCase();
 
-    try {
-      const existingPre = (dailyDocData.preRecordedAbsences || {})[selectedClass] || {};
-      const updatedClassPre = { ...existingPre };
-      delete updatedClassPre[adNo];
+    // Immediately mark as PRESENT in UI
+    setStatusMap(prev => ({ ...prev, [ad]: 'PRESENT' }));
 
-      const updatedPreMap = {
-        ...(dailyDocData.preRecordedAbsences || {}),
-        [selectedClass]: updatedClassPre
-      };
+    const activeRec = getActiveRecordedAbsenceForStudent(ad, selectedDate);
+    if (activeRec) {
+      try {
+        const newMap = { ...recordedAbsencesMap };
+        delete newMap[cleanAd];
+        setRecordedAbsencesMap(newMap);
 
-      await setDoc(doc(db, 'night_attendance', selectedDate), {
-        preRecordedAbsences: updatedPreMap,
-        lastUpdated: new Date().toISOString()
-      }, { merge: true });
+        await setDoc(doc(db, 'systemCache', 'recordedStudentAbsences'), {
+          absences: newMap,
+          lastUpdated: new Date().toISOString()
+        }, { merge: true });
 
-      setDailyDocData(prev => ({
-        ...prev,
-        preRecordedAbsences: updatedPreMap
-      }));
+        const existingPre = (dailyDocData.preRecordedAbsences || {})[selectedClass] || {};
+        const updatedClassPre = { ...existingPre };
+        delete updatedClassPre[ad];
+        const updatedPreMap = {
+          ...(dailyDocData.preRecordedAbsences || {}),
+          [selectedClass]: updatedClassPre
+        };
+        await setDoc(doc(db, 'night_attendance', selectedDate), {
+          date: selectedDate,
+          classes: dailyDocData.classes || {},
+          preRecordedAbsences: updatedPreMap,
+          lastUpdated: new Date().toISOString()
+        }, { merge: true });
 
-      setStatusMap(prev => ({
-        ...prev,
-        [adNo]: 'PRESENT'
-      }));
-
-      alert(`✅ Pre-recorded absence cleared for #${adNo}.`);
-    } catch (err) {
-      alert('Error clearing pre-record: ' + err.message);
+        setDailyDocData(prev => ({
+          ...prev,
+          preRecordedAbsences: updatedPreMap
+        }));
+      } catch (err) {
+        console.warn('Error clearing recorded absence in cloud:', err);
+      }
     }
   };
 
@@ -598,16 +685,17 @@ export default function NightAttendanceManager({
         if (stStatus === 'SICK_ROOM') sickAdNos.push(ad);
       });
 
-      const preRecordedForClass = (dailyDocData.preRecordedAbsences || {})[selectedClass] || {};
       const absentReasonsMap = {};
       absentAdNos.forEach(ad => {
-        if (preRecordedForClass[ad]) {
-          absentReasonsMap[ad] = preRecordedForClass[ad].reason;
+        const activeRec = getActiveRecordedAbsenceForStudent(ad, selectedDate);
+        if (activeRec) {
+          absentReasonsMap[ad] = activeRec.reason;
         }
       });
       sickAdNos.forEach(ad => {
-        if (preRecordedForClass[ad]) {
-          absentReasonsMap[ad] = preRecordedForClass[ad].reason;
+        const activeRec = getActiveRecordedAbsenceForStudent(ad, selectedDate);
+        if (activeRec) {
+          absentReasonsMap[ad] = activeRec.reason;
         }
       });
 
@@ -651,51 +739,92 @@ export default function NightAttendanceManager({
   };
 
   const buildClassAbsenteeReportText = () => {
-    const unexcusedList = classStudents.filter(s => statusMap[s.adNo] === 'ABSENT');
-    const outpassList = classStudents.filter(s => statusMap[s.adNo] === 'OUTPASS');
-    const officialList = classStudents.filter(s => statusMap[s.adNo] === 'OFFICIAL');
-    const sickList = classStudents.filter(s => statusMap[s.adNo] === 'SICK_ROOM');
+    // 1. Students who ought to be in class tonight, but are missing unexcused (without approved pre-record or outpass)
+    const unexcusedList = classStudents.filter(s => {
+      const st = statusMap[s.adNo];
+      if (st !== 'ABSENT') return false;
+      const activeRec = getActiveRecordedAbsenceForStudent(s.adNo, selectedDate);
+      const activePass = getActiveOutpassForStudent(s.adNo);
+      return !activeRec && !activePass;
+    });
+
+    // 2. Students on approved leave / pre-recorded absence (known to class teacher)
+    const approvedAbsenceList = classStudents.filter(s => {
+      const activeRec = getActiveRecordedAbsenceForStudent(s.adNo, selectedDate);
+      return Boolean(activeRec);
+    });
+
+    // 3. Students on gate outpass (outside campus)
+    const outpassList = classStudents.filter(s => {
+      const st = statusMap[s.adNo];
+      const activePass = getActiveOutpassForStudent(s.adNo);
+      return (Boolean(activePass) || st === 'OUTPASS') && !approvedAbsenceList.some(a => a.adNo === s.adNo);
+    });
+
+    // 4. Official duty
+    const officialList = classStudents.filter(s => statusMap[s.adNo] === 'OFFICIAL' && !approvedAbsenceList.some(a => a.adNo === s.adNo));
+
+    // 5. Sick in room (without multi-day pre-record)
+    const sickOnlyList = classStudents.filter(s => statusMap[s.adNo] === 'SICK_ROOM' && !approvedAbsenceList.some(a => a.adNo === s.adNo));
+
+    const presentCount = classStudents.length - unexcusedList.length - approvedAbsenceList.length - outpassList.length - officialList.length - sickOnlyList.length;
 
     const lines = [
       `*🌙 DHIU DEGREE SECTION — NIGHT ATTENDANCE REPORT*`,
       `*Class:* ${selectedClass} | *Date:* ${selectedDate}`,
-      `*Recorded By:* ${recorderName}`,
-      `*Strength:* ${classStudents.length} | *Present:* ${classStudents.length - unexcusedList.length - outpassList.length - officialList.length - sickList.length}`,
+      `*Roll-Call Taken By:* ${recorderName}`,
+      `*Total Class Strength:* ${classStudents.length} | *Present Tonight:* ${presentCount}`,
       `-----------------------------------------`
     ];
 
     if (unexcusedList.length > 0) {
-      lines.push(`*🔴 UNVERIFIED ABSENT STUDENTS (${unexcusedList.length}):*`);
+      lines.push(`*🔴 UNEXCUSED ABSENTEES TONIGHT (Ought to be in hostel — Class Teacher please verify):*`);
       unexcusedList.forEach((s, i) => {
-        lines.push(`${i + 1}. *${s.firstName}* (#${s.adNo})`);
+        lines.push(`${i + 1}. *${s.firstName}* (#${s.adNo}) — Missing / Unverified tonight`);
       });
+      lines.push(`-----------------------------------------`);
     } else {
-      lines.push(`✅ *Zero Unexcused Absentees in Class ${selectedClass}!*`);
+      lines.push(`✅ *Zero Unexcused Absentees! (All expected hostel students are present)*`);
+      lines.push(`-----------------------------------------`);
+    }
+
+    if (approvedAbsenceList.length > 0) {
+      lines.push(`*🪪 APPROVED LEAVE / KNOWN ABSENCES (${approvedAbsenceList.length}):*`);
+      approvedAbsenceList.forEach((s, i) => {
+        const rec = getActiveRecordedAbsenceForStudent(s.adNo, selectedDate);
+        const durationStr = rec?.hasDuration && rec?.endDate ? ` (Until ${rec.endDate} ${rec.endTime || ''})` : '';
+        const recordedByStr = rec?.recordedBy ? ` [By: ${rec.recordedBy}]` : '';
+        lines.push(`${i + 1}. *${s.firstName}* (#${s.adNo}) — Reason: "${rec?.reason || 'Approved Absence'}"${durationStr}${recordedByStr}`);
+      });
+      lines.push(`-----------------------------------------`);
     }
 
     if (outpassList.length > 0) {
-      lines.push(`\n*🪪 ON PERMITTED LEAVE (${outpassList.length}):*`);
+      lines.push(`*🚪 OUTSIDE CAMPUS VIA OUTPASS (${outpassList.length}):*`);
       outpassList.forEach((s, i) => {
         const passObj = getActiveOutpassForStudent(s.adNo);
         const detail = passObj
-          ? `${passObj.leaveCategory || 'Leave'} to ${passObj.destination} — *By: ${passObj.teacherName}*`
+          ? `${passObj.leaveCategory || 'Leave'} to ${passObj.destination} — By: ${passObj.teacherName}`
           : 'Permitted Leave';
         lines.push(`${i + 1}. *${s.firstName}* (#${s.adNo}) — ${detail}`);
       });
+      lines.push(`-----------------------------------------`);
     }
 
     if (officialList.length > 0) {
-      lines.push(`\n*📋 ON OFFICIAL DUTY (${officialList.length}):*`);
+      lines.push(`*🏛️ ON OFFICIAL DUTY (${officialList.length}):*`);
       officialList.forEach((s, i) => {
         lines.push(`${i + 1}. *${s.firstName}* (#${s.adNo})`);
       });
+      lines.push(`-----------------------------------------`);
     }
 
-    if (sickList.length > 0) {
-      lines.push(`\n*🤒 SICK / IN ROOM (${sickList.length}):*`);
-      sickList.forEach((s, i) => {
+    if (sickOnlyList.length > 0) {
+      lines.push(`*🤒 SICK / IN ROOM (${sickOnlyList.length}):*`);
+      sickOnlyList.forEach((s, i) => {
         lines.push(`${i + 1}. *${s.firstName}* (#${s.adNo})`);
       });
+      lines.push(`-----------------------------------------`);
     }
 
     return lines.join('\n');
@@ -787,8 +916,7 @@ export default function NightAttendanceManager({
 
   const instSummary = computeInstitutionSummaryForDate();
   const savedCurrentClassMeta = (dailyDocData.classes || {})[selectedClass];
-  const preRecordedForSelectedClass = (dailyDocData.preRecordedAbsences || {})[selectedClass] || {};
-  const preRecordedCountForSelectedClass = Object.keys(preRecordedForSelectedClass).length;
+  const preRecordedCountForSelectedClass = classStudents.filter(s => Boolean(getActiveRecordedAbsenceForStudent(s.adNo, selectedDate))).length;
 
   const presentInCurrentClass = classStudents.filter(s => (statusMap[s.adNo] || 'PRESENT') === 'PRESENT').length;
   const absentInCurrentClass = classStudents.filter(s => statusMap[s.adNo] === 'ABSENT').length;
@@ -856,7 +984,7 @@ export default function NightAttendanceManager({
               {DEFAULT_CLASSES.map(cls => {
                 const isSelected = selectedClass === cls;
                 const isDoneTonight = Boolean((dailyDocData.classes || {})[cls]);
-                const preCount = Object.keys((dailyDocData.preRecordedAbsences || {})[cls] || {}).length;
+                const preCount = students.filter(s => (s.classes || []).includes(cls) && Boolean(getActiveRecordedAbsenceForStudent(s.adNo, selectedDate))).length;
                 return (
                   <button
                     key={cls}
@@ -869,7 +997,7 @@ export default function NightAttendanceManager({
                       border: isSelected ? '1px solid #4f46e5' : isDoneTonight ? '1px solid #a7f3d0' : preCount > 0 ? '1px solid #fde68a' : '1px solid #e2e8f0'
                     }}
                   >
-                    {isDoneTonight ? `✓ ${cls}` : preCount > 0 ? `🌅 ${cls} (${preCount})` : cls}
+                    {isDoneTonight ? `✓ ${cls}` : preCount > 0 ? `📌 ${cls} (${preCount})` : cls}
                   </button>
                 );
               })}
@@ -878,7 +1006,7 @@ export default function NightAttendanceManager({
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
               {preRecordedCountForSelectedClass > 0 && !savedCurrentClassMeta && (
                 <span style={{ background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a', padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: '800' }}>
-                  🌅 {preRecordedCountForSelectedClass} Pre-Marked in Morning
+                  📌 {preRecordedCountForSelectedClass} Recorded Absences
                 </span>
               )}
               {savedCurrentClassMeta && (
@@ -1010,7 +1138,7 @@ export default function NightAttendanceManager({
             )}
           </div>
 
-          {/* SEARCH + PRE-RECORD (MORNING) + QUICK ALL PRESENT + SAVE BUTTON */}
+          {/* SEARCH + QUICK ALL PRESENT + SAVE BUTTON */}
           <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
             <input
               type="text"
@@ -1020,39 +1148,6 @@ export default function NightAttendanceManager({
               style={{ ...styles.input, maxWidth: '280px', padding: '8px 12px', fontSize: '13px' }}
             />
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMorningPreRecordMode(prev => !prev);
-                  if (!isMorningPreRecordMode) {
-                    setPreRecordSelectedAdNos([]);
-                    if (!preRecordReason) setPreRecordReason('🤒 Sick / Fever in Room');
-                  }
-                }}
-                style={{
-                  padding: '8px 14px',
-                  borderRadius: '8px',
-                  fontWeight: '800',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  background: isMorningPreRecordMode ? '#fffbeb' : '#ffffff',
-                  color: isMorningPreRecordMode ? '#b45309' : '#92400e',
-                  border: isMorningPreRecordMode ? '2px solid #b45309' : '1px solid #fde68a',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                <span>🌅</span>
-                <span>{isMorningPreRecordMode ? '✕ Close Pre-Record' : 'Pre-Record Absences (Morning)'}</span>
-                {preRecordedCountForSelectedClass > 0 && (
-                  <span style={{ background: '#b45309', color: '#ffffff', padding: '1px 7px', borderRadius: '999px', fontSize: '10px', fontWeight: '800' }}>
-                    {preRecordedCountForSelectedClass}
-                  </span>
-                )}
-              </button>
-
               <button
                 type="button"
                 onClick={() => {
@@ -1078,127 +1173,7 @@ export default function NightAttendanceManager({
             </div>
           </div>
 
-          {/* 🌟 MORNING ADVANCE ABSENCE PRE-RECORDING PANEL */}
-          {isMorningPreRecordMode && (
-            <div style={{ marginBottom: '18px', padding: '16px 20px', background: '#fffbeb', borderRadius: '12px', border: '1.5px solid #fde68a', boxShadow: '0 2px 6px rgba(217,119,6,0.08)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '18px' }}>🌅</span>
-                    <h4 style={{ margin: 0, fontSize: '15px', fontWeight: '800', color: '#92400e' }}>
-                      Morning Advance Absence Pre-Recording — Class {selectedClass} ({selectedDate})
-                    </h4>
-                  </div>
-                  <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#78350f' }}>
-                    Click student cards below to select known absentees. <strong>Other students will NOT be marked as present now</strong>, leaving the class ready for the regular night roll-call.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsMorningPreRecordMode(false);
-                    setPreRecordSelectedAdNos([]);
-                  }}
-                  style={{ ...styles.buttonSecondary, fontSize: '12px', padding: '6px 12px' }}
-                >
-                  ✕ Exit Pre-Record Mode
-                </button>
-              </div>
-
-              {/* Quick reason badge selectors */}
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: '11px', fontWeight: '800', color: '#78350f', textTransform: 'uppercase', marginBottom: '6px', display: 'block' }}>
-                  1. Choose or Type Absence Reason:
-                </label>
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                  {[
-                    '🤒 Sick / Fever in Room',
-                    '🏥 Hospital / Doctor Care',
-                    '🏡 Approved Home Leave',
-                    '🚗 Outstation / Travel',
-                    '👨‍👩‍👦 Family Emergency',
-                    '🏛️ Campus / Official Duty',
-                    '⚠️ Unexcused / Missing'
-                  ].map(rStr => (
-                    <button
-                      key={rStr}
-                      type="button"
-                      onClick={() => setPreRecordReason(rStr)}
-                      style={{
-                        padding: '5px 10px',
-                        borderRadius: '6px',
-                        fontSize: '11px',
-                        fontWeight: '700',
-                        cursor: 'pointer',
-                        border: preRecordReason === rStr ? '1.5px solid #b45309' : '1px solid #cbd5e1',
-                        background: preRecordReason === rStr ? '#b45309' : '#ffffff',
-                        color: preRecordReason === rStr ? '#ffffff' : '#334155'
-                      }}
-                    >
-                      {rStr}
-                    </button>
-                  ))}
-                </div>
-                <input
-                  type="text"
-                  value={preRecordReason}
-                  onChange={e => setPreRecordReason(e.target.value)}
-                  placeholder="Or enter custom reason (e.g. Fever, resting in room 204 with principal permission)..."
-                  style={{ ...styles.input, fontSize: '12px', padding: '8px 12px', background: '#ffffff' }}
-                />
-              </div>
-
-              {/* Status choice & save action */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', paddingTop: '10px', borderTop: '1px dashed #fde68a' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <span style={{ fontSize: '12px', fontWeight: '800', color: '#78350f' }}>2. Category:</span>
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: '700', color: '#92400e', cursor: 'pointer' }}>
-                    <input
-                      type="radio"
-                      name="preRecordStatusType"
-                      checked={preRecordStatusType === 'ABSENT'}
-                      onChange={() => setPreRecordStatusType('ABSENT')}
-                      style={{ accentColor: '#b45309' }}
-                    />
-                    🔴 Absent
-                  </label>
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: '700', color: '#b45309', cursor: 'pointer' }}>
-                    <input
-                      type="radio"
-                      name="preRecordStatusType"
-                      checked={preRecordStatusType === 'SICK_ROOM'}
-                      onChange={() => setPreRecordStatusType('SICK_ROOM')}
-                      style={{ accentColor: '#b45309' }}
-                    />
-                    🤒 Sick / In Room
-                  </label>
-                </div>
-
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                  <span style={{ fontSize: '12px', fontWeight: '800', color: '#92400e' }}>
-                    Selected Cards: <strong>{preRecordSelectedAdNos.length}</strong> student(s)
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleSavePreRecordedAbsences}
-                    disabled={preRecordSaving || preRecordSelectedAdNos.length === 0}
-                    style={{
-                      ...styles.buttonPrimary,
-                      background: '#b45309',
-                      fontSize: '12px',
-                      fontWeight: '800',
-                      padding: '9px 18px',
-                      opacity: preRecordSelectedAdNos.length === 0 ? 0.6 : 1
-                    }}
-                  >
-                    {preRecordSaving ? 'Saving...' : `💾 Save ${preRecordSelectedAdNos.length} Pre-Recorded Absence(s)`}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 🌟 MINIMALIST MOBILE-FRIENDLY STUDENT CARDS (With Official option & Morning Pre-Record display!) */}
+          {/* 🌟 MINIMALIST MOBILE-FRIENDLY STUDENT CARDS */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(285px, 1fr))', gap: '12px' }}>
             {classStudents
               .filter(s => !searchFilter.trim() || (s.firstName || '').toLowerCase().includes(searchFilter.toLowerCase()) || String(s.adNo || '').toLowerCase().includes(searchFilter.toLowerCase()))
@@ -1206,8 +1181,7 @@ export default function NightAttendanceManager({
                 const ad = String(st.adNo || '').trim();
                 const curStatus = statusMap[ad] || 'PRESENT';
                 const activePass = getActiveOutpassForStudent(ad);
-                const preRecord = (dailyDocData.preRecordedAbsences || {})[selectedClass]?.[ad];
-                const isSelectedInPreRecord = preRecordSelectedAdNos.includes(ad);
+                const activeRecAbs = getActiveRecordedAbsenceForStudent(ad, selectedDate);
 
                 const cardThemes = {
                   PRESENT: { bg: '#ffffff', border: '#e2e8f0', badgeBg: '#dcfce7', badgeColor: '#15803d', label: 'Present' },
@@ -1220,29 +1194,24 @@ export default function NightAttendanceManager({
 
                 return (
                   <div
-                    key={st.regNo}
+                    key={st.regNo || st.adNo || idx}
                     onClick={() => {
-                      if (isMorningPreRecordMode) {
-                        handleToggleCardPreRecord(ad);
+                      if (curStatus === 'PRESENT') {
+                        openAbsenceModal(st, 'ABSENT');
                       } else {
-                        handleCardQuickTap(ad);
+                        handleMarkPresentAndClearAbsence(st);
                       }
                     }}
                     style={{
                       padding: '14px',
                       borderRadius: '12px',
-                      background: isMorningPreRecordMode
-                        ? (isSelectedInPreRecord ? '#fffbeb' : preRecord ? '#fefce8' : '#ffffff')
-                        : theme.bg,
-                      border: isMorningPreRecordMode
-                        ? (isSelectedInPreRecord ? '2.5px solid #b45309' : preRecord ? '1.5px solid #fde68a' : '1.5px solid #e2e8f0')
-                        : `1.5px solid ${theme.border}`,
+                      background: theme.bg,
+                      border: `1.5px solid ${theme.border}`,
                       cursor: 'pointer',
                       display: 'flex',
                       flexDirection: 'column',
                       gap: '10px',
-                      transition: 'all 0.15s ease',
-                      boxShadow: isSelectedInPreRecord ? '0 4px 6px -1px rgba(180, 83, 9, 0.15)' : 'none'
+                      transition: 'all 0.15s ease'
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
@@ -1258,49 +1227,43 @@ export default function NightAttendanceManager({
                         </div>
                       </div>
 
-                      {isMorningPreRecordMode ? (
-                        <span style={{
-                          background: isSelectedInPreRecord ? '#b45309' : '#f1f5f9',
-                          color: isSelectedInPreRecord ? '#ffffff' : '#64748b',
-                          border: isSelectedInPreRecord ? '1px solid #92400e' : '1px solid #cbd5e1',
-                          padding: '3px 10px',
-                          borderRadius: '999px',
-                          fontSize: '11px',
-                          fontWeight: '800',
-                          whiteSpace: 'nowrap'
-                        }}>
-                          {isSelectedInPreRecord ? '✓ Selected Absent' : '+ Select for Absence'}
-                        </span>
-                      ) : (
-                        <span style={{ background: theme.badgeBg, color: theme.badgeColor, padding: '3px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap' }}>
-                          {theme.label}
-                        </span>
-                      )}
+                      <span style={{ background: theme.badgeBg, color: theme.badgeColor, padding: '3px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap' }}>
+                        {theme.label}
+                      </span>
                     </div>
 
-                    {/* 🌅 MORNING PRE-RECORDED ABSENCE BANNER */}
-                    {preRecord && (
-                      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '7px 10px', borderRadius: '8px', fontSize: '11px', color: '#92400e', lineHeight: 1.35 }}>
+                    {/* 🌟 INLINE RECORDED ABSENCE NOTICE */}
+                    {activeRecAbs && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '7px 10px', borderRadius: '8px', fontSize: '11px', color: '#92400e', lineHeight: 1.35 }}
+                      >
                         <div style={{ fontWeight: '800', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span>🌅 Pre-Marked Absent ({preRecord.status === 'SICK_ROOM' ? 'Sick' : 'Absent'}):</span>
-                          {!isMorningPreRecordMode && (
+                          <span>📌 Reason: &ldquo;{activeRecAbs.reason}&rdquo;</span>
+                          <div style={{ display: 'flex', gap: '6px' }}>
                             <button
                               type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleRemovePreRecordedAbsence(ad);
-                              }}
+                              onClick={() => openAbsenceModal(st, activeRecAbs.status, activeRecAbs)}
+                              style={{ background: 'transparent', border: 'none', color: '#b45309', cursor: 'pointer', fontSize: '10px', fontWeight: '800', textDecoration: 'underline' }}
+                            >
+                              ✏️ Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleMarkPresentAndClearAbsence(st)}
                               style={{ background: 'transparent', border: 'none', color: '#b45309', cursor: 'pointer', fontSize: '10px', fontWeight: '800', textDecoration: 'underline' }}
                             >
                               ✕ Clear
                             </button>
-                          )}
+                          </div>
                         </div>
-                        <div style={{ fontSize: '11px', marginTop: '3px', color: '#78350f', fontWeight: '600' }}>
-                          Reason: &ldquo;{preRecord.reason}&rdquo;
-                        </div>
-                        <div style={{ fontSize: '10px', marginTop: '2px', color: '#92400e' }}>
-                          By {preRecord.recordedBy} on {new Date(preRecord.recordedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                        {activeRecAbs.hasDuration && activeRecAbs.endDate && (
+                          <div style={{ fontSize: '10px', marginTop: '3px', color: '#b45309', fontWeight: '700' }}>
+                            ⏳ Active until: {activeRecAbs.endDate} ({activeRecAbs.endTime || '22:00'})
+                          </div>
+                        )}
+                        <div style={{ fontSize: '10px', marginTop: '2px', color: '#78350f' }}>
+                          Recorded by {activeRecAbs.recordedBy}
                         </div>
                       </div>
                     )}
@@ -1316,48 +1279,333 @@ export default function NightAttendanceManager({
                       </div>
                     )}
 
-                    {/* 🌟 5 CLEAN STATUS PILLS (Pres | Abs | Leave | Official | Sick — Only active outside Pre-Record Mode) */}
-                    {!isMorningPreRecordMode && (
-                      <div
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}
-                      >
-                        {[
-                          { id: 'PRESENT', label: 'Pres', activeBg: '#10b981' },
-                          { id: 'ABSENT', label: 'Abs', activeBg: '#e11d48' },
-                          { id: 'OUTPASS', label: 'Leave', activeBg: '#4f46e5' },
-                          { id: 'OFFICIAL', label: 'Official', activeBg: '#0d9488' },
-                          { id: 'SICK_ROOM', label: 'Sick', activeBg: '#d97706' }
-                        ].map(btn => {
-                          const active = curStatus === btn.id;
-                          return (
-                            <button
-                              key={btn.id}
-                              type="button"
-                              onClick={() => setStatusMap(prev => ({ ...prev, [ad]: btn.id }))}
-                              style={{
-                                flex: 1,
-                                padding: '6px 8px',
-                                borderRadius: '6px',
-                                fontSize: '11px',
-                                fontWeight: '700',
-                                cursor: 'pointer',
-                                background: active ? btn.activeBg : '#f8fafc',
-                                color: active ? '#ffffff' : '#475569',
-                                border: active ? `1px solid ${btn.activeBg}` : '1px solid #e2e8f0',
-                                textAlign: 'center'
-                              }}
-                            >
-                              {btn.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
+                    {/* 🌟 5 CLEAN STATUS PILLS (Pres | Abs | Leave | Official | Sick) */}
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}
+                    >
+                      {[
+                        { id: 'PRESENT', label: 'Pres', activeBg: '#10b981' },
+                        { id: 'ABSENT', label: 'Abs', activeBg: '#e11d48' },
+                        { id: 'OUTPASS', label: 'Leave', activeBg: '#4f46e5' },
+                        { id: 'OFFICIAL', label: 'Official', activeBg: '#0d9488' },
+                        { id: 'SICK_ROOM', label: 'Sick', activeBg: '#d97706' }
+                      ].map(btn => {
+                        const active = curStatus === btn.id;
+                        return (
+                          <button
+                            key={btn.id}
+                            type="button"
+                            onClick={() => {
+                              if (btn.id === 'PRESENT') {
+                                handleMarkPresentAndClearAbsence(st);
+                              } else {
+                                openAbsenceModal(st, btn.id);
+                              }
+                            }}
+                            style={{
+                              flex: 1,
+                              padding: '6px 8px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              cursor: 'pointer',
+                              background: active ? btn.activeBg : '#f8fafc',
+                              color: active ? '#ffffff' : '#475569',
+                              border: active ? `1px solid ${btn.activeBg}` : '1px solid #e2e8f0',
+                              textAlign: 'center',
+                              transition: 'all 0.15s ease'
+                            }}
+                          >
+                            {btn.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })}
           </div>
+
+          <div style={{ marginTop: '20px' }}>
+            <button
+              type="button"
+              onClick={handleSaveClassAttendance}
+              disabled={saving}
+              style={{ ...styles.buttonPrimary, width: '100%', padding: '14px', fontSize: '15px' }}
+            >
+              {saving ? 'Saving Roll-Call...' : `💾 Save Class ${selectedClass} Night Attendance (${selectedDate})`}
+            </button>
+          </div>
+
+          {/* 🌟 RECORD STUDENT ABSENCE MODAL */}
+          {absenceModalStudent && (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(15, 23, 42, 0.65)',
+                backdropFilter: 'blur(3px)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 9999,
+                padding: '16px'
+              }}
+              onClick={() => setAbsenceModalStudent(null)}
+            >
+              <div
+                style={{
+                  background: '#ffffff',
+                  borderRadius: '16px',
+                  width: '100%',
+                  maxWidth: '520px',
+                  maxHeight: '90vh',
+                  overflowY: 'auto',
+                  boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                  border: '1px solid #e2e8f0',
+                  padding: '20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '16px'
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* HEADER */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <ProfileAvatar
+                      name={absenceModalStudent.firstName}
+                      code={absenceModalStudent.adNo}
+                      photoUrl={absenceModalStudent.photoUrl}
+                      size={44}
+                    />
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>
+                        Record Student Absence
+                      </h3>
+                      <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600', marginTop: '2px' }}>
+                        #{absenceModalStudent.rollNo || ''} • {absenceModalStudent.firstName} (Ad.No: #{absenceModalStudent.adNo}) • Class {selectedClass}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAbsenceModalStudent(null)}
+                    style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: '32px', height: '32px', cursor: 'pointer', fontSize: '14px', fontWeight: '700', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* 1. STATUS CATEGORY SELECTOR */}
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>
+                    1. Absence Category:
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
+                    {[
+                      { id: 'ABSENT', label: '🔴 Absent', color: '#e11d48' },
+                      { id: 'OUTPASS', label: '🪪 Leave', color: '#4f46e5' },
+                      { id: 'OFFICIAL', label: '🏛️ Official', color: '#0d9488' },
+                      { id: 'SICK_ROOM', label: '🤒 Sick', color: '#d97706' }
+                    ].map(cat => {
+                      const isSel = absenceModalStatus === cat.id;
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => setAbsenceModalStatus(cat.id)}
+                          style={{
+                            padding: '8px 4px',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            cursor: 'pointer',
+                            border: isSel ? `2px solid ${cat.color}` : '1px solid #cbd5e1',
+                            background: isSel ? `${cat.color}15` : '#ffffff',
+                            color: isSel ? cat.color : '#475569',
+                            textAlign: 'center',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          {cat.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 2. REASON CHIPS & INPUT */}
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '6px', display: 'block' }}>
+                    2. Reason for Absence:
+                  </label>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                    {[
+                      '🤒 Sick / Fever in Room',
+                      '🏥 Hospital / Doctor Care',
+                      '🏡 Home Leave (Approved)',
+                      '🚗 Outstation / Travel',
+                      '👨‍👩‍👦 Family Emergency',
+                      '🏛️ Campus / Official Duty',
+                      '⚠️ Unexcused / Missing'
+                    ].map(rStr => {
+                      const isSel = absenceModalReason === rStr;
+                      return (
+                        <button
+                          key={rStr}
+                          type="button"
+                          onClick={() => setAbsenceModalReason(rStr)}
+                          style={{
+                            padding: '5px 10px',
+                            borderRadius: '6px',
+                            fontSize: '11px',
+                            fontWeight: '700',
+                            cursor: 'pointer',
+                            border: isSel ? '1.5px solid #4f46e5' : '1px solid #cbd5e1',
+                            background: isSel ? '#4f46e5' : '#f8fafc',
+                            color: isSel ? '#ffffff' : '#334155'
+                          }}
+                        >
+                          {rStr}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <input
+                    type="text"
+                    value={absenceModalReason}
+                    onChange={(e) => setAbsenceModalReason(e.target.value)}
+                    placeholder="Or type custom reason (e.g. In room 204 with fever, resting)..."
+                    style={{ ...styles.input, fontSize: '13px', padding: '9px 12px', width: '100%' }}
+                  />
+                </div>
+
+                {/* 3. DURATION / END DATE & TIME */}
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={absenceModalHasDuration}
+                        onChange={(e) => {
+                          setAbsenceModalHasDuration(e.target.checked);
+                          if (e.target.checked && !absenceModalEndDate) {
+                            setAbsenceModalEndDate(selectedDate);
+                          }
+                        }}
+                        style={{ width: '16px', height: '16px', accentColor: '#4f46e5', cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>
+                        Set End Date & Time (Multi-day absence)
+                      </span>
+                    </label>
+                  </div>
+
+                  {absenceModalHasDuration && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+                      {/* Quick duration helper chips */}
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        {[
+                          { label: 'Today Only', days: 0 },
+                          { label: 'Tomorrow (+1d)', days: 1 },
+                          { label: '+2 Days', days: 2 },
+                          { label: '+3 Days', days: 3 },
+                          { label: '+1 Week', days: 7 }
+                        ].map(chip => (
+                          <button
+                            key={chip.label}
+                            type="button"
+                            onClick={() => {
+                              const newD = addDaysToDate(selectedDate, chip.days);
+                              setAbsenceModalEndDate(newD);
+                            }}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              cursor: 'pointer',
+                              background: '#ffffff',
+                              border: '1px solid #cbd5e1',
+                              color: '#334155'
+                            }}
+                          >
+                            {chip.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '4px' }}>
+                            End Date:
+                          </label>
+                          <input
+                            type="date"
+                            value={absenceModalEndDate}
+                            onChange={(e) => setAbsenceModalEndDate(e.target.value)}
+                            style={{ ...styles.input, width: '100%', fontSize: '12px', padding: '7px 10px' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '4px' }}>
+                            End Time:
+                          </label>
+                          <input
+                            type="time"
+                            value={absenceModalEndTime}
+                            onChange={(e) => setAbsenceModalEndTime(e.target.value)}
+                            style={{ ...styles.input, width: '100%', fontSize: '12px', padding: '7px 10px' }}
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ fontSize: '11px', color: '#047857', background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '6px 10px', borderRadius: '6px', lineHeight: 1.35 }}>
+                        💡 This absence will automatically persist until <strong>{absenceModalEndDate} ({absenceModalEndTime})</strong>. After that time passes, the student automatically reverts to normal (Present).
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* FOOTER ACTIONS */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStatusMap(prev => ({ ...prev, [String(absenceModalStudent.adNo).trim()]: absenceModalStatus || 'ABSENT' }));
+                      setAbsenceModalStudent(null);
+                    }}
+                    style={{ ...styles.buttonSecondary, fontSize: '12px', padding: '8px 12px' }}
+                  >
+                    ⚡ Mark Tonight Only
+                  </button>
+
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setAbsenceModalStudent(null)}
+                      style={{ ...styles.buttonSecondary, fontSize: '12px', padding: '8px 14px' }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveSingleStudentAbsence}
+                      disabled={absenceModalSaving}
+                      style={{ ...styles.buttonPrimary, fontSize: '12px', padding: '8px 18px', fontWeight: '800' }}
+                    >
+                      {absenceModalSaving ? 'Saving...' : '💾 Save for This Student Only'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div style={{ marginTop: '20px' }}>
             <button
