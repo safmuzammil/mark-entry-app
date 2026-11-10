@@ -1,524 +1,265 @@
-# Google Sheets Mark Entry Sync Pipeline Optimization
+# Design Document: Three-Tiered Unified Leave Architecture & Zero-Friction Attendance Workflows
 
-*   **Author:** safmuzammil
-*   **Status:** Approved
-*   **Date:** 2026-11-10
+* **Author:** safmuzammil
+* **Date:** 2026-11-10
+* **Status:** DRAFT
 
---------------------------------------------------------------------------------
+## 1. Problem Statement
 
-## Overview
+The campus management workflow at Darul Huda Degree Campus faces operational friction across attendance recording and leave tracking:
 
-This specification defines the architectural and algorithmic overhaul of the Google Sheets Mark Entry Sync pipeline between `mark-entry-app` (`TeacherPortalView.jsx`, `ReportManager.jsx`, and `app/api/sheets/route.js`) and Google Spreadsheets (`QH1`, `AL1`, `FC1`, `QH2`, `AL2`, `FC2`, `QLA3`, `HFC3`).
+1. **Roll-Call Latency in Hostel Corridors**: During Night Attendance and Extra Attendance, wardens and teachers verify batches of 35–80 students under tight time windows. Existing UI popups (modals requesting text reasons, end-dates, and timestamps upon marking absence or sick status) interrupt roll-call speed, creating severe administrative bottlenecks.
+2. **Ambiguity in Student Absence Categories**: The campus enforces three fundamentally different types of leaves, which are currently conflated or handled ad-hoc:
+   * *Physical Gate Outpass*: Leaving campus boundaries (requires security gate clearance).
+   * *Hostel Sick in Room*: Staying in the hostel room to rest due to acute illness (excused from academic classes and congregational Jamath, but strictly confined to campus).
+   * *Masjid Jamath Exemption*: Physical attendance in academic classrooms, but excused from climbing stairs to the central masjid 5 times daily due to fractures, plaster casts, crutches, or bandages.
+3. **Disciplinary Penalties on Injured Students**: Without automated cross-checks, disciplinary monitors entering "Jamath Missing" penalties in Minus Attendance inadvertently deduct marks from students with legitimate leg fractures or medical exemptions.
+4. **Perimeter Security Leakage**: If internal hostel sick leaves are mixed with gate outpasses, gate security guards risk letting sick students leave the campus without authorized parent and administrative consent.
 
-The optimization eliminates Google Apps Script execution timeouts by replacing recursive multi-sheet scanning ($O(S \times M \times R \times C)$) with $O(1)$ class sheet targeting and single-pass in-memory row/column mapping. It enforces formula shielding to protect calculated columns (`100`, `30`, `Current Status`, `TOTAL`, `RANK`), accurately traverses merged subject headers, prevents subject collisions (`FIQH` vs `U :FIQH`, `LOGIC` vs `MANTIQ`), handles HIFZ multi-part assessments (`50_1` / `50_2`), and explicitly excludes Specialization marks.
+## 2. Overview & Solution Narrative
 
-## The Problem
+This design elevates the existing `Out-Pass Desk` into a unified **`Leaves & Outpass`** module (`🪪`) containing three dedicated sub-tabs:
+* **Sub-Tab 1: 🪪 Gate Outpasses**: External campus exits connected to Gate Security.
+* **Sub-Tab 2: 🤒 Sick in Room**: In-hostel medical bed rest authorized by Class Teachers and Admin, auto-syncing to Period Attendance.
+* **Sub-Tab 3: 🩹 Masjid Exemptions**: Orthopedic/mobility waivers authorized by Class Teachers and Admin, shielding students in Minus Attendance.
 
-1. **Catastrophic Execution Latency & Timeouts**: The current Google Apps Script `doPost` iterates over all 8 class tabs and calls `sheet.getDataRange().getValues()` repeatedly inside the student mark loop. For a 35-student class, this performs up to 280+ remote spreadsheet reads taking 15 to 40 seconds.
-2. **Premature Client-Side Abort**: `TeacherPortalView.jsx` enforces a 10-second `AbortController` timeout (`setTimeout(() => controller.abort(), 10000)`). Because the script exceeds 10 seconds, the frontend aborts the HTTP request, displaying sync failure alerts to teachers even when Firestore operations succeed.
-3. **Formula Overwrite Risks**: In Google Sheets, reading full range values and writing them back via bulk `setValues(grid)` converts formula cells into static values, destroying dynamic calculation chains.
-4. **Subject & Level Collisions**:
-   * Naïve substring checks cause `FIQH` to falsely match `U :FIQH` (Usulul Fiqh).
-   * Degree batches use `LOGIC` and `MANTIQ` interchangeably.
-   * `Social Science` headers require robust normalization.
-   * `HIFZ` uses distinct `50_1` and `50_2` parts rather than standard CCE levels (`15`, `20`, `25`, `40`).
-   * `Specialization` marks are not tracked in standard class sheets and must not attempt invalid column writes.
+Concurrently, it transforms **Night Attendance** and **Extra Attendance** into modal-free, 1-tap roll-call systems utilizing inline 4-way segmented buttons (`Present`, `Absent`, `Sick`, `Official`), while preserving the critical invariant that night attendance remains strictly isolated to the night report.
 
-## Goals
+## 3. Goals & Non-Goals
 
-*   **G1: Sub-Second Execution ($O(1)$ Routing)**: Pass `targetClass` from `TeacherPortalView.jsx` to open the specific class sheet (`ss.getSheetByName(targetClass)`) in $O(1)$ time, reducing execution latency to < 600ms and eliminating client timeouts.
-*   **G2: Single-Pass In-Memory Indexing**: Read sheet data and formulas exactly once per request. Build an $O(1)$ student row index (`regMap`, `adMap`) from Col B (`Reg.no`) and Col C (`Ad.No`), and resolve the target column once for the batch.
-*   **G3: Strict Formula Protection**: Ensure only target assessment input cells are updated. Explicitly verify that target column cells do not contain formulas before writing.
-*   **G4: Disambiguated Curricular Matching**:
-    * Strictly isolate `FIQH` from `U :FIQH`.
-    * Provide bidirectional aliasing for `LOGIC` and `MANTIQ`.
-    * Normalize `Social Science` against sheet variations.
-    * Map `HIFZ` to `50_1` (Part 1) and `50_2` (Part 2).
-    * Bypass Google Sheets sync for `Specialization` marks while maintaining Firestore persistence.
-*   **G5: Atomic Lock Protection**: Serialize concurrent submissions using `LockService.getScriptLock()` (6-second acquisition window) to prevent write collisions.
+### In-Scope Goals
+* **Modal-Free Roll-Call Engine**: Implement an inline 4-way tactile segmented selector (`[🟢 Present] [🔴 Absent] [🤒 Sick] [🏛️ Official]`) across Night Attendance and Extra Attendance, eliminating all mandatory modal prompts during roll-call.
+* **Night Ledger Isolation**: Guarantee that marking a resident `Sick in Room` at night does not mutate or auto-excuse the next morning's academic periods.
+* **Unified Leaves Desk**: Consolidate `Out-Pass Desk` into `Leaves & Outpass` with three focused sub-tabs: Gate Outpasses, Sick in Room, and Masjid Exemptions.
+* **Authority Gate**: Restrict creation and revocation of Sick in Room and Masjid Exemptions strictly to assigned Class Teachers and Central Admin.
+* **Open-Ended Medical Validity**: Support open-ended active statuses that persist without mandatory calendar deadlines until manually revoked upon recovery.
+* **Cross-Tab Synchronization**:
+  * Period Attendance automatically badges Category 2 as `🤒 Sick in Room` (Amber `#fffbeb`/`#d97706`).
+  * Minus Attendance actively checks Category 3 waivers and blocks or warns against "Jamath Missing" deductions.
+* **Gate Security Perimeter Quarantine**: Ensure Gate Security Kiosks display and scan only Category 1 Gate Outpasses, preventing internal sick students from unauthorized campus exit.
 
-## Non-Goals
+### Out-of-Scope Non-Goals
+* Automatic morning class absence generation triggered by night roll-call entries.
+* Biometric or RFID automated turnstile scanning for masjid attendance.
+* Pharmacy medicine inventory and medical diagnosis charting.
 
-*   **NG1: Modifying Google Sheets Layout**: No columns, formulas, headers, or formatting inside the Google Spreadsheet will be altered or rearranged.
-*   **NG2: Attendance or Outpass Synchronization**: Google Sheets synchronization remains strictly scoped to Academic CCE / Hifz Marks.
-*   **NG3: Replacing External Spreadsheet Service**: Google Sheets remains the target spreadsheet audit medium without introducing third-party database connectors.
+---
 
-## Open Questions
+## 4. Technical Plan & System Architecture
 
-*   **OQ1**: In `TeacherPortalView.jsx`, should the client-side `AbortController` timeout be extended from 10s to 15s to provide extra buffer on slow mobile cellular connections?
-*   **OQ2**: For the admin "Force Sync ALL Marks" bulk feature in `ReportManager.jsx`, should the payload be batched by class to prevent large payload timeouts?
-
---------------------------------------------------------------------------------
-
-## Critical User Journeys (CUJs)
-
-### CUJ 1: Teacher Enters Fiqh Marks for Class QH1
-
-*   **Given**: A teacher opens the CCE Mark Entry portal for Class `QH1`, Subject `Fiqh`, Assessment Level `Level 1 (Max 15)` with 35 students.
-*   **When**: The teacher enters or edits student marks and clicks "Save Marks".
-*   **Then**:
-    1. Local Firestore batch writes commit in < 400ms.
-    2. The web application dispatches a payload to `/api/sheets` containing:
-       * `targetClass`: `'QH1'`
-       * `subject`: `'Fiqh'`
-       * `maxMarks`: `'15'`
-       * `marks`: Array of `{ regNo, adNo, score }`
-    3. The Google Apps Script opens `ss.getSheetByName('QH1')` directly in $O(1)$.
-    4. Merged header traversal identifies the `FIQH` column block while strictly ignoring `U :FIQH`.
-    5. The script matches sub-level `15`, builds in-memory student row maps from Col B (`Reg.no`) and Col C (`Ad.No`), and writes student scores directly to the input cells.
-    6. Calculated formula columns (`100`, `30`, `Current Status`, `Total`, `Rank`) are left untouched and evaluate automatically.
-    7. The script responds with `{ status: 'success', updatedCount: 35, executionTimeMs: 420 }` within ~500ms, well within the frontend timeout window.
-    8. The UI displays `✅ Marks saved to database AND Google Sheets!`.
-
-### CUJ 2: Teacher Submits Multi-Part Hifz Evaluations (50_1 & 50_2)
-
-*   **Given**: A Hifz Usthad opens the mark entry portal for Class `AL1`, Subject `HIFZ`, selecting `Part 1 (Max 50)`.
-*   **When**: The teacher enters Part 1 scores and submits.
-*   **Then**:
-    1. The payload specifies `subject: 'HIFZ'` and `maxMarks: '50_1'`.
-    2. Google Apps Script identifies the merged `HIFZ` block in sheet `AL1`.
-    3. The level matcher resolves the sub-column corresponding to Part 1 (`50_1` / `50`) rather than Part 2 (`50_2`).
-    4. Student scores are written to the Part 1 column, triggering the sheet's dynamic `100` total formula without overwriting it.
-
-### CUJ 3: Specialization Submission (Intentional Skip) & Error Recovery
-
-*   **Given**: A faculty member enters Direct Scores (/30) for a `Specialization` subject batch in Class `FC2`.
-*   **When**: The teacher clicks "Save Marks".
-*   **Then**:
-    1. Marks are saved to Firebase Firestore (`marks/{studentRegNo}`).
-    2. The Google Apps Script receives the payload with `subject: 'Specialization'` and `maxMarks: '30'`.
-    3. The script identifies Specialization as a non-sheet subject and immediately returns `{ status: 'success', message: 'Specialization marks preserved in Firebase (Sheet write skipped by design).' }`.
-    4. The teacher receives instant confirmation without script error alerts or sheet cell corruption.
-
---------------------------------------------------------------------------------
-
-## Technical Plan (Architecture)
-
-### 1. System Interaction Architecture
+### 4.1 System Topology & Data Flow
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    actor Teacher as Faculty / Usthad
-    participant Portal as TeacherPortalView.jsx
-    participant Firestore as Firebase Firestore
-    participant API as /api/sheets (Next.js)
-    participant GAS as Google Apps Script (Code.gs)
-    participant Sheet as Google Sheets (Class Tabs)
+flowchart TD
+    subgraph Authority["Authorization Desk (Class Teacher / Admin)"]
+        A1["Out-Pass Request"] -->|"Off-Campus Leave"| L1["Sub-Tab 1: Gate Outpasses"]
+        A2["Hostel Illness Report"] -->|"Bed Rest"| L2["Sub-Tab 2: Sick in Room"]
+        A3["Fracture / Cast Diagnosis"] -->|"Mobility Waiver"| L3["Sub-Tab 3: Masjid Exemptions"]
+    end
 
-    Teacher->>Portal: Click "Save Marks"
-    Portal->>Firestore: batch.set(marks/{regNo})
-    Firestore-->>Portal: 200 OK (Committed in < 400ms)
+    subgraph DataStore["Firestore Central Datastore"]
+        L1 -->|"Saves to"| DB_OP["collection('out_passes')"]
+        L2 -->|"Saves to"| DB_MW["collection('campus_medical_waivers')\ntype='SICK_IN_ROOM'"]
+        L3 -->|"Saves to"| DB_MW2["collection('campus_medical_waivers')\ntype='JAMATH_EXEMPTION'"]
+    end
 
-    Portal->>API: POST /api/sheets { targetClass, subject, maxMarks, marks }
-    API->>GAS: Proxy POST to Script Web App URL
-    Note over GAS: LockService.tryLock(6000)
-    GAS->>Sheet: ss.getSheetByName(targetClass) (O(1))
-    GAS->>Sheet: getDataRange().getValues() & getFormulas() (Single RPC)
-    Note over GAS: Header state machine locates targetColIndex<br/>Formula check verifies no formulas in col<br/>In-memory row indexing maps regNo & adNo
-    GAS->>Sheet: sheet.getRange(row, col).setValue(val) (Targeted Cells)
-    Note over GAS: LockService.releaseLock()
-    GAS-->>API: 200 OK { status: 'success', updatedCount: N, executionTimeMs: 420 }
-    API-->>Portal: 200 OK
-    Portal-->>Teacher: "✅ Marks saved to database AND Google Sheets!"
+    subgraph Enforcement["Live Institutional Enforcement"]
+        DB_OP -->|"Strict Access Whitelist"| GATE["Gate Security Kiosk (PIN & QR)\n[PHYSICAL EXIT ALLOWED]"]
+        DB_OP -->|"Indigo Badge"| PERIOD["Period Attendance Manager"]
+        DB_OP -->|"Indigo Badge"| NIGHT["Night Attendance Manager"]
+        
+        DB_MW -->|"Amber Badge (#fffbeb)"| PERIOD
+        DB_MW -->|"Excused from Jamath"| MINUS["Minus Attendance Manager"]
+        DB_MW -->|"Amber Badge"| NIGHT
+        
+        DB_MW2 -->|"Normal Class Student (#ecfdf5)"| PERIOD
+        DB_MW2 -->|"🛡️ Jamath Deductions Blocked"| MINUS
+    end
 ```
 
----
+### 4.2 Data Model: `campus_medical_waivers` Collection
 
-### 2. Payload Structure Specification
+A dedicated Firestore collection `campus_medical_waivers` is introduced to manage internal campus leaves without overloading physical gate outpasses:
 
-When a teacher submits marks for an assessment batch in `TeacherPortalView.jsx`, the payload is formatted as follows:
-
-```json
-{
-  "targetClass": "QH1",
-  "subject": "Fiqh",
-  "maxMarks": "15",
-  "marks": [
-    {
-      "regNo": "260003",
-      "adNo": "U1278",
-      "score": 14
-    },
-    {
-      "regNo": "260010",
-      "adNo": "3668",
-      "score": 15
-    }
-  ]
-}
-```
-
-*Note: For backward compatibility, the Google Apps Script also accepts the legacy shape (`{ marks: [ { studentId, subject, maxMarks, marksObtained } ] }`).*
-
----
-
-### 3. Complete Drop-In Google Apps Script (`Code.gs`)
-
-```javascript
-/**
- * DHIU Mark Entry Google Apps Script Sync Engine
- * Optimized for O(1) Class Routing, Formula Protection, and Curricular Disambiguation
- * Sheets: QH1, AL1, FC1, QH2, AL2, FC2, QLA3, HFC3
- */
-
-function doPost(e) {
-  var lock = LockService.getScriptLock();
-  var hasLock = false;
-  try {
-    // Acquire lock for up to 6 seconds to prevent write collision under concurrent submissions
-    hasLock = lock.tryLock(6000);
-    if (!hasLock) {
-      return responseJSON({ status: 'error', message: 'Sheet busy: Concurrent write in progress. Please retry.' });
-    }
-
-    var startTime = new Date().getTime();
-    var data = JSON.parse(e.postData.contents);
-    var marksList = data.marks || [];
-
-    if (!marksList.length) {
-      return responseJSON({ status: 'error', message: 'Payload contains no mark entries.' });
-    }
-
-    // Extract batch-level metadata
-    var batchSubject = String(data.subject || marksList[0].subject || '').trim();
-    var batchMaxMarks = String(data.maxMarks || marksList[0].maxMarks || '').trim();
-    var targetClass = String(data.targetClass || marksList[0].targetClass || marksList[0].class || '').trim().toUpperCase();
-
-    // 1. Skip Specialization (Takassus / 30 max) from Google Sheets sync
-    if (batchSubject.toUpperCase().includes('SPECIALIZATION') || batchMaxMarks === '30') {
-      return responseJSON({
-        status: 'success',
-        message: 'Specialization marks preserved in Firebase (Sheet write skipped by design).'
-      });
-    }
-
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = targetClass ? ss.getSheetByName(targetClass) : null;
-
-    // Fallback: If targetClass is not supplied or invalid, resolve by scanning known sheets
-    var KNOWN_CLASSES = ['QH1', 'AL1', 'FC1', 'QH2', 'AL2', 'FC2', 'QLA3', 'HFC3'];
-    if (!sheet) {
-      for (var k = 0; k < KNOWN_CLASSES.length; k++) {
-        var s = ss.getSheetByName(KNOWN_CLASSES[k]);
-        if (s) {
-          sheet = s;
-          break;
-        }
-      }
-    }
-
-    if (!sheet) {
-      return responseJSON({ status: 'error', message: 'Target class sheet not found: "' + targetClass + '"' });
-    }
-
-    // 2. Single-Pass Ingestion: Ingest values and formulas once (2 RPCs total)
-    var dataRange = sheet.getDataRange();
-    var values = dataRange.getValues();
-    var formulas = dataRange.getFormulas();
-    var numRows = values.length;
-    var numCols = values[0].length;
-
-    if (numRows < 4) {
-      return responseJSON({ status: 'error', message: 'Sheet format invalid: Fewer than 4 rows found.' });
-    }
-
-    // Row Index Mapping:
-    // Row 1 (Index 0): Merged subject group numbers (1, 2, 3...)
-    // Row 2 (Index 1): Subject names (THAFSEER, HADITH, FIQH, U :FIQH, etc.)
-    // Row 3 (Index 2): Sub-levels (15, 20, 25, 40, 100, 30, Current Status)
-    // Row 4+ (Index 3+): Student data rows
-    var subjectRow = values[1];
-    var maxMarkRow = values[2];
-    var targetColIndex = -1;
-    var currentSubject = '';
-
-    for (var c = 5; c < numCols; c++) {
-      var topCell = String(subjectRow[c] || '').trim();
-      if (topCell !== '') {
-        currentSubject = topCell;
-      }
-
-      var subHeader = String(maxMarkRow[c] || '').trim();
-
-      if (isMatchingSubject(currentSubject, batchSubject) && isMatchingLevel(subHeader, batchMaxMarks)) {
-        targetColIndex = c;
-        break;
-      }
-    }
-
-    if (targetColIndex === -1) {
-      return responseJSON({
-        status: 'error',
-        message: 'Column not found for Subject: "' + batchSubject + '" and Level: "' + batchMaxMarks + '" in sheet ' + sheet.getName()
-      });
-    }
-
-    // 3. Formula Shielding: Confirm target column does not contain formula cells
-    for (var r = 3; r < numRows; r++) {
-      if (formulas[r][targetColIndex] !== '') {
-        return responseJSON({
-          status: 'error',
-          message: 'Safety Abort: Target column index ' + (targetColIndex + 1) + ' contains a formula at Row ' + (r + 1) + '. Overwrite prevented.'
-        });
-      }
-    }
-
-    // 4. In-Memory Student Indexing (Col B [1]: Reg.no, Col C [2]: Ad.No)
-    var regMap = {};
-    var adMap = {};
-    for (var r = 3; r < numRows; r++) {
-      var rReg = normalizeId(values[r][1]);
-      var rAd = normalizeId(values[r][2]);
-      if (rReg) regMap[rReg] = r;
-      if (rAd) adMap[rAd] = r;
-    }
-
-    // 5. Targeted Cell Updates
-    var updatedCount = 0;
-    for (var i = 0; i < marksList.length; i++) {
-      var item = marksList[i];
-      var sReg = normalizeId(item.regNo || item.studentId);
-      var sAd = normalizeId(item.adNo);
-
-      var targetRow = (sReg && regMap[sReg] !== undefined)
-        ? regMap[sReg]
-        : (sAd && adMap[sAd] !== undefined ? adMap[sAd] : -1);
-
-      if (targetRow !== -1) {
-        var rawScore = item.score !== undefined ? item.score : item.marksObtained;
-        var cellVal = (rawScore === '' || rawScore === null || rawScore === undefined)
-          ? ''
-          : (isNaN(Number(rawScore)) ? rawScore : Number(rawScore));
-
-        sheet.getRange(targetRow + 1, targetColIndex + 1).setValue(cellVal);
-        updatedCount++;
-      }
-    }
-
-    var elapsed = new Date().getTime() - startTime;
-    return responseJSON({
-      status: 'success',
-      sheet: sheet.getName(),
-      updatedCount: updatedCount,
-      executionTimeMs: elapsed
-    });
-
-  } catch (err) {
-    return responseJSON({ status: 'error', message: err.toString() });
-  } finally {
-    if (hasLock) {
-      lock.releaseLock();
-    }
-  }
-}
-
-// === Normalization & Matching Logic ===
-
-function normalizeId(id) {
-  if (!id) return '';
-  return String(id).replace(/[^0-9A-Z]/gi, '').toUpperCase();
-}
-
-function isMatchingSubject(sheetSubRaw, payloadSubRaw) {
-  var s = String(sheetSubRaw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  var p = String(payloadSubRaw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-
-  // 1. Strict Fiqh vs Usulul Fiqh separation
-  var isPayloadUsul = p.indexOf('UFIQH') !== -1 || p.indexOf('USUL') !== -1;
-  var isSheetUsul = s.indexOf('UFIQH') !== -1 || s.indexOf('USUL') !== -1;
-
-  if (isPayloadUsul || isSheetUsul) {
-    return isPayloadUsul && isSheetUsul;
-  }
-  if (p === 'FIQH') {
-    return s === 'FIQH';
-  }
-
-  // 2. Logic vs Mantiq aliasing
-  if (p === 'LOGIC' || p === 'MANTIQ') {
-    return s === 'LOGIC' || s === 'MANTIQ';
-  }
-
-  // 3. Social Science normalization
-  if (p.indexOf('SOCIAL') !== -1 || p.indexOf('SOC') !== -1) {
-    return s.indexOf('SOCIAL') !== -1 || s.indexOf('SOC') !== -1 || s.indexOf('SCIENCE') !== -1;
-  }
-
-  return s === p;
-}
-
-function isMatchingLevel(sheetLevelRaw, payloadLevelRaw) {
-  var s = String(sheetLevelRaw || '').trim().replace(/[^0-9_]/g, '');
-  var p = String(payloadLevelRaw || '').trim().replace(/[^0-9_]/g, '');
-
-  // 1. Hifz Multi-Part Handling (50_1 and 50_2)
-  if (p === '50_1' || p === '501') {
-    return s === '50_1' || s === '501' || s === '50';
-  }
-  if (p === '50_2' || p === '502') {
-    return s === '50_2' || s === '502';
-  }
-
-  // 2. Standard CCE Levels (15, 20, 25, 40)
-  return s === p && s !== '';
-}
-
-function responseJSON(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-
-// === Preserved Master GET Action Handlers ===
-
-function doGet(e) {
-  var action = e.parameter.action;
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-
-  if (action === 'getAllAdminReportData') {
-    var reportData = {};
-    var sheets = ss.getSheets();
-
-    for (var s = 0; s < sheets.length; s++) {
-      var sheet = sheets[s];
-      if (sheet.getName() === "Marks") continue;
-      var data = sheet.getDataRange().getDisplayValues();
-      if (data.length < 4) continue;
-
-      var subjectRow = data[1];
-      var taskRow = data[2];
-
-      var colMap = { subjects: {}, totals: {} };
-      var currentSub = "";
-
-      for (var c = 5; c < taskRow.length; c++) {
-        if (subjectRow[c] && String(subjectRow[c]).trim() !== "") {
-          currentSub = String(subjectRow[c]).replace(/[\n\r]/g, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
-        }
-        var header = String(taskRow[c]).replace(/[\n\r]/g, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
-        if (!header) continue;
-
-        if (currentSub.includes("TOTAL")) {
-          if (header.includes("1400")) colMap.totals["1400"] = c;
-          else if (header.includes("490") || header.includes("420")) colMap.totals["490"] = c;
-          else if (header.includes("STATUS")) colMap.totals["STATUS"] = c;
-        } else {
-          if (header === "100") colMap.subjects[currentSub] = c;
-        }
-      }
-
-      for (var r = 3; r < data.length; r++) {
-        var regNo = String(data[r][1] || '').trim();
-        var adNo = String(data[r][2] || '').trim();
-        var studentKey = regNo || adNo;
-        if (studentKey !== "") {
-          var scores = { overall: {}, subjects: {} };
-          if (colMap.totals["1400"]) scores.overall["1400"] = data[r][colMap.totals["1400"]];
-          if (colMap.totals["490"]) scores.overall["490"] = data[r][colMap.totals["490"]];
-          if (colMap.totals["STATUS"]) scores.overall["STATUS"] = data[r][colMap.totals["STATUS"]];
-
-          Object.keys(colMap.subjects).forEach(function(sub) {
-            scores.subjects[sub] = data[r][colMap.subjects[sub]];
-          });
-          if (regNo) reportData[regNo] = scores;
-          if (adNo) reportData[adNo] = scores;
-        }
-      }
-    }
-    return responseJSON({ status: 'success', data: reportData });
-  }
-
-  return responseJSON({ status: 'error', message: 'Invalid action parameter' });
+```typescript
+interface CampusMedicalWaiver {
+  id: string; // waiver_${Date.now()}_${adNo}
+  studentRegNo: string;
+  adNo: string;
+  studentName: string;
+  className: string;
+  department?: string;
+  waiverType: 'SICK_IN_ROOM' | 'JAMATH_EXEMPTION';
+  injuryReason: string; // e.g., "Leg Fracture / Plaster Cast", "Acute Viral Fever"
+  roomNumber?: string; // e.g. "Room 204, Wing B"
+  notes?: string;
+  issuedBy: string; // teacher username or admin
+  issuedByName: string; // teacher full name
+  issuedByRole: 'CLASS_TEACHER' | 'ADMIN';
+  issuedAt: string; // ISO-8601 string
+  status: 'ACTIVE' | 'REVOKED';
+  revokedAt?: string | null;
+  revokedBy?: string | null;
+  revokedByName?: string | null;
+  revocationNotes?: string | null;
 }
 ```
 
---------------------------------------------------------------------------------
+### 4.3 Component Refactoring & Implementation Specifications
 
-## Alternatives Considered
+#### 1. Navigation Shell (`app/components/TeacherPortalView.jsx`)
+* Rename the sidebar entry from `Out-Pass Desk` to `Leaves & Outpass` (`🪪`).
+* Keep active view ID as `'outpass'` for 100% backward route compatibility.
+* Pass `classTeacherOf={loggedInTeacher?.outpassPrivileges?.classTeacherOf || []}` and `isClassTeacher={Boolean(myClassTeacherOf.length > 0)}` to the embedded outpass view.
 
-### Alternative A: Full Grid `setValues(grid)` Writeback
-*   **Approach**: Modify cell values in the in-memory 2D array and write the entire rectangle back via `sheet.getRange(1, 1, numRows, numCols).setValues(values)`.
-*   **Pros**: Only 1 single write call.
-*   **Cons**: In Google Apps Script, `getValues()` extracts evaluated values rather than formula expressions. Calling `setValues()` replaces formula columns (`100`, `30`, `Status`, `Rank`) with static numbers, permanently destroying institutional formulas.
-*   **Reason for Rejection**: Unacceptable risk of formula destruction. Targeted cell writes protect all calculation columns.
+#### 2. Unified Leaves Desk (`app/outpass/page.jsx` / `StudentOutpassTab.jsx`)
+* Wrap the top level with a persistent 3-segment sub-tab navigator:
+  1. `🪪 Gate Outpasses`: Retains existing outpass table, filters, parent verification, gate pass printing, and approval actions.
+  2. `🤒 Sick in Room`: Roster of active bed-rest students, quick-filter by class, "Grant Bed Rest" action modal, and "Mark Recovered" button (sets `status = 'REVOKED'`).
+  3. `🩹 Masjid Exemptions`: Roster of students with mobility/orthopedic exemptions, "Grant Jamath Exemption" modal with injury presets, and "Revoke Exemption" action.
+* **Gate Security Quarantine**: If the viewer is authenticated as `Gate Security` or accessed via the Gate PIN terminal, sub-tabs 2 and 3 are completely hidden.
 
-### Alternative B: Google Sheets v4 REST API via Service Account
-*   **Approach**: Replace Google Apps Script entirely with direct REST API batchUpdate calls using a Google Cloud Service Account.
-*   **Pros**: Full batchUpdate cell targeting without execution timeout constraints.
-*   **Cons**: Requires GCP project provisioning, enabling Sheets API, service account key JSON management, and manual permission sharing across institutional spreadsheets.
-*   **Reason for Rejection**: Google Apps Script Web App is already authorized and deployed. Optimizing the script reduces latency to < 500ms with zero new infrastructure overhead.
+#### 3. Modal-Free 4-Way Segmented Roll-Call (`app/components/NightAttendanceManager.jsx`)
+* Replace single-card popups (`openAbsenceModal`) with an inline 4-way tactile segmented control:
+  * `[ 🟢 Present ]`: High-contrast green border/background.
+  * `[ 🔴 Absent ]`: High-contrast red border/background.
+  * `[ 🤒 Sick ]`: High-contrast amber border/background (`#fffbeb`, `#d97706`).
+  * `[ 🏛️ Official ]`: High-contrast cyan/teal border/background (`#f0fdfa`, `#0d9488`).
+* If a student has an active `Gate Outpass` (`status === 'OUTSIDE'`), the selector is disabled with an auto-locked Indigo badge: `🪪 Outside Campus`.
+* Apply the identical 4-way inline selector to **Extra Attendance** (`viewMode === 'extra_attendance'`).
+* **Isolation Rule**: Night attendance saves record directly to `night_attendance/{date}` and do not alter `systemCache/periodSession_*` records.
 
---------------------------------------------------------------------------------
+#### 4. Period Attendance Integration (`app/components/PeriodAttendanceManager.jsx` & `ClassPeriodMonitorTab.jsx`)
+* Load active waivers from `campus_medical_waivers` where `status === 'ACTIVE'`.
+* Map students with `waiverType === 'SICK_IN_ROOM'` to an Amber card badge: `🤒 Sick in Room`.
+* Count them in period attendance summary metrics under the dedicated `🤒 Medical: N` counter.
 
-## Non-Functional Requirements
+#### 5. Proactive Minus Attendance Shield (`app/components/MinusAttendanceManager.jsx`)
+* Subscribe to active waivers with `waiverType === 'JAMATH_EXEMPTION'`.
+* In the deduction entry form, if the selected deduction reason is `Jamath Missing` (or related prayer discipline) and the student has an active `JAMATH_EXEMPTION`:
+  * Render an unmistakable warning card: `🛡️ Protected Waiver: Student has an active Masjid Exemption (Reason: [Reason]). Jamath deduction is blocked.`
+  * Disable the Submit button by default, with an explicit Admin Override confirmation checkbox.
 
-*   **Execution Runtime**: Sub-second execution (< 600ms per class submission) to guarantee compliance with HTTP client timeouts.
-*   **Concurrency & Data Integrity**: Protected by `LockService` to prevent simultaneous teacher submissions from creating race conditions on shared sheets.
-*   **Formula Immutability**: Absolute prohibition on writing to cells containing spreadsheet formulas.
+### 4.4 Conflict Resolution & Status Precedence Matrix
 
---------------------------------------------------------------------------------
+When a student holds multiple overlapping records, the system applies the following strict precedence order:
 
-## Future Improvements
+1. **Precedence 1 (Highest): Gate Outpass (`OUTSIDE`)**: If a student is physically outside campus, they cannot be in class, hostel, or masjid. Status = `🪪 Outside Campus`.
+2. **Precedence 2: Sick in Room (`SICK_IN_ROOM`)**: Student is in hostel bed rest. Excused from class periods and masjid Jamath. Status = `🤒 Sick in Room`.
+3. **Precedence 3: Masjid Exemption (`JAMATH_EXEMPTION`)**: Student is in class learning normally, but excused from masjid stairs/Jamath. Class status = `🟢 Present`; Jamath status = `🩹 Masjid Exempt`.
+4. **Precedence 4: Standard Roll-Call**: Manual entry (`Present` vs `Absent`).
 
-*   **1. Class-Partitioned Admin Force Sync**: In `ReportManager.jsx`, partition the global sync payload by `targetClass` and dispatch in parallel batches to avoid multi-megabyte monolithic requests.
-*   **2. Audit Log Sheet**: An optional `Sync_Logs` hidden tab in the Google Spreadsheet logging teacher submission timestamps and updated student counts.
-
---------------------------------------------------------------------------------
-
-## Detailed Implementation Plan
-
-### Target Files to Create/Modify
-
-#### 1. `app/components/TeacherPortalView.jsx` (Modify)
-
-*   **Type / Scope**: Client React Component
-*   **Proposed Changes**:
-    *   **Enriched Payload Structure**: Update `handleSaveMarks` (lines 710–785) so the sync payload dispatches `targetClass`, `subject`, and `maxMarks` at the root, and passes both `regNo` and `adNo` for each student:
-        ```javascript
-        const syncPayload = {
-          targetClass: String(currentEnrollment.targetClass || currentEnrollment.alias || '').trim().toUpperCase(),
-          subject: finalSubjectKey,
-          maxMarks: String(assessmentMaxMark),
-          marks: marksPayload.map(m => {
-            const st = classStudents.find(s => s.regNo === m.studentId);
-            return {
-              studentId: m.studentId,
-              regNo: m.studentId,
-              adNo: st?.adNo || '',
-              subject: finalSubjectKey,
-              maxMarks: assessmentMaxMark,
-              marksObtained: m.marksObtained,
-              score: m.marksObtained
-            };
-          })
-        };
-        ```
-    *   **Timeout Extension**: Extend the client `AbortController` timeout from 10,000ms to 15,000ms (`setTimeout(() => controller.abort(), 15000)`) to provide safety margin on cellular networks.
-
-#### 2. `app/components/ReportManager.jsx` (Modify)
-
-*   **Type / Scope**: Admin Audit & Report Hub Component
-*   **Proposed Changes**:
-    *   In `handleForceSyncAllToSheets`, ensure each entry in `allMarksPayload` attaches the student's `adNo` and target class derived from `adminStudentsList` so the Apps Script resolves the target class tab in $O(1)$ during bulk resync.
-
-#### 3. `google_apps_script_code.gs` (Create)
-
-*   **Type / Scope**: Standalone Reference Script File in Workspace Root
-*   **Proposed Changes**:
-    *   Store the complete, tested, drop-in replacement Google Apps Script code in `google_apps_script_code.gs` so the user can directly copy and paste it into their Google Sheet's **Extensions > Apps Script** editor and click **Deploy > New deployment**.
 
 ---
 
-### Verification Plan
+## 5. Alternatives Considered
 
-*   **Next.js Production Build**:
-    *   Execute `npm run build` to verify zero JSX syntax, TypeScript, or bundling regressions.
-*   **Functional Verification**:
-    1.  *Standard CCE Subject Sync*: Enter marks for `Fiqh` in `QH1` and verify that the Apps Script writes to `FIQH` and never to `U :FIQH`.
-    2.  *Hifz Multi-Part Sync*: Enter marks for `HIFZ` Part 1 (`50_1`) and Part 2 (`50_2`) in `AL1` and confirm both sub-columns populate accurately.
-    3.  *Specialization Bypass*: Enter marks for `Specialization` (/30) and confirm the portal saves to Firestore while returning immediate sheet success without corrupting sheet cells.
-    4.  *Formula Preservation*: Inspect columns `100`, `30`, and `Current Status` in Google Sheets to confirm formula expressions remain intact.
+### Alternative 1: Adding a Separate Sidebar Item (`Campus Leaves`) Alongside `Out-Pass Desk`
+* **Description**: Create two separate top-level sidebar entries: one for `Out-Pass Desk` (off-campus physical exits) and a second for `Campus Leaves` (internal hostel sick leaves and masjid exemptions).
+* **Rationale for Rejection**: *Rejected by author: Navigation Bloat & Workflow Fragmentation*. The faculty portal sidebar already contains 8 core navigation items. Adding another tab clutters the interface and forces teachers to context-switch across multiple tabs when reviewing student absence. Elevating `Out-Pass Desk` to a unified `Leaves & Outpass` desk with three sub-tabs provides a single, cohesive hub for all leave approvals while keeping the navigation menu clean.
 
---------------------------------------------------------------------------------
+### Alternative 2: Modal Popups for Recording Reasons During Night & Extra Roll-Call
+* **Description**: Continue prompting wardens and teachers with a modal dialog upon tapping `Sick` or `Absent` to capture the medical ailment, expected duration, and parent communication notes.
+* **Rationale for Rejection**: *Rejected by author: Operational Latency in Hostel Corridors*. Hostel roll-calls and extra sessions require taking attendance across 35–80 residents in under 2 minutes. Dialog modals interrupt roll-call rhythm and introduce intolerable latency. Detailed medical metadata is captured upstream during formal waiver issuance in the `Leaves & Outpass Desk`; roll-call taking must remain strictly a 1-tap operation.
 
-*Drafted with EGM*
+### Alternative 3: Automatic Spillover of Night Attendance "Sick" Marks into Morning Period Attendance
+* **Description**: If a student is marked `Sick in Room` during 10:00 PM Night Attendance, the system automatically registers them as `Sick in Room` for next morning's Period 1 (7:45 AM).
+* **Rationale for Rejection**: *Rejected by author: Accountability & Exam Integrity Hazard*. Evening complaints (e.g., mild headache) do not always warrant missing morning classes or scheduled class tests. Automatically carrying night marks into morning academic periods creates an accountability loophole where students bypass morning classes without formal Class Teacher verification. Night attendance remains strictly isolated to the night hostel report.
+
+### Alternative 4: Storing Internal Waivers in the Existing `out_passes` Firestore Collection
+* **Description**: Store Category 2 and Category 3 leaves in `collection('out_passes')` with a special flag `isInternalWaiver: true`.
+* **Rationale for Rejection**: *Rejected by author: Perimeter Security Quarantine Violation*. Gate Security Kiosks and barcode scanners query `out_passes` to validate exits at the campus gate. Merging internal sick leaves into the outpass collection introduces query-filtering risks where a bug or missing filter could display internal bed-rest students on the gate exit whitelist, allowing unapproved campus exits. Maintaining a distinct `campus_medical_waivers` collection completely isolates perimeter security from internal medical bed rest.
+
+
+---
+
+## 6. Detailed Implementation Plan
+
+This section provides an actionable, file-by-file specification covering all code, component, and schema modifications required to implement the Three-Tiered Leave Architecture and Modal-Free Roll-Call Engine.
+
+### 6.1 Affected Codebase Files
+
+| File Path | Nature of Change | Core Responsibility / Rationale |
+| :--- | :--- | :--- |
+| [`app/components/TeacherPortalView.jsx`](file:///D:/Codes/mark-entry-app/app/components/TeacherPortalView.jsx) | **Modify** | Update navigation label from `Out-Pass Desk` to `Leaves & Outpass` (`🪪`). Pass class teacher scope and outpass privileges to child components. |
+| [`app/outpass/page.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/page.jsx) | **Modify** | Add 3-way top sub-tab bar (`Gate Outpasses`, `Sick in Room`, `Masjid Exemptions`). Quarantine gate security view so internal waivers are never shown at the gate. |
+| [`app/outpass/components/SickInRoomSubTab.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/SickInRoomSubTab.jsx) | **Create** | Dedicated sub-tab for managing Category 2 hostel bed-rest leaves with grant modal, active roster, and one-click recovery revocation. |
+| [`app/outpass/components/MasjidExemptionSubTab.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/MasjidExemptionSubTab.jsx) | **Create** | Dedicated sub-tab for managing Category 3 orthopedic/fracture prayer exemptions with injury presets and revocation controls. |
+| [`app/components/NightAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/NightAttendanceManager.jsx) | **Modify** | Replace modal dialog interruptions in both Night Attendance and Extra Attendance with inline 4-way tactile segmented buttons (`Present`, `Absent`, `Sick`, `Official`). Enforce night isolation invariant. |
+| [`app/components/PeriodAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/PeriodAttendanceManager.jsx) | **Modify** | Cross-check active `SICK_IN_ROOM` waivers from `campus_medical_waivers` and render them in warm Amber with dedicated `🤒 Medical: N` counter. |
+| [`app/components/ClassPeriodMonitorTab.jsx`](file:///D:/Codes/mark-entry-app/app/components/ClassPeriodMonitorTab.jsx) | **Modify** | Display active `SICK_IN_ROOM` students in the live period monitor metrics and excused leaves summary in warm Amber. |
+| [`app/components/MinusAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/MinusAttendanceManager.jsx) | **Modify** | Cross-check active `JAMATH_EXEMPTION` waivers and display a protective banner blocking `Jamath Missing` deductions for injured students. |
+
+---
+
+### 6.2 Detailed Step-by-Step Execution Sequence
+
+#### Step 1: Firestore Collection Provisioning & Types
+* Define collection `campus_medical_waivers`.
+* Create helper functions for creating waivers, listing active waivers, and revoking waivers.
+* Implement indexing on `status` (`ACTIVE` / `REVOKED`) and `className` for compound queries.
+
+#### Step 2: Implement Internal Leaves Sub-Tabs
+* Create [`app/outpass/components/SickInRoomSubTab.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/SickInRoomSubTab.jsx):
+  * **Header KPI Cards**: Total Active Sick, By Class breakdown.
+  * **Authorization Guard**: Class Teachers can only select and grant leave for students belonging to their assigned class (`classTeacherOf`). Admins can grant for all classes.
+  * **Grant Bed Rest Modal**:
+    * Student selection dropdown (searchable).
+    * Illness reason presets (`Acute Fever / Viral`, `Severe Stomach Flu`, `Asthma / Respiratory Rest`, `Post-Medical Clinic Rest`, `Other`).
+    * Hostel room number field.
+    * Notes textarea.
+  * **Active Roster Table**:
+    * Student Name, Ad.No, Class, Illness Reason, Hostel Room Number, Issued Date, Issued By.
+    * Action button: `✓ Mark Recovered & Revoke` (updates status to `'REVOKED'`, recording `revokedAt` and `revokedBy`).
+* Create [`app/outpass/components/MasjidExemptionSubTab.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/MasjidExemptionSubTab.jsx):
+  * **Header KPI Cards**: Active Exemptions Count, Classroom Normal Present guarantee notice.
+  * **Authorization Guard**: Restricted to Class Teachers and Admin.
+  * **Grant Exemption Modal**:
+    * Student selection dropdown.
+    * Injury reason presets (`Leg Fracture / Plaster Cast`, `Bandage / Open Surgical Dressing`, `Crutches / Severe Ankle Sprain`, `Arm / Shoulder Immobilization`, `Temporary Mobility Impairment`).
+    * Notes textarea.
+  * **Active Roster Table**:
+    * Student Name, Ad.No, Class, Injury Details, Issued Date, Issued By.
+    * Action button: `✓ Mark Healed & Revoke`.
+
+#### Step 3: Integrate Sub-Tabs into `app/outpass/page.jsx`
+* Add state `activeLeaveSubTab` (`'outpass'` | `'sick_room'` | `'masjid_exempt'`).
+* Render top segmented tab bar:
+  * `🪪 Gate Outpasses`: Displays existing outpass tables, filters, and action tools.
+  * `🤒 Sick in Room`: Renders `SickInRoomSubTab`.
+  * `🩹 Masjid Exemptions`: Renders `MasjidExemptionSubTab`.
+* **Gate Security Quarantine**: If `isGateSecurityMode === true` or accessing via Gate PIN, lock sub-tab to `'outpass'` and suppress the sub-tab bar completely.
+
+#### Step 4: Navigation Shell Update in `app/components/TeacherPortalView.jsx`
+* Update `teacherNavItems` entry:
+  * `label: 'Leaves & Outpass'`
+  * `icon: '🪪'`
+* Pass `classTeacherOf` and `isClassTeacher` props into the child outpass component.
+
+#### Step 5: Modal-Free 4-Way Segmented Roll-Call in `app/components/NightAttendanceManager.jsx`
+* Replace `onClick={() => setAbsenceModalStudent(st)}` and dialog modal triggers with an inline segmented button container on each student card:
+  * Button 1 (`Present`): Sets `statusMap[ad] = 'PRESENT'`.
+  * Button 2 (`Absent`): Sets `statusMap[ad] = 'ABSENT'`.
+  * Button 3 (`Sick`): Sets `statusMap[ad] = 'SICK'`.
+  * Button 4 (`Official`): Sets `statusMap[ad] = 'OFFICIAL'`.
+* Auto-disabled locked state: If `activePass?.status === 'OUTSIDE'`, display locked badge `🪪 Outside Campus` without clickable buttons.
+* Apply the identical 4-way inline selector in **Extra Attendance** (`viewMode === 'extra_attendance'`).
+* Verify that saving night attendance writes exclusively to `night_attendance/{date}` and does not alter period attendance caches.
+
+#### Step 6: Period Attendance & Monitor Auto-Badging
+* In [`PeriodAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/PeriodAttendanceManager.jsx) and [`ClassPeriodMonitorTab.jsx`](file:///D:/Codes/mark-entry-app/app/components/ClassPeriodMonitorTab.jsx):
+  * Query `campus_medical_waivers` where `status === 'ACTIVE'`.
+  * Build lookup map: `activeWaiversByReg`.
+  * If student has active `SICK_IN_ROOM` waiver:
+    * Render Amber card styling `#fffbeb` with border `#fde68a`.
+    * Display badge: `🤒 SICK IN ROOM (Hostel Bed Rest)`.
+    * Count in `periodMedCount` / `medicalCount`.
+
+#### Step 7: Minus Attendance Proactive Jamath Protection
+* In [`MinusAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/MinusAttendanceManager.jsx):
+  * Query `campus_medical_waivers` where `waiverType === 'JAMATH_EXEMPTION' && status === 'ACTIVE'`.
+  * Build lookup map: `jamathExemptionsByAdNo`.
+  * In the single student deduction form, when `studentAdNo` is entered and `reason` contains `Jamath` or `Masjid`:
+    * If `jamathExemptionsByAdNo[cleanAd]` exists:
+      * Render high-priority warning card: `🛡️ Protected: [Student Name] has an active Masjid Exemption (Reason: [Reason]). Jamath deduction is blocked.`
+      * Disable the Submit button unless the user checks `[x] Admin Force Override`.
