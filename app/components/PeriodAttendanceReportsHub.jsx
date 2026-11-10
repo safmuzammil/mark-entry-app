@@ -52,6 +52,7 @@ export default function PeriodAttendanceReportsHub({
   // 🌟 FN (Periods 1-6) & AN (Periods 7-9) Monthly Day Strategy State
   const [fnAnMonthSessions, setFnAnMonthSessions] = useState([]);
   const [fnAnOutpasses, setFnAnOutpasses] = useState([]);
+  const [fnAnRecordedAbsences, setFnAnRecordedAbsences] = useState([]);
   const [fnAnFilterMode, setFnAnFilterMode] = useState('ALL'); // 'ALL' | 'ABSENT_GT_5' | 'PRESENT_ALL_DAYS'
   const [fnAnViewMode, setFnAnViewMode] = useState('summary'); // 'summary' | 'register_grid'
   const [loadingFnAn, setLoadingFnAn] = useState(false);
@@ -94,12 +95,18 @@ export default function PeriodAttendanceReportsHub({
         ]);
 
         const monthSessions = [];
+        let recAbsList = [];
         cacheSnap.forEach(d => {
           if (d.id.startsWith(`periodSession_${repMonth}`)) {
             monthSessions.push({ id: d.id, ...d.data() });
+          } else if (d.id === 'recordedStudentAbsences') {
+            const data = d.data() || {};
+            const absencesDict = data.absences || {};
+            recAbsList = Object.values(absencesDict).filter(r => r && !r.isCancelled);
           }
         });
         setFnAnMonthSessions(monthSessions);
+        setFnAnRecordedAbsences(recAbsList);
 
         const opList = [];
         opSnap.forEach(d => {
@@ -387,9 +394,21 @@ export default function PeriodAttendanceReportsHub({
         return fromM === repMonth || toM === repMonth;
       });
 
-      const leaveReasonsList = studentMonthPasses.map(p =>
-        `${p.leaveCategory || 'Leave'}: ${p.destination || 'Out'}${p.purpose ? ` (${p.purpose})` : ''}`
-      );
+      const studentMonthRecordedAbs = fnAnRecordedAbsences.filter(r => {
+        if (String(r.adNo || '').trim().toUpperCase() !== ad) return false;
+        const fromM = String(r.startDate || r.date || '').slice(0, 7);
+        const toM = String(r.endDate || r.startDate || '').slice(0, 7);
+        return fromM === repMonth || toM === repMonth;
+      });
+
+      const leaveReasonsList = [
+        ...studentMonthPasses.map(p =>
+          `${p.leaveCategory || 'Leave'}: ${p.destination || 'Out'}${p.purpose ? ` (${p.purpose})` : ''}`
+        ),
+        ...studentMonthRecordedAbs.map(r =>
+          `${r.status === 'SICK_ROOM' ? 'Medical / Sick' : r.status === 'OFFICIAL' ? 'Official Duty' : 'Leave'}: ${r.reason || 'Recorded Absence'}`
+        )
+      ];
 
       const isPresentAllWorkingDays = workingDaysHeld > 0 && totalDaysAbsent === 0;
       const isAbsentMoreThan5Days = totalDaysAbsent >= 5;

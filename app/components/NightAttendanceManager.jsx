@@ -135,7 +135,10 @@ export default function NightAttendanceManager({
 
   const handleExtraQuickTap = (adNo) => {
     setExtraStatusMap(prev => {
-      const cur = prev[adNo] || 'PRESENT';
+      const p = getActiveOutpassForStudent(adNo);
+      const activeRec = getActiveRecordedAbsenceForStudent(adNo, extraDate);
+      const defaultStatus = activeRec ? (activeRec.status || 'ABSENT') : (p ? ((p.purpose === 'OFFICIAL' || p.category === 'OFFICIAL') ? 'OFFICIAL' : 'OUTPASS') : 'PRESENT');
+      const cur = prev[adNo] || defaultStatus;
       
       return { ...prev, [adNo]: cur === 'PRESENT' ? 'ABSENT' : 'PRESENT' };
     });
@@ -146,7 +149,10 @@ export default function NightAttendanceManager({
     extraStudentsList.forEach(st => {
       const ad = String(st.adNo || '').trim();
       const p = getActiveOutpassForStudent(ad);
-      if (p) {
+      const activeRec = getActiveRecordedAbsenceForStudent(ad, extraDate);
+      if (activeRec) {
+        newMap[ad] = activeRec.status || 'ABSENT';
+      } else if (p) {
         newMap[ad] = (p.purpose === 'OFFICIAL' || p.category === 'OFFICIAL') ? 'OFFICIAL' : 'OUTPASS';
       } else {
         newMap[ad] = status;
@@ -167,16 +173,32 @@ export default function NightAttendanceManager({
       const outpassAdNos = [];
       const officialAdNos = [];
       const sickAdNos = [];
+      const absentReasonsMap = {};
 
       const targetStudents = extraBaseClassStudents.filter(st => includeUrdu || !isUrduStudent(st));
 
       targetStudents.forEach(st => {
         const ad = String(st.adNo || '').trim();
-        const stStatus = extraStatusMap[ad] || 'PRESENT';
+        const p = getActiveOutpassForStudent(ad);
+        const activeRec = getActiveRecordedAbsenceForStudent(ad, extraDate);
+        let stStatus = extraStatusMap[ad];
+        if (!stStatus) {
+          if (activeRec) {
+            stStatus = activeRec.status || 'ABSENT';
+          } else if (p) {
+            stStatus = (p.purpose === 'OFFICIAL' || p.category === 'OFFICIAL') ? 'OFFICIAL' : 'OUTPASS';
+          } else {
+            stStatus = 'PRESENT';
+          }
+        }
         if (stStatus === 'ABSENT') absentAdNos.push(ad);
         if (stStatus === 'OUTPASS') outpassAdNos.push(ad);
         if (stStatus === 'OFFICIAL') officialAdNos.push(ad);
         if (stStatus === 'SICK_ROOM') sickAdNos.push(ad);
+
+        if (activeRec && activeRec.reason) {
+          absentReasonsMap[ad] = activeRec.reason;
+        }
       });
 
       const presentCount = targetStudents.length - absentAdNos.length - outpassAdNos.length - officialAdNos.length - sickAdNos.length;
@@ -197,6 +219,7 @@ export default function NightAttendanceManager({
         officialCount: officialAdNos.length,
         sickCount: sickAdNos.length,
         absentAdNos,
+        absentReasonsMap,
         statusMap: extraStatusMap,
         absentList: targetStudents
           .filter(s => absentAdNos.includes(String(s.adNo || '').trim()))
@@ -2124,11 +2147,14 @@ export default function NightAttendanceManager({
             {extraStudentsList.map(st => {
               const ad = String(st.adNo || '').trim();
               const activePass = getActiveOutpassForStudent(ad);
+              const activeRecAbs = getActiveRecordedAbsenceForStudent(ad, extraDate);
               const isUrdu = isUrduStudent(st);
 
               let curStatus = extraStatusMap[ad];
               if (!curStatus) {
-                if (activePass) {
+                if (activeRecAbs) {
+                  curStatus = activeRecAbs.status || 'ABSENT';
+                } else if (activePass) {
                   curStatus = (activePass.purpose === 'OFFICIAL' || activePass.category === 'OFFICIAL') ? 'OFFICIAL' : 'OUTPASS';
                 } else {
                   curStatus = 'PRESENT';
@@ -2147,23 +2173,34 @@ export default function NightAttendanceManager({
                   style={{
                     padding: '12px 14px',
                     borderRadius: '10px',
-                    cursor: (isOutpass || isOfficial) ? 'default' : 'pointer',
+                    cursor: 'pointer',
                     userSelect: 'none',
                     border: isAbsent ? '1.5px solid #fecdd3' : isOutpass ? '1.5px solid #fef08a' : isOfficial ? '1.5px solid #bae6fd' : isSick ? '1.5px solid #e9d5ff' : '1.5px solid #e2e8f0',
                     background: isAbsent ? '#fff1f2' : isOutpass ? '#fefce8' : isOfficial ? '#f0f9ff' : isSick ? '#faf5ff' : '#ffffff',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
+                    gap: '10px',
                     boxShadow: '0 1px 2px rgba(15,23,42,0.03)'
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
                     <ProfileAvatar name={st.firstName} code={ad} photoUrl={st.photoUrl} size={36} />
-                    <div>
+                    <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: '700', fontSize: '13px', color: '#0f172a' }}>{st.firstName}</div>
                       <div style={{ fontSize: '11px', color: '#64748b' }}>
                         #{ad} • Roll: {st.rollNo || '—'} {isUrdu && <span style={{ background: '#fef3c7', color: '#92400e', padding: '1px 5px', borderRadius: '4px', fontSize: '10px', fontWeight: '800' }}>URDU</span>}
                       </div>
+                      {activeRecAbs && (
+                        <div style={{ marginTop: '4px', background: '#fffbeb', color: '#92400e', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '700', border: '1px solid #fde68a' }}>
+                          📌 {activeRecAbs.reason} {activeRecAbs.hasDuration && activeRecAbs.endDate ? `(Until ${activeRecAbs.endDate})` : ''}
+                        </div>
+                      )}
+                      {activePass && (
+                        <div style={{ marginTop: '4px', background: '#fffbeb', color: '#92400e', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '700', border: '1px solid #fde68a' }}>
+                          🪪 Outpass: {activePass.destination} ({activePass.leaveCategory || 'Leave'})
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -2173,9 +2210,10 @@ export default function NightAttendanceManager({
                     fontSize: '11px',
                     fontWeight: '800',
                     background: isAbsent ? '#e11d48' : isOutpass ? '#ca8a04' : isOfficial ? '#0284c7' : isSick ? '#9333ea' : '#10b981',
-                    color: '#ffffff'
+                    color: '#ffffff',
+                    whiteSpace: 'nowrap'
                   }}>
-                    {curStatus}
+                    {isSick ? 'SICK' : curStatus}
                   </span>
                 </div>
               );

@@ -93,6 +93,7 @@ export default function PeriodAttendanceManager({
   }, [isEventLeaderUser]);
 
   const [activeOutpassesByReg, setActiveOutpassesByReg] = useState({});
+  const [recordedAbsencesByReg, setRecordedAbsencesByReg] = useState({});
 
   // --- 1. SUBJECT CARDS & 9-PERIOD ROLL CALL STATE ---
   const [selectedTeacherUsername, setSelectedTeacherUsername] = useState(loggedInUser?.username || '');
@@ -217,13 +218,15 @@ export default function PeriodAttendanceManager({
     return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
-  // Load Active Out-Passes & Rehearsal Stamps for `attDate`
+  // Load Active Out-Passes, Rehearsal Stamps & Night Attendance Recorded Absences for `attDate`
   useEffect(() => {
     async function loadOutpassesAndRehearsalStamps() {
       try {
-        const [opSnap, rehSnap] = await Promise.all([
+        const [opSnap, rehSnap, recSnap, naSnap] = await Promise.all([
           getDocs(collection(db, 'out_passes')),
-          getDoc(doc(db, 'systemCache', `rehearsalStamp_${attDate}`))
+          getDoc(doc(db, 'systemCache', `rehearsalStamp_${attDate}`)),
+          getDoc(doc(db, 'systemCache', 'recordedStudentAbsences')),
+          getDoc(doc(db, 'night_attendance', attDate))
         ]);
 
         const opMap = {};
@@ -276,6 +279,87 @@ export default function PeriodAttendanceManager({
         });
         setActiveOutpassesByReg(opMap);
 
+        // 🌟 Map Recorded Absences, Medical Leaves & Official Leaves from Night Attendance
+        const absMap = {};
+        const allRecs = [];
+
+        if (recSnap.exists()) {
+          const recData = recSnap.data() || {};
+          const absencesDict = recData.absences || {};
+          Object.values(absencesDict).forEach(r => {
+            if (r && !r.isCancelled) allRecs.push(r);
+          });
+        }
+
+        if (naSnap.exists()) {
+          const naData = naSnap.data() || {};
+          const classPre = naData.preRecordedAbsences || {};
+          Object.values(classPre).forEach(subMap => {
+            if (subMap && typeof subMap === 'object') {
+              Object.values(subMap).forEach(r => {
+                if (r && !r.isCancelled) {
+                  const cleanAd = String(r.adNo || '').trim().toUpperCase();
+                  if (!allRecs.some(x => String(x.adNo || '').trim().toUpperCase() === cleanAd)) {
+                    allRecs.push(r);
+                  }
+                }
+              });
+            }
+          });
+        }
+
+        const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+
+        allRecs.forEach(rec => {
+          const cleanAd = String(rec.adNo || '').trim().toUpperCase();
+          const cleanReg = String(rec.studentRegNo || '').trim().toUpperCase();
+
+          const startDate = rec.startDate || rec.date || '';
+          const endDate = rec.hasDuration && rec.endDate ? rec.endDate : startDate;
+
+          if (startDate && attDate < startDate) return;
+          if (endDate && attDate > endDate) return;
+
+          if (rec.hasDuration && rec.endDateTimeIso) {
+            const endMs = new Date(rec.endDateTimeIso).getTime();
+            if (!isNaN(endMs) && attDate === todayStr && Date.now() > endMs) {
+              return; // Expired!
+            }
+          }
+
+          const stStatus = String(rec.status || 'ABSENT').toUpperCase();
+          const reasonLower = String(rec.reason || '').toLowerCase();
+          const isOfficial = stStatus === 'OFFICIAL' || reasonLower.includes('official') || reasonLower.includes('outreach') || reasonLower.includes('duty');
+          const isMedical = stStatus === 'SICK_ROOM' || reasonLower.includes('sick') || reasonLower.includes('fever') || reasonLower.includes('medical') || reasonLower.includes('hospital') || reasonLower.includes('doctor');
+
+          const recObj = {
+            status: stStatus,
+            reason: rec.reason || '',
+            isOfficial,
+            isMedical,
+            recordedBy: rec.recordedBy || 'Teacher',
+            hasDuration: Boolean(rec.hasDuration),
+            endDate: rec.endDate,
+            endTime: rec.endTime
+          };
+
+          const matchedSt = localStudents.find(
+            s => (cleanAd && String(s.adNo || '').trim().toUpperCase() === cleanAd) ||
+                 (cleanReg && String(s.regNo || '').trim().toUpperCase() === cleanReg)
+          );
+
+          if (matchedSt) {
+            if (matchedSt.regNo) absMap[matchedSt.regNo] = recObj;
+            if (matchedSt.adNo) absMap[String(matchedSt.adNo).trim().toUpperCase()] = recObj;
+            if (matchedSt.id) absMap[String(matchedSt.id).trim()] = recObj;
+          } else {
+            if (cleanAd) absMap[cleanAd] = recObj;
+            if (cleanReg) absMap[cleanReg] = recObj;
+          }
+        });
+
+        setRecordedAbsencesByReg(absMap);
+
         if (rehSnap.exists()) {
           setRehearsalPresentMapForDate(rehSnap.data().periodPresentRegs || {});
         } else {
@@ -289,7 +373,7 @@ export default function PeriodAttendanceManager({
           setRehearsalPresentMapForDate(localRehStamp?.periodPresentRegs || {});
         }
       } catch (e) {
-        console.error('Error syncing out_passes:', e);
+        console.error('Error syncing out_passes and recorded absences:', e);
       }
     }
     if (localStudents.length > 0) {
@@ -456,8 +540,13 @@ export default function PeriodAttendanceManager({
                        (sAd && str === sAd.toUpperCase()) || 
                        (sId && str === sId.toUpperCase());
               })) return false;
-              const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]);
-              return op && !op.isOfficial && op.isCurrentlyOutside;
+              const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
+              if (op && !op.isOfficial && op.isCurrentlyOutside) return true;
+
+              const recAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
+              if (recAbs && !recAbs.isOfficial) return true;
+
+              return false;
             })
             .map(st => String(st.regNo || st.id).trim());
           setAbsentRegNos(autoAbs);
@@ -468,7 +557,7 @@ export default function PeriodAttendanceManager({
       }
     }
     checkExistingSession();
-  }, [attEnrollmentId, attDate, attSession, rehearsalPresentMapForDate, activeOutpassesByReg]);
+  }, [attEnrollmentId, attDate, attSession, rehearsalPresentMapForDate, activeOutpassesByReg, recordedAbsencesByReg]);
 
   const toggleAbsent = (regNo) => {
     const sReg = String(regNo || '').trim();
@@ -522,8 +611,9 @@ export default function PeriodAttendanceManager({
                (sAd && str === sAd.toUpperCase()) || 
                (sId && str === sId.toUpperCase());
       });
-      const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]);
-      const isAutoOfficial = isReh || (op && op.isOfficial);
+      const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
+      const recAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
+      const isAutoOfficial = isReh || (op && op.isOfficial) || (recAbs && recAbs.isOfficial);
       const isMarkedAbsent = absentRegNos.some(r => {
         const str = String(r).trim().toUpperCase();
         return (sReg && str === sReg.toUpperCase()) || (sAd && str === sAd.toUpperCase()) || (sId && str === sId.toUpperCase());
@@ -541,7 +631,7 @@ export default function PeriodAttendanceManager({
       groups[clsName].students.push(st);
     });
     return Object.values(groups);
-  }, [classStudents, absentRegNos, rehearsalPresentMapForDate, attSession, activeOutpassesByReg, localTeachers]);
+  }, [classStudents, absentRegNos, rehearsalPresentMapForDate, attSession, activeOutpassesByReg, recordedAbsencesByReg, localTeachers]);
 
   const formatAbsentMessageForClass = (group) => {
     const env = attendanceEnrollments.find(e => e.id === attEnrollmentId);
@@ -618,16 +708,23 @@ export default function PeriodAttendanceManager({
                  (sAd && str === sAd.toUpperCase()) || 
                  (sId && str === sId.toUpperCase());
         });
-        const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]);
+        const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
+        const recAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
 
         if (isRehearsalPresent) {
           newAttendanceMap[reg] = 'P'; // 🌟 Converted to ACTUAL PRESENT per user logic!
+        } else if (recAbs && recAbs.isOfficial) {
+          newAttendanceMap[reg] = 'O'; // 🌟 Official Duty from recorded absence / leave!
+        } else if (op && op.isCurrentlyOutside && op.isOfficial) {
+          newAttendanceMap[reg] = 'O'; // 🌟 Official Gate Outpass
+        } else if (recAbs && recAbs.isMedical) {
+          newAttendanceMap[reg] = 'M'; // 🌟 Medical leave from recorded absence (e.g. sick in room / hospital)!
+        } else if (op && op.isCurrentlyOutside) {
+          newAttendanceMap[reg] = 'M'; // 🌟 Permitted leave from Gate Outpass
+        } else if (recAbs && isMarkedAbsentByRegularTeacher) {
+          newAttendanceMap[reg] = recAbs.status === 'SICK_ROOM' ? 'M' : 'A';
         } else if (!isMarkedAbsentByRegularTeacher) {
           newAttendanceMap[reg] = 'P';
-        } else if (op && op.isCurrentlyOutside && op.isOfficial) {
-          newAttendanceMap[reg] = 'O';
-        } else if (op && op.isCurrentlyOutside) {
-          newAttendanceMap[reg] = 'M';
         } else {
           newAttendanceMap[reg] = 'A';
         }
@@ -2092,8 +2189,9 @@ export default function PeriodAttendanceManager({
                            (sAd && str === sAd.toUpperCase()) || 
                            (sId && str === sId.toUpperCase());
                   });
-                  const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]);
-                  const isOfficialPass = Boolean(op && op.isOfficial);
+                  const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
+                  const recAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
+                  const isOfficialPass = Boolean((op && op.isOfficial) || (recAbs && recAbs.isOfficial));
                   const isAbsent = !rehPresentHere && !isOfficialPass && absentRegNos.some(r => {
                     const str = String(r).trim().toUpperCase();
                     return (sReg && str === sReg.toUpperCase()) || (sAd && str === sAd.toUpperCase()) || (sId && str === sId.toUpperCase());
@@ -2107,19 +2205,19 @@ export default function PeriodAttendanceManager({
                           alert(`🎭 ${st.firstName} (#${st.adNo}) is marked Present in Rehearsal by Event Leader and will be automatically recorded as Present.`);
                           return;
                         }
-                        if (isOfficialPass && op?.isCurrentlyOutside) return;
+                        if (isOfficialPass && (op?.isCurrentlyOutside || recAbs?.isOfficial)) return;
                         toggleAbsent(st.regNo);
                       }}
                       style={{
                         padding: '12px 14px',
                         borderRadius: '10px',
-                        cursor: rehPresentHere ? 'default' : (isOfficialPass && op?.isCurrentlyOutside) ? 'default' : 'pointer',
+                        cursor: rehPresentHere ? 'default' : (isOfficialPass && (op?.isCurrentlyOutside || recAbs?.isOfficial)) ? 'default' : 'pointer',
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'flex-start',
                         gap: '8px',
-                        background: rehPresentHere ? '#f5f3ff' : (isOfficialPass && op?.isCurrentlyOutside) ? '#eef2ff' : isAbsent ? '#fff1f2' : '#ecfdf5',
-                        border: `1.5px solid ${rehPresentHere ? '#8b5cf6' : (isOfficialPass && op?.isCurrentlyOutside) ? '#6366f1' : isAbsent ? '#f43f5e' : '#10b981'}`
+                        background: rehPresentHere ? '#f5f3ff' : isOfficialPass ? '#f0fdfa' : (recAbs?.isMedical && isAbsent) ? '#fffbeb' : isAbsent ? '#fff1f2' : '#ecfdf5',
+                        border: `1.5px solid ${rehPresentHere ? '#8b5cf6' : isOfficialPass ? '#0d9488' : (recAbs?.isMedical && isAbsent) ? '#fde68a' : isAbsent ? '#f43f5e' : '#10b981'}`
                       }}
                     >
                       <div style={{ flex: 1 }}>
@@ -2134,7 +2232,18 @@ export default function PeriodAttendanceManager({
                             🎭 Rehearsal Present (Converts to Present)
                           </span>
                         )}
-                        {op && op.isCurrentlyOutside && (
+                        {recAbs && (
+                          <div style={{ marginTop: '6px', background: recAbs.isMedical ? '#fffbeb' : recAbs.isOfficial ? '#f0fdfa' : '#fff1f2', color: recAbs.isMedical ? '#92400e' : recAbs.isOfficial ? '#0f766e' : '#be123c', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', lineHeight: 1.35, border: `1px solid ${recAbs.isMedical ? '#fde68a' : recAbs.isOfficial ? '#99f6e4' : '#fecdd3'}` }}>
+                            <div>
+                              <strong>{recAbs.isMedical ? '🤒 Medical Leave / Sick' : recAbs.isOfficial ? '🏛️ Official Duty' : '🔴 Pre-Recorded Absence'}:</strong> &ldquo;{recAbs.reason || 'Leave'}&rdquo;
+                              {recAbs.hasDuration && recAbs.endDate ? ` (Until ${recAbs.endDate} ${recAbs.endTime || ''})` : ''}
+                            </div>
+                            <div style={{ fontSize: '10px', marginTop: '2px', color: recAbs.isMedical ? '#b45309' : recAbs.isOfficial ? '#0d9488' : '#e11d48' }}>
+                              Recorded by: Usthad {recAbs.recordedBy}
+                            </div>
+                          </div>
+                        )}
+                        {op && op.isCurrentlyOutside && !recAbs && (
                           <div style={{ marginTop: '6px', background: '#fffbeb', color: '#92400e', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', lineHeight: 1.35, border: '1px solid #fde68a' }}>
                             <div>🪪 <strong>Outside Campus ({op.category} Leave):</strong> {op.destination}</div>
                             <div style={{ fontSize: '10px', marginTop: '2px', color: '#b45309' }}>
@@ -2148,11 +2257,11 @@ export default function PeriodAttendanceManager({
                         borderRadius: '6px',
                         fontWeight: '800',
                         fontSize: '11px',
-                        background: rehPresentHere ? '#7c3aed' : (isOfficialPass && op?.isCurrentlyOutside) ? '#4f46e5' : isAbsent ? '#e11d48' : '#10b981',
+                        background: rehPresentHere ? '#7c3aed' : isOfficialPass ? '#0d9488' : (recAbs?.isMedical && isAbsent) ? '#d97706' : isAbsent ? '#e11d48' : '#10b981',
                         color: '#ffffff',
                         whiteSpace: 'nowrap'
                       }}>
-                        {rehPresentHere ? '🎭 REHEARSAL' : (isOfficialPass && op?.isCurrentlyOutside) ? 'OFFICIAL' : isAbsent ? 'ABSENT' : 'PRESENT'}
+                        {rehPresentHere ? '🎭 REHEARSAL' : isOfficialPass ? 'OFFICIAL' : (recAbs?.isMedical && isAbsent) ? '🤒 MEDICAL' : isAbsent ? 'ABSENT' : 'PRESENT'}
                       </span>
                     </div>
                   );
