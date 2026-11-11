@@ -1510,170 +1510,105 @@ export default function NightAttendanceManager({
                       </div>
                     )}
 
-                    {/* 🌟 ROLL CALL TOGGLE PILL vs PRE-RECORD 5-BUTTON PALETTE */}
-                    {!preRecordMode ? (
-                      <div onClick={(e) => e.stopPropagation()} style={{ paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}>
-                        {curStatus === 'PRESENT' ? (
-                          <button
-                            type="button"
-                            onClick={() => handleStudentQuickToggle(st)}
-                            style={{
-                              width: '100%',
-                              padding: '8px 12px',
-                              borderRadius: '8px',
-                              fontSize: '12px',
-                              fontWeight: '800',
-                              cursor: 'pointer',
-                              background: '#ecfdf5',
-                              color: '#047857',
-                              border: '1.5px solid #10b981',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '6px'
-                            }}
-                          >
-                            <span>✓ PRESENT</span>
-                            <span style={{ fontSize: '10px', opacity: 0.75 }}>(Tap to mark Absent)</span>
-                          </button>
-                        ) : curStatus === 'ABSENT' ? (
-                          <button
-                            type="button"
-                            onClick={() => handleStudentQuickToggle(st)}
-                            style={{
-                              width: '100%',
-                              padding: '8px 12px',
-                              borderRadius: '8px',
-                              fontSize: '12px',
-                              fontWeight: '800',
-                              cursor: 'pointer',
-                              background: '#fff1f2',
-                              color: '#be123c',
-                              border: '1.5px solid #e11d48',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '6px'
-                            }}
-                          >
-                            <span>🔴 ABSENT</span>
-                            <span style={{ fontSize: '10px', opacity: 0.75 }}>(Tap to mark Present)</span>
-                          </button>
-                        ) : curStatus === 'SICK_ROOM' ? (
-                          <button
-                            type="button"
-                            onClick={() => handleMarkPresentAndClearAbsence(st)}
-                            style={{
-                              width: '100%',
-                              padding: '8px 12px',
-                              borderRadius: '8px',
-                              fontSize: '12px',
-                              fontWeight: '800',
-                              cursor: 'pointer',
-                              background: '#fffbeb',
-                              color: '#b45309',
-                              border: '1.5px solid #d97706',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '6px'
-                            }}
-                          >
-                            <span>🤒 MEDICAL / SICK</span>
-                            <span style={{ fontSize: '10px', opacity: 0.75 }}>(Tap to clear &amp; mark Present)</span>
-                          </button>
-                        ) : curStatus === 'OFFICIAL' ? (
-                          <button
-                            type="button"
-                            onClick={() => handleMarkPresentAndClearAbsence(st)}
-                            style={{
-                              width: '100%',
-                              padding: '8px 12px',
-                              borderRadius: '8px',
-                              fontSize: '12px',
-                              fontWeight: '800',
-                              cursor: 'pointer',
-                              background: '#f0fdfa',
-                              color: '#0f766e',
-                              border: '1.5px solid #0d9488',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '6px'
-                            }}
-                          >
-                            <span>🏛️ OFFICIAL DUTY</span>
-                            <span style={{ fontSize: '10px', opacity: 0.75 }}>(Tap to clear &amp; mark Present)</span>
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleMarkPresentAndClearAbsence(st)}
-                            style={{
-                              width: '100%',
-                              padding: '8px 12px',
-                              borderRadius: '8px',
-                              fontSize: '12px',
-                              fontWeight: '800',
-                              cursor: 'pointer',
-                              background: '#eef2ff',
-                              color: '#4338ca',
-                              border: '1.5px solid #4f46e5',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '6px'
-                            }}
-                          >
-                            <span>🪪 GATE LEAVE</span>
-                            <span style={{ fontSize: '10px', opacity: 0.75 }}>(Tap to clear &amp; mark Present)</span>
-                          </button>
-                        )}
+                    {/* 🌟 1-TAP MODAL-FREE 4-WAY ROLL CALL SELECTOR (PRESENT, ABSENT, SICK, OFFICIAL) */}
+                    <div onClick={(e) => e.stopPropagation()} style={{ paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setStatusMap(prev => ({ ...prev, [ad]: 'PRESENT' }))}
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            fontWeight: '800',
+                            cursor: 'pointer',
+                            background: curStatus === 'PRESENT' ? '#10b981' : '#f8fafc',
+                            color: curStatus === 'PRESENT' ? '#ffffff' : '#475569',
+                            border: curStatus === 'PRESENT' ? '1.5px solid #10b981' : '1px solid #e2e8f0',
+                            transition: 'all 0.15s ease',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          🟢 Present
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setStatusMap(prev => ({ ...prev, [ad]: 'ABSENT' }))}
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            fontWeight: '800',
+                            cursor: 'pointer',
+                            background: curStatus === 'ABSENT' ? '#e11d48' : '#f8fafc',
+                            color: curStatus === 'ABSENT' ? '#ffffff' : '#475569',
+                            border: curStatus === 'ABSENT' ? '1.5px solid #e11d48' : '1px solid #e2e8f0',
+                            transition: 'all 0.15s ease',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          🔴 Absent
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setStatusMap(prev => ({ ...prev, [ad]: 'SICK_ROOM' }))}
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            fontWeight: '800',
+                            cursor: 'pointer',
+                            background: curStatus === 'SICK_ROOM' ? '#d97706' : '#fffbeb',
+                            color: curStatus === 'SICK_ROOM' ? '#ffffff' : '#b45309',
+                            border: curStatus === 'SICK_ROOM' ? '1.5px solid #d97706' : '1px solid #fde68a',
+                            transition: 'all 0.15s ease',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          🤒 Sick
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setStatusMap(prev => ({ ...prev, [ad]: 'OFFICIAL' }))}
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            fontWeight: '800',
+                            cursor: 'pointer',
+                            background: curStatus === 'OFFICIAL' ? '#0d9488' : '#f0fdfa',
+                            color: curStatus === 'OFFICIAL' ? '#ffffff' : '#0f766e',
+                            border: curStatus === 'OFFICIAL' ? '1.5px solid #0d9488' : '1px solid #99f6e4',
+                            transition: 'all 0.15s ease',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          🏛️ Official
+                        </button>
                       </div>
-                    ) : (
-                      <div
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}
-                      >
-                        {[
-                          { id: 'PRESENT', label: 'Pres', activeBg: '#10b981' },
-                          { id: 'ABSENT', label: 'Abs', activeBg: '#e11d48' },
-                          { id: 'OUTPASS', label: 'Leave', activeBg: '#4f46e5' },
-                          { id: 'OFFICIAL', label: 'Official', activeBg: '#0d9488' },
-                          { id: 'SICK_ROOM', label: 'Sick', activeBg: '#d97706' }
-                        ].map(btn => {
-                          const active = curStatus === btn.id;
-                          return (
-                            <button
-                              key={btn.id}
-                              type="button"
-                              onClick={() => {
-                                if (btn.id === 'PRESENT') {
-                                  handleMarkPresentAndClearAbsence(st);
-                                } else {
-                                  openAbsenceModal(st, btn.id);
-                                }
-                              }}
-                              style={{
-                                flex: 1,
-                                padding: '6px 8px',
-                                borderRadius: '6px',
-                                fontSize: '11px',
-                                fontWeight: '700',
-                                cursor: 'pointer',
-                                background: active ? btn.activeBg : '#f8fafc',
-                                color: active ? '#ffffff' : '#475569',
-                                border: active ? `1px solid ${btn.activeBg}` : '1px solid #e2e8f0',
-                                textAlign: 'center',
-                                transition: 'all 0.15s ease'
-                              }}
-                            >
-                              {btn.label}
-                            </button>
-                          );
-                        })}
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openAbsenceModal(st, curStatus === 'PRESENT' ? 'ABSENT' : curStatus, activeRecAbs)}
+                          style={{ background: 'transparent', border: 'none', color: '#64748b', fontSize: '10px', fontWeight: '700', cursor: 'pointer', textDecoration: 'underline' }}
+                        >
+                          📝 Add multi-day duration / note
+                        </button>
                       </div>
-                    )}
+                    </div>
                   </div>
                 );
               })}
@@ -2545,17 +2480,33 @@ export default function NightAttendanceManager({
                     </div>
                   </div>
 
-                  <span style={{
-                    padding: '3px 8px',
-                    borderRadius: '999px',
-                    fontSize: '11px',
-                    fontWeight: '800',
-                    background: isAbsent ? '#e11d48' : isOutpass ? '#ca8a04' : isOfficial ? '#0284c7' : isSick ? '#9333ea' : '#10b981',
-                    color: '#ffffff',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    {isSick ? 'SICK' : curStatus}
-                  </span>
+                  <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                    {[
+                      { id: 'PRESENT', label: 'Pres', activeBg: '#10b981' },
+                      { id: 'ABSENT', label: 'Abs', activeBg: '#e11d48' },
+                      { id: 'SICK_ROOM', label: 'Sick', activeBg: '#d97706' },
+                      { id: 'OFFICIAL', label: 'Off', activeBg: '#0d9488' }
+                    ].map(b => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => setExtraStatusMap(prev => ({ ...prev, [ad]: b.id }))}
+                        style={{
+                          padding: '4px 8px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: '800',
+                          cursor: 'pointer',
+                          background: curStatus === b.id ? b.activeBg : '#f1f5f9',
+                          color: curStatus === b.id ? '#ffffff' : '#475569',
+                          border: curStatus === b.id ? `1px solid ${b.activeBg}` : '1px solid #cbd5e1',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               );
             })}

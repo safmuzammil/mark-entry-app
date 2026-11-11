@@ -860,7 +860,7 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
     { id: 'minus_attendance', label: 'Minus Attendance', icon: '⚖️', onClick: () => handleSelectTeacherView('minus_attendance') },
     { id: 'marks', label: 'CCE Marks', icon: '📖', onClick: () => { handleSelectTeacherView('marks'); handleSelectSubject(''); } },
     { id: 'mentees', label: 'Mentorship & Class', icon: '👥', onClick: () => handleSelectTeacherView('mentees') },
-    { id: 'outpass', label: loggedInTeacher?.outpassPrivileges?.isOfficeSecretary ? 'Office Out-Pass' : 'Out-Pass Desk', icon: '🪪', onClick: () => handleSelectTeacherView('outpass') },
+    { id: 'outpass', label: loggedInTeacher?.outpassPrivileges?.isOfficeSecretary ? 'Office Leaves & Outpass' : 'Leaves & Outpass', icon: '🪪', onClick: () => handleSelectTeacherView('outpass') },
     { id: 'attendance', label: 'Night Attendance', icon: '🌙', onClick: () => handleSelectTeacherView('attendance') },
     { id: 'reminders', label: 'Weekly Reminders', icon: '🔔', onClick: () => handleSelectTeacherView('reminders') },
     ...((loggedInTeacher?.outpassPrivileges?.isOutreachCoordinator || loggedInTeacher?.outpassPrivileges?.isPrincipal || loggedInTeacher?.outpassPrivileges?.isNiicsCoordinator)
@@ -1259,6 +1259,7 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
               preloadedTeacherUser={loggedInTeacher}
               preloadedStudents={allStudentsCache}
               preloadedTeachers={allTeachersCache}
+              classTeacherOf={myClassTeacherOf}
             />
           ) : activeView === 'mentees' ? (
             <MentorAndOutreachTab

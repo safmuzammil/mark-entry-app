@@ -1,8 +1,8 @@
 'use client';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { db } from '../../lib/firebase';
-import { doc, setDoc, writeBatch } from 'firebase/firestore';
+import { doc, setDoc, writeBatch, collection, query, where, onSnapshot } from 'firebase/firestore';
 import { DEFAULT_CLASSES, styles } from './erpConstants';
 import { ProfileAvatar } from './ErpExtensions';
 
@@ -53,6 +53,34 @@ export default function MinusAttendanceManager({
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState({ text: '', type: '' });
   const [excelReport, setExcelReport] = useState(null);
+  const [jamathExemptionsMap, setJamathExemptionsMap] = useState({});
+
+  // 🌟 Live Listener for Campus Medical Waivers (Masjid Jamath Exemptions)
+  useEffect(() => {
+    try {
+      const q = query(
+        collection(db, 'campus_medical_waivers'),
+        where('waiverType', '==', 'JAMATH_EXEMPTION'),
+        where('status', '==', 'ACTIVE')
+      );
+      const unsubscribe = onSnapshot(q, (snap) => {
+        const exMap = {};
+        snap.forEach(docSnap => {
+          const data = docSnap.data();
+          const ad = String(data.studentAdNo || '').trim().toUpperCase();
+          if (ad) {
+            exMap[ad] = { id: docSnap.id, ...data };
+          }
+        });
+        setJamathExemptionsMap(exMap);
+      }, (err) => {
+        console.warn('Jamath exemptions listener error:', err);
+      });
+      return () => unsubscribe();
+    } catch (e) {
+      console.warn('Could not setup jamath exemptions listener:', e);
+    }
+  }, []);
 
   // Helper to extract student periodAttendance structure safely
   const getStudentAttStat = (st) => {
@@ -152,6 +180,34 @@ export default function MinusAttendanceManager({
 
     if (targets.length === 0) return alert('Please select or add at least one student first.');
 
+    // 🌟 Check for active Masjid Jamath Exemptions if deduction is for Jamath Missing
+    const isJamathReason = /jamath|masjid|prayer|congregat/i.test(minusReason);
+    let finalTargets = [...targets];
+    const shieldedStudents = [];
+
+    if (isJamathReason) {
+      finalTargets = targets.filter(targetSt => {
+        const ad = String(targetSt.adNo || '').trim().toUpperCase();
+        const ex = jamathExemptionsMap[ad];
+        if (ex) {
+          shieldedStudents.push({ st: targetSt, exemption: ex });
+          return false;
+        }
+        return true;
+      });
+
+      if (shieldedStudents.length > 0) {
+        if (finalTargets.length === 0) {
+          const names = shieldedStudents.map(s => `${s.st.firstName} (#${s.st.adNo}): ${s.exemption.injuryReason || 'Medical / Physical Injury'}`).join('\n• ');
+          alert(`🛡️ Protected Medical Waiver!\n\nThe selected student(s) have active Class Teacher Masjid Jamath Exemptions:\n• ${names}\n\nJamath Missing deductions cannot be applied to exempt students.`);
+          return;
+        } else {
+          const names = shieldedStudents.map(s => `${s.st.firstName} (#${s.st.adNo})`).join(', ');
+          alert(`🛡️ Shielded ${shieldedStudents.length} student(s) with active Masjid Exemptions:\n${names}\n\nDeductions will be applied only to the remaining ${finalTargets.length} non-exempt student(s).`);
+        }
+      }
+    }
+
     setLoading(true);
     setStatusMsg({ text: 'Applying minus deduction(s)...', type: 'info' });
 
@@ -175,7 +231,7 @@ export default function MinusAttendanceManager({
         }
       }
 
-      targets.forEach((targetSt, idx) => {
+      finalTargets.forEach((targetSt, idx) => {
         const st = localStudents.find(s => s.regNo === targetSt.regNo) || targetSt;
         const docId = String(st.id || st.regNo || '').trim();
         const curStat = JSON.parse(JSON.stringify(getStudentAttStat(st)));
@@ -736,31 +792,41 @@ export default function MinusAttendanceManager({
                   </button>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '160px', overflowY: 'auto' }}>
-                  {selectedStudentsList.map(st => (
-                    <span
-                      key={st.regNo}
-                      style={{
-                        background: '#ffffff',
-                        border: '1px solid #cbd5e1',
-                        borderRadius: '999px',
-                        padding: '4px 10px',
-                        fontSize: '12px',
-                        fontWeight: '700',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                      }}
-                    >
-                      {st.firstName} (#{st.adNo})
-                      <button
-                        type="button"
-                        onClick={() => setSelectedStudentsList(prev => prev.filter(x => x.regNo !== st.regNo))}
-                        style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontWeight: '900' }}
+                  {selectedStudentsList.map(st => {
+                    const cleanAd = String(st.adNo || '').trim().toUpperCase();
+                    const ex = jamathExemptionsMap[cleanAd];
+                    return (
+                      <span
+                        key={st.regNo}
+                        style={{
+                          background: ex ? '#f0f9ff' : '#ffffff',
+                          border: ex ? '1.5px solid #0284c7' : '1px solid #cbd5e1',
+                          borderRadius: '999px',
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          fontWeight: '700',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          color: ex ? '#0369a1' : '#0f172a'
+                        }}
                       >
-                        ✕
-                      </button>
-                    </span>
-                  ))}
+                        {st.firstName} (#{st.adNo})
+                        {ex && (
+                          <span style={{ fontSize: '10px', background: '#0284c7', color: '#ffffff', padding: '1px 5px', borderRadius: '4px', fontWeight: '800' }} title={`Exempt from Masjid Jamath: ${ex.injuryReason}`}>
+                            🛡️ Exempt
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedStudentsList(prev => prev.filter(x => x.regNo !== st.regNo))}
+                          style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontWeight: '900' }}
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             )}

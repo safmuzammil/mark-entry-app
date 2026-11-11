@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 import { auth, db } from '../../lib/firebase';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, getDocs, setDoc, deleteDoc, collection, writeBatch, query, orderBy, limit } from 'firebase/firestore';
+import { doc, getDoc, getDocs, setDoc, deleteDoc, collection, writeBatch, query, where, orderBy, limit } from 'firebase/firestore';
 import { DEFAULT_CLASSES, DEFAULT_SUBJECTS, DHIU_LOGO_URL, styles, sortStudentsByDepartment } from './erpConstants';
 import { doesClassMatchAlias, openDirectWhatsApp, resolveClassTeacherForStudent, CollapsibleCard } from './ErpExtensions';
 import PeriodAttendanceReportsHub from './PeriodAttendanceReportsHub';
@@ -307,6 +307,34 @@ export default function PeriodAttendanceManager({
               });
             }
           });
+        }
+
+        // 🌟 Map Active Campus Medical Waivers (Sick in Room / Bed Rest)
+        try {
+          const waiversSnap = await getDocs(query(
+            collection(db, 'campus_medical_waivers'),
+            where('waiverType', '==', 'SICK_IN_ROOM'),
+            where('status', '==', 'ACTIVE')
+          ));
+          waiversSnap.forEach(wDoc => {
+            const w = wDoc.data();
+            if (w && w.studentAdNo) {
+              const cleanAd = String(w.studentAdNo).trim().toUpperCase();
+              if (!allRecs.some(x => String(x.adNo || '').trim().toUpperCase() === cleanAd)) {
+                allRecs.push({
+                  adNo: w.studentAdNo,
+                  studentRegNo: w.studentRegNo || '',
+                  status: 'SICK_ROOM',
+                  reason: w.illnessReason || w.diagnosis || 'Sick in Room (Bed Rest)',
+                  recordedBy: w.authorizedByName || 'Class Teacher',
+                  hasDuration: false,
+                  isMedical: true
+                });
+              }
+            }
+          });
+        } catch (waiverErr) {
+          console.warn('Could not fetch active sick waivers:', waiverErr);
         }
 
         const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;

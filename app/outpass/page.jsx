@@ -51,6 +51,8 @@ import OutpassTeacherDesk from "./components/OutpassTeacherDesk";
 import OutpassSecurityKiosk from "./components/OutpassSecurityKiosk";
 import OutpassAdminReports from "./components/OutpassAdminReports";
 import OutpassSettingsTab from "./components/OutpassSettingsTab";
+import SickInRoomSubTab from "./components/SickInRoomSubTab";
+import MasjidExemptionSubTab from "./components/MasjidExemptionSubTab";
 
 export default function OutPassPortal({
   initialTab = null,
@@ -59,8 +61,10 @@ export default function OutPassPortal({
   preloadedTeachers = [],
   preloadedTeacherUser = null,
   isAdminProp = false,
+  classTeacherOf = [],
 }) {
   const [currentUser, setCurrentUser] = useState(null);
+  const [activeLeaveSubTab, setActiveLeaveSubTab] = useState("outpass");
   const [loggedUsername, setLoggedUsername] = useState(
     preloadedTeacherUser?.username || (isAdminProp ? "admin" : "")
   );
@@ -2433,6 +2437,83 @@ export default function OutPassPortal({
 
         {/* TAB 1: TEACHER DESK + MONTHLY HOME LEAVE */}
         {activeTab === "teacher" && (
+          <div>
+            {!isSecurityKiosk && (
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', background: '#f1f5f9', padding: '6px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveLeaveSubTab("outpass")}
+                  style={{
+                    flex: 1,
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    fontWeight: '800',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    background: activeLeaveSubTab === "outpass" ? '#ffffff' : 'transparent',
+                    color: activeLeaveSubTab === "outpass" ? '#0f172a' : '#64748b',
+                    boxShadow: activeLeaveSubTab === "outpass" ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                  }}
+                >
+                  🪪 Gate Outpasses (Off-Campus)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveLeaveSubTab("sick_room")}
+                  style={{
+                    flex: 1,
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    fontWeight: '800',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    background: activeLeaveSubTab === "sick_room" ? '#ffffff' : 'transparent',
+                    color: activeLeaveSubTab === "sick_room" ? '#b45309' : '#64748b',
+                    boxShadow: activeLeaveSubTab === "sick_room" ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                  }}
+                >
+                  🤒 Sick in Room (Bed Rest)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveLeaveSubTab("masjid_exempt")}
+                  style={{
+                    flex: 1,
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    fontWeight: '800',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    background: activeLeaveSubTab === "masjid_exempt" ? '#ffffff' : 'transparent',
+                    color: activeLeaveSubTab === "masjid_exempt" ? '#0369a1' : '#64748b',
+                    boxShadow: activeLeaveSubTab === "masjid_exempt" ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                  }}
+                >
+                  🕌 Masjid Jamath Exemptions
+                </button>
+              </div>
+            )}
+
+            {activeLeaveSubTab === "sick_room" && !isSecurityKiosk ? (
+              <SickInRoomSubTab
+                students={students}
+                teachers={teachersList}
+                loggedInUser={preloadedTeacherUser || currentUser}
+                isAdmin={isAdmin}
+                classTeacherOf={classTeacherOf.length > 0 ? classTeacherOf : (myPrivileges?.classTeacherOf || [])}
+              />
+            ) : activeLeaveSubTab === "masjid_exempt" && !isSecurityKiosk ? (
+              <MasjidExemptionSubTab
+                students={students}
+                teachers={teachersList}
+                loggedInUser={preloadedTeacherUser || currentUser}
+                isAdmin={isAdmin}
+                classTeacherOf={classTeacherOf.length > 0 ? classTeacherOf : (myPrivileges?.classTeacherOf || [])}
+              />
+            ) : (
           <OutpassTeacherDesk
             myPrivileges={myPrivileges}
             hasPrincipalPower={hasPrincipalPower}
@@ -2515,6 +2596,8 @@ export default function OutPassPortal({
             handleTeacherVerifyArrival={handleTeacherVerifyArrival}
             handleCancelPass={handleCancelPass}
           />
+            )}
+          </div>
         )}
 
         {/* TAB 2: SECURITY GATE SCANNER KIOSK */}
