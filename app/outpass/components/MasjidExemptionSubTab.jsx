@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { db } from "@/lib/firebase";
 import {
   collection,
@@ -12,6 +12,7 @@ import {
   orderBy,
   limit,
 } from "firebase/firestore";
+import { ProfileAvatar } from "@/app/components/ErpExtensions";
 
 const INJURY_PRESETS = [
   "Leg Fracture / Plaster Cast (Cannot climb stairs)",
@@ -40,26 +41,47 @@ export default function MasjidExemptionSubTab({
   // Modal State
   const [showGrantModal, setShowGrantModal] = useState(false);
   const [selectedStudentAd, setSelectedStudentAd] = useState("");
+  const [studentSearchInput, setStudentSearchInput] = useState("");
   const [reasonPreset, setReasonPreset] = useState(INJURY_PRESETS[0]);
   const [customReason, setCustomReason] = useState("");
   const [notes, setNotes] = useState("");
   const [savingWaiver, setSavingWaiver] = useState(false);
 
-  // Allowed Classes for User
-  const allowedClasses = React.useMemo(() => {
-    if (isAdmin) return [];
-    return Array.isArray(classTeacherOf) ? classTeacherOf : [];
+  // Allowed Classes & Grades for User (Permits own class + same grade class teachers + admin all campus)
+  const allowedClassesAndGrades = useMemo(() => {
+    if (isAdmin) return { isAdmin: true, allowedClasses: [], allowedGrades: [] };
+    const myClasses = Array.isArray(classTeacherOf) ? classTeacherOf : [];
+    const myGrades = new Set();
+    myClasses.forEach(c => {
+      const m = String(c).match(/\d+/);
+      if (m) myGrades.add(m[0]);
+    });
+    return {
+      isAdmin: false,
+      allowedClasses: myClasses,
+      allowedGrades: Array.from(myGrades)
+    };
   }, [isAdmin, classTeacherOf]);
+
+  const allowedClasses = allowedClassesAndGrades.allowedClasses;
 
   const canManageStudent = (st) => {
     if (isAdmin) return true;
-    if (allowedClasses.length === 0) return false;
+    const { allowedClasses: myCls, allowedGrades: myGrd } = allowedClassesAndGrades;
+    if (myCls.length === 0 && myGrd.length === 0) return false;
     const stClasses = Array.isArray(st.classes)
       ? st.classes
       : st.class
       ? [st.class]
       : [];
-    return stClasses.some((c) => allowedClasses.includes(c));
+    // 1. Direct class match
+    if (stClasses.some((c) => myCls.includes(c))) return true;
+    // 2. Same-grade class teacher match
+    const stGrades = stClasses.map(c => {
+      const m = String(c).match(/\d+/);
+      return m ? m[0] : null;
+    }).filter(Boolean);
+    return stGrades.some((g) => myGrd.includes(g));
   };
 
   // 1. Subscribe to campus_medical_waivers in real-time with explicit cleanup
@@ -128,7 +150,7 @@ export default function MasjidExemptionSubTab({
         studentRegNo: st.regNo || st.adNo,
         adNo: st.adNo,
         studentName: st.firstName || "",
-        className: (st.classes && st.classes[0]) || st.class || "General",
+        className: st.studentClass || st.className || (st.classes && st.classes[0]) || st.class || "General",
         department: st.department || "GENERAL",
         waiverType: "JAMATH_EXEMPTION",
         injuryReason: effectiveReason,
@@ -189,10 +211,29 @@ export default function MasjidExemptionSubTab({
     }
   };
 
-  // Eligible students for dropdown
-  const eligibleStudents = React.useMemo(() => {
+  // Eligible students for modal (Admin: all campus students, Class Teacher: own class + same grade classes)
+  const eligibleStudents = useMemo(() => {
     return students.filter((s) => canManageStudent(s));
-  }, [students, isAdmin, allowedClasses]);
+  }, [students, isAdmin, allowedClassesAndGrades]);
+
+  // Reactive matching students for modal search by Name or Ad.No
+  const matchingModalStudents = useMemo(() => {
+    const q = studentSearchInput.trim().toLowerCase();
+    if (!q) return eligibleStudents.slice(0, 12);
+    return eligibleStudents.filter((st) => {
+      const name = String(st.firstName || st.name || "").toLowerCase();
+      const ad = String(st.adNo || "").toLowerCase();
+      const reg = String(st.regNo || "").toLowerCase();
+      const cls = Array.isArray(st.classes) ? st.classes.join(" ").toLowerCase() : String(st.class || "").toLowerCase();
+      return name.includes(q) || ad.includes(q) || reg.includes(q) || cls.includes(q);
+    }).slice(0, 15);
+  }, [eligibleStudents, studentSearchInput]);
+
+  const selectedStudentObj = useMemo(() => {
+    if (!selectedStudentAd) return null;
+    return eligibleStudents.find((s) => String(s.adNo).trim() === String(selectedStudentAd).trim()) ||
+           students.find((s) => String(s.adNo).trim() === String(selectedStudentAd).trim());
+  }, [selectedStudentAd, eligibleStudents, students]);
 
   // Filtered Display List
   const displayedWaivers = (viewHistory ? revokedWaivers : activeWaivers).filter((w) => {
@@ -586,28 +627,147 @@ export default function MasjidExemptionSubTab({
             <form onSubmit={handleGrantWaiver}>
               <div style={{ marginBottom: "14px" }}>
                 <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "#334155", marginBottom: "6px" }}>
-                  Select Student *
+                  Select Student * {isAdmin ? "(Admin: All Campus Students)" : "(Your Class & Same Grade Classes)"}
                 </label>
-                <select
-                  value={selectedStudentAd}
-                  onChange={(e) => setSelectedStudentAd(e.target.value)}
-                  required
-                  style={{
-                    width: "100%",
-                    padding: "9px 12px",
-                    border: "1.5px solid #cbd5e1",
-                    borderRadius: "8px",
-                    fontSize: "13px",
-                    fontWeight: "600",
-                  }}
-                >
-                  <option value="">-- Choose Student --</option>
-                  {eligibleStudents.map((st) => (
-                    <option key={st.adNo} value={st.adNo}>
-                      {st.firstName} (#{st.adNo} • {(st.classes || [st.class] || []).join(", ")})
-                    </option>
-                  ))}
-                </select>
+
+                {selectedStudentObj ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "10px 14px",
+                      background: "#f0fdf4",
+                      border: "1.5px solid #86efac",
+                      borderRadius: "10px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <ProfileAvatar
+                        name={selectedStudentObj.firstName}
+                        code={selectedStudentObj.adNo}
+                        photoUrl={selectedStudentObj.photoUrl}
+                        size={36}
+                      />
+                      <div>
+                        <div style={{ fontWeight: "800", fontSize: "13px", color: "#166534" }}>
+                          {selectedStudentObj.firstName}
+                        </div>
+                        <div style={{ fontSize: "11px", color: "#15803d", fontWeight: "600" }}>
+                          Ad.No: #{selectedStudentObj.adNo} • Class: {(selectedStudentObj.classes || [selectedStudentObj.class] || []).join(", ")}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedStudentAd("");
+                        setStudentSearchInput("");
+                      }}
+                      style={{
+                        background: "#fee2e2",
+                        border: "1px solid #fca5a5",
+                        color: "#dc2626",
+                        borderRadius: "6px",
+                        padding: "5px 10px",
+                        fontSize: "11px",
+                        fontWeight: "800",
+                        cursor: "pointer",
+                      }}
+                    >
+                      ✕ Change
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="text"
+                      placeholder="🔍 Type student name or Ad.No (e.g. Salman or 3456)..."
+                      value={studentSearchInput}
+                      onChange={(e) => setStudentSearchInput(e.target.value)}
+                      autoFocus
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        border: "1.5px solid #cbd5e1",
+                        borderRadius: "8px",
+                        fontSize: "13px",
+                        outline: "none",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                    <div style={{ fontSize: "11px", color: "#64748b", margin: "6px 0 8px 2px", fontWeight: "600" }}>
+                      {eligibleStudents.length} eligible students in scope. Tap a student to select:
+                    </div>
+
+                    <div
+                      style={{
+                        maxHeight: "180px",
+                        overflowY: "auto",
+                        border: "1px solid #e2e8f0",
+                        borderRadius: "8px",
+                        padding: "4px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "4px",
+                        background: "#f8fafc",
+                      }}
+                    >
+                      {matchingModalStudents.length === 0 ? (
+                        <div style={{ padding: "12px", textAlign: "center", color: "#94a3b8", fontSize: "12px" }}>
+                          No students matching &ldquo;{studentSearchInput}&rdquo;
+                        </div>
+                      ) : (
+                        matchingModalStudents.map((st) => (
+                          <div
+                            key={st.adNo}
+                            onClick={() => {
+                              setSelectedStudentAd(st.adNo);
+                              setStudentSearchInput("");
+                            }}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              padding: "8px 10px",
+                              borderRadius: "6px",
+                              background: "#ffffff",
+                              border: "1px solid #e2e8f0",
+                              cursor: "pointer",
+                              transition: "all 0.1s ease",
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.background = "#f1f5f9")}
+                            onMouseLeave={(e) => (e.currentTarget.style.background = "#ffffff")}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <ProfileAvatar name={st.firstName} code={st.adNo} photoUrl={st.photoUrl} size={28} />
+                              <div>
+                                <span style={{ fontWeight: "700", fontSize: "12px", color: "#0f172a" }}>
+                                  {st.firstName}
+                                </span>
+                                <span style={{ fontSize: "11px", color: "#64748b", marginLeft: "6px" }}>
+                                  #{st.adNo}
+                                </span>
+                              </div>
+                            </div>
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                fontWeight: "800",
+                                background: "#eef2ff",
+                                color: "#4f46e5",
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                              }}
+                            >
+                              {(st.classes || [st.class] || []).join(", ")}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div style={{ marginBottom: "14px" }}>

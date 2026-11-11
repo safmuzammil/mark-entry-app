@@ -131,6 +131,29 @@ rules_version = '2';
 //   - status: string (required, 'ISSUED' or 'CONFIRMED')
 //   - studentConfirmedAt: string or timestamp (optional)
 //
+// Collection: campus_medical_waivers
+// Document ID: [waiverId] (e.g. "waiver_1731000000_1001" or "waiver_jamath_1731000000_1001")
+// Fields:
+//   - id: string (required, <= 100 chars)
+//   - studentRegNo: string (required, <= 50 chars)
+//   - adNo: string or number (required, <= 50 chars if string)
+//   - studentName: string (required, <= 100 chars)
+//   - className: string (required, <= 50 chars)
+//   - department: string or null (optional, <= 50 chars)
+//   - waiverType: string (required, 'SICK_IN_ROOM' or 'JAMATH_EXEMPTION')
+//   - injuryReason: string (required, <= 300 chars)
+//   - roomNumber: string or null (optional, <= 50 chars)
+//   - notes: string or null (optional, <= 500 chars)
+//   - issuedBy: string (required, <= 100 chars)
+//   - issuedByName: string (required, <= 100 chars)
+//   - issuedByRole: string (required, <= 50 chars)
+//   - issuedAt: string or timestamp (required, <= 50 chars if string)
+//   - status: string (required, 'ACTIVE' or 'REVOKED')
+//   - revokedAt: string or timestamp or null (optional, <= 50 chars if string)
+//   - revokedBy: string or null (optional, <= 100 chars)
+//   - revokedByName: string or null (optional, <= 100 chars)
+//   - revocationNotes: string or null (optional, <= 500 chars)
+//
 // ===============================================================
 
 service cloud.firestore {
@@ -343,6 +366,30 @@ service cloud.firestore {
              newData.studentConfirmedAt.size() <= 50;
     }
 
+    // 10. campus_medical_waivers validator
+    function isValidMedicalWaiver(data) {
+      return data is map &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 100 &&
+             data.studentRegNo is string && data.studentRegNo.size() >= 1 && data.studentRegNo.size() <= 50 &&
+             (data.adNo is number || (data.adNo is string && data.adNo.size() >= 1 && data.adNo.size() <= 50)) &&
+             data.studentName is string && data.studentName.size() <= 100 &&
+             data.className is string && data.className.size() >= 1 && data.className.size() <= 50 &&
+             data.waiverType is string && (data.waiverType in ['SICK_IN_ROOM', 'JAMATH_EXEMPTION']) &&
+             data.injuryReason is string && data.injuryReason.size() >= 1 && data.injuryReason.size() <= 300 &&
+             data.issuedBy is string && data.issuedBy.size() >= 1 && data.issuedBy.size() <= 100 &&
+             data.issuedByName is string && data.issuedByName.size() >= 1 && data.issuedByName.size() <= 100 &&
+             data.issuedByRole is string && data.issuedByRole.size() >= 1 && data.issuedByRole.size() <= 50 &&
+             ((data.issuedAt is string && data.issuedAt.size() <= 50) || data.issuedAt is timestamp) &&
+             data.status is string && (data.status in ['ACTIVE', 'REVOKED']) &&
+             (!('department' in data) || data.department == null || (data.department is string && data.department.size() <= 50)) &&
+             (!('roomNumber' in data) || data.roomNumber == null || (data.roomNumber is string && data.roomNumber.size() <= 50)) &&
+             (!('notes' in data) || data.notes == null || (data.notes is string && data.notes.size() <= 500)) &&
+             (!('revokedAt' in data) || data.revokedAt == null || (data.revokedAt is string && data.revokedAt.size() <= 50) || data.revokedAt is timestamp) &&
+             (!('revokedBy' in data) || data.revokedBy == null || (data.revokedBy is string && data.revokedBy.size() <= 100)) &&
+             (!('revokedByName' in data) || data.revokedByName == null || (data.revokedByName is string && data.revokedByName.size() <= 100)) &&
+             (!('revocationNotes' in data) || data.revocationNotes == null || (data.revocationNotes is string && data.revocationNotes.size() <= 500));
+    }
+
     // ===============================================================
     // Collection Rules
     // ===============================================================
@@ -425,6 +472,14 @@ service cloud.firestore {
       allow update: if (isStaffOrAdmin() && isValidClearanceCert(request.resource.data)) ||
                        (isStudent() && isValidStudentCertAck(resource.data, request.resource.data));
       allow delete: if isStaffOrAdmin();
+    }
+
+    // 10. campus_medical_waivers: Sick in Room bed-rest medical excusals & Masjid Jamath exemptions
+    match /campus_medical_waivers/{waiverId} {
+      allow read: if isAuthenticated();
+      allow create: if isStaffOrAdmin() && isValidMedicalWaiver(request.resource.data);
+      allow update: if isStaffOrAdmin() && isValidMedicalWaiver(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     // Default deny all other unspecified collections and paths

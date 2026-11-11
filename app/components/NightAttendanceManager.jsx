@@ -8,8 +8,10 @@ import {
   getDocs,
   collection,
   query,
+  where,
   orderBy,
-  limit
+  limit,
+  onSnapshot
 } from 'firebase/firestore';
 import { DEFAULT_CLASSES, styles } from './erpConstants';
 import {
@@ -81,6 +83,34 @@ export default function NightAttendanceManager({
   const [preRecordMode, setPreRecordMode] = useState(false);
   const [previousSavedState, setPreviousSavedState] = useState(null);
   const [recordedAbsencesMap, setRecordedAbsencesMap] = useState({});
+  const [activeCampusWaiversMap, setActiveCampusWaiversMap] = useState({});
+
+  // 🌟 Real-time listener for active campus medical waivers (Bed Rest / Sick in Room)
+  useEffect(() => {
+    try {
+      const q = query(
+        collection(db, 'campus_medical_waivers'),
+        where('waiverType', '==', 'SICK_IN_ROOM'),
+        where('status', '==', 'ACTIVE')
+      );
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const wMap = {};
+        snapshot.forEach(docSnap => {
+          const data = docSnap.data();
+          const ad = String(data.adNo || data.studentAdNo || '').trim().toUpperCase();
+          if (ad) {
+            wMap[ad] = { id: docSnap.id, ...data };
+          }
+        });
+        setActiveCampusWaiversMap(wMap);
+      }, (err) => {
+        console.warn('NightAttendanceManager: Error loading campus medical waivers:', err);
+      });
+      return () => unsubscribe();
+    } catch (e) {
+      console.warn('Could not setup campus waivers listener in night attendance:', e);
+    }
+  }, []);
   const [absenceModalStudent, setAbsenceModalStudent] = useState(null);
   const [absenceModalStatus, setAbsenceModalStatus] = useState('ABSENT');
   const [absenceModalReason, setAbsenceModalReason] = useState('🤒 Sick / Fever in Room');
@@ -507,7 +537,10 @@ export default function NightAttendanceManager({
         }
       } else {
         // Attendance not finalized yet tonight!
-        if (activeRec) {
+        const campusWaiver = activeCampusWaiversMap[ad.toUpperCase()];
+        if (campusWaiver && campusWaiver.waiverType === 'SICK_IN_ROOM') {
+          newStatus[ad] = 'SICK_ROOM';
+        } else if (activeRec) {
           newStatus[ad] = activeRec.status || 'ABSENT';
         } else if (activePass) {
           newStatus[ad] = isOfficialPass ? 'OFFICIAL' : 'OUTPASS';
@@ -518,7 +551,7 @@ export default function NightAttendanceManager({
     });
 
     setStatusMap(newStatus);
-  }, [selectedClass, dailyDocData, students, activePasses, recordedAbsencesMap, selectedDate]);
+  }, [selectedClass, dailyDocData, students, activePasses, recordedAbsencesMap, activeCampusWaiversMap, selectedDate]);
 
   const loadRecent30DaysForAnalytics = async () => {
     setLoading(true);
@@ -1405,6 +1438,7 @@ export default function NightAttendanceManager({
                 const curStatus = statusMap[ad] || 'PRESENT';
                 const activePass = getActiveOutpassForStudent(ad);
                 const activeRecAbs = getActiveRecordedAbsenceForStudent(ad, selectedDate);
+                const activeCampusWaiver = activeCampusWaiversMap[ad.toUpperCase()];
 
                 const cardThemes = {
                   PRESENT: { bg: '#ffffff', border: '#e2e8f0', badgeBg: '#dcfce7', badgeColor: '#15803d', label: 'Present' },
@@ -1493,8 +1527,19 @@ export default function NightAttendanceManager({
                             ⏳ Active until: {activeRecAbs.endDate} ({activeRecAbs.endTime || '22:00'})
                           </div>
                         )}
-                        <div style={{ fontSize: '10px', marginTop: '2px', opacity: 0.85 }}>
-                          Recorded by Usthad {activeRecAbs.recordedBy}
+                        <div style={{ fontSize: '10px', marginTop: '2px', fontWeight: '700', opacity: 0.9 }}>
+                          Permitted by: Usthad {activeRecAbs.recordedBy || 'Class Teacher'}
+                        </div>
+                      </div>
+                    )}
+
+                    {activeCampusWaiver && activeCampusWaiver.waiverType === 'SICK_IN_ROOM' && !activeRecAbs && (
+                      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '7px 10px', borderRadius: '8px', fontSize: '11px', color: '#92400e', lineHeight: 1.35 }}>
+                        <div style={{ fontWeight: '700' }}>
+                          🤒 Bed Rest in Hostel: {activeCampusWaiver.injuryReason}
+                        </div>
+                        <div style={{ fontSize: '10px', marginTop: '2px', fontWeight: '700', color: '#b45309' }}>
+                          Permitted by: Usthad {activeCampusWaiver.issuedByName || activeCampusWaiver.issuedBy || 'Class Teacher'} • Room: {activeCampusWaiver.roomNumber || 'Hostel'}
                         </div>
                       </div>
                     )}
@@ -1504,8 +1549,8 @@ export default function NightAttendanceManager({
                         <div style={{ fontWeight: '700' }}>
                           🪪 Outside Campus ({activePass.leaveCategory || 'Leave'}): {activePass.destination}
                         </div>
-                        <div style={{ fontSize: '10px', marginTop: '2px' }}>
-                          Reason: &ldquo;{activePass.purpose || activePass.reason || 'Leave'}&rdquo; • Approved by: Usthad {activePass.teacherName}
+                        <div style={{ fontSize: '10px', marginTop: '2px', fontWeight: '700' }}>
+                          Reason: &ldquo;{activePass.purpose || activePass.reason || 'Leave'}&rdquo; • Permitted by: Usthad {activePass.teacherName || activePass.permittedBy || 'Class Teacher'}
                         </div>
                       </div>
                     )}
@@ -2424,11 +2469,14 @@ export default function NightAttendanceManager({
               const ad = String(st.adNo || '').trim();
               const activePass = getActiveOutpassForStudent(ad);
               const activeRecAbs = getActiveRecordedAbsenceForStudent(ad, extraDate);
+              const activeCampusWaiver = activeCampusWaiversMap[ad.toUpperCase()];
               const isUrdu = isUrduStudent(st);
 
               let curStatus = extraStatusMap[ad];
               if (!curStatus) {
-                if (activeRecAbs) {
+                if (activeCampusWaiver && activeCampusWaiver.waiverType === 'SICK_IN_ROOM') {
+                  curStatus = 'SICK_ROOM';
+                } else if (activeRecAbs) {
                   curStatus = activeRecAbs.status || 'ABSENT';
                 } else if (activePass) {
                   curStatus = (activePass.purpose === 'OFFICIAL' || activePass.category === 'OFFICIAL') ? 'OFFICIAL' : 'OUTPASS';
@@ -2467,14 +2515,28 @@ export default function NightAttendanceManager({
                       <div style={{ fontSize: '11px', color: '#64748b' }}>
                         #{ad} • Roll: {st.rollNo || '—'} {isUrdu && <span style={{ background: '#fef3c7', color: '#92400e', padding: '1px 5px', borderRadius: '4px', fontSize: '10px', fontWeight: '800' }}>URDU</span>}
                       </div>
-                      {activeRecAbs && (
+                      {activeCampusWaiver && activeCampusWaiver.waiverType === 'SICK_IN_ROOM' && (
                         <div style={{ marginTop: '4px', background: '#fffbeb', color: '#92400e', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '700', border: '1px solid #fde68a' }}>
-                          📌 {activeRecAbs.reason} {activeRecAbs.hasDuration && activeRecAbs.endDate ? `(Until ${activeRecAbs.endDate})` : ''}
+                          <div>🤒 Bed Rest: {activeCampusWaiver.injuryReason}</div>
+                          <div style={{ fontSize: '9px', marginTop: '1px', color: '#b45309' }}>
+                            Permitted by: Usthad {activeCampusWaiver.issuedByName || activeCampusWaiver.issuedBy || 'Class Teacher'}
+                          </div>
+                        </div>
+                      )}
+                      {activeRecAbs && !activeCampusWaiver && (
+                        <div style={{ marginTop: '4px', background: '#fffbeb', color: '#92400e', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '700', border: '1px solid #fde68a' }}>
+                          <div>📌 {activeRecAbs.reason} {activeRecAbs.hasDuration && activeRecAbs.endDate ? `(Until ${activeRecAbs.endDate})` : ''}</div>
+                          <div style={{ fontSize: '9px', marginTop: '1px', opacity: 0.85 }}>
+                            Permitted by: Usthad {activeRecAbs.recordedBy || 'Class Teacher'}
+                          </div>
                         </div>
                       )}
                       {activePass && (
                         <div style={{ marginTop: '4px', background: '#fffbeb', color: '#92400e', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '700', border: '1px solid #fde68a' }}>
-                          🪪 Outpass: {activePass.destination} ({activePass.leaveCategory || 'Leave'})
+                          <div>🪪 Outpass: {activePass.destination} ({activePass.leaveCategory || 'Leave'})</div>
+                          <div style={{ fontSize: '9px', marginTop: '1px', opacity: 0.85 }}>
+                            Permitted by: Usthad {activePass.teacherName || activePass.permittedBy || 'Class Teacher'}
+                          </div>
                         </div>
                       )}
                     </div>

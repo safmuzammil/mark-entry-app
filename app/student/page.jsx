@@ -778,7 +778,24 @@ function StudentDashboardInner() {
                              (matchedTeacherEnv && clsPart === String(matchedTeacherEnv.targetClass || matchedTeacherEnv.alias || '').toUpperCase());
 
         if (isClassMatch && isSubPartMatch) {
-          (lvls || []).forEach(l => { levelGradingStarted[String(l)] = true; });
+          (lvls || []).forEach(l => {
+            const lStr = String(l).trim();
+            levelGradingStarted[lStr] = true;
+            if (isHifz) {
+              if (lStr === '1' || lStr === '50_1' || lStr === 'Part 1' || lStr === '501') {
+                levelGradingStarted['50_1'] = true;
+                levelGradingStarted['1'] = true;
+              }
+              if (lStr === '2' || lStr === '50_2' || lStr === 'Part 2' || lStr === '502') {
+                levelGradingStarted['50_2'] = true;
+                levelGradingStarted['2'] = true;
+              }
+              if (lStr === '50') {
+                levelGradingStarted['50_1'] = true;
+                levelGradingStarted['50_2'] = true;
+              }
+            }
+          });
         }
       });
 
@@ -793,7 +810,20 @@ function StudentDashboardInner() {
       });
       if (remSubKey) {
         const rLvls = Array.isArray(reminderConfigs[remSubKey]) ? reminderConfigs[remSubKey] : [reminderConfigs[remSubKey]];
-        rLvls.forEach(l => { levelGradingStarted[String(l)] = true; });
+        rLvls.forEach(l => {
+          const lStr = String(l).trim();
+          levelGradingStarted[lStr] = true;
+          if (isHifz) {
+            if (lStr === '1' || lStr === '50_1' || lStr === 'Part 1') {
+              levelGradingStarted['50_1'] = true;
+              levelGradingStarted['1'] = true;
+            }
+            if (lStr === '2' || lStr === '50_2' || lStr === 'Part 2') {
+              levelGradingStarted['50_2'] = true;
+              levelGradingStarted['2'] = true;
+            }
+          }
+        });
       }
 
       let subSumObtained = 0;
@@ -1347,11 +1377,11 @@ function StudentDashboardInner() {
                               <>
                                 <td colSpan="2" style={{ padding: '13px 16px' }}>
                                   <span style={{ fontSize: '10px', color: '#64748b', display: 'block' }}>Part 1 (/50)</span>
-                                  {renderMarkCell(data.assessments?.['50_1'], data.levelGradingStarted?.['50_1'])}
+                                  {renderMarkCell(data.assessments?.['50_1'], data.levelGradingStarted?.['50_1'] || data.levelGradingStarted?.['1'] || data.levelGradingStarted?.['50'])}
                                 </td>
                                 <td colSpan="2" style={{ padding: '13px 16px' }}>
                                   <span style={{ fontSize: '10px', color: '#64748b', display: 'block' }}>Part 2 (/50)</span>
-                                  {renderMarkCell(data.assessments?.['50_2'], data.levelGradingStarted?.['50_2'])}
+                                  {renderMarkCell(data.assessments?.['50_2'], data.levelGradingStarted?.['50_2'] || data.levelGradingStarted?.['2'] || data.levelGradingStarted?.['50'])}
                                 </td>
                               </>
                             ) : data.isSpecialization ? (

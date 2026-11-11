@@ -318,15 +318,16 @@ export default function PeriodAttendanceManager({
           ));
           waiversSnap.forEach(wDoc => {
             const w = wDoc.data();
-            if (w && w.studentAdNo) {
-              const cleanAd = String(w.studentAdNo).trim().toUpperCase();
+            const rawAd = w.adNo || w.studentAdNo;
+            if (w && rawAd) {
+              const cleanAd = String(rawAd).trim().toUpperCase();
               if (!allRecs.some(x => String(x.adNo || '').trim().toUpperCase() === cleanAd)) {
                 allRecs.push({
-                  adNo: w.studentAdNo,
+                  adNo: rawAd,
                   studentRegNo: w.studentRegNo || '',
                   status: 'SICK_ROOM',
-                  reason: w.illnessReason || w.diagnosis || 'Sick in Room (Bed Rest)',
-                  recordedBy: w.authorizedByName || 'Class Teacher',
+                  reason: w.injuryReason || w.illnessReason || w.diagnosis || 'Sick in Room (Bed Rest)',
+                  recordedBy: w.issuedByName || w.issuedBy || w.authorizedByName || 'Class Teacher',
                   hasDuration: false,
                   isMedical: true
                 });
@@ -2301,8 +2302,8 @@ export default function PeriodAttendanceManager({
                               <strong>{recAbs.isMedical ? '🤒 Medical Leave / Sick' : recAbs.isOfficial ? '🏛️ Official Duty' : '🔴 Pre-Recorded Absence'}:</strong> &ldquo;{recAbs.reason || 'Leave'}&rdquo;
                               {recAbs.hasDuration && recAbs.endDate ? ` (Until ${recAbs.endDate} ${recAbs.endTime || ''})` : ''}
                             </div>
-                            <div style={{ fontSize: '10px', marginTop: '2px', color: recAbs.isMedical ? '#b45309' : recAbs.isOfficial ? '#0d9488' : '#e11d48' }}>
-                              Recorded by: Usthad {recAbs.recordedBy}
+                            <div style={{ fontSize: '10px', marginTop: '2px', color: recAbs.isMedical ? '#b45309' : recAbs.isOfficial ? '#0d9488' : '#e11d48', fontWeight: '700' }}>
+                              Permitted by: Usthad {recAbs.recordedBy || 'Class Teacher'}
                             </div>
                           </div>
                         )}

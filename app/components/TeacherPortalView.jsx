@@ -576,6 +576,29 @@ export default function TeacherPortalView({ loggedInTeacher, onLogout, embeddedI
           setAutoSaveStatus('✅ Draft Auto-Saved');
           setIsDirty(false);
           setTimeout(() => setAutoSaveStatus(''), 4000);
+
+          // 🌟 Keep student portal startedLevels in sync on auto-save
+          try {
+            const classTag = String(
+              currentEnrollment.targetClass ||
+              currentEnrollment.alias ||
+              `Grade_${currentEnrollment.grade || '1'}`
+            ).trim().toUpperCase();
+            const subTag = finalSubjectKey.trim().toUpperCase();
+            const metaRef = doc(db, 'systemCache', 'studentPortalMeta');
+            const metaSnap = await getDoc(metaRef);
+            const existingMeta = metaSnap.exists() ? metaSnap.data() : {};
+            const startedMap = existingMeta.startedLevels || {};
+            const envKey = `${classTag}:::${subTag}`;
+            const currentArr = Array.isArray(startedMap[envKey]) ? startedMap[envKey] : [];
+
+            if (!currentArr.includes(String(assessmentMaxMark))) {
+              startedMap[envKey] = [...currentArr, String(assessmentMaxMark)];
+              await setDoc(metaRef, { startedLevels: startedMap, updatedAt: new Date().toISOString() }, { merge: true });
+            }
+          } catch (mErr) {
+            console.warn('Auto-save meta sync warning:', mErr);
+          }
         }
       } catch (err) {
         setAutoSaveStatus('⚠️ Auto-save failed');
