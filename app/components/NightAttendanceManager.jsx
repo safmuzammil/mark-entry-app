@@ -85,12 +85,11 @@ export default function NightAttendanceManager({
   const [recordedAbsencesMap, setRecordedAbsencesMap] = useState({});
   const [activeCampusWaiversMap, setActiveCampusWaiversMap] = useState({});
 
-  // 🌟 Real-time listener for active campus medical waivers (Bed Rest / Sick in Room)
+  // 🌟 Real-time listener for active campus medical waivers (Bed Rest & Masjid Jamath Exemption)
   useEffect(() => {
     try {
       const q = query(
         collection(db, 'campus_medical_waivers'),
-        where('waiverType', '==', 'SICK_IN_ROOM'),
         where('status', '==', 'ACTIVE')
       );
       const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -213,9 +212,12 @@ export default function NightAttendanceManager({
         const ad = String(st.adNo || '').trim();
         const p = getActiveOutpassForStudent(ad);
         const activeRec = getActiveRecordedAbsenceForStudent(ad, extraDate);
+        const activeWaiver = activeCampusWaiversMap[ad.toUpperCase()];
         let stStatus = extraStatusMap[ad];
         if (!stStatus) {
-          if (activeRec) {
+          if (activeWaiver && activeWaiver.waiverType === 'SICK_IN_ROOM' && isWaiverActiveOnDate(activeWaiver, extraDate)) {
+            stStatus = 'SICK_ROOM';
+          } else if (activeRec) {
             stStatus = activeRec.status || 'ABSENT';
           } else if (p) {
             stStatus = (p.purpose === 'OFFICIAL' || p.category === 'OFFICIAL') ? 'OFFICIAL' : 'OUTPASS';
@@ -230,6 +232,8 @@ export default function NightAttendanceManager({
 
         if (activeRec && activeRec.reason) {
           absentReasonsMap[ad] = activeRec.reason;
+        } else if (activeWaiver && isWaiverActiveOnDate(activeWaiver, extraDate) && stStatus === 'SICK_ROOM') {
+          absentReasonsMap[ad] = (activeWaiver.waiverType === 'JAMATH_EXEMPTION' ? '🩹 Masjid Exemption: ' : '🤒 Bed Rest: ') + (activeWaiver.injuryReason || activeWaiver.diagnosis || 'Medical Waiver');
         }
       });
 
@@ -1533,12 +1537,22 @@ export default function NightAttendanceManager({
                       </div>
                     )}
 
-                    {activeCampusWaiver && activeCampusWaiver.waiverType === 'SICK_IN_ROOM' && isWaiverActiveOnDate(activeCampusWaiver, selectedDate) && !activeRecAbs && (
-                      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '7px 10px', borderRadius: '8px', fontSize: '11px', color: '#92400e', lineHeight: 1.35 }}>
-                        <div style={{ fontWeight: '700' }}>
-                          🤒 Bed Rest in Hostel: {activeCampusWaiver.injuryReason}
+                    {activeCampusWaiver && isWaiverActiveOnDate(activeCampusWaiver, selectedDate) && !activeRecAbs && (
+                      <div
+                        style={{
+                          background: activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '#fffbeb' : '#fff1f2',
+                          border: `1px solid ${activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '#fde68a' : '#fecdd3'}`,
+                          padding: '7px 10px',
+                          borderRadius: '8px',
+                          fontSize: '11px',
+                          color: activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '#92400e' : '#be123c',
+                          lineHeight: 1.35
+                        }}
+                      >
+                        <div style={{ fontWeight: '800' }}>
+                          {activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '🩹 Masjid Exemption' : '🤒 Bed Rest in Hostel'}: {activeCampusWaiver.injuryReason || activeCampusWaiver.diagnosis || 'Medical Waiver'}
                         </div>
-                        <div style={{ fontSize: '10px', marginTop: '2px', fontWeight: '700', color: '#b45309' }}>
+                        <div style={{ fontSize: '10px', marginTop: '2px', fontWeight: '700', color: activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '#b45309' : '#b91c1c' }}>
                           Permitted by: Usthad {activeCampusWaiver.issuedByName || activeCampusWaiver.issuedBy || 'Class Teacher'}{activeCampusWaiver.validUntil ? ` • Valid until: ${activeCampusWaiver.validUntil}` : ''}
                         </div>
                       </div>
@@ -2515,10 +2529,21 @@ export default function NightAttendanceManager({
                       <div style={{ fontSize: '11px', color: '#64748b' }}>
                         #{ad} • Roll: {st.rollNo || '—'} {isUrdu && <span style={{ background: '#fef3c7', color: '#92400e', padding: '1px 5px', borderRadius: '4px', fontSize: '10px', fontWeight: '800' }}>URDU</span>}
                       </div>
-                      {activeCampusWaiver && activeCampusWaiver.waiverType === 'SICK_IN_ROOM' && isWaiverActiveOnDate(activeCampusWaiver, extraDate) && (
-                        <div style={{ marginTop: '4px', background: '#fffbeb', color: '#92400e', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '700', border: '1px solid #fde68a' }}>
-                          <div>🤒 Bed Rest: {activeCampusWaiver.injuryReason}</div>
-                          <div style={{ fontSize: '9px', marginTop: '1px', color: '#b45309' }}>
+                      {activeCampusWaiver && isWaiverActiveOnDate(activeCampusWaiver, extraDate) && (
+                        <div
+                          style={{
+                            marginTop: '4px',
+                            background: activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '#fffbeb' : '#fff1f2',
+                            color: activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '#92400e' : '#be123c',
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            fontSize: '10px',
+                            fontWeight: '800',
+                            border: `1px solid ${activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '#fde68a' : '#fecdd3'}`
+                          }}
+                        >
+                          <div>{activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '🩹 Masjid Exemption' : '🤒 Bed Rest'}: {activeCampusWaiver.injuryReason || activeCampusWaiver.diagnosis || 'Medical Waiver'}</div>
+                          <div style={{ fontSize: '9px', marginTop: '1px', color: activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '#b45309' : '#b91c1c' }}>
                             Permitted by: Usthad {activeCampusWaiver.issuedByName || activeCampusWaiver.issuedBy || 'Class Teacher'}{activeCampusWaiver.validUntil ? ` • Valid until: ${activeCampusWaiver.validUntil}` : ''}
                           </div>
                         </div>
