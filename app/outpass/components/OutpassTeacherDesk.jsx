@@ -121,11 +121,8 @@ export default function OutpassTeacherDesk({
   handleTeacherVerifyArrival,
   handleCancelPass,
 }) {
-  // 🌟 Minimalist Popover Toggles so chips stay neatly tucked inside selector buttons!
+  // 🌟 Clean Mobile-First State Management
   const [showHomeBatchTools, setShowHomeBatchTools] = useState(false);
-  const [openCategoryList, setOpenCategoryList] = useState(false);
-  const [openDestinationList, setOpenDestinationList] = useState(false);
-  const [openPurposeList, setOpenPurposeList] = useState(false);
   const [selectedMonthlyDays, setSelectedMonthlyDays] = useState(3);
   const [isCustomDestActive, setIsCustomDestActive] = useState(false);
   const [isCustomPurposeActive, setIsCustomPurposeActive] = useState(false);
@@ -169,7 +166,6 @@ export default function OutpassTeacherDesk({
     } else if (cat === "Weekend_Thu_Sat") {
       applyDaysDuration(2, "2d");
     }
-    setOpenCategoryList(false);
   };
 
   return (
@@ -810,7 +806,7 @@ export default function OutpassTeacherDesk({
             </div>
 
             <form onSubmit={handleIssuePass}>
-              {/* 🌟 2. LEAVE CATEGORY DIRECT BUTTONS */}
+              {/* 🌟 2. LEAVE CATEGORY COMPACT NATIVE SELECT + 1-TAP QUICK CHIPS */}
               <div style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <label style={styles.fieldLabel}>2. Leave Category</label>
@@ -820,16 +816,53 @@ export default function OutpassTeacherDesk({
                     <span style={{ fontSize: 11, fontWeight: 700, color: '#16a34a' }}>✓ Selected: {formatCategoryLabel(leaveCategory)}</span>
                   )}
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: 10, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
-                  {LEAVE_CATEGORIES.map((cat) => {
-                    const active = leaveCategory === cat;
+
+                {/* Native Dropdown */}
+                <select
+                  value={leaveCategory || ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    handleSelectCategoryOption(val);
+                  }}
+                  style={{
+                    ...styles.textInput,
+                    width: '100%',
+                    fontSize: '16px',
+                    minHeight: '44px',
+                    padding: '8px 12px',
+                    fontWeight: 700,
+                    color: leaveCategory ? '#0f172a' : '#64748b',
+                    background: '#f8fafc',
+                    border: '1.5px solid #cbd5e1',
+                    borderRadius: '8px',
+                    marginBottom: 8,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="">-- Select Leave Category --</option>
+                  <option value="Custom">✍️ Custom Leave Category...</option>
+                  {LEAVE_CATEGORIES.filter((c) => c !== "Custom").map((cat) => (
+                    <option key={cat} value={cat}>
+                      {formatCategoryLabel(cat)}
+                    </option>
+                  ))}
+                </select>
+
+                {/* 3 Shortcut Chips */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                  {[
+                    { id: "Monthly_Home", label: "🏠 Monthly Home" },
+                    { id: "Evening", label: "☀️ Evening" },
+                    { id: "Friday", label: "🕌 Friday" },
+                  ].map((chip) => {
+                    const active = leaveCategory === chip.id;
                     return (
                       <button
                         type="button"
-                        key={cat}
-                        onClick={() => handleSelectCategoryOption(cat)}
+                        key={chip.id}
+                        onClick={() => handleSelectCategoryOption(chip.id)}
                         style={{
-                          padding: "7px 12px",
+                          padding: "6px 12px",
                           borderRadius: 8,
                           fontSize: 12,
                           fontWeight: 700,
@@ -837,17 +870,18 @@ export default function OutpassTeacherDesk({
                           border: active ? "1.5px solid #4f46e5" : "1px solid #cbd5e1",
                           background: active ? "#4f46e5" : "#ffffff",
                           color: active ? "#ffffff" : "#334155",
-                          boxShadow: active ? "0 2px 4px rgba(79, 70, 229, 0.2)" : "none"
+                          boxShadow: active ? "0 2px 4px rgba(79, 70, 229, 0.2)" : "none",
+                          transition: "all 0.15s ease"
                         }}
                       >
-                        {formatCategoryLabel(cat)}
+                        {chip.label}
                       </button>
                     );
                   })}
                 </div>
 
                 {leaveCategory === 'Monthly_Home' && (
-                  <div style={{ marginTop: 8, padding: '10px 14px', background: '#eef2ff', borderRadius: 8, border: '1px solid #c7d2fe', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <div style={{ marginTop: 4, padding: '10px 14px', background: '#eef2ff', borderRadius: 8, border: '1px solid #c7d2fe', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: '#3730a3' }}>🏠 Monthly Leave Duration:</span>
                     {[1, 2, 3, 4, 5, 6, 7].map(d => (
                       <button
@@ -855,7 +889,7 @@ export default function OutpassTeacherDesk({
                         type="button"
                         onClick={() => {
                           setSelectedMonthlyDays(d);
-                          handleSelectCategoryOption('Monthly_Home', d);
+                          applyDaysDuration(d, `${d}d`);
                         }}
                         style={{
                           padding: '5px 12px',
@@ -884,13 +918,14 @@ export default function OutpassTeacherDesk({
                         setCustomCategoryText(e.target.value);
                         setPurpose(e.target.value ? `Custom Leave: ${e.target.value}` : '');
                       }}
-                      style={{ ...styles.textInput, width: '100%' }}
+                      style={{ ...styles.textInput, width: '100%', fontSize: '16px', minHeight: '44px' }}
+                      autoFocus
                     />
                   </div>
                 )}
               </div>
 
-              {/* 🌟 3. DESTINATION DIRECT LIST BUTTONS + CUSTOM OPTION */}
+              {/* 🌟 3. DESTINATION COMPACT NATIVE SELECT + 1-TAP QUICK CHIPS */}
               <div style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <label style={styles.fieldLabel}>3. Destination</label>
@@ -900,8 +935,53 @@ export default function OutpassTeacherDesk({
                     <span style={{ fontSize: 11, fontWeight: 700, color: '#16a34a' }}>✓ Selected: 📍 {destination}</span>
                   )}
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: 10, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', marginBottom: 8 }}>
-                  {QUICK_DESTINATIONS.map((place) => {
+
+                {/* Native Dropdown */}
+                <select
+                  value={
+                    isCustomDestActive || (destination && !QUICK_DESTINATIONS.includes(destination))
+                      ? "CUSTOM"
+                      : destination || ""
+                  }
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "CUSTOM") {
+                      setIsCustomDestActive(true);
+                    } else if (val) {
+                      setDestination(val);
+                      setIsCustomDestActive(false);
+                    } else {
+                      setDestination("");
+                      setIsCustomDestActive(false);
+                    }
+                  }}
+                  style={{
+                    ...styles.textInput,
+                    width: '100%',
+                    fontSize: '16px',
+                    minHeight: '44px',
+                    padding: '8px 12px',
+                    fontWeight: 700,
+                    color: destination ? '#0f172a' : '#64748b',
+                    background: '#f8fafc',
+                    border: '1.5px solid #cbd5e1',
+                    borderRadius: '8px',
+                    marginBottom: 8,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="">-- Select Destination --</option>
+                  <option value="CUSTOM">✍️ Custom Destination / Place...</option>
+                  {QUICK_DESTINATIONS.map((place) => (
+                    <option key={place} value={place}>
+                      📍 {place}
+                    </option>
+                  ))}
+                </select>
+
+                {/* 3 Shortcut Chips */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                  {["Home", "Chemmad", "Bookplus"].map((place) => {
                     const active = destination === place && !isCustomDestActive;
                     return (
                       <button
@@ -920,28 +1000,14 @@ export default function OutpassTeacherDesk({
                           border: active ? "1.5px solid #4f46e5" : "1px solid #cbd5e1",
                           background: active ? "#4f46e5" : "#ffffff",
                           color: active ? "#ffffff" : "#334155",
+                          boxShadow: active ? "0 2px 4px rgba(79, 70, 229, 0.2)" : "none",
+                          transition: "all 0.15s ease"
                         }}
                       >
                         📍 {place}
                       </button>
                     );
                   })}
-                  <button
-                    type="button"
-                    onClick={() => setIsCustomDestActive(true)}
-                    style={{
-                      padding: "6px 12px",
-                      borderRadius: 8,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      border: isCustomDestActive ? "1.5px solid #4f46e5" : "1px dashed #6366f1",
-                      background: isCustomDestActive ? "#4f46e5" : "#eef2ff",
-                      color: isCustomDestActive ? "#ffffff" : "#4f46e5",
-                    }}
-                  >
-                    ✏️ + Custom Place
-                  </button>
                 </div>
 
                 {(isCustomDestActive || (destination && !QUICK_DESTINATIONS.includes(destination))) && (
@@ -953,14 +1019,14 @@ export default function OutpassTeacherDesk({
                       setDestination(e.target.value);
                       setIsCustomDestActive(true);
                     }}
-                    style={{ ...styles.textInput, width: '100%' }}
+                    style={{ ...styles.textInput, width: '100%', fontSize: '16px', minHeight: '44px' }}
                     autoFocus
                     required
                   />
                 )}
               </div>
 
-              {/* 🌟 4. PURPOSE / REASON DIRECT LIST BUTTONS + CUSTOM OPTION */}
+              {/* 🌟 4. PURPOSE / REASON COMPACT NATIVE SELECT + 1-TAP QUICK CHIPS */}
               <div style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <label style={styles.fieldLabel}>4. Purpose / Reason for Leave</label>
@@ -970,8 +1036,57 @@ export default function OutpassTeacherDesk({
                     <span style={{ fontSize: 11, fontWeight: 700, color: '#16a34a' }}>✓ Selected: 📝 {purpose}</span>
                   )}
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: 10, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', marginBottom: 8 }}>
-                  {QUICK_PURPOSES.map((rsn) => {
+
+                {/* Native Dropdown */}
+                <select
+                  value={
+                    isCustomPurposeActive || (purpose && !QUICK_PURPOSES.includes(purpose))
+                      ? "CUSTOM"
+                      : purpose || ""
+                  }
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "CUSTOM") {
+                      setIsCustomPurposeActive(true);
+                    } else if (val) {
+                      setPurpose(val);
+                      setIsCustomPurposeActive(false);
+                    } else {
+                      setPurpose("");
+                      setIsCustomPurposeActive(false);
+                    }
+                  }}
+                  style={{
+                    ...styles.textInput,
+                    width: '100%',
+                    fontSize: '16px',
+                    minHeight: '44px',
+                    padding: '8px 12px',
+                    fontWeight: 700,
+                    color: purpose ? '#0f172a' : '#64748b',
+                    background: '#f8fafc',
+                    border: '1.5px solid #cbd5e1',
+                    borderRadius: '8px',
+                    marginBottom: 8,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="">-- Select Purpose / Reason --</option>
+                  <option value="CUSTOM">✍️ Custom Purpose / Reason...</option>
+                  {QUICK_PURPOSES.map((rsn) => (
+                    <option key={rsn} value={rsn}>
+                      📝 {rsn}
+                    </option>
+                  ))}
+                </select>
+
+                {/* 3 Shortcut Chips */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                  {[
+                    "Monthly 3-Day Home Leave",
+                    "Medical / Hospital Case",
+                    "Personal Purchase",
+                  ].map((rsn) => {
                     const active = purpose === rsn && !isCustomPurposeActive;
                     return (
                       <button
@@ -990,28 +1105,14 @@ export default function OutpassTeacherDesk({
                           border: active ? "1.5px solid #4f46e5" : "1px solid #cbd5e1",
                           background: active ? "#4f46e5" : "#ffffff",
                           color: active ? "#ffffff" : "#334155",
+                          boxShadow: active ? "0 2px 4px rgba(79, 70, 229, 0.2)" : "none",
+                          transition: "all 0.15s ease"
                         }}
                       >
                         📝 {rsn}
                       </button>
                     );
                   })}
-                  <button
-                    type="button"
-                    onClick={() => setIsCustomPurposeActive(true)}
-                    style={{
-                      padding: "6px 12px",
-                      borderRadius: 8,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      border: isCustomPurposeActive ? "1.5px solid #4f46e5" : "1px dashed #6366f1",
-                      background: isCustomPurposeActive ? "#4f46e5" : "#eef2ff",
-                      color: isCustomPurposeActive ? "#ffffff" : "#4f46e5",
-                    }}
-                  >
-                    ✏️ + Custom Reason
-                  </button>
                 </div>
 
                 {(isCustomPurposeActive || (purpose && !QUICK_PURPOSES.includes(purpose))) && (
@@ -1023,73 +1124,77 @@ export default function OutpassTeacherDesk({
                       setPurpose(e.target.value);
                       setIsCustomPurposeActive(true);
                     }}
-                    style={{ ...styles.textInput, width: '100%' }}
+                    style={{ ...styles.textInput, width: '100%', fontSize: '16px', minHeight: '44px' }}
                     autoFocus
                     required
                   />
                 )}
               </div>
 
-              {/* 5. SCHEDULE & DURATION PRESETS */}
+              {/* 5. SCHEDULE & OPTIONAL OPEN RETURN TOGGLE */}
               <div style={{ marginBottom: 18 }}>
                 <label style={styles.fieldLabel}>5. Permitted Date &amp; Time Schedule</label>
 
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: 6,
-                    marginBottom: 12,
-                    background: "#f8fafc",
-                    padding: "10px",
-                    borderRadius: "10px",
-                    border: "1px solid #e2e8f0",
-                  }}
-                >
-                  {[
-                    { id: "1h", label: "⏱️ +1 Hr", fn: () => applyHoursDuration(1, "1h") },
-                    { id: "2h", label: "⏱️ +2 Hrs", fn: () => applyHoursDuration(2, "2h") },
-                    { id: "6pm", label: "🌇 Today 6:00 PM", fn: applyUntilEvening },
-                    { id: "1d", label: "📅 +1 Day", fn: () => applyDaysDuration(1, "1d") },
-                    { id: "3d", label: "📅 +3 Days (Monthly Home)", fn: () => applyDaysDuration(3, "3d") },
-                  ].map((d) => {
-                    const active = activeDurationChip === d.id && !isOpenReturn;
-                    return (
-                      <button
-                        key={d.id}
-                        type="button"
-                        onClick={d.fn}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: "8px",
-                          fontSize: "12px",
-                          fontWeight: 700,
-                          cursor: "pointer",
-                          border: active ? "1px solid #4f46e5" : "1px solid #cbd5e1",
-                          background: active ? "#4f46e5" : "#ffffff",
-                          color: active ? "#ffffff" : "#334155",
-                        }}
-                      >
-                        {d.label}
-                      </button>
-                    );
-                  })}
+                {/* Dedicated Open-Ended Return Toggle Card */}
+                <div style={{ marginBottom: 12 }}>
                   <button
                     type="button"
-                    onClick={() => setIsOpenReturn(!isOpenReturn)}
+                    onClick={() => {
+                      const next = !isOpenReturn;
+                      setIsOpenReturn(next);
+                      if (next) setActiveDurationChip("open");
+                    }}
                     style={{
-                      padding: "6px 12px",
-                      borderRadius: "8px",
-                      fontSize: "12px",
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "10px 14px",
+                      borderRadius: "10px",
+                      fontSize: "13px",
                       fontWeight: 700,
                       cursor: "pointer",
-                      border: isOpenReturn ? "1px solid #059669" : "1px solid #cbd5e1",
-                      background: isOpenReturn ? "#10b981" : "#ffffff",
-                      color: isOpenReturn ? "#ffffff" : "#334155",
+                      border: isOpenReturn ? "1.5px solid #059669" : "1px solid #cbd5e1",
+                      background: isOpenReturn ? "#ecfdf5" : "#f8fafc",
+                      color: isOpenReturn ? "#065f46" : "#334155",
+                      transition: "all 0.2s ease",
+                      minHeight: "44px"
                     }}
                   >
-                    {isOpenReturn ? "✓ 🏥 Open Return (Medical)" : "🏥 Open Return (Medical)"}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: "16px" }}>🏥</span>
+                      <span>Open-Ended Return (No fixed return deadline)</span>
+                    </div>
+                    <span
+                      style={{
+                        padding: "3px 9px",
+                        borderRadius: "999px",
+                        fontSize: "11px",
+                        fontWeight: 800,
+                        background: isOpenReturn ? "#10b981" : "#e2e8f0",
+                        color: isOpenReturn ? "#ffffff" : "#64748b",
+                      }}
+                    >
+                      {isOpenReturn ? "✓ ACTIVE" : "OFF"}
+                    </span>
                   </button>
+
+                  {isOpenReturn && (
+                    <div
+                      style={{
+                        marginTop: 6,
+                        padding: "8px 12px",
+                        background: "#f0fdf4",
+                        border: "1px solid #bbf7d0",
+                        borderRadius: "8px",
+                        fontSize: "12px",
+                        color: "#166534",
+                        fontWeight: 600,
+                      }}
+                    >
+                      ✓ 🏥 <strong>Open-Ended Return Active:</strong> Student can return at any time without a fixed deadline. Only gate return scan will conclude the pass.
+                    </div>
+                  )}
                 </div>
 
                 <CustomDateTimePicker
