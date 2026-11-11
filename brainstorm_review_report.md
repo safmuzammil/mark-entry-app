@@ -1,77 +1,182 @@
-# 7-Lens Swarm Brainstorm Review Report
+# 📋 Goldfish Review & Synthesis Report: Permitted Leave Attendance & Targeted Absentees Export
 
-Target Document: `file:///D:/Codes/mark-entry-app/concepts_brief.md`
-Deliverable Report Path: `file:///D:/Codes/mark-entry-app/brainstorm_review_report.md`
-Evaluation Mode: `BRAINSTORM_REVIEW`
-
----
-
-## Executive Summary & Stage Verdict
-
-- **Stage Verdict**: **APPROVED WITH ENHANCEMENTS (Minor Amendments Required)**
-- **Overall Status**: All 7 Goldfish lenses evaluated the 4 core proposals in `concepts_brief.md`. The conceptual direction is robust and directly addresses critical operational blockers (Firestore permission crashes, UI freezes during multi-student absence searches, and student victimization due to hidden Masjid Jamath waivers).
-- **Key Amendments Flagged**:
-  1. **Dual-Component Sync (Codebase Details / Simplicity)**: Ensure the optimized multi-student querying engine and granular badging are unified across both [`AbsenceClearanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/AbsenceClearanceManager.jsx) and the legacy [`PeriodAttendanceMinusAndClearance.jsx`](file:///D:/Codes/mark-entry-app/app/components/PeriodAttendanceMinusAndClearance.jsx) to avoid architectural divergence.
-  2. **Security Rules Precision (Security / Data Integrity)**: In [`firestore.rules`](file:///D:/Codes/mark-entry-app/firestore.rules), `clearance_history` requires dedicated schema validation matching `clearance_certificates` with `isValidClearanceHist` rather than a loose wildcard rule.
-  3. **UX & State Semantics (Design / Inventive Catalyst)**: In Extra Attendance, students with active `JAMATH_EXEMPTION` should display an actionable toggle that defaults non-destructively to `EXCUSED_JAMATH` or 1-tap `Sick (Bed Rest)` without requiring extra confirmation dialogs.
+**Target Brief:** `concepts_brief.md`  
+**Synthesizer Lens:** Multi-Agent Swarm (7 Goldfish Lenses)  
+**Deliverable Path:** `D:\Codes\mark-entry-app\brainstorm_review_report.md`  
+**Verdict:** **APPROVED WITH ENHANCEMENTS** (3 🔴 Blockers, 3 🟡 Major, 2 🟢 Nits)
 
 ---
 
-## Reviewer Lens Breakdown
+## Executive Summary
 
-| Lens | Reviewer Agent | Status | Key Focus |
-|---|---|---|---|
-| 1 | `egm-design` (UX Critic) | Completed | Visual hierarchy of Masjid Exemption badge, 1-tap micro-interactions, badge color harmony |
-| 2 | `egm-codebase-details` (Technical Auditor) | Completed | Batch query concurrency limits, atomic batch write limits (500 ops), Firestore rule validation function |
-| 3 | `egm-structural` (Scope Validator) | Completed | Clear demarcation between `AbsenceClearanceManager` and `NightAttendanceManager`; avoiding ERP bloat |
-| 4 | `egm-comprehension` (Domain & Terminology) | Completed | DHIU institutional terminology clarity: Jamath Exemption vs Sick-in-Room vs Official Duty |
-| 5 | `egm-style` (Technical Copy Editor) | Completed | Consistent casing, ISO date references, badge labels, and error message phrasing |
-| 6 | `egm-zoom-out` (Simplicity & YAGNI) | Completed | Shared caching via `daySessionsIndex_${date}`; preventing redundant student document refetches |
-| 7 | `egm-inventive-catalyst` (TRIZ Contradiction) | Completed | Resolving the contradiction: Maximum medical visibility without cognitive clutter or false penalty |
+The proposed RFC introduces a much-needed first-class `'L'` (`PERMITTED_LEAVE`) attendance status and an unexcused absentees WhatsApp export filter. However, code-level auditing of `PeriodAttendanceManager.jsx`, `NightAttendanceManager.jsx`, `PeriodAttendanceMinusAndClearance.jsx`, and `firestore.rules` revealed **critical schema drift, a Firestore security rules barrier, and session re-edit accounting bugs** that would corrupt student aggregate statistics if implemented without enhancements.
 
 ---
 
-## Detailed Prioritized Findings
+## Reviewer Status Summary
 
-### 1. [Security Rules Schema Validation] - Severity: 🔴 Blocker
-* **Reviewer Lens:** `egm-codebase-details` & `egm-structural`
-* **Affected Scope:** `concepts_brief.md` (Lines 39–50), [`firestore.rules`](file:///D:/Codes/mark-entry-app/firestore.rules#L470-L485)
-* **Discrepancy Description**: The brief proposed adding a bare `match /clearance_history/{histId}` with only role checks (`isStaffOrAdmin()`). The existing [`firestore.rules`](file:///D:/Codes/mark-entry-app/firestore.rules#L346-L359) enforces strict shape and type validation (e.g., `isValidClearanceCert`) on all documents. Writing unvalidated docs to `clearance_history` violates the principle of least privilege and data integrity standards.
-* **Recommendation**: Declare a dedicated validator function `isValidClearanceHistory(request.resource.data)` in [`firestore.rules`](file:///D:/Codes/mark-entry-app/firestore.rules) checking required string types (`studentRegNo`, `certNumber`, `clearanceType`, `issuedByUsername`), bounded array sizes (`clearedSessions <= 100`, `dates <= 50`), and immutable verification fields.
-
-### 2. [Parallel Query Engine Throttle & Cache Reuse] - Severity: 🟡 Major
-* **Reviewer Lens:** `egm-zoom-out` & `egm-codebase-details`
-* **Affected Scope:** `concepts_brief.md` (Lines 51–60), [`AbsenceClearanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/AbsenceClearanceManager.jsx#L273-L315)
-* **Discrepancy Description**: Naive `Promise.all` across unbounded date ranges (e.g. 60 days × 7 periods = 420 doc reads) risks Firebase read quota spikes and network saturation.
-* **Recommendation**:
-  1. Chunk parallel requests in batches of 10 dates.
-  2. Check existing in-memory daily cache before issuing Firestore `getDoc` calls.
-  3. Short-circuit session doc fetching if `daySessionsIndex_${date}` reports zero sessions for that day.
-
-### 3. [Syncing Dual Clearance Components] - Severity: 🟡 Major
-* **Reviewer Lens:** `egm-structural` & `egm-zoom-out`
-* **Affected Scope:** `concepts_brief.md` (Line 73), [`PeriodAttendanceMinusAndClearance.jsx`](file:///D:/Codes/mark-entry-app/app/components/PeriodAttendanceMinusAndClearance.jsx#L45-L65)
-* **Discrepancy Description**: The brief notes both `AbsenceClearanceManager.jsx` and `PeriodAttendanceMinusAndClearance.jsx`. If logic is updated in one component without the other, legacy tab users in Period Attendance will encounter discrepancies and permission crashes.
-* **Recommendation**: Either extract the clearance engine to a shared custom hook (`useAbsenceClearanceEngine`), or ensure both components use identical atomic batch commit routines and status schemas.
-
-### 4. [Masjid Jamath Exemption Badge Interaction Ergonomics] - Severity: 🟢 Nit
-* **Reviewer Lens:** `egm-design` & `egm-inventive-catalyst`
-* **Affected Scope:** `concepts_brief.md` (Lines 32–38), [`NightAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/NightAttendanceManager.jsx#L2515-L2540)
-* **Discrepancy Description**: The card proposed a badge and a 1-tap `Sick` button. However, `JAMATH_EXEMPTION` indicates a student who is excused from prayer in the Masjid, not necessarily bed-ridden in sick room for study attendance.
-* **Recommendation**: Display badge `🩹 Masjid Exemption: [Reason]` with an amber border, and provide a 1-tap toggle `[Exempt/Sick]` that records the appropriate contextual status without manual typing.
-
-### 5. [Status Badging Palette Normalization] - Severity: 🟢 Nit
-* **Reviewer Lens:** `egm-style` & `egm-design`
-* **Affected Scope:** `concepts_brief.md` (Lines 61–67), [`AbsenceClearanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/AbsenceClearanceManager.jsx#L1437-L1446)
-* **Discrepancy Description**: In `AbsenceClearanceManager.jsx`, Medical Leave was previously rendered with yellow `#fef3c7`, while the brief specifies light red / rose `#fef2f2`.
-* **Recommendation**: Standardize the design tokens across all views:
-  - **Medical Leave**: Background `#fff1f2` / `#fef2f2`, Border `#fecdd3`, Text `#b91c1c` (Rose/Red)
-  - **Official Duty**: Background `#eff6ff`, Border `#bfdbfe`, Text `#1d4ed8` (Blue)
-  - **Normal Present**: Background `#f0fdf4`, Border `#bbf7d0`, Text `#15803d` (Green)
-  - **Unexcused Absent**: Background `#fef2f2`, Border `#fca5a5`, Text `#dc2626` (Red)
+| Goldfish Reviewer Lens | Status | Core Focus Area |
+| :--- | :--- | :--- |
+| **1. Contrarian / YAGNI** | Completed | 4-button cluster UI bloat vs progressive disclosure |
+| **2. Cost, Quota & Token Economics** | Completed | Batch write amplification & re-edit delta calculations |
+| **3. UX & Developer Ergonomics** | Completed | Mobile roll-call ergonomics & WhatsApp URL generation |
+| **4. Migration & Backward Compatibility** | Completed | Legacy session loading (`val !== 'A' && val !== 'M'`) & Night schema |
+| **5. Observability & SRE Debuggability** | Completed | Traceability of inline roll-call leaves vs formal certificates |
+| **6. Long-Term Tech Debt & Maintenance** | Completed | Status taxonomy drift & `firestore.rules` clearance validation |
+| **7. Inventive Catalyst** | Completed | Fast 1-tap mobile roll-call with granular status resolution |
 
 ---
 
-## Deliverable Artifact
-The comprehensive review report has been written to:
-`file:///D:/Codes/mark-entry-app/brainstorm_review_report.md`.
+## Prioritized Findings
+
+### 🔴 BLOCKERS (Must Resolve Before Implementation)
+
+#### Issue 1: Firestore Security Rules Will Reject Permitted Clearance History
+* **Reviewer Lens:** `Long-Term Tech Debt & Maintenance` / `firestore.rules`
+* **Affected Scope:** `firestore.rules` line 401; `PeriodAttendanceMinusAndClearance.jsx` lines 798–814
+* **Discrepancy Description:**  
+  In `firestore.rules`, the `isValidClearanceHist` validator strictly enforces:
+  ```cel
+  data.clearanceType in ['MEDICAL_LEAVE', 'OFFICIAL_PRESENT']
+  ```
+  If `PeriodAttendanceMinusAndClearance.jsx` or any administrative clearance desk attempts to record an official clearance with `clearanceType: 'PERMITTED_LEAVE'`, the Firestore write is **denied immediately** by security rules.
+* **Rationale & Recommendation:**  
+  Update `firestore.rules` line 401 to include `'PERMITTED_LEAVE'`:
+  ```cel
+  data.clearanceType in ['MEDICAL_LEAVE', 'OFFICIAL_PRESENT', 'PERMITTED_LEAVE']
+  ```
+  Synchronize `night_extra_attendance` rules validator to support optional `permittedCount` and `leaveAdNos`.
+
+---
+
+#### Issue 2: Legacy Session Loader Evaluates `'L'` as `PRESENT`
+* **Reviewer Lens:** `Migration & Backward Compatibility`
+* **Affected Scope:** `PeriodAttendanceManager.jsx` lines 554–561
+* **Discrepancy Description:**  
+  When an existing period session is re-opened, `checkExistingSession` loads absentees using:
+  ```javascript
+  const abs = Object.keys(attMap).filter(k => {
+    const val = attMap[k];
+    if (val !== 'A' && val !== 'M') return false;
+    ...
+  });
+  setAbsentRegNos(abs);
+  ```
+  Because `'L'` is neither `'A'` nor `'M'`, `val !== 'A' && val !== 'M'` evaluates to `true` (it is filtered out). Consequently, any student previously saved as `'L'` (`PERMITTED_LEAVE`) is loaded as **PRESENT**! If the teacher saves the session again, the student's leave is wiped out and converted to Present.
+* **Rationale & Recommendation:**  
+  Replace the binary `absentRegNos` array state in `PeriodAttendanceManager.jsx` with a status map `sessionStatusMap: { [regNo]: 'P' | 'A' | 'L' | 'M' | 'O' }`. At minimum, ensure loader filter handles `'L'`:
+  ```javascript
+  if (val !== 'A' && val !== 'M' && val !== 'L') return false;
+  ```
+
+---
+
+#### Issue 3: Re-Save / Session Edit Skips Delta Calculation Between Non-Present States
+* **Reviewer Lens:** `Cost, Quota & Token Economics`
+* **Affected Scope:** `PeriodAttendanceManager.jsx` lines 819–830
+* **Discrepancy Description:**  
+  In `handleSaveAttendance`, re-editing an existing session checks:
+  ```javascript
+  const newStatus = newAttendanceMap[reg] || 'P';
+  const isNewPresent = newStatus === 'P' || newStatus === 'O';
+  const oldStatus = previousMap ? previousMap[reg] : null;
+  const wasOldPresent = oldStatus === 'P' || oldStatus === 'O';
+
+  if (!oldStatus) {
+    // Initial save logic...
+  } else if (wasOldPresent !== isNewPresent) {
+    // Updates presentCount and absentDates...
+  }
+  ```
+  If a student was originally marked `'A'` (unexcused absent) and the teacher updates them to `'L'` (permitted leave) or `'M'` (medical), `wasOldPresent` is `false` and `isNewPresent` is `false`. Thus, `wasOldPresent !== isNewPresent` is **`false`**!  
+  The delta branch is completely skipped:
+  1. `curStat.permittedCount` is never incremented.
+  2. The date remains stuck in `subObj.absentDates`.
+  3. The student continues to be penalized as unexcused absent.
+* **Rationale & Recommendation:**  
+  Implement explicit status-transition accounting when `oldStatus && oldStatus !== newStatus`:
+  - If `oldStatus === 'A'` and `newStatus === 'L'`: decrement absence penalty, remove date from `absentDates`, and increment `permittedCount`.
+  - Only write to student documents whose status actually changed (`oldStatus !== newStatus`), saving 80–90% of Firestore batch write costs.
+
+---
+
+### 🟡 MAJOR CONCERNS (Ergonomics, Schema Drift & Auditing)
+
+#### Issue 4: 4-Button Cluster Destroys 1-Tap Mobile Roll-Call Speed
+* **Reviewer Lens:** `UX & Developer Ergonomics` / `Contrarian / YAGNI`
+* **Affected Scope:** `concepts_brief.md` Section 2.1 (lines 39–41); `PeriodAttendanceManager.jsx` lines 2252–2340
+* **Discrepancy Description:**  
+  Proposing a 4-button cluster (`Pres`, `Abs`, `Leave`, `Sick`) on every student card multiplies DOM interactive elements by 4x (160–240 buttons per roster) and creates severe touch-target crowding on smartphone viewports (360px–420px width). Teachers taking roll-call in real-time need rapid single-tap speed.
+* **Rationale & Recommendation (TRIZ Resolution):**  
+  Adopt **Progressive Disclosure**:
+  - Keep default tap on card as `Present` <-> `Absent`.
+  - Pre-fill `Leave` (`'L'`) and `Sick` (`'M'`) automatically from Gate Outpasses and Recorded Medical Waivers.
+  - On non-present cards, show a compact status chip (`A` / `L` / `M`) that cycles on tap:  
+    `[🔴 ABSENT]` ➔ `[🟣 PERMITTED LEAVE]` ➔ `[🟡 MEDICAL]` ➔ `[🟢 PRESENT]`.
+
+---
+
+#### Issue 5: Night Attendance Document Schema Inconsistency
+* **Reviewer Lens:** `Long-Term Tech Debt & Maintenance`
+* **Affected Scope:** `NightAttendanceManager.jsx` lines 742–785
+* **Discrepancy Description:**  
+  Unlike `PeriodAttendanceManager` (which uses single-character codes `'P'`, `'A'`, `'M'`, `'O'` in `systemCache.periodSession_*`), `NightAttendanceManager` stores session records in `night_attendance/{date}` using student arrays:
+  `absentAdNos: []`, `outpassAdNos: []`, `officialAdNos: []`, `sickAdNos: []`.
+  The RFC brief does not specify how `NightAttendanceManager` stores permitted leaves in Firestore.
+* **Rationale & Recommendation:**  
+  Standardize `night_attendance` document schema to include:
+  ```json
+  {
+    "permittedAdNos": ["1024", "1055"],
+    "permittedCount": 2
+  }
+  ```
+  Ensure backward-compatibility fallbacks: `savedClassRecord.permittedAdNos || []`.
+
+---
+
+#### Issue 6: Ad-Hoc Permitted Leaves Lack Traceability & Reason Audit Trail
+* **Reviewer Lens:** `Observability & SRE Debuggability`
+* **Affected Scope:** `PeriodAttendanceManager.jsx` line 765
+* **Discrepancy Description:**  
+  When an admin issues clearance in `PeriodAttendanceMinusAndClearance.jsx`, a verifiable certificate (`certNumber`, issuer username, timestamp, remarks) is generated. If a teacher marks `'L'` during regular period roll-call, no reason is captured. During end-of-year attendance shortage audits, administrators cannot verify who sanctioned the leave or why.
+* **Rationale & Recommendation:**  
+  In `systemCache.periodSession_*`, include an optional `leaveMetadata` map:
+  ```json
+  "leaveMetadata": {
+    "dhiu2101": {
+      "type": "L",
+      "reason": "Library research sanctioned by HOD",
+      "recordedBy": "usthad_ahmed"
+    }
+  }
+  ```
+
+---
+
+### 🟢 NITS & POLISH
+
+#### Issue 7: Inconsistent Physical Presence Inflation in Clearance Desk
+* **Reviewer Lens:** `Contrarian / YAGNI`
+* **Affected Scope:** `PeriodAttendanceMinusAndClearance.jsx` lines 808–814
+* **Discrepancy Description:**  
+  In the clearance desk, permitted clearance was mapped to `'O'` and incremented `presentCount`:
+  `curStat.presentCount = (curStat.presentCount || 0) + 1;`  
+  This contradicts RFC Section 2.1 ("Excuses the student from absence penalties without inflating physical presence ratios").
+* **Recommendation:**  
+  Standardize clearance behavior: `'L'` increments `permittedCount`, leaves `presentCount` untouched, and decreases penalty count.
+
+#### Issue 8: WhatsApp URL Encoding & Zero-Absent Fallback
+* **Reviewer Lens:** `UX & Developer Ergonomics`
+* **Affected Scope:** `concepts_brief.md` Section 2.2 (lines 46–60)
+* **Discrepancy Description:**  
+  WhatsApp click-to-chat links (`openDirectWhatsApp`) will break if special characters in subject names (e.g. `U :FIQH`, `&`, `—`) are not strictly URL-encoded (`encodeURIComponent`).
+* **Recommendation:**  
+  Wrap all formatted WhatsApp text in `encodeURIComponent` and disable the WhatsApp action button when `absentCount === 0` to prevent spamming class teachers with empty reports.
+
+---
+
+## Final Synthesizer Verdict
+
+### 🟢 **APPROVED WITH ENHANCEMENTS**
+The RFC concept is structurally sound and ready for architecture specification once the 3 Blockers (Firestore rules update, session loader filter update, and session re-save delta recalculation) are incorporated.
