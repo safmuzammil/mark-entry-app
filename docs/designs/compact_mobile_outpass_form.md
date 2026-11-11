@@ -18,11 +18,16 @@ On mobile viewports (widths 360px–412px), these 38 buttons consume more than 1
 
 This design restructures the Gate Outpass creation desk into a compact, mobile-first interface applied universally across mobile and desktop displays:
 
-1. **Standard Native Dropdown Pickers (`<select>`)**: Converts Leave Category, Destination, and Purpose into compact HTML `<select>` elements that invoke the mobile OS bottom selection sheet (iOS wheel picker / Android bottom dialog).
-2. **Index-0 Custom Input Trigger**: Places `✍️ Custom ...` at option 0 of each dropdown. Selecting it displays an inline autofocus text input directly below the dropdown.
-3. **High-Frequency Shortcut Chips**: Displays 2–3 1-tap shortcut pills alongside each dropdown for the most common institutional destinations and leave reasons (e.g., `Home`, `Chemmad`, `Bookplus`), bidirectionally mirrored with the dropdown state.
+1. **Standard Native Dropdown Pickers (`<select>`)**: Converts Leave Category, Destination, and Purpose into compact HTML `<select>` elements that invoke the mobile OS bottom selection sheet (iOS wheel picker / Android bottom dialog). All `<select>` elements enforce a 16px base font size to prevent iOS Safari auto-zooming and maintain a minimum 44px touch target height.
+2. **Index-0 Custom Input Trigger**: Places `✍️ Custom ...` at option 0 of each dropdown. Selecting it reveals an inline text input directly below the dropdown. The `<select>` element retains a controlled binding to `'CUSTOM'` (or `'Custom'`) during typing, preventing unselected states, while smooth scrolling ensures soft keyboards do not occlude the input.
+3. **High-Frequency Shortcut Chips**: Displays 2–3 1-tap shortcut pills alongside each dropdown for the most common institutional movements:
+   * **Categories**: `🏠 Monthly Home`, `☀️ Evening`, `🕌 Friday`
+   * **Destinations**: `📍 Home`, `📍 Chemmad` *(local town center)*, `📍 Bookplus` *(campus bookstore & stationery)*
+   * **Purposes**: `📝 Monthly 3-Day Leave`, `📝 Medical / Hospital Case`, `📝 Personal Purchase`
+   Bidirectionally mirrored with the dropdown state.
 4. **Purged Duration Clutter in Section 5**: Removes the 5 fixed duration preset chips (`+1 Hr`, `+2 Hrs`, `Today 6:00 PM`, `+1 Day`, `+3 Days`) above the date picker.
 5. **Flexible Teacher-Controlled Open Return**: Replaces the duration cluster with a dedicated, teacher-controlled toggle for **`🏥 Open-Ended Return (No fixed deadline)`**. For medical visits, teachers can either activate open-ended return or specify an exact expected return time.
+6. **Mobile Ergonomics & Keyboard Avoidance**: Form containers provide soft-keyboard clearance padding and smooth-scroll alignment when opening custom text inputs, ensuring responsive ergonomics on small mobile screens.
 
 ---
 
@@ -33,8 +38,9 @@ This design restructures the Gate Outpass creation desk into a compact, mobile-f
 * **Universal Layout**: Apply the compact dropdown + shortcut chip architecture consistently across all device viewports.
 * **1-Tap Workflow Preservation**: Retain rapid 1-tap selection for high-frequency movements via 2–3 shortcut chips per field.
 * **Flexible Custom Entries**: Support free-form custom input across Category, Destination, and Purpose via option 0 triggers.
-* **Automated Schedule Cascades**: Maintain automatic population logic (e.g., `Monthly_Home` auto-selecting Home and 3 days, `Evening` applying 21:30 curfew).
+* **Automated Schedule Cascades**: Maintain automatic population logic (e.g., `Monthly_Home` auto-selecting Home and 3 days, `Evening` applying institutional curfew `21:30`).
 * **Flexible Medical Return**: Provide a clean toggle for open-ended return while allowing fixed-time medical leaves when appropriate.
+* **Keyboard Safety & Mobile Accessibility**: Prevent virtual keyboard occlusion and iOS viewport auto-zoom across all input fields.
 
 ### Out-of-Scope Non-Goals
 * Modifying the Firestore schema or database security rules for `out_passes`.
@@ -61,32 +67,38 @@ Each selection domain follows a standardized, responsive 3-tier component patter
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 1. Section 2: Leave Category
+#### Section 2: Leave Category
 * **Native Dropdown**:
   * Option 0: `Custom` (`✍️ Custom Leave Category...`)
   * Options 1..N: Standard predefined categories (`Monthly_Home`, `1_Day`, `2_Day`, `Weekend_Thu_Sat`, `Friday`, `Evening`, `General`, `Medical`, `Outreach`, `Official`).
+  * Controlled value bound to `'Custom'` whenever `isCustomCategoryActive` is true.
+  * Styling: `fontSize: 16px` (avoids iOS Safari auto-zoom), `minHeight: 44px` touch target.
 * **Shortcut Chips**: `🏠 Monthly Home`, `☀️ Evening`, `🕌 Friday`.
 * **Automations**:
   * Selecting `Monthly_Home` displays the compact 1–7 day selector bar (`[1 Day]`, `[2 Days]`, `[3 Days]` ... `[7 Days]`), automatically sets destination to `"Home"`, purpose to `"Monthly 3-Day Home Leave"`, and applies 3-day duration.
-  * Selecting `Evening` applies standard evening curfew (21:30).
+  * Selecting `Evening` applies standard evening hostel curfew `21:30` (9:30 PM).
   * Selecting `Weekend_Thu_Sat` applies 2-day duration.
-  * Selecting `Custom` displays the custom category text input.
+  * Selecting `Custom` displays the custom category text input with smooth scrolling into view.
 
-#### 2. Section 3: Destination
+#### Section 3: Destination
 * **Native Dropdown**:
   * Option 0: `CUSTOM` (`✍️ Custom Destination / Place...`)
-  * Options 1..N: Standard predefined places (`Home`, `Chemmad`, `Bookplus`, `Mampuram`, `Tirurangadi Hospital`, `Bank / ATM`, `Barber Shop`, `Medical Store`, `Kozhikode`, `Malappuram`).
+  * Options 1..N: Standard predefined places (`Home`, `Chemmad` *(local town)*, `Bookplus` *(campus bookstore)*, `Mampuram`, `Tirurangadi Hospital`, `Bank / ATM`, `Barber Shop`, `Medical Store`, `Kozhikode`, `Malappuram`).
+  * Controlled value bound to `'CUSTOM'` whenever `isCustomDestActive` or non-preset string is active.
+  * Styling: `fontSize: 16px`, `minHeight: 44px` touch target.
 * **Shortcut Chips**: `📍 Home`, `📍 Chemmad`, `📍 Bookplus`.
-* **Custom Input**: Displayed when `isCustomDestActive` or value is not in presets.
+* **Custom Input**: Displayed when `isCustomDestActive` or value is not in presets; selection of any preset automatically clears custom text and sets `isCustomDestActive = false`.
 
-#### 3. Section 4: Purpose / Reason for Leave
+#### Section 4: Purpose / Reason for Leave
 * **Native Dropdown**:
   * Option 0: `CUSTOM` (`✍️ Custom Purpose / Reason...`)
-  * Options 1..N: Standard reasons (`Monthly 3-Day Home Leave`, `Bookplus / Stationery`, `Medical / Hospital Case`, `Friday Jumu'ah / Outing`, `Personal Purchase`, `Department / Official Work`, `Family Function / Visit`, `Dental / Eye Checkup`, `Home Leave`).
+  * Options 1..N: Standard reasons (`Monthly 3-Day Home Leave`, `Bookplus / Stationery`, `Medical / Hospital Case`, `Friday Jumu'ah / Outing` *(Friday congregational prayer & outing)*, `Personal Purchase`, `Department / Official Work`, `Family Function / Visit`, `Dental / Eye Checkup`, `Home Leave`).
+  * Controlled value bound to `'CUSTOM'` whenever `isCustomPurposeActive` or non-preset reason is active.
+  * Styling: `fontSize: 16px`, `minHeight: 44px` touch target.
 * **Shortcut Chips**: `📝 Monthly 3-Day Leave`, `📝 Medical / Hospital Case`, `📝 Personal Purchase`.
-* **Custom Input**: Displayed when `isCustomPurposeActive` or value is not in presets.
+* **Custom Input**: Displayed when `isCustomPurposeActive` or value is not in presets; selecting a preset clears custom text and sets `isCustomPurposeActive = false`.
 
-#### 4. Section 5: Permitted Date & Time Schedule
+#### Section 5: Permitted Date & Time Schedule
 * **Purged Elements**: Permanently removes `+1 Hr`, `+2 Hrs`, `Today 6:00 PM`, `+1 Day`, and `+3 Days` buttons.
 * **Flexible Open Return Toggle**:
   * Renders a dedicated button/toggle: `🏥 Open-Ended Return (No fixed return deadline)`.
@@ -106,7 +118,8 @@ Each selection domain follows a standardized, responsive 3-tier component patter
 flowchart TD
     UserAction{"User Action"} -->|Taps Shortcut Chip| SetChipState["Update State + Dropdown Value = Chip.value"]
     UserAction -->|Selects Option from Dropdown| SetSelectState["Update State + Active Chip Highlight"]
-    UserAction -->|Selects Custom Option| OpenCustomInput["Set State = CUSTOM + Reveal Autofocus Text Input"]
+    UserAction -->|Selects Custom Option| OpenCustomInput["Set State = CUSTOM + Reveal Text Input"]
+    OpenCustomInput -->|User enters text| UpdateCustomPayload["Update Custom Payload + Controlled Select = CUSTOM"]
     UserAction -->|Toggles Open Return| ToggleOpenReturn["Toggle isOpenReturn (Show/Hide Return Deadline Picker)"]
 
     SetChipState --> CheckAutomations{"Check Preset Automations"}
@@ -156,29 +169,30 @@ The implementation proceeds in a single unified execution plan touching the outp
 ### Step 1: Refactor Category Section in `OutpassTeacherDesk.jsx`
 * **File**: [`app/outpass/components/OutpassTeacherDesk.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/OutpassTeacherDesk.jsx)
 * **Changes**:
-  * Replace the `LEAVE_CATEGORIES.map` button grid (lines 823–847) with a native `<select>` dropdown.
+  * Remove unused popover toggle state variables `openCategoryList`, `openDestinationList`, and `openPurposeList`.
+  * Replace the `LEAVE_CATEGORIES.map` button grid (lines 823–847) with a native `<select>` dropdown (`fontSize: 16px`, `minHeight: 44px`).
   * Define Option 0 as `value="Custom"` (`✍️ Custom Leave Category...`), followed by mapped options from `LEAVE_CATEGORIES.filter(c => c !== 'Custom')`.
   * Render 3 shortcut chips (`🏠 Monthly Home`, `☀️ Evening`, `🕌 Friday`) directly below the dropdown.
   * Bind `onChange` to invoke `handleSelectCategoryOption(e.target.value)`.
   * Retain conditional rendering of the 1–7 day duration selector when `leaveCategory === 'Monthly_Home'`.
-  * Retain conditional rendering of `customCategoryText` input when `leaveCategory === 'Custom'`.
+  * Retain conditional rendering of `customCategoryText` input when `leaveCategory === 'Custom'`, using smooth scroll into view.
 
 ### Step 2: Refactor Destination Section in `OutpassTeacherDesk.jsx`
 * **File**: [`app/outpass/components/OutpassTeacherDesk.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/OutpassTeacherDesk.jsx)
 * **Changes**:
-  * Replace the `QUICK_DESTINATIONS.map` button grid (lines 903–945) with a native `<select>` dropdown.
+  * Replace the `QUICK_DESTINATIONS.map` button grid (lines 903–945) with a native `<select>` dropdown (`fontSize: 16px`, `minHeight: 44px`).
   * Define Option 0 as `value="CUSTOM"` (`✍️ Custom Destination / Place...`), followed by mapped destinations from `QUICK_DESTINATIONS`.
   * Render 3 shortcut chips (`📍 Home`, `📍 Chemmad`, `📍 Bookplus`) directly below the dropdown.
-  * Bind dropdown selection: if a standard place is chosen, update `destination` and set `isCustomDestActive = false`; if `CUSTOM` is selected, set `isCustomDestActive = true` and focus custom text input.
+  * Bind dropdown selection: if a standard place is chosen, update `destination`, clear any custom text, and set `isCustomDestActive = false`; if `CUSTOM` is selected, set `isCustomDestActive = true`, bind controlled `<select>` value to `'CUSTOM'`, and reveal custom text input.
   * Render the custom destination `<input>` when `isCustomDestActive || (destination && !QUICK_DESTINATIONS.includes(destination))`.
 
 ### Step 3: Refactor Purpose Section in `OutpassTeacherDesk.jsx`
 * **File**: [`app/outpass/components/OutpassTeacherDesk.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/OutpassTeacherDesk.jsx)
 * **Changes**:
-  * Replace the `QUICK_PURPOSES.map` button grid (lines 973–1015) with a native `<select>` dropdown.
+  * Replace the `QUICK_PURPOSES.map` button grid (lines 973–1015) with a native `<select>` dropdown (`fontSize: 16px`, `minHeight: 44px`).
   * Define Option 0 as `value="CUSTOM"` (`✍️ Custom Purpose / Reason...`), followed by mapped reasons from `QUICK_PURPOSES`.
   * Render 3 shortcut chips (`📝 Monthly 3-Day Leave`, `📝 Medical / Hospital Case`, `📝 Personal Purchase`) directly below the dropdown.
-  * Bind dropdown selection: if standard reason is chosen, update `purpose` and set `isCustomPurposeActive = false`; if `CUSTOM` is selected, set `isCustomPurposeActive = true` and focus custom text input.
+  * Bind dropdown selection: if standard reason is chosen, update `purpose`, clear custom text, and set `isCustomPurposeActive = false`; if `CUSTOM` is selected, set `isCustomPurposeActive = true`, bind controlled `<select>` value to `'CUSTOM'`, and reveal custom text input.
   * Render the custom purpose `<input>` when `isCustomPurposeActive || (purpose && !QUICK_PURPOSES.includes(purpose))`.
 
 ### Step 4: Streamline Section 5 (Date & Time Schedule) in `OutpassTeacherDesk.jsx`
