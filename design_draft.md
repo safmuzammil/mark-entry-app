@@ -1,265 +1,323 @@
-# Design Document: Three-Tiered Unified Leave Architecture & Zero-Friction Attendance Workflows
+# Streamlined Leave Granting & Unified Admin Leaves Hub
 
-* **Author:** safmuzammil
-* **Date:** 2026-11-10
-* **Status:** DRAFT
+*   **Author:** safmuzammil
+*   **Status:** Draft
+*   **Date:** 2026-11-11
 
-## 1. Problem Statement
+--------------------------------------------------------------------------------
 
-The campus management workflow at Darul Huda Degree Campus faces operational friction across attendance recording and leave tracking:
+## Overview
 
-1. **Roll-Call Latency in Hostel Corridors**: During Night Attendance and Extra Attendance, wardens and teachers verify batches of 35–80 students under tight time windows. Existing UI popups (modals requesting text reasons, end-dates, and timestamps upon marking absence or sick status) interrupt roll-call speed, creating severe administrative bottlenecks.
-2. **Ambiguity in Student Absence Categories**: The campus enforces three fundamentally different types of leaves, which are currently conflated or handled ad-hoc:
-   * *Physical Gate Outpass*: Leaving campus boundaries (requires security gate clearance).
-   * *Hostel Sick in Room*: Staying in the hostel room to rest due to acute illness (excused from academic classes and congregational Jamath, but strictly confined to campus).
-   * *Masjid Jamath Exemption*: Physical attendance in academic classrooms, but excused from climbing stairs to the central masjid 5 times daily due to fractures, plaster casts, crutches, or bandages.
-3. **Disciplinary Penalties on Injured Students**: Without automated cross-checks, disciplinary monitors entering "Jamath Missing" penalties in Minus Attendance inadvertently deduct marks from students with legitimate leg fractures or medical exemptions.
-4. **Perimeter Security Leakage**: If internal hostel sick leaves are mixed with gate outpasses, gate security guards risk letting sick students leave the campus without authorized parent and administrative consent.
+This technical design outlines the streamlining of the campus medical waiver modal forms and the restructuring of the Administrator leave management desk within the Darul Huda Degree Campus ERP.
 
-## 2. Overview & Solution Narrative
+The current waiver grant interface demands five distinct inputs, including location and freeform notes that are unnecessary for campus operations, while relegating custom diagnoses below a lengthy preset list. Additionally, the Admin Portal exposes gate passes under an isolated `Out-Pass Portal` view without surfacing the internal `Sick in Room` and `Masjid Exemption` sub-tabs available to teachers.
 
-This design elevates the existing `Out-Pass Desk` into a unified **`Leaves & Outpass`** module (`🪪`) containing three dedicated sub-tabs:
-* **Sub-Tab 1: 🪪 Gate Outpasses**: External campus exits connected to Gate Security.
-* **Sub-Tab 2: 🤒 Sick in Room**: In-hostel medical bed rest authorized by Class Teachers and Admin, auto-syncing to Period Attendance.
-* **Sub-Tab 3: 🩹 Masjid Exemptions**: Orthopedic/mobility waivers authorized by Class Teachers and Admin, shielding students in Minus Attendance.
+This design introduces a rapid 3-step modal (Student Search, Custom-First Reason with 1-tap template chips, and Validity End Date defaulting to end-of-day expiration) and unifies the Admin navigation into a 4-tab `Leaves & Outpass` desk with campus-wide search and issuance privileges.
 
-Concurrently, it transforms **Night Attendance** and **Extra Attendance** into modal-free, 1-tap roll-call systems utilizing inline 4-way segmented buttons (`Present`, `Absent`, `Sick`, `Official`), while preserving the critical invariant that night attendance remains strictly isolated to the night report.
+## The Problem
 
-## 3. Goals & Non-Goals
+1. **Mobile Input Overhead for Faculty**: When recording bed rest for acute ailments or issuing stair-climbing exemptions, teachers currently face five form fields on mobile viewports. Fields such as "Hostel Room / Location" and "Additional Notes" add needless typing and screen clutter since campus wardens do not conduct in-room dispensary rounds.
+2. **Preset Inflexibility**: Custom diagnoses are currently forced into a secondary input below a rigid dropdown list, creating cognitive friction when a student presents with an unlisted condition.
+3. **Absence of Expiration Timing**: Current waivers persist indefinitely until a faculty member remembers to manually click "Mark Recovered". This leads to stale waivers lingering across days, artificially suppressing attendance counts.
+4. **Admin Portal Fragmentation**: Administrators currently see only gate outpass logs under `Out-Pass Portal` (`🪪`). To view internal sick bed rests or prayer exemptions, admins have to navigate external interfaces rather than managing all three institutional leave categories in a centralized hub.
 
-### In-Scope Goals
-* **Modal-Free Roll-Call Engine**: Implement an inline 4-way tactile segmented selector (`[🟢 Present] [🔴 Absent] [🤒 Sick] [🏛️ Official]`) across Night Attendance and Extra Attendance, eliminating all mandatory modal prompts during roll-call.
-* **Night Ledger Isolation**: Guarantee that marking a resident `Sick in Room` at night does not mutate or auto-excuse the next morning's academic periods.
-* **Unified Leaves Desk**: Consolidate `Out-Pass Desk` into `Leaves & Outpass` with three focused sub-tabs: Gate Outpasses, Sick in Room, and Masjid Exemptions.
-* **Authority Gate**: Restrict creation and revocation of Sick in Room and Masjid Exemptions strictly to assigned Class Teachers and Central Admin.
-* **Open-Ended Medical Validity**: Support open-ended active statuses that persist without mandatory calendar deadlines until manually revoked upon recovery.
-* **Cross-Tab Synchronization**:
-  * Period Attendance automatically badges Category 2 as `🤒 Sick in Room` (Amber `#fffbeb`/`#d97706`).
-  * Minus Attendance actively checks Category 3 waivers and blocks or warns against "Jamath Missing" deductions.
-* **Gate Security Perimeter Quarantine**: Ensure Gate Security Kiosks display and scan only Category 1 Gate Outpasses, preventing internal sick students from unauthorized campus exit.
+## Goals
 
-### Out-of-Scope Non-Goals
-* Automatic morning class absence generation triggered by night roll-call entries.
-* Biometric or RFID automated turnstile scanning for masjid attendance.
-* Pharmacy medicine inventory and medical diagnosis charting.
+*   **Sub-5-Second Mobile Leave Issuance**: Reduce the leave granting modal to strictly three intuitive steps: predictive student picker, reason selection, and validity duration.
+*   **Custom-First Reason Architecture**: Position `✍️ Custom Reason...` as option 0 with autofocus text entry, accompanied by 1-tap template preset chips (`Fever / Flu`, `Stomach Ache`, `Sprain / Bruise`) that immediately populate the field.
+*   **Automated Date Expiration**: Default all new bed-rest waivers to expire at midnight of the current date (`23:59:59`), with quick duration chips (`Today Only`, `+1 Day`, `+2 Days`, `Custom Date`) for multi-day excusals.
+*   **Unified Admin Leaves Desk**: Elevate Admin Portal navigation to `Leaves & Outpass` (`🪪`), presenting a persistent 4-tab interface:
+    1. `🪪 Gate Outpass`
+    2. `🤒 Sick in Room`
+    3. `🩹 Masjid Jamath Exemption`
+    4. `📊 Movement & Audit Reports`
+*   **Backward Compatibility Invariant**: Preserve existing production waivers without a `validUntil` field as active until manually revoked, preventing premature mass-expiration.
 
----
+## Non-Goals
 
-## 4. Technical Plan & System Architecture
+*   **Hostel Room Tracking**: Tracking student bed or wing occupancy is explicitly out of scope because wardens do not perform hostel room inspections.
+*   **Pharmacy & Medication Tracking**: Managing medical inventory, prescriptions, or dispensary doctor logs.
+*   **Multi-Step Approval Workflows**: Requiring multiple sign-offs (e.g., student request → warden approval → principal signature). Waivers remain directly authorizable by Class Teachers and Administrators.
 
-### 4.1 System Topology & Data Flow
+## Open Questions
+
+*   None. All architectural and operational requirements were confirmed during the multi-lens brainstorm.
+
+## Critical User Journeys (CUJs)
+
+### CUJ 1: Class Teacher Grants Same-Day Bed Rest on Mobile
+*   **Given**: A teacher is taking morning period attendance or receiving a student message regarding acute fever.
+*   **When**: The teacher opens `Leaves & Outpass` → `Sick in Room`, searches for the student (`Salman` or `#3456`), taps `[🤒 Fever / Flu]` chip, and taps `[Confirm & Grant Bed Rest]`.
+*   **Then**: The waiver is saved with `validUntil` set to today's date. Periods 1–9 automatically display `🤒 Sick in Room` in Amber without academic penalty. At midnight tonight, the waiver naturally lapses, requiring zero manual cleanup next morning.
+
+### CUJ 2: Class Teacher Issues Multi-Day Sprain Exemption
+*   **Given**: A student has suffered a foot injury requiring a 3-day recovery.
+*   **When**: The teacher selects the student in `Masjid Jamath Exemption`, taps `[+2 Days (Day After)]` chip, enters `Right foot sprain, bandage applied`, and confirms.
+*   **Then**: The waiver persists across today and the next two days, protecting the student in `MinusAttendanceManager` from "Jamath Missing" deductions. On the fourth day, the waiver ceases excusal automatically.
+
+### CUJ 3: Administrator Manages All Campus Leaves
+*   **Given**: The administrator logs into the main ERP dashboard.
+*   **When**: The admin taps `Leaves & Outpass` in the navigation drawer.
+*   **Then**: The admin sees four sibling tabs: `Gate Outpass`, `Sick in Room`, `Masjid Exemption`, and `Movement Reports`. The admin can search any student across all classes to inspect or grant bed rest or Jamath exemptions.
+
+
+--------------------------------------------------------------------------------
+
+## Technical Plan (Architecture)
+
+### 1. Architectural System Topology
 
 ```mermaid
 flowchart TD
-    subgraph Authority["Authorization Desk (Class Teacher / Admin)"]
-        A1["Out-Pass Request"] -->|"Off-Campus Leave"| L1["Sub-Tab 1: Gate Outpasses"]
-        A2["Hostel Illness Report"] -->|"Bed Rest"| L2["Sub-Tab 2: Sick in Room"]
-        A3["Fracture / Cast Diagnosis"] -->|"Mobility Waiver"| L3["Sub-Tab 3: Masjid Exemptions"]
+    subgraph UI ["User Interface Layer"]
+        CT["Teacher Portal View"]
+        ADM["Admin Main Dashboard"]
+        SUB1["🪪 Gate Outpass Sub-Tab"]
+        SUB2["🤒 Sick in Room Sub-Tab"]
+        SUB3["🩹 Masjid Exemption Sub-Tab"]
+        SUB4["📊 Movement Reports Sub-Tab"]
+        MODAL["Streamlined Grant Modal"]
     end
 
-    subgraph DataStore["Firestore Central Datastore"]
-        L1 -->|"Saves to"| DB_OP["collection('out_passes')"]
-        L2 -->|"Saves to"| DB_MW["collection('campus_medical_waivers')\ntype='SICK_IN_ROOM'"]
-        L3 -->|"Saves to"| DB_MW2["collection('campus_medical_waivers')\ntype='JAMATH_EXEMPTION'"]
+    subgraph Core ["Core Attendance Consumers"]
+        PAM["Period Attendance Manager"]
+        NAM["Night Attendance Manager"]
+        MAM["Minus Attendance Manager"]
     end
 
-    subgraph Enforcement["Live Institutional Enforcement"]
-        DB_OP -->|"Strict Access Whitelist"| GATE["Gate Security Kiosk (PIN & QR)\n[PHYSICAL EXIT ALLOWED]"]
-        DB_OP -->|"Indigo Badge"| PERIOD["Period Attendance Manager"]
-        DB_OP -->|"Indigo Badge"| NIGHT["Night Attendance Manager"]
-        
-        DB_MW -->|"Amber Badge (#fffbeb)"| PERIOD
-        DB_MW -->|"Excused from Jamath"| MINUS["Minus Attendance Manager"]
-        DB_MW -->|"Amber Badge"| NIGHT
-        
-        DB_MW2 -->|"Normal Class Student (#ecfdf5)"| PERIOD
-        DB_MW2 -->|"🛡️ Jamath Deductions Blocked"| MINUS
+    subgraph Store ["Firestore Persistence Layer"]
+        DB_WAIVERS[("campus_medical_waivers<br/>• validUntil: YYYY-MM-DD<br/>• waiverType: SICK_IN_ROOM / JAMATH_EXEMPTION<br/>• status: ACTIVE / REVOKED")]
+        DB_OUTPASS[("out_passes<br/>• status: APPROVED / OUTSIDE / RETURNED")]
     end
+
+    CT -->|"Leaves & Outpass"| SUB1 & SUB2 & SUB3
+    ADM -->|"Leaves & Outpass (4 Tabs)"| SUB1 & SUB2 & SUB3 & SUB4
+    SUB2 & SUB3 --> MODAL
+    MODAL -->|"setDoc with validUntil"| DB_WAIVERS
+    
+    PAM & NAM & MAM -->|"isWaiverActiveOnDate(w, dateStr)"| DB_WAIVERS
 ```
 
-### 4.2 Data Model: `campus_medical_waivers` Collection
+### 2. Streamlined Leave Modal Architecture
 
-A dedicated Firestore collection `campus_medical_waivers` is introduced to manage internal campus leaves without overloading physical gate outpasses:
+The modal UI in both `SickInRoomSubTab.jsx` and `MasjidExemptionSubTab.jsx` is re-engineered from a multi-field questionnaire into an agile 3-tier action card:
 
-```typescript
-interface CampusMedicalWaiver {
-  id: string; // waiver_${Date.now()}_${adNo}
-  studentRegNo: string;
-  adNo: string;
-  studentName: string;
-  className: string;
-  department?: string;
-  waiverType: 'SICK_IN_ROOM' | 'JAMATH_EXEMPTION';
-  injuryReason: string; // e.g., "Leg Fracture / Plaster Cast", "Acute Viral Fever"
-  roomNumber?: string; // e.g. "Room 204, Wing B"
-  notes?: string;
-  issuedBy: string; // teacher username or admin
-  issuedByName: string; // teacher full name
-  issuedByRole: 'CLASS_TEACHER' | 'ADMIN';
-  issuedAt: string; // ISO-8601 string
-  status: 'ACTIVE' | 'REVOKED';
-  revokedAt?: string | null;
-  revokedBy?: string | null;
-  revokedByName?: string | null;
-  revocationNotes?: string | null;
-}
+1. **Section 1: Verified Student Picker**:
+   * Reactive text input matching student first name, admission number (`#adNo`), or class.
+   * Selecting a candidate renders a compact verified banner with photo avatar, roll number, and an instant `[✕ Change]` action.
+2. **Section 2: Custom-First Reason with 1-Tap Template Chips**:
+   * Dropdown selector with `✍️ Custom Reason...` fixed at index 0.
+   * When `✍️ Custom Reason...` is active, a single-line input field appears with placeholder `e.g. Severe throat infection...`.
+   * Directly below the input sits a horizontal flex-wrap palette of 1-tap template chips:
+     * *Sick in Room*: `[🤒 Fever / Flu]`, `[🤢 Stomach Ache]`, `[🤕 Headache / Migraine]`, `[🤮 Vomiting / Nausea]`, `[🤧 Cold / Cough]`.
+     * *Masjid Exemption*: `[🩹 Leg Fracture / Cast]`, `[🩼 Crutches / Sprain]`, `[🩸 Open Wound / Dressing]`, `[🦶 Ankle Bruise]`.
+   * Tapping any chip immediately sets the reason text and commits the selection without scrolling.
+3. **Section 3: Validity End Date (`validUntil`)**:
+   * Quick duration buttons:
+     - `[Today Only]` (Sets `validUntil = todayStr`) — selected by default.
+     - `[+1 Day (Tomorrow)]` (Sets `validUntil = todayStr + 1 day`).
+     - `[+2 Days (Day After)]` (Sets `validUntil = todayStr + 2 days`).
+     - `[Custom Date]` (Reveals native `<input type="date">` for longer recoveries).
+   * Live visual status echo:
+     `<div style="color: #047857; background: #ecfdf5; padding: 6px 10px; borderRadius: 6px;">`
+     `⏳ Excuses student through {formattedDate} (Auto-expires at Midnight)`
+     `</div>`
+4. **Eliminated Fields**:
+   * `roomNumber` and `notes` are completely purged from both JSX and Firestore document payload.
+
+### 3. Expiration Engine & Attendance Engine Sync
+
+All attendance consumers synchronize against an authoritative helper function:
+
+```javascript
+/**
+ * Evaluates whether a campus medical waiver is active on a specific operational date.
+ * 
+ * @param {Object} waiver - The document from campus_medical_waivers
+ * @param {string} targetDate - The attendance session date (YYYY-MM-DD)
+ * @returns {boolean} True if the waiver excuses the student on targetDate
+ */
+export const isWaiverActiveOnDate = (waiver, targetDate) => {
+  if (!waiver || waiver.status !== 'ACTIVE') return false;
+  
+  // Backward compatibility: legacy waivers without validUntil remain open-ended
+  // until explicitly marked recovered:
+  if (!waiver.validUntil) return true;
+  
+  return targetDate <= waiver.validUntil;
+};
 ```
 
-### 4.3 Component Refactoring & Implementation Specifications
+#### Consumer Implementations:
+* **Period Attendance (`PeriodAttendanceManager.jsx`)**:
+  Maps active waivers where `isWaiverActiveOnDate(w, selectedDate)` into `allRecs` with:
+  ```javascript
+  {
+    startDate: w.issuedAt ? w.issuedAt.split('T')[0] : selectedDate,
+    endDate: w.validUntil || selectedDate,
+    hasDuration: Boolean(w.validUntil && w.validUntil !== selectedDate),
+    reason: w.injuryReason,
+    isMedical: true,
+    isSickRoom: true,
+    permittedBy: w.issuedByName || 'Class Teacher'
+  }
+  ```
+* **Night Attendance (`NightAttendanceManager.jsx`)**:
+  When evaluating pre-saved status or calculating the nightly absentee roster:
+  Filters `activeCampusWaiversMap` against `isWaiverActiveOnDate(w, selectedDate)`. Lapsed waivers do not mark students `SICK_ROOM`.
+* **Minus Attendance (`MinusAttendanceManager.jsx`)**:
+  Cross-checks `activeJamathExemptions` against `isWaiverActiveOnDate(w, selectedDate)` before evaluating missing Jamath deductions.
 
-#### 1. Navigation Shell (`app/components/TeacherPortalView.jsx`)
-* Rename the sidebar entry from `Out-Pass Desk` to `Leaves & Outpass` (`🪪`).
-* Keep active view ID as `'outpass'` for 100% backward route compatibility.
-* Pass `classTeacherOf={loggedInTeacher?.outpassPrivileges?.classTeacherOf || []}` and `isClassTeacher={Boolean(myClassTeacherOf.length > 0)}` to the embedded outpass view.
+### 4. Admin Portal 4-Tab Desk Architecture
 
-#### 2. Unified Leaves Desk (`app/outpass/page.jsx` / `StudentOutpassTab.jsx`)
-* Wrap the top level with a persistent 3-segment sub-tab navigator:
-  1. `🪪 Gate Outpasses`: Retains existing outpass table, filters, parent verification, gate pass printing, and approval actions.
-  2. `🤒 Sick in Room`: Roster of active bed-rest students, quick-filter by class, "Grant Bed Rest" action modal, and "Mark Recovered" button (sets `status = 'REVOKED'`).
-  3. `🩹 Masjid Exemptions`: Roster of students with mobility/orthopedic exemptions, "Grant Jamath Exemption" modal with injury presets, and "Revoke Exemption" action.
-* **Gate Security Quarantine**: If the viewer is authenticated as `Gate Security` or accessed via the Gate PIN terminal, sub-tabs 2 and 3 are completely hidden.
+In `app/page.jsx`, the navigation drawer entry is updated:
+```javascript
+{ id: 'outpass', label: 'Leaves & Outpass', icon: '🪪', desc: 'Live campus movement & medical waivers' }
+```
 
-#### 3. Modal-Free 4-Way Segmented Roll-Call (`app/components/NightAttendanceManager.jsx`)
-* Replace single-card popups (`openAbsenceModal`) with an inline 4-way tactile segmented control:
-  * `[ 🟢 Present ]`: High-contrast green border/background.
-  * `[ 🔴 Absent ]`: High-contrast red border/background.
-  * `[ 🤒 Sick ]`: High-contrast amber border/background (`#fffbeb`, `#d97706`).
-  * `[ 🏛️ Official ]`: High-contrast cyan/teal border/background (`#f0fdfa`, `#0d9488`).
-* If a student has an active `Gate Outpass` (`status === 'OUTSIDE'`), the selector is disabled with an auto-locked Indigo badge: `🪪 Outside Campus`.
-* Apply the identical 4-way inline selector to **Extra Attendance** (`viewMode === 'extra_attendance'`).
-* **Isolation Rule**: Night attendance saves record directly to `night_attendance/{date}` and do not alter `systemCache/periodSession_*` records.
+In `app/outpass/page.jsx`, when `isAdminProp === true` or user has Admin privileges:
+* The previous role selector tab (`activeTab === "admin"`) is elevated into a persistent horizontal segmented bar:
+  1. `[🪪 Gate Outpass]` (`activeTab = "outpass"`) — Includes real-time off-campus counters, gate pass issuance, and security barcode logs.
+  2. `[🤒 Sick in Room]` (`activeTab = "sick_room"`) — Direct embedding of `SickInRoomSubTab` with `isAdmin={true}` (unrestricted all-campus student search).
+  3. `[🩹 Masjid Jamath Exemption]` (`activeTab = "masjid_exempt"`) — Direct embedding of `MasjidExemptionSubTab` with `isAdmin={true}` (unrestricted all-campus search).
+  4. `[📊 Movement Reports]` (`activeTab = "admin_reports"`) — Direct access to the 14 institutional movement and compliance analytics reports.
+* Top toolbar actions preserve access to `⚙️ Settings` (student ID photo uploads & schedule locks) and `🛡️ Security Kiosk`.
 
-#### 4. Period Attendance Integration (`app/components/PeriodAttendanceManager.jsx` & `ClassPeriodMonitorTab.jsx`)
-* Load active waivers from `campus_medical_waivers` where `status === 'ACTIVE'`.
-* Map students with `waiverType === 'SICK_IN_ROOM'` to an Amber card badge: `🤒 Sick in Room`.
-* Count them in period attendance summary metrics under the dedicated `🤒 Medical: N` counter.
 
-#### 5. Proactive Minus Attendance Shield (`app/components/MinusAttendanceManager.jsx`)
-* Subscribe to active waivers with `waiverType === 'JAMATH_EXEMPTION'`.
-* In the deduction entry form, if the selected deduction reason is `Jamath Missing` (or related prayer discipline) and the student has an active `JAMATH_EXEMPTION`:
-  * Render an unmistakable warning card: `🛡️ Protected Waiver: Student has an active Masjid Exemption (Reason: [Reason]). Jamath deduction is blocked.`
-  * Disable the Submit button by default, with an explicit Admin Override confirmation checkbox.
+--------------------------------------------------------------------------------
 
-### 4.4 Conflict Resolution & Status Precedence Matrix
+## Alternatives Considered
 
-When a student holds multiple overlapping records, the system applies the following strict precedence order:
+### Alternative 1: Retaining Hostel Room Tracking & Silent Data Enrichment
+*   **Description**: Keeping a hostel room input or silently injecting the student's registered hostel room from their profile into the waiver document behind the scenes.
+*   **Pros**: Preserves hostel wing location in case outside emergency personnel require room location.
+*   **Cons**: Introduces unnecessary database fields and code complexity for a feature that is unused operationally.
+*   **Reason for Rejection**: *Rejected by author*: Campus wardens do not conduct in-room bed inspections or dispensary visits in this institution. Room tracking has zero operational utility and creates needless cognitive and data overhead.
 
-1. **Precedence 1 (Highest): Gate Outpass (`OUTSIDE`)**: If a student is physically outside campus, they cannot be in class, hostel, or masjid. Status = `🪪 Outside Campus`.
-2. **Precedence 2: Sick in Room (`SICK_IN_ROOM`)**: Student is in hostel bed rest. Excused from class periods and masjid Jamath. Status = `🤒 Sick in Room`.
-3. **Precedence 3: Masjid Exemption (`JAMATH_EXEMPTION`)**: Student is in class learning normally, but excused from masjid stairs/Jamath. Class status = `🟢 Present`; Jamath status = `🩹 Masjid Exempt`.
-4. **Precedence 4: Standard Roll-Call**: Manual entry (`Present` vs `Absent`).
+### Alternative 2: Scheduled Midnight Cron/Batch Job to Mutate Document Status to 'EXPIRED'
+*   **Description**: Running a nightly Firebase Cloud Function or automated client batch at midnight to query active waivers and write `status = 'EXPIRED'` to Firestore.
+*   **Pros**: Allows simple query filtering with `where("status", "==", "ACTIVE")` without evaluating date math in client components.
+*   **Cons**: Adds cloud infrastructure dependencies, potential billing/quota overhead, and introduces race conditions if the cron fails or delays.
+*   **Reason for Rejection**: *Rejected by author*: Evaluating expiration dynamically in client memory (`targetDate <= validUntil`) is instantaneous, offline-compatible, requires zero background workers, and eliminates database write costs.
 
+### Alternative 3: Sub-Modal Dialog for Custom Diagnoses
+*   **Description**: Keeping preset ailment buttons and opening a secondary popup modal when the user taps "Custom Reason".
+*   **Pros**: Keeps the primary modal small until custom input is needed.
+*   **Cons**: Stacking nested modals on mobile viewports causes iOS/Android keyboard dismissal bugs, scroll locks, and visual disorientation.
+*   **Reason for Rejection**: *Rejected by author*: Placing `✍️ Custom Reason...` directly at index 0 of the dropdown and revealing an inline text box provides immediate access without modal-in-modal nesting.
+
+### Alternative 4: Hiding Sick in Room & Masjid Exemption Inside Admin Reports
+*   **Description**: Leaving the Admin navigation as `Out-Pass Portal` and adding tabs for bed rest inside the existing 14-report audit table.
+*   **Pros**: Avoids altering the top-level navigation layout.
+*   **Cons**: Degrades internal waivers into read-only audit logs. Administrators would be unable to quickly grant, extend, or revoke leaves across campus classes.
+*   **Reason for Rejection**: *Rejected by author*: The Admin Portal must provide full operational parity with the Teacher Portal, allowing administrators to search and grant waivers across all classes from a unified 4-tab desk.
+
+--------------------------------------------------------------------------------
+
+## Non-Functional Requirements
+
+### 1. Performance & Latency
+*   **Instant Client-Side Filtering**: Expiration checks run synchronously in local state without issuing additional network roundtrips to Firestore.
+*   **Mobile Touch Ergonomics**: All quick-duration chips and template buttons maintain a minimum 44×44px tap area to support rapid single-handed operation on mobile devices.
+
+### 2. Backward Compatibility & Zero-Downtime Rollout
+*   **Legacy Record Preservation**: Existing documents in `campus_medical_waivers` lacking a `validUntil` attribute are treated as open-ended active waivers, ensuring no active student excusal is prematurely stripped during deployment.
+*   **Schema Safety**: The addition of `validUntil` is strictly additive and fully conforms to existing `firestore.rules` validators.
+
+
+--------------------------------------------------------------------------------
+
+## Detailed Implementation Plan
+
+### Target Files to Create/Modify
+
+#### 1. [`app/outpass/components/SickInRoomSubTab.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/SickInRoomSubTab.jsx) (Modify)
+*   **Type / Scope**: React Component (Bed Rest Sub-Tab)
+*   **Proposed Changes**:
+    *   **Purge Clutter Fields**: Remove `roomNumber` and `notes` state hooks, labels, inputs, and payload bindings.
+    *   **Custom-First Reason Combobox**:
+        *   Restructure `ILLNESS_PRESETS` to place `'CUSTOM'` (`"✍️ Custom Diagnosis / Reason..."`) at index 0.
+        *   When `'CUSTOM'` is active, render an autofocus single-line input field.
+        *   Render a horizontal flex-wrap palette of 1-tap template chips (`[🤒 Fever / Flu]`, `[🤢 Stomach Ache]`, `[🤕 Headache / Migraine]`, `[🤮 Vomiting / Nausea]`, `[🤧 Cold / Cough]`). Tapping any chip immediately sets the custom input text and syncs the selection.
+    *   **Validity Duration Selector**:
+        *   Add `durationPreset` state (`'TODAY'` | `'1_DAY'` | `'2_DAYS'` | `'CUSTOM'`) defaulting to `'TODAY'`.
+        *   Add `validUntil` date state defaulting to `new Date().toISOString().split('T')[0]`.
+        *   Provide 1-tap duration buttons: `[Today Only]`, `[+1 Day (Tomorrow)]`, `[+2 Days (Day After)]`, `[Custom Date]`.
+        *   Render a live visual confirmation pill: `⏳ Excuses student through {validUntil} (Auto-expires at Midnight)`.
+    *   **Payload & Filtering**:
+        *   Save `validUntil` into Firestore document payload (`status: 'ACTIVE'`).
+        *   Update active list filter to use `isWaiverActiveOnDate(w, todayStr)`. Lapsed waivers display in the Historical / Revoked section as `Expired`.
+
+#### 2. [`app/outpass/components/MasjidExemptionSubTab.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/MasjidExemptionSubTab.jsx) (Modify)
+*   **Type / Scope**: React Component (Masjid Jamath Exemption Sub-Tab)
+*   **Proposed Changes**:
+    *   **Purge Clutter Fields**: Remove `notes` textarea and payload binding.
+    *   **Custom-First Reason Combobox**:
+        *   Place `'CUSTOM'` (`"✍️ Custom Condition / Description..."`) at index 0 of `INJURY_PRESETS`.
+        *   Render 1-tap template chips (`[🩹 Leg Fracture / Cast]`, `[🩼 Crutches / Sprain]`, `[🩸 Open Wound / Dressing]`, `[🦶 Ankle Bruise]`) below the input.
+    *   **Validity Duration Selector**:
+        *   Implement identical `validUntil` date selector and 1-tap duration chips defaulting to `'TODAY'`.
+    *   **Payload & Filtering**:
+        *   Save `validUntil` into Firestore document payload.
+        *   Update active list filter to use `isWaiverActiveOnDate(w, todayStr)`.
+
+#### 3. [`app/page.jsx`](file:///D:/Codes/mark-entry-app/app/page.jsx) (Modify)
+*   **Type / Scope**: Main Navigation & Layout Container
+*   **Proposed Changes**:
+    *   Update navigation drawer items and desktop tab descriptors:
+        *   Change `label: 'Out-Pass Portal'` to `label: 'Leaves & Outpass'`.
+        *   Update description to `'Live campus movement & medical waivers'`.
+
+#### 4. [`app/outpass/page.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/page.jsx) (Modify)
+*   **Type / Scope**: Unified Leaves & Outpass Routing Desk
+*   **Proposed Changes**:
+    *   Elevate Admin navigation hierarchy:
+        *   When `isAdminProp === true` or user is Admin, render the persistent 4-tab segmented navigation bar:
+            1. `[🪪 Gate Outpass]`
+            2. `[🤒 Sick in Room]`
+            3. `[🩹 Masjid Jamath Exemption]`
+            4. `[📊 Movement Reports]`
+        *   Embed `SickInRoomSubTab` and `MasjidExemptionSubTab` directly with `isAdmin={true}` to enable unrestricted campus-wide student search and granting.
+        *   Keep secondary Admin utilities (`⚙️ Settings` for student photo uploads/schedule locks and `🛡️ Security Kiosk`) accessible in the top-right toolbar.
+
+#### 5. [`app/components/PeriodAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/PeriodAttendanceManager.jsx) (Modify)
+*   **Type / Scope**: Period Attendance Engine
+*   **Proposed Changes**:
+    *   Filter active `campus_medical_waivers` using `isWaiverActiveOnDate(w, selectedDate)`.
+    *   Explicitly map `startDate: w.issuedAt ? w.issuedAt.split('T')[0] : selectedDate` and `endDate: w.validUntil || selectedDate`.
+    *   Pass `hasDuration: Boolean(w.validUntil && w.validUntil !== selectedDate)` so period attendance multi-day date range comparisons function accurately.
+
+#### 6. [`app/components/NightAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/NightAttendanceManager.jsx) (Modify)
+*   **Type / Scope**: Night Roll-Call Manager
+*   **Proposed Changes**:
+    *   In the real-time listener and nightly absentee calculation, evaluate `isWaiverActiveOnDate(w, selectedDate)` for every document in `activeCampusWaiversMap`.
+    *   Ensure waivers that have passed their `validUntil` date do not trigger `SICK_ROOM` status in night attendance.
+
+#### 7. [`firestore.rules`](file:///D:/Codes/mark-entry-app/firestore.rules) (Modify)
+*   **Type / Scope**: Security Rules & Schema Validator
+*   **Proposed Changes**:
+    *   Update `isValidMedicalWaiver(data)` domain validator to permit the optional `validUntil` field:
+        `(!('validUntil' in data) || data.validUntil == null || (data.validUntil is string && data.validUntil.size() <= 20))`
 
 ---
 
-## 5. Alternatives Considered
+### Verification Plan
 
-### Alternative 1: Adding a Separate Sidebar Item (`Campus Leaves`) Alongside `Out-Pass Desk`
-* **Description**: Create two separate top-level sidebar entries: one for `Out-Pass Desk` (off-campus physical exits) and a second for `Campus Leaves` (internal hostel sick leaves and masjid exemptions).
-* **Rationale for Rejection**: *Rejected by author: Navigation Bloat & Workflow Fragmentation*. The faculty portal sidebar already contains 8 core navigation items. Adding another tab clutters the interface and forces teachers to context-switch across multiple tabs when reviewing student absence. Elevating `Out-Pass Desk` to a unified `Leaves & Outpass` desk with three sub-tabs provides a single, cohesive hub for all leave approvals while keeping the navigation menu clean.
+*   **Compilation & Build**:
+    *   Run `npm run build` with Turbopack outside sandbox to ensure zero JSX syntax, import, or prop type errors.
+*   **Modal Form Verification**:
+    *   Verify modal renders on mobile viewports (<640px) without scrolling or hidden submit buttons.
+    *   Test tapping template chips (`[🤒 Fever / Flu]`) immediately sets the custom input.
+    *   Test duration chips (`[Today Only]`, `[+1 Day]`, `[+2 Days]`, `[Custom Date]`) accurately calculate and display the live preview pill.
+*   **Expiration Verification**:
+    *   Grant a test waiver with `validUntil = today`. Confirm it appears active on today's date.
+    *   Verify that navigating to tomorrow's date treats the waiver as expired in Period, Night, and Minus Attendance.
+    *   Verify that legacy waivers without `validUntil` remain active.
+*   **Admin Portal 4-Tab Verification**:
+    *   Log in as Admin and open `Leaves & Outpass`.
+    *   Confirm all 4 tabs (`Gate Outpass`, `Sick in Room`, `Masjid Exemption`, `Movement Reports`) are accessible.
+    *   Confirm Admin can search any campus student in both medical sub-tabs.
 
-### Alternative 2: Modal Popups for Recording Reasons During Night & Extra Roll-Call
-* **Description**: Continue prompting wardens and teachers with a modal dialog upon tapping `Sick` or `Absent` to capture the medical ailment, expected duration, and parent communication notes.
-* **Rationale for Rejection**: *Rejected by author: Operational Latency in Hostel Corridors*. Hostel roll-calls and extra sessions require taking attendance across 35–80 residents in under 2 minutes. Dialog modals interrupt roll-call rhythm and introduce intolerable latency. Detailed medical metadata is captured upstream during formal waiver issuance in the `Leaves & Outpass Desk`; roll-call taking must remain strictly a 1-tap operation.
+--------------------------------------------------------------------------------
 
-### Alternative 3: Automatic Spillover of Night Attendance "Sick" Marks into Morning Period Attendance
-* **Description**: If a student is marked `Sick in Room` during 10:00 PM Night Attendance, the system automatically registers them as `Sick in Room` for next morning's Period 1 (7:45 AM).
-* **Rationale for Rejection**: *Rejected by author: Accountability & Exam Integrity Hazard*. Evening complaints (e.g., mild headache) do not always warrant missing morning classes or scheduled class tests. Automatically carrying night marks into morning academic periods creates an accountability loophole where students bypass morning classes without formal Class Teacher verification. Night attendance remains strictly isolated to the night hostel report.
-
-### Alternative 4: Storing Internal Waivers in the Existing `out_passes` Firestore Collection
-* **Description**: Store Category 2 and Category 3 leaves in `collection('out_passes')` with a special flag `isInternalWaiver: true`.
-* **Rationale for Rejection**: *Rejected by author: Perimeter Security Quarantine Violation*. Gate Security Kiosks and barcode scanners query `out_passes` to validate exits at the campus gate. Merging internal sick leaves into the outpass collection introduces query-filtering risks where a bug or missing filter could display internal bed-rest students on the gate exit whitelist, allowing unapproved campus exits. Maintaining a distinct `campus_medical_waivers` collection completely isolates perimeter security from internal medical bed rest.
-
-
----
-
-## 6. Detailed Implementation Plan
-
-This section provides an actionable, file-by-file specification covering all code, component, and schema modifications required to implement the Three-Tiered Leave Architecture and Modal-Free Roll-Call Engine.
-
-### 6.1 Affected Codebase Files
-
-| File Path | Nature of Change | Core Responsibility / Rationale |
-| :--- | :--- | :--- |
-| [`app/components/TeacherPortalView.jsx`](file:///D:/Codes/mark-entry-app/app/components/TeacherPortalView.jsx) | **Modify** | Update navigation label from `Out-Pass Desk` to `Leaves & Outpass` (`🪪`). Pass class teacher scope and outpass privileges to child components. |
-| [`app/outpass/page.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/page.jsx) | **Modify** | Add 3-way top sub-tab bar (`Gate Outpasses`, `Sick in Room`, `Masjid Exemptions`). Quarantine gate security view so internal waivers are never shown at the gate. |
-| [`app/outpass/components/SickInRoomSubTab.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/SickInRoomSubTab.jsx) | **Create** | Dedicated sub-tab for managing Category 2 hostel bed-rest leaves with grant modal, active roster, and one-click recovery revocation. |
-| [`app/outpass/components/MasjidExemptionSubTab.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/MasjidExemptionSubTab.jsx) | **Create** | Dedicated sub-tab for managing Category 3 orthopedic/fracture prayer exemptions with injury presets and revocation controls. |
-| [`app/components/NightAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/NightAttendanceManager.jsx) | **Modify** | Replace modal dialog interruptions in both Night Attendance and Extra Attendance with inline 4-way tactile segmented buttons (`Present`, `Absent`, `Sick`, `Official`). Enforce night isolation invariant. |
-| [`app/components/PeriodAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/PeriodAttendanceManager.jsx) | **Modify** | Cross-check active `SICK_IN_ROOM` waivers from `campus_medical_waivers` and render them in warm Amber with dedicated `🤒 Medical: N` counter. |
-| [`app/components/ClassPeriodMonitorTab.jsx`](file:///D:/Codes/mark-entry-app/app/components/ClassPeriodMonitorTab.jsx) | **Modify** | Display active `SICK_IN_ROOM` students in the live period monitor metrics and excused leaves summary in warm Amber. |
-| [`app/components/MinusAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/MinusAttendanceManager.jsx) | **Modify** | Cross-check active `JAMATH_EXEMPTION` waivers and display a protective banner blocking `Jamath Missing` deductions for injured students. |
-
----
-
-### 6.2 Detailed Step-by-Step Execution Sequence
-
-#### Step 1: Firestore Collection Provisioning & Types
-* Define collection `campus_medical_waivers`.
-* Create helper functions for creating waivers, listing active waivers, and revoking waivers.
-* Implement indexing on `status` (`ACTIVE` / `REVOKED`) and `className` for compound queries.
-
-#### Step 2: Implement Internal Leaves Sub-Tabs
-* Create [`app/outpass/components/SickInRoomSubTab.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/SickInRoomSubTab.jsx):
-  * **Header KPI Cards**: Total Active Sick, By Class breakdown.
-  * **Authorization Guard**: Class Teachers can only select and grant leave for students belonging to their assigned class (`classTeacherOf`). Admins can grant for all classes.
-  * **Grant Bed Rest Modal**:
-    * Student selection dropdown (searchable).
-    * Illness reason presets (`Acute Fever / Viral`, `Severe Stomach Flu`, `Asthma / Respiratory Rest`, `Post-Medical Clinic Rest`, `Other`).
-    * Hostel room number field.
-    * Notes textarea.
-  * **Active Roster Table**:
-    * Student Name, Ad.No, Class, Illness Reason, Hostel Room Number, Issued Date, Issued By.
-    * Action button: `✓ Mark Recovered & Revoke` (updates status to `'REVOKED'`, recording `revokedAt` and `revokedBy`).
-* Create [`app/outpass/components/MasjidExemptionSubTab.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/MasjidExemptionSubTab.jsx):
-  * **Header KPI Cards**: Active Exemptions Count, Classroom Normal Present guarantee notice.
-  * **Authorization Guard**: Restricted to Class Teachers and Admin.
-  * **Grant Exemption Modal**:
-    * Student selection dropdown.
-    * Injury reason presets (`Leg Fracture / Plaster Cast`, `Bandage / Open Surgical Dressing`, `Crutches / Severe Ankle Sprain`, `Arm / Shoulder Immobilization`, `Temporary Mobility Impairment`).
-    * Notes textarea.
-  * **Active Roster Table**:
-    * Student Name, Ad.No, Class, Injury Details, Issued Date, Issued By.
-    * Action button: `✓ Mark Healed & Revoke`.
-
-#### Step 3: Integrate Sub-Tabs into `app/outpass/page.jsx`
-* Add state `activeLeaveSubTab` (`'outpass'` | `'sick_room'` | `'masjid_exempt'`).
-* Render top segmented tab bar:
-  * `🪪 Gate Outpasses`: Displays existing outpass tables, filters, and action tools.
-  * `🤒 Sick in Room`: Renders `SickInRoomSubTab`.
-  * `🩹 Masjid Exemptions`: Renders `MasjidExemptionSubTab`.
-* **Gate Security Quarantine**: If `isGateSecurityMode === true` or accessing via Gate PIN, lock sub-tab to `'outpass'` and suppress the sub-tab bar completely.
-
-#### Step 4: Navigation Shell Update in `app/components/TeacherPortalView.jsx`
-* Update `teacherNavItems` entry:
-  * `label: 'Leaves & Outpass'`
-  * `icon: '🪪'`
-* Pass `classTeacherOf` and `isClassTeacher` props into the child outpass component.
-
-#### Step 5: Modal-Free 4-Way Segmented Roll-Call in `app/components/NightAttendanceManager.jsx`
-* Replace `onClick={() => setAbsenceModalStudent(st)}` and dialog modal triggers with an inline segmented button container on each student card:
-  * Button 1 (`Present`): Sets `statusMap[ad] = 'PRESENT'`.
-  * Button 2 (`Absent`): Sets `statusMap[ad] = 'ABSENT'`.
-  * Button 3 (`Sick`): Sets `statusMap[ad] = 'SICK'`.
-  * Button 4 (`Official`): Sets `statusMap[ad] = 'OFFICIAL'`.
-* Auto-disabled locked state: If `activePass?.status === 'OUTSIDE'`, display locked badge `🪪 Outside Campus` without clickable buttons.
-* Apply the identical 4-way inline selector in **Extra Attendance** (`viewMode === 'extra_attendance'`).
-* Verify that saving night attendance writes exclusively to `night_attendance/{date}` and does not alter period attendance caches.
-
-#### Step 6: Period Attendance & Monitor Auto-Badging
-* In [`PeriodAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/PeriodAttendanceManager.jsx) and [`ClassPeriodMonitorTab.jsx`](file:///D:/Codes/mark-entry-app/app/components/ClassPeriodMonitorTab.jsx):
-  * Query `campus_medical_waivers` where `status === 'ACTIVE'`.
-  * Build lookup map: `activeWaiversByReg`.
-  * If student has active `SICK_IN_ROOM` waiver:
-    * Render Amber card styling `#fffbeb` with border `#fde68a`.
-    * Display badge: `🤒 SICK IN ROOM (Hostel Bed Rest)`.
-    * Count in `periodMedCount` / `medicalCount`.
-
-#### Step 7: Minus Attendance Proactive Jamath Protection
-* In [`MinusAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/MinusAttendanceManager.jsx):
-  * Query `campus_medical_waivers` where `waiverType === 'JAMATH_EXEMPTION' && status === 'ACTIVE'`.
-  * Build lookup map: `jamathExemptionsByAdNo`.
-  * In the single student deduction form, when `studentAdNo` is entered and `reason` contains `Jamath` or `Masjid`:
-    * If `jamathExemptionsByAdNo[cleanAd]` exists:
-      * Render high-priority warning card: `🛡️ Protected: [Student Name] has an active Masjid Exemption (Reason: [Reason]). Jamath deduction is blocked.`
-      * Disable the Submit button unless the user checks `[x] Admin Force Override`.
+*Drafted with EGM*
