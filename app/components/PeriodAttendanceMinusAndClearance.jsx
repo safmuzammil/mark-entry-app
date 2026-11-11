@@ -805,12 +805,17 @@ export default function PeriodAttendanceMinusAndClearance({
             attMap[regNo] = 'M';
             curStat.medicalCount = (curStat.medicalCount || 0) + 1;
             subObj.medical = (subObj.medical || 0) + 1;
+          } else if (clearReason === 'permitted') {
+            attMap[regNo] = 'L';
+            curStat.permittedCount = (curStat.permittedCount || 0) + 1;
+            subObj.permitted = (subObj.permitted || 0) + 1;
+            // 🌟 Does NOT inflate presentCount
           } else {
             attMap[regNo] = 'O';
             curStat.presentCount = Math.min(curStat.totalPeriods || 9999, (curStat.presentCount || 0) + 1);
-            curStat.permittedCount = (curStat.permittedCount || 0) + 1;
+            curStat.officialCount = (curStat.officialCount || 0) + 1;
             subObj.present = Math.min(subObj.total || 9999, (subObj.present || 0) + 1);
-            subObj.permitted = (subObj.permitted || 0) + 1;
+            subObj.official = (subObj.official || 0) + 1;
           }
         });
 
@@ -918,8 +923,8 @@ export default function PeriodAttendanceMinusAndClearance({
           studentRegNo: String(student.regNo || '').trim(),
           studentAdNo: student.adNo,
           studentClasses: student.classes || [],
-          clearanceType: clearReason === 'medical' ? 'MEDICAL_LEAVE' : 'OFFICIAL_PRESENT',
-          clearanceTypeLabel: clearReason === 'medical' ? '🏥 Medical Leave (Excused)' : '🏛️ Official Duty (Present)',
+          clearanceType: clearReason === 'medical' ? 'MEDICAL_LEAVE' : clearReason === 'permitted' ? 'PERMITTED_LEAVE' : 'OFFICIAL_PRESENT',
+          clearanceTypeLabel: clearReason === 'medical' ? '🏥 Medical Leave (Excused)' : clearReason === 'permitted' ? '🎟️ Permitted Leave (Excused)' : '🏛️ Official Duty (Present)',
           totalPeriodsCleared: selectedPeriodObjs.length || clearSelectedSubjects.length || 1,
           issuedByUsername: loggedInUser?.username || 'admin',
           issuedByName: loggedInUser?.fullName || 'Central Admin',
@@ -1106,6 +1111,9 @@ export default function PeriodAttendanceMinusAndClearance({
         } else if (prevStatus === 'M') {
           curStat.medicalCount = Math.max(0, (curStat.medicalCount || 0) - 1);
           subObj.medical = Math.max(0, (subObj.medical || 0) - 1);
+        } else if (prevStatus === 'L') {
+          curStat.permittedCount = Math.max(0, (curStat.permittedCount || 0) - 1);
+          subObj.permitted = Math.max(0, (subObj.permitted || 0) - 1);
         } else if (prevStatus === 'A') {
           const idx = subObj.absentDates.indexOf(sessItem.date);
           if (idx !== -1) subObj.absentDates.splice(idx, 1);
@@ -1131,6 +1139,11 @@ export default function PeriodAttendanceMinusAndClearance({
         } else if (newStatus === 'M') {
           curStat.medicalCount = (curStat.medicalCount || 0) + 1;
           subObj.medical = (subObj.medical || 0) + 1;
+          const idx = subObj.absentDates.indexOf(sessItem.date);
+          if (idx !== -1) subObj.absentDates.splice(idx, 1);
+        } else if (newStatus === 'L') {
+          curStat.permittedCount = (curStat.permittedCount || 0) + 1;
+          subObj.permitted = (subObj.permitted || 0) + 1;
           const idx = subObj.absentDates.indexOf(sessItem.date);
           if (idx !== -1) subObj.absentDates.splice(idx, 1);
         }
@@ -2849,6 +2862,15 @@ export default function PeriodAttendanceMinusAndClearance({
                               title="Sets selected sessions to Medical Leave"
                             >
                               🏥 Set Medical (M)
+                            </button>
+                            <button
+                              type="button"
+                              disabled={selectedInspectSessionIds.length === 0 || loading}
+                              onClick={() => handleUpdateSessionStatus(selectedInspectSessionIds, 'L')}
+                              style={{ padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', background: '#8b5cf6', color: '#ffffff', border: 'none', cursor: selectedInspectSessionIds.length > 0 ? 'pointer' : 'not-allowed', opacity: selectedInspectSessionIds.length > 0 ? 1 : 0.5 }}
+                              title="Sets selected sessions to Permitted Leave"
+                            >
+                              🎟️ Set Leave (L)
                             </button>
                             <button
                               type="button"

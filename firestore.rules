@@ -398,7 +398,7 @@ service cloud.firestore {
              data.studentRegNo is string && data.studentRegNo.size() >= 1 && data.studentRegNo.size() <= 50 &&
              (data.studentAdNo is number || (data.studentAdNo is string && data.studentAdNo.size() >= 1 && data.studentAdNo.size() <= 50)) &&
              data.studentName is string && data.studentName.size() <= 100 &&
-             data.clearanceType in ['MEDICAL_LEAVE', 'OFFICIAL_PRESENT'] &&
+             data.clearanceType in ['MEDICAL_LEAVE', 'OFFICIAL_PRESENT', 'PERMITTED_LEAVE'] &&
              data.dates is list && data.dates.size() <= 60 &&
              data.totalPeriodsCleared is number &&
              data.issuedByUsername is string && data.issuedByUsername.size() <= 100 &&

@@ -103,6 +103,7 @@ export default function PeriodAttendanceManager({
   const [attEnrollmentId, setAttEnrollmentId] = useState('');
   const [classStudents, setClassStudents] = useState([]);
   const [absentRegNos, setAbsentRegNos] = useState([]);
+  const [sessionStatusMap, setSessionStatusMap] = useState({});
   const [existingSessionDoc, setExistingSessionDoc] = useState(null);
   const [rehearsalPresentMapForDate, setRehearsalPresentMapForDate] = useState({});
   const [todayRecordedSessions, setTodayRecordedSessions] = useState([]);
@@ -551,9 +552,15 @@ export default function PeriodAttendanceManager({
           setExistingSessionDoc({ id: snap.id, ...data });
           const attMap = data.attendanceMap || {};
           const rehPresentForThisPeriod = rehearsalPresentMapForDate[String(attSession)] || [];
+          const sMap = {};
+          Object.entries(attMap).forEach(([k, val]) => {
+            sMap[String(k).trim()] = val;
+          });
+          setSessionStatusMap(sMap);
+
           const abs = Object.keys(attMap).filter(k => {
             const val = attMap[k];
-            if (val !== 'A' && val !== 'M') return false;
+            if (val !== 'A' && val !== 'M' && val !== 'L') return false;
             const strK = String(k).trim().toUpperCase();
             const isReh = rehPresentForThisPeriod.some(r => String(r).trim().toUpperCase() === strK);
             return !isReh;
@@ -563,26 +570,46 @@ export default function PeriodAttendanceManager({
           setExistingSessionDoc(null);
           const enrolledSts = getStudentsForEnrollment(env);
           const rehPresentForThisPeriod = rehearsalPresentMapForDate[String(attSession)] || [];
-          const autoAbs = enrolledSts
-            .filter(st => {
-              const sReg = String(st.regNo || '').trim();
-              const sAd = String(st.adNo || '').trim();
-              const sId = String(st.id || '').trim();
-              if (rehPresentForThisPeriod.some(r => {
-                const str = String(r || '').trim().toUpperCase();
-                return (sReg && str === sReg.toUpperCase()) || 
-                       (sAd && str === sAd.toUpperCase()) || 
-                       (sId && str === sId.toUpperCase());
-              })) return false;
-              const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
-              if (op && !op.isOfficial && op.isCurrentlyOutside) return true;
+          const sMap = {};
+          const autoAbs = [];
 
-              const recAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
-              if (recAbs && !recAbs.isOfficial) return true;
+          enrolledSts.forEach(st => {
+            const sReg = String(st.regNo || '').trim();
+            const sAd = String(st.adNo || '').trim();
+            const sId = String(st.id || '').trim();
+            const regKey = sReg || sId;
+            if (!regKey) return;
 
-              return false;
-            })
-            .map(st => String(st.regNo || st.id).trim());
+            const isReh = rehPresentForThisPeriod.some(r => {
+              const str = String(r || '').trim().toUpperCase();
+              return (sReg && str === sReg.toUpperCase()) || 
+                     (sAd && str === sAd.toUpperCase()) || 
+                     (sId && str === sId.toUpperCase());
+            });
+            const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
+            const recAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
+
+            if (isReh) {
+              sMap[regKey] = 'P';
+            } else if (recAbs && recAbs.isOfficial) {
+              sMap[regKey] = 'O';
+            } else if (op && op.isCurrentlyOutside && op.isOfficial) {
+              sMap[regKey] = 'O';
+            } else if (recAbs && recAbs.isMedical) {
+              sMap[regKey] = 'M';
+              autoAbs.push(regKey);
+            } else if (op && op.isCurrentlyOutside) {
+              sMap[regKey] = 'L'; // 🌟 Non-official active gate outpasses mapped to Permitted Leave 'L'
+              autoAbs.push(regKey);
+            } else if (recAbs) {
+              sMap[regKey] = recAbs.status === 'SICK_ROOM' ? 'M' : 'A';
+              autoAbs.push(regKey);
+            } else {
+              sMap[regKey] = 'P';
+            }
+          });
+
+          setSessionStatusMap(sMap);
           setAbsentRegNos(autoAbs);
         }
       } catch (e) {
@@ -601,6 +628,37 @@ export default function PeriodAttendanceManager({
       return exists
         ? prev.filter(r => String(r).trim() !== sReg)
         : [...prev, sReg];
+    });
+    setSessionStatusMap(prev => {
+      const current = prev[sReg] || 'P';
+      const next = (current === 'A' || current === 'L' || current === 'M') ? 'P' : 'A';
+      return { ...prev, [sReg]: next };
+    });
+  };
+
+  const cycleStatus = (regNo) => {
+    const sReg = String(regNo || '').trim();
+    if (!sReg) return;
+    // Strict cycle: A ➔ L ➔ M ➔ P (➔ A)
+    setSessionStatusMap(prev => {
+      const current = prev[sReg] || 'A';
+      let next = 'A';
+      if (current === 'A') next = 'L';
+      else if (current === 'L') next = 'M';
+      else if (current === 'M') next = 'P';
+      else if (current === 'P') next = 'A';
+      else next = 'A';
+
+      setAbsentRegNos(aPrev => {
+        const has = aPrev.some(r => String(r).trim() === sReg);
+        if (next === 'P') {
+          return aPrev.filter(r => String(r).trim() !== sReg);
+        } else {
+          return has ? aPrev : [...aPrev, sReg];
+        }
+      });
+
+      return { ...prev, [sReg]: next };
     });
   };
 
@@ -635,10 +693,21 @@ export default function PeriodAttendanceManager({
 
   const absentStudentsByClassGroups = React.useMemo(() => {
     const rehPresentHere = rehearsalPresentMapForDate[String(attSession)] || [];
-    const currentAbsentStudents = classStudents.filter(st => {
+
+    // Group ALL enrolled class students by class name
+    const groups = {};
+    classStudents.forEach(st => {
+      const clsName = String((st.classes || [])[0] || st.class || 'GENERAL').trim().toUpperCase();
+      if (!groups[clsName]) {
+        const ctObj = resolveClassTeacherForStudent(st, localTeachers);
+        groups[clsName] = { className: clsName, classTeacher: ctObj, students: [] };
+      }
+
       const sReg = String(st.regNo || '').trim();
       const sAd = String(st.adNo || '').trim();
       const sId = String(st.id || '').trim();
+      const regKey = sReg || sId;
+
       const isReh = rehPresentHere.some(r => {
         const str = String(r || '').trim().toUpperCase();
         return (sReg && str === sReg.toUpperCase()) || 
@@ -648,30 +717,24 @@ export default function PeriodAttendanceManager({
       const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
       const recAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
       const isAutoOfficial = isReh || (op && op.isOfficial) || (recAbs && recAbs.isOfficial);
-      const isMarkedAbsent = absentRegNos.some(r => {
-        const str = String(r).trim().toUpperCase();
-        return (sReg && str === sReg.toUpperCase()) || (sAd && str === sAd.toUpperCase()) || (sId && str === sId.toUpperCase());
-      });
-      return !isAutoOfficial && isMarkedAbsent;
+
+      // Current effective status
+      const assignedStatus = sessionStatusMap[regKey] || (absentRegNos.includes(regKey) ? 'A' : 'P');
+      
+      // Strictly unexcused absentees ('A' only - exclude 'P', 'M', 'O', 'L')
+      if (!isAutoOfficial && assignedStatus === 'A') {
+        groups[clsName].students.push(st);
+      }
     });
 
-    const groups = {};
-    currentAbsentStudents.forEach(st => {
-      const clsName = String((st.classes || [])[0] || st.class || 'GENERAL').trim().toUpperCase();
-      if (!groups[clsName]) {
-        const ctObj = resolveClassTeacherForStudent(st, localTeachers);
-        groups[clsName] = { className: clsName, classTeacher: ctObj, students: [] };
-      }
-      groups[clsName].students.push(st);
-    });
     return Object.values(groups);
-  }, [classStudents, absentRegNos, rehearsalPresentMapForDate, attSession, activeOutpassesByReg, recordedAbsencesByReg, localTeachers]);
+  }, [classStudents, absentRegNos, sessionStatusMap, rehearsalPresentMapForDate, attSession, activeOutpassesByReg, recordedAbsencesByReg, localTeachers]);
 
   const formatAbsentMessageForClass = (group) => {
     const env = attendanceEnrollments.find(e => e.id === attEnrollmentId);
     const subTitle = env?.alias || env?.subject || 'Class';
-    const lines = group.students.map((s, idx) => `${idx + 1}. ${s.firstName} (#${s.adNo})`).join('\n');
-    return `*📋 ABSENTEES CONFIRMATION — CLASS ${group.className}*\n📅 Date: ${attDate} | Period: ${attSession}\n📖 Subject: ${subTitle}\n👨‍🏫 Teacher: ${activeTeacherObj?.fullName || 'Faculty'}\n\n*Absent Students (${group.students.length}):*\n${lines}`;
+    const lines = group.students.map((s, idx) => `${idx + 1}. ${s.firstName} (#${s.adNo || '-'} • Roll: ${s.rollNo || '-'}${s.department ? ` • ${s.department}` : ''})`).join('\n');
+    return `*📋 ABSENTEES REPORT — CLASS ${group.className}*\n📅 Date: ${attDate} | Period: ${attSession}\n📖 Subject: ${subTitle}\n👨‍🏫 Teacher: ${activeTeacherObj?.fullName || 'Faculty'}\n\n*Unexcused Absent Students (${group.students.length}):*\n${lines || 'None (All students present or excused)'}`;
   };
 
   const handleCopyClassAbsentees = (group) => {
@@ -745,22 +808,28 @@ export default function PeriodAttendanceManager({
         const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
         const recAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
 
+        // Determine final session status with priority to explicit sessionStatusMap overrides
+        const explicitlyChosenStatus = sessionStatusMap[reg] || sessionStatusMap[sReg] || sessionStatusMap[sAd] || sessionStatusMap[sId];
+
         if (isRehearsalPresent) {
           newAttendanceMap[reg] = 'P'; // 🌟 Converted to ACTUAL PRESENT per user logic!
         } else if (recAbs && recAbs.isOfficial) {
           newAttendanceMap[reg] = 'O'; // 🌟 Official Duty from recorded absence / leave!
         } else if (op && op.isCurrentlyOutside && op.isOfficial) {
           newAttendanceMap[reg] = 'O'; // 🌟 Official Gate Outpass
+        } else if (explicitlyChosenStatus && explicitlyChosenStatus !== 'P') {
+          // If teacher explicitly cycled to 'L', 'M', or 'A', preserve that choice!
+          newAttendanceMap[reg] = explicitlyChosenStatus;
         } else if (recAbs && recAbs.isMedical) {
           newAttendanceMap[reg] = 'M'; // 🌟 Medical leave from recorded absence (e.g. sick in room / hospital)!
         } else if (op && op.isCurrentlyOutside) {
-          newAttendanceMap[reg] = 'M'; // 🌟 Permitted leave from Gate Outpass
+          newAttendanceMap[reg] = 'L'; // 🌟 Permitted leave from Gate Outpass ('L')
         } else if (recAbs && isMarkedAbsentByRegularTeacher) {
           newAttendanceMap[reg] = recAbs.status === 'SICK_ROOM' ? 'M' : 'A';
         } else if (!isMarkedAbsentByRegularTeacher) {
           newAttendanceMap[reg] = 'P';
         } else {
-          newAttendanceMap[reg] = 'A';
+          newAttendanceMap[reg] = explicitlyChosenStatus || 'A';
         }
       });
 
@@ -784,6 +853,7 @@ export default function PeriodAttendanceManager({
               present: 0,
               official: 0,
               medical: 0,
+              permitted: 0,
               absentDates: [],
               teacherName: safeTeacherName,
               isAttendanceOnly: Boolean(isAttendanceOnlyEnrollment(env))
@@ -793,37 +863,70 @@ export default function PeriodAttendanceManager({
           subObj.teacherName = safeTeacherName || subObj.teacherName || '';
           subObj.isAttendanceOnly = Boolean(isAttendanceOnlyEnrollment(env));
           if (!Array.isArray(subObj.absentDates)) subObj.absentDates = [];
+          if (subObj.permitted === undefined) subObj.permitted = 0;
+          if (curStat.permittedCount === undefined) curStat.permittedCount = 0;
 
           const newStatus = newAttendanceMap[reg] || 'P';
-          const isNewPresent = newStatus === 'P' || newStatus === 'O';
           const oldStatus = previousMap ? previousMap[reg] : null;
-          const wasOldPresent = oldStatus === 'P' || oldStatus === 'O';
 
           if (!oldStatus) {
+            // New session save
             curStat.totalPeriods = (Number(curStat.totalPeriods) || 0) + 1;
             subObj.total = (Number(subObj.total) || 0) + 1;
-            if (isNewPresent) {
+
+            if (newStatus === 'P' || newStatus === 'O') {
               curStat.presentCount = (Number(curStat.presentCount) || 0) + 1;
               subObj.present = (Number(subObj.present) || 0) + 1;
               if (newStatus === 'O') {
                 curStat.officialCount = (Number(curStat.officialCount) || 0) + 1;
                 subObj.official = (Number(subObj.official) || 0) + 1;
               }
-            } else {
+            } else if (newStatus === 'L') {
+              curStat.permittedCount = (Number(curStat.permittedCount) || 0) + 1;
+              subObj.permitted = (Number(subObj.permitted) || 0) + 1;
+            } else if (newStatus === 'M') {
+              curStat.medicalCount = (Number(curStat.medicalCount) || 0) + 1;
+              subObj.medical = (Number(subObj.medical) || 0) + 1;
               if (!subObj.absentDates.includes(attDate)) subObj.absentDates.push(attDate);
-              if (newStatus === 'M') {
-                curStat.medicalCount = (Number(curStat.medicalCount) || 0) + 1;
-                subObj.medical = (Number(subObj.medical) || 0) + 1;
-              }
+            } else if (newStatus === 'A') {
+              if (!subObj.absentDates.includes(attDate)) subObj.absentDates.push(attDate);
             }
-          } else if (wasOldPresent !== isNewPresent) {
-            if (!wasOldPresent && isNewPresent) {
-              curStat.presentCount = (Number(curStat.presentCount) || 0) + 1;
-              subObj.present = (Number(subObj.present) || 0) + 1;
-              subObj.absentDates = subObj.absentDates.filter(d => d !== attDate);
-            } else if (wasOldPresent && !isNewPresent) {
+          } else if (oldStatus !== newStatus) {
+            // 🌟 Symmetric Two-Step Delta Engine: Step 1 Unapply Old Status
+            if (oldStatus === 'P' || oldStatus === 'O') {
               curStat.presentCount = Math.max(0, (Number(curStat.presentCount) || 0) - 1);
               subObj.present = Math.max(0, (Number(subObj.present) || 0) - 1);
+            }
+            if (oldStatus === 'O') {
+              curStat.officialCount = Math.max(0, (Number(curStat.officialCount) || 0) - 1);
+              subObj.official = Math.max(0, (Number(subObj.official) || 0) - 1);
+            } else if (oldStatus === 'M') {
+              curStat.medicalCount = Math.max(0, (Number(curStat.medicalCount) || 0) - 1);
+              subObj.medical = Math.max(0, (Number(subObj.medical) || 0) - 1);
+              subObj.absentDates = subObj.absentDates.filter(d => d !== attDate);
+            } else if (oldStatus === 'L') {
+              curStat.permittedCount = Math.max(0, (Number(curStat.permittedCount) || 0) - 1);
+              subObj.permitted = Math.max(0, (Number(subObj.permitted) || 0) - 1);
+            } else if (oldStatus === 'A') {
+              subObj.absentDates = subObj.absentDates.filter(d => d !== attDate);
+            }
+
+            // 🌟 Step 2 Apply New Status
+            if (newStatus === 'P' || newStatus === 'O') {
+              curStat.presentCount = Math.min(curStat.totalPeriods || 9999, (Number(curStat.presentCount) || 0) + 1);
+              subObj.present = Math.min(subObj.total || 9999, (Number(subObj.present) || 0) + 1);
+            }
+            if (newStatus === 'O') {
+              curStat.officialCount = (Number(curStat.officialCount) || 0) + 1;
+              subObj.official = (Number(subObj.official) || 0) + 1;
+            } else if (newStatus === 'M') {
+              curStat.medicalCount = (Number(curStat.medicalCount) || 0) + 1;
+              subObj.medical = (Number(subObj.medical) || 0) + 1;
+              if (!subObj.absentDates.includes(attDate)) subObj.absentDates.push(attDate);
+            } else if (newStatus === 'L') {
+              curStat.permittedCount = (Number(curStat.permittedCount) || 0) + 1;
+              subObj.permitted = (Number(subObj.permitted) || 0) + 1;
+            } else if (newStatus === 'A') {
               if (!subObj.absentDates.includes(attDate)) subObj.absentDates.push(attDate);
             }
           }
@@ -2263,10 +2366,15 @@ export default function PeriodAttendanceManager({
                   const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
                   const recAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
                   const isOfficialPass = Boolean((op && op.isOfficial) || (recAbs && recAbs.isOfficial));
-                  const isAbsent = !rehPresentHere && !isOfficialPass && absentRegNos.some(r => {
+                  const currentStatus = sessionStatusMap[sReg] || sessionStatusMap[sId] || (absentRegNos.some(r => {
                     const str = String(r).trim().toUpperCase();
                     return (sReg && str === sReg.toUpperCase()) || (sAd && str === sAd.toUpperCase()) || (sId && str === sId.toUpperCase());
-                  });
+                  }) ? 'A' : 'P');
+
+                  const isAbsentState = !rehPresentHere && !isOfficialPass && currentStatus !== 'P' && currentStatus !== 'O';
+                  const isPermittedLeave = currentStatus === 'L';
+                  const isMedicalLeave = currentStatus === 'M';
+                  const isStrictAbsent = currentStatus === 'A';
 
                   return (
                     <div
@@ -2277,7 +2385,7 @@ export default function PeriodAttendanceManager({
                           return;
                         }
                         if (isOfficialPass && (op?.isCurrentlyOutside || recAbs?.isOfficial)) return;
-                        toggleAbsent(st.regNo);
+                        toggleAbsent(st.regNo || st.id);
                       }}
                       style={{
                         padding: '12px 14px',
@@ -2287,8 +2395,8 @@ export default function PeriodAttendanceManager({
                         justifyContent: 'space-between',
                         alignItems: 'flex-start',
                         gap: '8px',
-                        background: rehPresentHere ? '#f5f3ff' : isOfficialPass ? '#f0fdfa' : (recAbs?.isMedical && isAbsent) ? '#fffbeb' : isAbsent ? '#fff1f2' : '#ecfdf5',
-                        border: `1.5px solid ${rehPresentHere ? '#8b5cf6' : isOfficialPass ? '#0d9488' : (recAbs?.isMedical && isAbsent) ? '#fde68a' : isAbsent ? '#f43f5e' : '#10b981'}`
+                        background: rehPresentHere ? '#f5f3ff' : isOfficialPass ? '#f0fdfa' : isPermittedLeave ? '#faf5ff' : isMedicalLeave ? '#fffbeb' : isStrictAbsent ? '#fff1f2' : '#ecfdf5',
+                        border: `1.5px solid ${rehPresentHere ? '#8b5cf6' : isOfficialPass ? '#0d9488' : isPermittedLeave ? '#c084fc' : isMedicalLeave ? '#fde68a' : isStrictAbsent ? '#f43f5e' : '#10b981'}`
                       }}
                     >
                       <div style={{ flex: 1 }}>
@@ -2315,31 +2423,60 @@ export default function PeriodAttendanceManager({
                           </div>
                         )}
                         {op && op.isCurrentlyOutside && !recAbs && (
-                          <div style={{ marginTop: '6px', background: '#fffbeb', color: '#92400e', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', lineHeight: 1.35, border: '1px solid #fde68a' }}>
-                            <div>🪪 <strong>Outside Campus ({op.category} Leave):</strong> {op.destination}</div>
-                            <div style={{ fontSize: '10px', marginTop: '2px', color: '#b45309' }}>
-                              Reason: &ldquo;{op.reason || op.category}&rdquo; • Approved by: Usthad {op.teacherName} • Expected Return: {op.toFormatted}
+                          <div style={{ marginTop: '6px', background: '#faf5ff', color: '#6b21a8', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', lineHeight: 1.35, border: '1px solid #e9d5ff' }}>
+                            <div>🪪 <strong>Campus Outpass ({op.category} Leave):</strong> {op.destination}</div>
+                            <div style={{ fontSize: '10px', marginTop: '2px', color: '#7e22ce' }}>
+                              Reason: &ldquo;{op.reason || op.category}&rdquo; • Approved by: Usthad {op.teacherName} • Return: {op.toFormatted}
                             </div>
                           </div>
                         )}
                       </div>
-                      <span style={{
-                        padding: '4px 10px',
-                        borderRadius: '6px',
-                        fontWeight: '800',
-                        fontSize: '11px',
-                        background: rehPresentHere ? '#7c3aed' : isOfficialPass ? '#0d9488' : (recAbs?.isMedical && isAbsent) ? '#d97706' : isAbsent ? '#e11d48' : '#10b981',
-                        color: '#ffffff',
-                        whiteSpace: 'nowrap'
-                      }}>
-                        {rehPresentHere ? '🎭 REHEARSAL' : isOfficialPass ? 'OFFICIAL' : (recAbs?.isMedical && isAbsent) ? '🤒 MEDICAL' : isAbsent ? 'ABSENT' : 'PRESENT'}
+
+                      {/* 🌟 Progressive Multi-State Badge Chip Selector */}
+                      <span
+                        onClick={(e) => {
+                          if (rehPresentHere || isOfficialPass) return;
+                          e.stopPropagation();
+                          cycleStatus(st.regNo || st.id);
+                        }}
+                        title={rehPresentHere || isOfficialPass ? '' : 'Tap badge to cycle: Absent ➔ Leave ➔ Medical ➔ Present'}
+                        style={{
+                          padding: '5px 10px',
+                          borderRadius: '6px',
+                          fontWeight: '800',
+                          fontSize: '11px',
+                          background: rehPresentHere ? '#7c3aed' : isOfficialPass ? '#0d9488' : isPermittedLeave ? '#8b5cf6' : isMedicalLeave ? '#d97706' : isStrictAbsent ? '#e11d48' : '#10b981',
+                          color: '#ffffff',
+                          whiteSpace: 'nowrap',
+                          cursor: (rehPresentHere || isOfficialPass) ? 'default' : 'pointer',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          userSelect: 'none'
+                        }}
+                      >
+                        {rehPresentHere
+                          ? '🎭 REHEARSAL'
+                          : isOfficialPass
+                          ? '🏛️ OFFICIAL'
+                          : isPermittedLeave
+                          ? '🟣 LEAVE'
+                          : isMedicalLeave
+                          ? '🤒 MEDICAL'
+                          : isStrictAbsent
+                          ? '🔴 ABSENT'
+                          : '🟢 PRESENT'}
+                        {!rehPresentHere && !isOfficialPass && isAbsentState && (
+                          <span style={{ fontSize: '9px', opacity: 0.85 }}>🔄</span>
+                        )}
                       </span>
                     </div>
                   );
                 })}
               </div>
 
-              {absentStudentsByClassGroups.length > 0 && (
+              {classStudents.length > 0 && (
                 <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', marginBottom: '18px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
                     <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '13px' }}>
@@ -2353,40 +2490,58 @@ export default function PeriodAttendanceManager({
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-                    {absentStudentsByClassGroups.map(grp => (
-                      <div key={grp.className} style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '10px' }}>
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                            <span style={{ background: '#fff1f2', color: '#e11d48', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
-                              Class {grp.className} ({grp.students.length} Absent)
-                            </span>
-                            <span style={{ fontSize: '11px', fontWeight: '700', color: '#475569' }}>
-                              CT: {grp.classTeacher?.fullName || 'Unassigned'}
-                            </span>
+                    {absentStudentsByClassGroups.map(grp => {
+                      const unexcusedCount = grp.students.length;
+                      return (
+                        <div key={grp.className} style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '10px' }}>
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                              <span style={{ background: unexcusedCount > 0 ? '#fff1f2' : '#f0fdf4', color: unexcusedCount > 0 ? '#e11d48' : '#15803d', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
+                                Class {grp.className} ({unexcusedCount} Unexcused Absent)
+                              </span>
+                              <span style={{ fontSize: '11px', fontWeight: '700', color: '#475569' }}>
+                                CT: {grp.classTeacher?.fullName || 'Unassigned'}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '12px', color: unexcusedCount > 0 ? '#334155' : '#15803d', fontWeight: '600', lineHeight: 1.5 }}>
+                              {unexcusedCount > 0
+                                ? grp.students.map(s => `${s.firstName} (#${s.adNo})`).join(', ')
+                                : '✅ All students in this class are present or excused.'}
+                            </div>
                           </div>
-                          <div style={{ fontSize: '12px', color: '#334155', fontWeight: '600', lineHeight: 1.5 }}>
-                            {grp.students.map(s => `${s.firstName} (#${s.adNo})`).join(', ')}
-                          </div>
-                        </div>
 
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                          <button type="button" onClick={() => handleCopyClassAbsentees(grp)} style={{ ...styles.buttonSecondary, flex: 1, padding: '7px 10px', fontSize: '12px' }}>
-                            📋 Copy {grp.className}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const phone = grp.classTeacher?.whatsappNumber || grp.classTeacher?.mobileNumber;
-                              if (!phone) return alert(`No WhatsApp number saved for Class ${grp.className} Teacher.`);
-                              openDirectWhatsApp(phone, formatAbsentMessageForClass(grp));
-                            }}
-                            style={{ flex: 1, padding: '7px 10px', background: '#10b981', color: '#ffffff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
-                          >
-                            💬 WA {grp.classTeacher?.fullName ? grp.classTeacher.fullName.split(' ')[0] : 'CT'}
-                          </button>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            <button type="button" onClick={() => handleCopyClassAbsentees(grp)} style={{ ...styles.buttonSecondary, flex: 1, padding: '7px 10px', fontSize: '12px' }}>
+                              📋 Copy {grp.className}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={unexcusedCount === 0}
+                              onClick={() => {
+                                if (unexcusedCount === 0) return;
+                                const phone = grp.classTeacher?.whatsappNumber || grp.classTeacher?.mobileNumber;
+                                if (!phone) return alert(`No WhatsApp number saved for Class ${grp.className} Teacher.`);
+                                openDirectWhatsApp(phone, formatAbsentMessageForClass(grp));
+                              }}
+                              style={{
+                                flex: 1,
+                                padding: '7px 10px',
+                                background: unexcusedCount === 0 ? '#94a3b8' : '#10b981',
+                                color: '#ffffff',
+                                border: 'none',
+                                borderRadius: '8px',
+                                fontSize: '12px',
+                                fontWeight: '700',
+                                cursor: unexcusedCount === 0 ? 'not-allowed' : 'pointer',
+                                opacity: unexcusedCount === 0 ? 0.6 : 1
+                              }}
+                            >
+                              💬 WA {grp.classTeacher?.fullName ? grp.classTeacher.fullName.split(' ')[0] : 'CT'}
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

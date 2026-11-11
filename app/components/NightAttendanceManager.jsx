@@ -204,6 +204,7 @@ export default function NightAttendanceManager({
       const outpassAdNos = [];
       const officialAdNos = [];
       const sickAdNos = [];
+      const permittedAdNos = [];
       const absentReasonsMap = {};
 
       const targetStudents = extraBaseClassStudents.filter(st => includeUrdu || !isUrduStudent(st));
@@ -226,7 +227,7 @@ export default function NightAttendanceManager({
           }
         }
         if (stStatus === 'ABSENT') absentAdNos.push(ad);
-        if (stStatus === 'OUTPASS') outpassAdNos.push(ad);
+        if (stStatus === 'OUTPASS' || stStatus === 'LEAVE') permittedAdNos.push(ad);
         if (stStatus === 'OFFICIAL') officialAdNos.push(ad);
         if (stStatus === 'SICK_ROOM') sickAdNos.push(ad);
 
@@ -237,7 +238,7 @@ export default function NightAttendanceManager({
         }
       });
 
-      const presentCount = targetStudents.length - absentAdNos.length - outpassAdNos.length - officialAdNos.length - sickAdNos.length;
+      const presentCount = targetStudents.length - absentAdNos.length - permittedAdNos.length - officialAdNos.length - sickAdNos.length;
       const reasonSlug = effectiveReason.toLowerCase().replace(/[^a-z0-9]/g, '_');
       const docId = `extra_${extraDate}_${extraClass}_${reasonSlug}_${Date.now()}`;
 
@@ -252,9 +253,11 @@ export default function NightAttendanceManager({
         presentCount,
         absentCount: absentAdNos.length,
         outpassCount: outpassAdNos.length,
+        permittedCount: permittedAdNos.length,
         officialCount: officialAdNos.length,
         sickCount: sickAdNos.length,
         absentAdNos,
+        permittedAdNos,
         absentReasonsMap,
         statusMap: extraStatusMap,
         absentList: targetStudents
@@ -743,12 +746,13 @@ export default function NightAttendanceManager({
       const outpassAdNos = [];
       const officialAdNos = [];
       const sickAdNos = [];
+      const permittedAdNos = [];
 
       classStudents.forEach(st => {
         const ad = String(st.adNo || '').trim();
         const stStatus = statusMap[ad] || 'PRESENT';
         if (stStatus === 'ABSENT') absentAdNos.push(ad);
-        if (stStatus === 'OUTPASS') outpassAdNos.push(ad);
+        if (stStatus === 'OUTPASS' || stStatus === 'LEAVE') permittedAdNos.push(ad);
         if (stStatus === 'OFFICIAL') officialAdNos.push(ad);
         if (stStatus === 'SICK_ROOM') sickAdNos.push(ad);
       });
@@ -770,13 +774,15 @@ export default function NightAttendanceManager({
       const classPayload = {
         className: selectedClass,
         totalStrength: classStudents.length,
-        presentCount: classStudents.length - absentAdNos.length - outpassAdNos.length - officialAdNos.length - sickAdNos.length,
+        presentCount: classStudents.length - absentAdNos.length - permittedAdNos.length - officialAdNos.length - sickAdNos.length,
         absentCount: absentAdNos.length,
         outpassCount: outpassAdNos.length,
+        permittedCount: permittedAdNos.length,
         officialCount: officialAdNos.length,
         sickCount: sickAdNos.length,
         absentAdNos,
         outpassAdNos,
+        permittedAdNos,
         officialAdNos,
         sickAdNos,
         absentReasonsMap,
@@ -1571,14 +1577,14 @@ export default function NightAttendanceManager({
 
                     {/* 🌟 1-TAP MODAL-FREE 4-WAY ROLL CALL SELECTOR (PRESENT, ABSENT, SICK, OFFICIAL) */}
                     <div onClick={(e) => e.stopPropagation()} style={{ paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(70px, 1fr))', gap: '6px' }}>
                         <button
                           type="button"
                           onClick={() => setStatusMap(prev => ({ ...prev, [ad]: 'PRESENT' }))}
                           style={{
-                            padding: '8px 10px',
+                            padding: '8px 6px',
                             borderRadius: '8px',
-                            fontSize: '12px',
+                            fontSize: '11px',
                             fontWeight: '800',
                             cursor: 'pointer',
                             background: curStatus === 'PRESENT' ? '#10b981' : '#f8fafc',
@@ -1588,18 +1594,18 @@ export default function NightAttendanceManager({
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            gap: '4px'
+                            gap: '3px'
                           }}
                         >
-                          🟢 Present
+                          🟢 Pres
                         </button>
                         <button
                           type="button"
                           onClick={() => setStatusMap(prev => ({ ...prev, [ad]: 'ABSENT' }))}
                           style={{
-                            padding: '8px 10px',
+                            padding: '8px 6px',
                             borderRadius: '8px',
-                            fontSize: '12px',
+                            fontSize: '11px',
                             fontWeight: '800',
                             cursor: 'pointer',
                             background: curStatus === 'ABSENT' ? '#e11d48' : '#f8fafc',
@@ -1609,18 +1615,39 @@ export default function NightAttendanceManager({
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            gap: '4px'
+                            gap: '3px'
                           }}
                         >
-                          🔴 Absent
+                          🔴 Abs
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setStatusMap(prev => ({ ...prev, [ad]: 'LEAVE' }))}
+                          style={{
+                            padding: '8px 6px',
+                            borderRadius: '8px',
+                            fontSize: '11px',
+                            fontWeight: '800',
+                            cursor: 'pointer',
+                            background: (curStatus === 'LEAVE' || curStatus === 'OUTPASS') ? '#8b5cf6' : '#faf5ff',
+                            color: (curStatus === 'LEAVE' || curStatus === 'OUTPASS') ? '#ffffff' : '#7c3aed',
+                            border: (curStatus === 'LEAVE' || curStatus === 'OUTPASS') ? '1.5px solid #8b5cf6' : '1px solid #e9d5ff',
+                            transition: 'all 0.15s ease',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '3px'
+                          }}
+                        >
+                          🟣 Leave
                         </button>
                         <button
                           type="button"
                           onClick={() => setStatusMap(prev => ({ ...prev, [ad]: 'SICK_ROOM' }))}
                           style={{
-                            padding: '8px 10px',
+                            padding: '8px 6px',
                             borderRadius: '8px',
-                            fontSize: '12px',
+                            fontSize: '11px',
                             fontWeight: '800',
                             cursor: 'pointer',
                             background: curStatus === 'SICK_ROOM' ? '#d97706' : '#fffbeb',
@@ -1630,7 +1657,7 @@ export default function NightAttendanceManager({
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            gap: '4px'
+                            gap: '3px'
                           }}
                         >
                           🤒 Sick
@@ -1639,9 +1666,9 @@ export default function NightAttendanceManager({
                           type="button"
                           onClick={() => setStatusMap(prev => ({ ...prev, [ad]: 'OFFICIAL' }))}
                           style={{
-                            padding: '8px 10px',
+                            padding: '8px 6px',
                             borderRadius: '8px',
-                            fontSize: '12px',
+                            fontSize: '11px',
                             fontWeight: '800',
                             cursor: 'pointer',
                             background: curStatus === 'OFFICIAL' ? '#0d9488' : '#f0fdfa',
@@ -1651,10 +1678,10 @@ export default function NightAttendanceManager({
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            gap: '4px'
+                            gap: '3px'
                           }}
                         >
-                          🏛️ Official
+                          🏛️ Off
                         </button>
                       </div>
 
@@ -2571,6 +2598,7 @@ export default function NightAttendanceManager({
                     {[
                       { id: 'PRESENT', label: 'Pres', activeBg: '#10b981' },
                       { id: 'ABSENT', label: 'Abs', activeBg: '#e11d48' },
+                      { id: 'LEAVE', label: 'Leave', activeBg: '#8b5cf6' },
                       { id: 'SICK_ROOM', label: 'Sick', activeBg: '#d97706' },
                       { id: 'OFFICIAL', label: 'Off', activeBg: '#0d9488' }
                     ].map(b => (
@@ -2584,9 +2612,9 @@ export default function NightAttendanceManager({
                           fontSize: '11px',
                           fontWeight: '800',
                           cursor: 'pointer',
-                          background: curStatus === b.id ? b.activeBg : '#f1f5f9',
-                          color: curStatus === b.id ? '#ffffff' : '#475569',
-                          border: curStatus === b.id ? `1px solid ${b.activeBg}` : '1px solid #cbd5e1',
+                          background: (curStatus === b.id || (b.id === 'LEAVE' && curStatus === 'OUTPASS')) ? b.activeBg : '#f1f5f9',
+                          color: (curStatus === b.id || (b.id === 'LEAVE' && curStatus === 'OUTPASS')) ? '#ffffff' : '#475569',
+                          border: (curStatus === b.id || (b.id === 'LEAVE' && curStatus === 'OUTPASS')) ? `1px solid ${b.activeBg}` : '1px solid #cbd5e1',
                           transition: 'all 0.15s ease'
                         }}
                       >
