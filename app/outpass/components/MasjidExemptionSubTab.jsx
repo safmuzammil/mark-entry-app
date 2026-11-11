@@ -106,7 +106,6 @@ export default function MasjidExemptionSubTab({
     const q = query(
       collection(db, "campus_medical_waivers"),
       where("waiverType", "==", "JAMATH_EXEMPTION"),
-      orderBy("issuedAt", "desc"),
       limit(200)
     );
 
@@ -124,6 +123,8 @@ export default function MasjidExemptionSubTab({
             revoked.push(data);
           }
         });
+        active.sort((a, b) => (b.issuedAt || "").localeCompare(a.issuedAt || ""));
+        revoked.sort((a, b) => (b.issuedAt || "").localeCompare(a.issuedAt || ""));
         setActiveWaivers(active);
         setRevokedWaivers(revoked);
         setLoading(false);

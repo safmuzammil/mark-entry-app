@@ -113,7 +113,6 @@ export default function SickInRoomSubTab({
     const q = query(
       collection(db, "campus_medical_waivers"),
       where("waiverType", "==", "SICK_IN_ROOM"),
-      orderBy("issuedAt", "desc"),
       limit(200)
     );
 
@@ -131,6 +130,8 @@ export default function SickInRoomSubTab({
             revoked.push(data);
           }
         });
+        active.sort((a, b) => (b.issuedAt || "").localeCompare(a.issuedAt || ""));
+        revoked.sort((a, b) => (b.issuedAt || "").localeCompare(a.issuedAt || ""));
         setActiveWaivers(active);
         setRevokedWaivers(revoked);
         setLoading(false);

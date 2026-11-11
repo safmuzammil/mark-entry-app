@@ -1,0 +1,19 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "campus_medical_waivers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "waiverType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "issuedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
