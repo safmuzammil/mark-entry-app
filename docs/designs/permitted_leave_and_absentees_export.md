@@ -11,7 +11,20 @@
 Across Darul Huda Degree Campus, academic faculty and hostel wardens operate multiple attendance-taking portals:
 1. **Period Attendance (`PeriodAttendanceManager.jsx`)**: Real-time hourly classroom lecture roll-call across 9 daily periods.
 2. **Night Attendance (`NightAttendanceManager.jsx`)**: Night hostel roll-call and congregational Jamath attendance.
-3. **Extra Attendance (`NightAttendanceManager.jsx`)**: Special study camps, assemblies, and extra academic sessions.
+3. **Extra Attendance (`NightAttendanceManager.jsx`)**: Special study camps, assemblies, and extra academic sessions (managed as an operational mode within `NightAttendanceManager.jsx`).
+
+### Institutional Jargon & Identifier Definitions
+* **Jamath Attendance**: Congregational prayer attendance taken in the hostel for morning and night prayers.
+* **Gate Outpass**: Kiosk-generated exit permission records stored in the `out_passes` collection, tracking whether a student is officially outside campus.
+* **Clearance**: Post-hoc administrative excusal or rectification of recorded absences granted by college leadership, stored in the `clearance_history` collection.
+* **Student Identifier Keys**:
+  - `regNo` / document ID: The internal immutable database primary key used for Firestore student document updates and session mapping.
+  - `adNo` (Admission Number): The institutional student registration identifier (`#1234` or `#U1107`) prominently displayed in campus rosters.
+  - `rollNo`: Classroom seating roll number (1, 2, 3...) used by class teachers for quick roll-call verification.
+* **Codebase Schema Variables**:
+  - `curStat`: Refers to the `student.periodAttendance` map stored on the student document.
+  - `subObj`: Refers to the specific subject entry within `curStat.subjectWise[subKey]`, tracking `present`, `permitted`, `medical`, `official`, and `absentDates`.
+  - `systemCache`: The Firestore collection used for storing immutable hourly session records (`periodSession_${classId}_${date}_${period}`).
 
 In daily operations, two systemic deficiencies impede accurate student tracking and faculty communication:
 
@@ -39,18 +52,22 @@ This design introduces a unified **Permitted Leave (`'L'`)** attendance architec
      * `'M'`: Medical Leave (Excused bed rest / hospital admission)
      * `'O'`: Official Duty (Authorized institutional representation, counted as present)
 
-2. **Accurate State-Transition & Delta Calculations**:
+2. **Symmetric Two-Step Delta Accounting**:
    - Replaces the binary `absentRegNos` array state in `PeriodAttendanceManager.jsx` with a multi-state mapping `sessionStatusMap: { [regNo]: 'P' | 'A' | 'L' | 'M' | 'O' }`.
-   - Modifies session re-opening logic so that existing `'L'` records are accurately preserved and displayed.
-   - Fixes delta calculations during session re-saves: transitioning a student from `'A'` to `'L'` correctly decrements absence penalties, prunes the date from `absentDates`, and increments `permittedCount` without inflating physical presence ratios.
+   - Modifies session re-opening logic so that existing `'L'`, `'M'`, `'O'`, `'A'`, and `'P'` records are accurately preserved and displayed.
+   - Uses a symmetric two-step delta engine (unapply old status, apply new status) during session re-saves to eliminate combinatorial transition drift. Transitioning a student between any states (e.g., `'A'` to `'L'`, `'M'` to `'L'`, `'P'` to `'L'`) correctly adjusts counter fields and updates `absentDates` without inflating physical presence.
 
 3. **Progressive Roll-Call Ergonomics**:
    - Preserves fast 1-tap mobile roll-call. Default card tap continues to toggle between `Present` and `Absent`.
-   - On non-present cards, provides an intuitive status chip selector cycling through `[🔴 ABSENT]` ➔ `[🟣 PERMITTED LEAVE]` ➔ `[🟡 MEDICAL]` ➔ `[🟢 PRESENT]`.
+   - On non-present cards, provides an interactive status chip selector cycling through:
+     `[🔴 ABSENT]` ➔ `[🟣 LEAVE]` ➔ `[🟡 MEDICAL]` ➔ `[🟢 PRESENT]`.
+   - Official Duty (`'O'`) remains administrative and clearance/rehearsal-driven to prevent regular lecture faculty from accidentally misclassifying official duty; if a student enters marked `'O'`, a locked `[🔵 OFFICIAL]` badge is rendered.
+   - Interactive chip clicks invoke `e.stopPropagation()` to prevent card click toggle event bubbling.
    - In Extra Attendance and Night Attendance, includes dedicated `Leave` button options alongside `Pres`, `Abs`, `Sick`, and `Off`.
 
 4. **Targeted Unexcused Absentees WhatsApp & Clipboard Generator**:
-   - Implements a standardized export filter strictly isolating students with `status === 'A'`.
+   - Implements a standardized export filter strictly isolating students with `status === 'A'` (excluding `'P'`, `'M'`, `'O'`, and `'L'`).
+   - Keeps the export container mounted whenever `classStudents.length > 0`.
    - Formats messages with complete context:
      ```text
      *📋 ABSENTEES REPORT — CLASS [ClassName]*
@@ -61,7 +78,10 @@ This design introduces a unified **Permitted Leave (`'L'`)** attendance architec
      *Unexcused Absent Students ([Count]):*
      1. [Student Name] (#[AdNo] • Roll: [RollNo])
      ```
-   - Automatically URL-encodes payloads for WhatsApp Web/Mobile and disables action buttons when there are zero unexcused absentees.
+   - If `unexcusedStudents.length === 0`:
+     * Clipboard Copy button remains enabled and emits: `*Unexcused Absent Students (0):*\nNone (All students present or excused)`.
+     * Direct WhatsApp button is placed in a disabled state (`disabled={true}`, cursor `not-allowed`, opacity 0.5) to prevent blank broadcast spam.
+   - Automatically URL-encodes payloads with `encodeURIComponent` for WhatsApp Web and mobile apps.
 
 ---
 
@@ -70,12 +90,12 @@ This design introduces a unified **Permitted Leave (`'L'`)** attendance architec
 ### In-Scope Goals
 * **Universal Permitted Leave (`'L'`)**: Implement `'L'` across `PeriodAttendanceManager.jsx`, `NightAttendanceManager.jsx`, and `PeriodAttendanceMinusAndClearance.jsx`.
 * **Security Rules Whitelist**: Update `firestore.rules` to allow `clearanceType == 'PERMITTED_LEAVE'` in `isValidClearanceHist`.
-* **Session Re-Save Delta Accounting**: Correctly update `students.{id}.periodAttendance` counters when switching statuses on existing session docs.
+* **Symmetric Session Re-Save Delta Accounting**: Correctly update `students.{id}.periodAttendance` counters when switching statuses on existing session docs using a two-step unapply/apply helper.
 * **Targeted Absentees Export**: Deliver one-click WhatsApp and Clipboard exports filtered strictly for unexcused absentees (`'A'`).
 * **Mobile Speed Preservation**: Retain 1-tap rapid roll-call without touch-target crowding.
 
 ### Out-of-Scope Non-Goals
-* Altering Continuous and Comprehensive Evaluation (CCE) examination mark formulas.
+* Altering Continuous and Comprehensive Evaluation (CCE) examination mark formulas (internal academic CCE mark ratios remain calculated via existing weighted rules).
 * Building a pending absence follow-up queue or inbox (explicitly skipped per user decision).
 * Modifying barcode security scanning at the campus gate kiosk.
 
@@ -90,7 +110,7 @@ flowchart TD
     subgraph DataStore ["Firestore Collections"]
         SC["systemCache<br/>(periodSession_* : attendanceMap with 'P','A','L','M','O')"]
         ST["students<br/>(periodAttendance: present, absent, permitted, medical, official)"]
-        NA["night_attendance<br/>(permittedAdNos, absentAdNos, sickAdNos)"]
+        NA["night_attendance / night_extra_attendance<br/>(permittedAdNos, absentAdNos, sickAdNos)"]
         CH["clearance_history<br/>(clearanceType: 'PERMITTED_LEAVE', 'MEDICAL_LEAVE', 'OFFICIAL_PRESENT')"]
     end
 
@@ -102,8 +122,8 @@ flowchart TD
 
     subgraph PeriodAttendancePortal ["PeriodAttendanceManager.jsx"]
         UI_CARD["Student Roll-Call Card<br/>1-Tap Toggle + Status Chip [A/L/M/P]"]
-        LOADER["checkExistingSession()<br/>Preserves 'L', 'M', 'A' into sessionStatusMap"]
-        DELTA["handleSaveAttendance()<br/>Multi-state delta recalculation"]
+        LOADER["checkExistingSession()<br/>Preserves 'L', 'M', 'O', 'A', 'P' into sessionStatusMap"]
+        DELTA["handleSaveAttendance()<br/>Symmetric Two-Step Delta Helper"]
         EXPORT["formatAbsentMessageForClass()<br/>Filters strictly for status === 'A'"]
         
         UI_CARD --> DELTA
@@ -114,12 +134,20 @@ flowchart TD
 
     subgraph NightAttendancePortal ["NightAttendanceManager.jsx"]
         N_CARD["Hostel & Extra Card<br/>Buttons: Pres, Abs, Leave, Sick, Off"]
-        N_SAVE["handleSaveExtraAttendance()<br/>Writes permittedAdNos & permittedCount"]
+        N_SAVE["handleSaveExtraAttendance() & handleSaveClassAttendance()<br/>Writes permittedAdNos & permittedCount"]
         N_EXPORT["Targeted Absent WhatsApp Export"]
         
         N_CARD --> N_SAVE
         N_SAVE --> NA
         N_EXPORT --> WA
+    end
+
+    subgraph ClearancePortal ["PeriodAttendanceMinusAndClearance.jsx"]
+        CLR_SAVE["handleSaveClearance()<br/>Issues PERMITTED_LEAVE without presence inflation"]
+        CLR_INSPECT["handleUpdateSessionStatus()<br/>Inspection tab corrections for 'L'"]
+        
+        CLR_SAVE --> CH & ST & SC
+        CLR_INSPECT --> ST & SC
     end
 
     RULE_H -.->|Enforces Authorization| CH
@@ -146,40 +174,89 @@ flowchart TD
 
 #### 2. Period Attendance Roll-Call & Session Lifecycle (`PeriodAttendanceManager.jsx`)
 * **State Upgrade**:
-  - Replace `absentRegNos` (`string[]`) with `sessionStatusMap` (`Record<string, 'P' | 'A' | 'L' | 'M' | 'O'>`).
-  - Maintain helper `getEffectiveStudentStatus(st)` that computes initial status from Gate Outpasses, recorded medical waivers, or default `P`.
-* **Session Loader Integrity**:
+  - Declare `const [sessionStatusMap, setSessionStatusMap] = useState({});`.
   - In `checkExistingSession`:
+    * If session exists: map `data.attendanceMap` directly into `sessionStatusMap`, preserving `'L'`, `'M'`, `'O'`, `'A'`, and `'P'`.
+    * If session does not exist: initialize `sessionStatusMap` for all enrolled students based on active outpasses and waivers (Gate Outpass ➔ `'A'`, Medical Outpass/Waiver ➔ `'M'`, Official Outpass ➔ `'O'`, default ➔ `'P'`).
+* **Symmetric Two-Step Delta Accounting**:
+  - When saving or re-saving an existing session, execute:
     ```javascript
-    const sMap = {};
-    Object.entries(attMap).forEach(([k, val]) => {
-      sMap[k] = val; // Preserves 'L', 'M', 'O', 'A', 'P'
-    });
-    setSessionStatusMap(sMap);
+    function adjustAttendanceDelta(oldStatus, newStatus, curStat, subObj, date) {
+      if (oldStatus === newStatus) return;
+
+      // Step 1: Unapply Old Status
+      if (oldStatus === 'P' || oldStatus === 'O') {
+        curStat.presentCount = Math.max(0, (curStat.presentCount || 0) - 1);
+        subObj.present = Math.max(0, (subObj.present || 0) - 1);
+      }
+      if (oldStatus === 'O') {
+        curStat.officialCount = Math.max(0, (curStat.officialCount || 0) - 1);
+        subObj.official = Math.max(0, (subObj.official || 0) - 1);
+      } else if (oldStatus === 'M') {
+        curStat.medicalCount = Math.max(0, (curStat.medicalCount || 0) - 1);
+        subObj.medical = Math.max(0, (subObj.medical || 0) - 1);
+      } else if (oldStatus === 'L') {
+        curStat.permittedCount = Math.max(0, (curStat.permittedCount || 0) - 1);
+        subObj.permitted = Math.max(0, (subObj.permitted || 0) - 1);
+      } else if (oldStatus === 'A') {
+        const idx = subObj.absentDates.indexOf(date);
+        if (idx !== -1) subObj.absentDates.splice(idx, 1);
+      }
+
+      // Step 2: Apply New Status
+      if (newStatus === 'P' || newStatus === 'O') {
+        curStat.presentCount = Math.min(curStat.totalPeriods || 9999, (curStat.presentCount || 0) + 1);
+        subObj.present = Math.min(subObj.total || 9999, (subObj.present || 0) + 1);
+      }
+      if (newStatus === 'O') {
+        curStat.officialCount = (curStat.officialCount || 0) + 1;
+        subObj.official = (subObj.official || 0) + 1;
+      } else if (newStatus === 'M') {
+        curStat.medicalCount = (curStat.medicalCount || 0) + 1;
+        subObj.medical = (subObj.medical || 0) + 1;
+      } else if (newStatus === 'L') {
+        curStat.permittedCount = (curStat.permittedCount || 0) + 1;
+        subObj.permitted = (subObj.permitted || 0) + 1;
+      } else if (newStatus === 'A') {
+        if (!subObj.absentDates.includes(date)) subObj.absentDates.push(date);
+      }
+    }
     ```
-* **Delta Recalculation on Re-Save**:
-  - When re-saving existing sessions, compute full transition diffs for each student:
-    * From `'A'` to `'L'`: remove date from `absentDates`, increment `permittedCount` and `subObj.permitted`.
-    * From `'P'` to `'L'`: decrement `presentCount`, increment `permittedCount`.
-    * From `'L'` to `'P'`: decrement `permittedCount`, increment `presentCount`.
-    * From `'L'` to `'A'`: decrement `permittedCount`, add date to `absentDates`.
 * **Card UI & Progressive Disclosure**:
   - Tapping card background toggles `P` ↔ `A`.
-  - When non-present, clicking the badge chip cycles: `[🔴 ABSENT]` ➔ `[🟣 LEAVE]` ➔ `[🟡 MEDICAL]` ➔ `[🟢 PRESENT]`.
+  - When non-present, clicking the badge chip cycles:
+    `[🔴 ABSENT]` ➔ `[🟣 LEAVE]` ➔ `[🟡 MEDICAL]` ➔ `[🟢 PRESENT]`.
+  - Badge click handler includes `e.stopPropagation()` to prevent card click bubbling.
 
 #### 3. Extra & Night Attendance Enhancements (`NightAttendanceManager.jsx`)
 * Add `LEAVE` button alongside `Pres`, `Abs`, `Sick`, `Off` in card controls.
-* Store `permittedAdNos` and `permittedCount` in `night_extra_attendance` session records.
-* In student stats, update `permittedCount` accordingly.
+* In `handleSaveExtraAttendance`:
+  - Subtract `permittedAdNos.length` from `presentCount`.
+  - Store `permittedAdNos` and `permittedCount` in `night_extra_attendance` session records.
+* In `handleSaveClassAttendance`:
+  - Deduct permitted students from `presentCount` and persist `permittedCount` in `night_attendance`.
+* Update `handleSendExtraToClassTeacher` to strictly filter for unexcused absentees (`status === 'ABSENT'`).
 
 #### 4. Targeted Absentees WhatsApp & Clipboard Generator
 * In `PeriodAttendanceManager.jsx`, rewrite `formatAbsentMessageForClass(group)`:
+  - Keep the export card mounted whenever `classStudents.length > 0` (do not unmount on 0 absentees).
   - Filter `group.students` solely for `status === 'A'`.
   - Exclude any student with status `'P'`, `'M'`, `'O'`, or `'L'`.
   - Contextual header with Class Name, Date, Period number, Subject Alias, and Faculty Name.
   - Numbered list: `N. [Student Name] (#[AdNo] • Roll: [RollNo])`.
-  - If 0 absentees: `None (All students present or excused)`.
+  - If 0 absentees:
+    * Emit: `*Unexcused Absent Students (0):*\nNone (All students present or excused)`.
+    * Keep Clipboard Copy enabled.
+    * Disable direct WhatsApp button (`disabled={true}`, opacity 0.5, cursor `not-allowed`).
   - Wrap output with `encodeURIComponent` when launching WhatsApp.
+
+#### 5. Secondary Clearance Component Sync (`PeriodAttendanceMinusAndClearance.jsx`)
+* In `handleSaveClearance` (lines 755–820):
+  - When `clearReason === 'permitted'`, set `attMap[regNo] = 'L'`, increment `curStat.permittedCount` and `subObj.permitted`, and do not inflate physical presence (`presentCount`).
+  - Set `clearanceType: 'PERMITTED_LEAVE'` and label `🎟️ Permitted Leave (Excused)` when saving to `clearance_history` (line 921).
+* In `handleUpdateSessionStatus` (lines 1066–1150):
+  - Add symmetric support for `L` (`PERMITTED_LEAVE`) in Step 1 (unapply) and Step 2 (apply).
+  - Add `SET TO PERMITTED LEAVE (L)` button to inspection action bar.
 
 ---
 
@@ -205,81 +282,101 @@ flowchart TD
      ```javascript
      data.clearanceType in ['MEDICAL_LEAVE', 'OFFICIAL_PRESENT', 'PERMITTED_LEAVE']
      ```
-  2. Verify rules compilation and deploy via `firebase deploy --only firestore:rules` or schema test.
+  2. Verify rules compilation and deploy via `firebase deploy --only firestore:rules`.
 
 ---
 
 ### Phase 2: Period Attendance Roll-Call & Re-Save Delta Accounting
 * **Target File**: [`app/components/PeriodAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/PeriodAttendanceManager.jsx)
 * **Actions**:
-  1. **Session Loader Refactor (`checkExistingSession`)**:
-     - Replace array-based `setAbsentRegNos` with `setSessionStatusMap`:
+  1. **State Declaration & Loader Refactor (`checkExistingSession`)**:
+     - Declare `const [sessionStatusMap, setSessionStatusMap] = useState({});`.
+     - In `checkExistingSession` (lines 549–592):
+       - If session doc exists: map `data.attendanceMap` into `sessionStatusMap`, preserving `'L'`, `'M'`, `'O'`, `'A'`, and `'P'`.
+       - If session doc does not exist (`else` branch): initialize `sessionStatusMap` for all enrolled students based on active outpasses and pre-recorded absences (Outpass/Recorded ➔ `'A'`, Medical ➔ `'M'`, Official ➔ `'O'`, default ➔ `'P'`).
+  2. **Session Save & Symmetric Two-Step Delta Recalculation (`handleSaveAttendance`)**:
+     - Refactor `handleSaveAttendance` to utilize the **Symmetric Two-Step Delta Helper** for each student (`oldStatus` vs `newStatus`):
        ```javascript
-       const sMap = {};
-       Object.entries(attMap).forEach(([k, val]) => {
-         sMap[String(k).trim()] = val;
-       });
-       setSessionStatusMap(sMap);
+       // Step 1: Unapply Old Status
+       if (oldStatus === 'P' || oldStatus === 'O') {
+         curStat.presentCount = Math.max(0, (curStat.presentCount || 0) - 1);
+         subObj.present = Math.max(0, (subObj.present || 0) - 1);
+       }
+       if (oldStatus === 'O') {
+         curStat.officialCount = Math.max(0, (curStat.officialCount || 0) - 1);
+         subObj.official = Math.max(0, (subObj.official || 0) - 1);
+       } else if (oldStatus === 'M') {
+         curStat.medicalCount = Math.max(0, (curStat.medicalCount || 0) - 1);
+         subObj.medical = Math.max(0, (subObj.medical || 0) - 1);
+       } else if (oldStatus === 'L') {
+         curStat.permittedCount = Math.max(0, (curStat.permittedCount || 0) - 1);
+         subObj.permitted = Math.max(0, (subObj.permitted || 0) - 1);
+       } else if (oldStatus === 'A') {
+         const idx = subObj.absentDates.indexOf(attDate);
+         if (idx !== -1) subObj.absentDates.splice(idx, 1);
+       }
+
+       // Step 2: Apply New Status
+       if (newStatus === 'P' || newStatus === 'O') {
+         curStat.presentCount = Math.min(curStat.totalPeriods || 9999, (curStat.presentCount || 0) + 1);
+         subObj.present = Math.min(subObj.total || 9999, (subObj.present || 0) + 1);
+       }
+       if (newStatus === 'O') {
+         curStat.officialCount = (curStat.officialCount || 0) + 1;
+         subObj.official = (subObj.official || 0) + 1;
+       } else if (newStatus === 'M') {
+         curStat.medicalCount = (curStat.medicalCount || 0) + 1;
+         subObj.medical = (subObj.medical || 0) + 1;
+       } else if (newStatus === 'L') {
+         curStat.permittedCount = (curStat.permittedCount || 0) + 1;
+         subObj.permitted = (subObj.permitted || 0) + 1;
+       } else if (newStatus === 'A') {
+         if (!subObj.absentDates.includes(attDate)) subObj.absentDates.push(attDate);
+       }
        ```
-     - Ensure `'L'`, `'M'`, `'O'`, `'A'`, and `'P'` are preserved when re-opening existing sessions.
-  2. **Session Save & Transition Delta Recalculation (`handleSaveAttendance`)**:
-     - For each student, compare `oldStatus` with `newStatus`:
-       * If `oldStatus === 'A'` and `newStatus === 'L'`:
-         - Remove date from `subObj.absentDates`.
-         - Increment `curStat.permittedCount` and `subObj.permitted`.
-       * If `oldStatus === 'P'` and `newStatus === 'L'`:
-         - Decrement `curStat.presentCount` and `subObj.present`.
-         - Increment `curStat.permittedCount` and `subObj.permitted`.
-       * If `oldStatus === 'L'` and `newStatus === 'P'`:
-         - Decrement `curStat.permittedCount` and `subObj.permitted`.
-         - Increment `curStat.presentCount` and `subObj.present`.
-       * If `oldStatus === 'L'` and `newStatus === 'A'`:
-         - Decrement `curStat.permittedCount` and `subObj.permitted`.
-         - Add date to `subObj.absentDates`.
-     - Update session doc in `systemCache` with `attendanceMap[reg] = status`.
-     - Write updated `periodAttendance` stats back to the `students` collection in discrete chunks ($\le 250$ writes).
+     - Persist `sessionStatusMap` to `systemCache` session doc and write updated student stats in chunks ($\le 250$).
   3. **Card UI & Progressive Status Selector**:
      - Default card click toggles `P` ↔ `A`.
-     - On non-present student cards, add an interactive status badge chip cycling:
+     - Non-present cards display an interactive status chip badge cycling:
        `[🔴 ABSENT]` ➔ `[🟣 LEAVE]` ➔ `[🟡 MEDICAL]` ➔ `[🟢 PRESENT]`.
+     - Badge chip click handler must call `e.stopPropagation()` to prevent card click toggle bubbling.
   4. **Targeted Absentees WhatsApp & Clipboard Export**:
-     - Update `formatAbsentMessageForClass(group)`:
-       - Filter `group.students` strictly for `status === 'A'`.
-       - Exclude students with `'P'`, `'M'`, `'O'`, or `'L'`.
-       - Output formatted text:
-         ```text
-         *📋 ABSENTEES REPORT — CLASS ${group.className}*
-         📅 Date: ${attDate} | Period: ${attSession}
-         📖 Subject: ${subTitle}
-         👨‍🏫 Teacher: ${activeTeacherObj?.fullName || 'Faculty'}
-
-         *Unexcused Absent Students (${unexcusedStudents.length}):*
-         ${lines || 'None (All students present or excused)'}
-         ```
-       - Wrap WhatsApp URL payload in `encodeURIComponent`.
-       - Disable the WhatsApp button when `unexcusedStudents.length === 0`.
+     - Ensure the absentee export shell renders whenever `classStudents.length > 0` (do not hide on 0 absentees).
+     - Filter unexcused absentees strictly for `status === 'A'` (excluding `'P'`, `'M'`, `'O'`, `'L'`).
+     - If `unexcusedStudents.length === 0`:
+       - Clipboard copy text emits: `*Unexcused Absent Students (0):*\nNone (All students present or excused)`.
+       - WhatsApp button is rendered in disabled state (`disabled={true}`, opacity 0.5, cursor `not-allowed`).
 
 ---
 
 ### Phase 3: Extra & Night Attendance Integration
 * **Target File**: [`app/components/NightAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/NightAttendanceManager.jsx)
 * **Actions**:
-  1. Add `LEAVE` button (`id: 'LEAVE', label: 'Leave', activeBg: '#8b5cf6'`) in the card action clusters for Extra and Night attendance.
-  2. In `handleSaveExtraAttendance`, calculate `permittedAdNos` and `permittedCount`, persisting them to the session doc in `night_attendance` / `night_extra_attendance`.
-  3. Update `handleSendExtraToClassTeacher` to strictly filter for unexcused absentees (`status === 'ABSENT'`).
+  1. Add `LEAVE` button (`id: 'LEAVE', label: 'Leave', activeBg: '#8b5cf6'`) to card action clusters in both Night Attendance (`take_attendance`) and Extra Attendance (`extra_attendance`).
+  2. In `handleSaveExtraAttendance`:
+     - Accumulate `permittedAdNos` where `stStatus === 'LEAVE'`.
+     - Deduct `permittedAdNos.length` from `presentCount`.
+     - Persist `permittedAdNos` and `permittedCount` to `night_extra_attendance`.
+  3. In `handleSaveClassAttendance`:
+     - Deduct permitted students from `presentCount` and persist `permittedCount` to `night_attendance`.
+  4. Update `handleSendExtraToClassTeacher` to strictly filter for unexcused absentees (`status === 'ABSENT'`).
 
 ---
 
 ### Phase 4: Secondary Clearance Component Sync
 * **Target File**: [`app/components/PeriodAttendanceMinusAndClearance.jsx`](file:///D:/Codes/mark-entry-app/app/components/PeriodAttendanceMinusAndClearance.jsx)
 * **Actions**:
-  1. Ensure `handleApplyClearance` supports setting status to `L` (`PERMITTED_LEAVE`).
-  2. When `newStatus === 'L'`, increment `permittedCount`, remove date from `absentDates`, and do not inflate physical presence.
+  1. In `handleSaveClearance` (lines 755–820):
+     - When `clearReason === 'permitted'`, set `attMap[regNo] = 'L'`, increment `curStat.permittedCount` and `subObj.permitted`, and do not inflate physical presence (`presentCount`).
+     - Set `clearanceType: 'PERMITTED_LEAVE'` and label `🎟️ Permitted Leave (Excused)` when saving to `clearance_history` (line 921).
+  2. In `handleUpdateSessionStatus` (lines 1066–1150):
+     - Add symmetric support for `L` (`PERMITTED_LEAVE`) in Step 1 (unapply) and Step 2 (apply).
+     - Add `SET TO PERMITTED LEAVE (L)` button to inspection action bar.
 
 ---
 
 ### Phase 5: Build Verification & Regression Testing
-1. Run `npm run build` with `BypassSandbox: true` to ensure zero JSX, TypeScript, or bundling errors.
-2. Verify Firestore security rules evaluation with emulator or test script.
-3. Test WhatsApp export string generation with special characters in subject names.
-4. Verify session re-edit delta calculations in local state.
+1. Run `npm run build` to verify zero TypeScript, bundling, or JSX compilation errors.
+2. Verify Firestore security rules evaluation for `clearance_history` with `clearanceType == 'PERMITTED_LEAVE'`.
+3. Verify session re-edit delta calculations in local state across all combinations (`P ➔ L`, `L ➔ P`, `A ➔ L`, `L ➔ A`, `M ➔ L`, `O ➔ L`).
+4. Validate zero-absentees clipboard export copying and WhatsApp button disabled state.
