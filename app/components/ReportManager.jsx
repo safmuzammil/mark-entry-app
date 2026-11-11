@@ -742,14 +742,14 @@ export default function ReportManager() {
     }
   };
   const handleForceSyncAllToSheets = async () => {
-    if (!window.confirm("This will push all database marks to Google Sheets. Continue?")) return;
+    if (!window.confirm("This will push all database marks to Google Sheets in safe sequential batches. Continue?")) return;
 
     setIsLoading(true);
     setStatusMsg('Gathering all marks from database...');
 
     try {
       const marksSnap = await getDocs(collection(db, 'marks'));
-      let allMarksPayload = [];
+      const batchMap = {};
 
       marksSnap.forEach(docSnap => {
         const studentId = docSnap.id;
@@ -758,10 +758,26 @@ export default function ReportManager() {
         Object.keys(data).forEach(subjectKey => {
           const levels = data[subjectKey];
           Object.keys(levels).forEach(levelMax => {
-            if (levels[levelMax] !== undefined && levels[levelMax] !== '') {
+            const rawScore = levels[levelMax];
+            if (rawScore !== undefined && rawScore !== '') {
               const stObj = (adminStudentsList || []).find(s => s.regNo === studentId || s.id === studentId || s.adNo === studentId);
               const targetClassStr = stObj ? String(stObj.class || (stObj.classes || [])[0] || '').trim().toUpperCase() : '';
-              allMarksPayload.push({
+
+              // Skip Specialization (max 30) from Google Sheets per system specs
+              if (String(subjectKey).toUpperCase().includes('SPECIALIZATION') || String(levelMax) === '30') return;
+              if (!targetClassStr) return;
+
+              const batchKey = `${targetClassStr}___${subjectKey}___${levelMax}`;
+              if (!batchMap[batchKey]) {
+                batchMap[batchKey] = {
+                  targetClass: targetClassStr,
+                  subject: subjectKey,
+                  maxMarks: levelMax,
+                  marks: []
+                };
+              }
+
+              batchMap[batchKey].marks.push({
                 studentId: studentId,
                 regNo: studentId,
                 adNo: stObj?.adNo || '',
@@ -769,37 +785,68 @@ export default function ReportManager() {
                 class: targetClassStr,
                 subject: subjectKey,
                 maxMarks: levelMax,
-                marksObtained: levels[levelMax],
-                score: levels[levelMax]
+                marksObtained: rawScore,
+                score: rawScore
               });
             }
           });
         });
       });
 
-      if (allMarksPayload.length === 0) {
+      const batches = Object.values(batchMap);
+
+      if (batches.length === 0) {
         setStatusMsg('No marks found in database to sync.');
         setIsLoading(false);
         return;
       }
 
-      setStatusMsg(`Sending ${allMarksPayload.length} mark entries to Google Sheets. Please wait...`);
+      let totalSyncedMarks = 0;
+      let failedBatches = 0;
+      let lastErrMsg = '';
 
-      const res = await fetch(WEB_APP_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ marks: allMarksPayload, action: 'massSync' })
-      });
+      for (let i = 0; i < batches.length; i++) {
+        const b = batches[i];
+        setStatusMsg(`⏳ Syncing batch ${i + 1} of ${batches.length}: Class ${b.targetClass} • ${b.subject} (${b.maxMarks}M) [${b.marks.length} students]...`);
 
-      const result = await res.json();
-      if (result.status === 'success') {
-        setStatusMsg('✅ Successfully synced ALL marks to Google Sheets!');
+        try {
+          const res = await fetch(WEB_APP_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              targetClass: b.targetClass,
+              subject: b.subject,
+              maxMarks: b.maxMarks,
+              marks: b.marks
+            })
+          });
+
+          const result = await res.json();
+          if (result.status === 'success') {
+            totalSyncedMarks += b.marks.length;
+          } else {
+            failedBatches++;
+            lastErrMsg = result.message || 'Unknown error';
+            console.warn(`Batch ${b.targetClass} ${b.subject} warning:`, result.message);
+          }
+        } catch (postErr) {
+          failedBatches++;
+          lastErrMsg = postErr.message;
+          console.error(`Batch ${b.targetClass} ${b.subject} network error:`, postErr);
+        }
+
+        // Brief 150ms pacing between batches to respect Google Sheets write lock
+        await new Promise(r => setTimeout(r, 150));
+      }
+
+      if (failedBatches === 0) {
+        setStatusMsg(`✅ Successfully synced ALL ${totalSyncedMarks} marks across ${batches.length} course batches to Google Sheets!`);
       } else {
-        setStatusMsg('⚠️ Sheets sync failed: ' + result.message);
+        setStatusMsg(`⚠️ Completed: ${totalSyncedMarks} marks synced. (${failedBatches} batches failed or had non-standard columns: ${lastErrMsg})`);
       }
     } catch (err) {
       console.error(err);
-      setStatusMsg('❌ Network error while syncing to Sheets. Your Google Script might not be responding.');
+      setStatusMsg('❌ Error gathering marks from database: ' + err.message);
     }
     setIsLoading(false);
   };

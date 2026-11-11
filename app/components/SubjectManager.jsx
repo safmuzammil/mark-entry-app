@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../../lib/firebase';
 import { doc, getDocs, setDoc, collection } from 'firebase/firestore';
-import { DEFAULT_CLASSES, DEFAULT_SUBJECTS, styles } from './erpConstants';
+import { DEFAULT_CLASSES, DEFAULT_SUBJECTS, DEPARTMENTS, MADHABS, styles } from './erpConstants';
 import { isAttendanceOnlyEnrollment } from './PeriodAttendanceManager';
 import { ProfileAvatar } from './ErpExtensions';
 
@@ -47,6 +47,10 @@ export default function SubjectManager({
   const [subTeacherUsername, setSubTeacherUsername] = useState('');
   const [subSelectedStudentIds, setSubSelectedStudentIds] = useState([]);
   const [subStudentSearch, setSubStudentSearch] = useState('');
+  const [subModalClassFilter, setSubModalClassFilter] = useState('ALL');
+  const [subModalDeptFilter, setSubModalDeptFilter] = useState('ALL');
+  const [subModalMadhabFilter, setSubModalMadhabFilter] = useState('ALL');
+  const [subModalStreamFilter, setSubModalStreamFilter] = useState('ALL');
   const [submitting, setSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState({ text: '', type: '' });
 
@@ -187,6 +191,10 @@ export default function SubjectManager({
     });
     setSubSelectedStudentIds(classSts.map(s => String(s.regNo || s.adNo)));
     setSubStudentSearch('');
+    setSubModalClassFilter('ALL');
+    setSubModalDeptFilter('ALL');
+    setSubModalMadhabFilter('ALL');
+    setSubModalStreamFilter('ALL');
     setShowAddModal(true);
   };
 
@@ -210,6 +218,10 @@ export default function SubjectManager({
       : item.enrolledStudents.map(s => String(s.regNo || s.adNo))
     );
     setSubStudentSearch('');
+    setSubModalClassFilter('ALL');
+    setSubModalDeptFilter('ALL');
+    setSubModalMadhabFilter('ALL');
+    setSubModalStreamFilter('ALL');
     setShowAddModal(true);
   };
 
@@ -841,24 +853,103 @@ export default function SubjectManager({
                   </div>
                 </div>
 
-                <input
-                  type="text"
-                  placeholder="Filter students in list by name, class or ad.no..."
-                  value={subStudentSearch}
-                  onChange={(e) => setSubStudentSearch(e.target.value)}
-                  style={{ ...styles.input, marginBottom: '10px', fontSize: '12px', padding: '8px 12px' }}
-                />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px', marginBottom: '10px' }}>
+                  <select
+                    value={subModalClassFilter}
+                    onChange={(e) => setSubModalClassFilter(e.target.value)}
+                    style={{ ...styles.input, fontSize: '11px', padding: '6px 8px' }}
+                  >
+                    <option value="ALL">All Classes</option>
+                    {DEFAULT_CLASSES.map(c => <option key={c} value={c}>Class {c}</option>)}
+                  </select>
+
+                  <select
+                    value={subModalDeptFilter}
+                    onChange={(e) => setSubModalDeptFilter(e.target.value)}
+                    style={{ ...styles.input, fontSize: '11px', padding: '6px 8px' }}
+                  >
+                    <option value="ALL">All Departments</option>
+                    {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+
+                  <select
+                    value={subModalMadhabFilter}
+                    onChange={(e) => setSubModalMadhabFilter(e.target.value)}
+                    style={{ ...styles.input, fontSize: '11px', padding: '6px 8px' }}
+                  >
+                    <option value="ALL">All Madhabs</option>
+                    <option value="Shafi">Shafi</option>
+                    <option value="Hanafi">Hanafi</option>
+                  </select>
+
+                  <select
+                    value={subModalStreamFilter}
+                    onChange={(e) => setSubModalStreamFilter(e.target.value)}
+                    style={{ ...styles.input, fontSize: '11px', padding: '6px 8px' }}
+                  >
+                    <option value="ALL">All Categories</option>
+                    <option value="URDU">Urdu Stream Only</option>
+                    <option value="NON_URDU">Non-Urdu Only</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                  <input
+                    type="text"
+                    placeholder="Filter students in list by name or ad.no..."
+                    value={subStudentSearch}
+                    onChange={(e) => setSubStudentSearch(e.target.value)}
+                    style={{ ...styles.input, fontSize: '12px', padding: '8px 12px', flex: 1, margin: 0 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const visibleStudents = students.filter(st => {
+                        const stClasses = Array.isArray(st.classes) ? st.classes : [st.class];
+                        const isUrdu = String(st.adNo || '').toUpperCase().startsWith('U');
+                        if (subModalClassFilter !== 'ALL' && !stClasses.includes(subModalClassFilter)) return false;
+                        if (subModalDeptFilter !== 'ALL' && String(st.department || '').toUpperCase() !== subModalDeptFilter.toUpperCase()) return false;
+                        if (subModalMadhabFilter !== 'ALL' && String(st.madhab || '').toUpperCase() !== subModalMadhabFilter.toUpperCase()) return false;
+                        if (subModalStreamFilter === 'URDU' && !isUrdu) return false;
+                        if (subModalStreamFilter === 'NON_URDU' && isUrdu) return false;
+                        if (subStudentSearch.trim()) {
+                          const q = subStudentSearch.toLowerCase();
+                          const sName = String(st.firstName || st.name || '').toLowerCase();
+                          const sAd = String(st.adNo || '').toLowerCase();
+                          const sReg = String(st.regNo || '').toLowerCase();
+                          if (!sName.includes(q) && !sAd.includes(q) && !sReg.includes(q)) return false;
+                        }
+                        return true;
+                      });
+                      const ids = visibleStudents.map(s => String(s.regNo || s.adNo));
+                      setSubSelectedStudentIds(prev => Array.from(new Set([...prev, ...ids])));
+                    }}
+                    style={{ padding: '6px 12px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  >
+                    ✓ Select Filtered
+                  </button>
+                </div>
 
                 <div style={{ maxHeight: '200px', overflowY: 'auto', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '8px' }}>
                   {students
                     .filter(st => {
+                      const stClasses = Array.isArray(st.classes) ? st.classes : [st.class];
+                      const isUrdu = String(st.adNo || '').toUpperCase().startsWith('U');
+                      if (subModalClassFilter !== 'ALL' && !stClasses.includes(subModalClassFilter)) return false;
+                      if (subModalDeptFilter !== 'ALL' && String(st.department || '').toUpperCase() !== subModalDeptFilter.toUpperCase()) return false;
+                      if (subModalMadhabFilter !== 'ALL' && String(st.madhab || '').toUpperCase() !== subModalMadhabFilter.toUpperCase()) return false;
+                      if (subModalStreamFilter === 'URDU' && !isUrdu) return false;
+                      if (subModalStreamFilter === 'NON_URDU' && isUrdu) return false;
+
                       if (!subStudentSearch.trim()) {
-                        // By default, prioritize students from selected class
-                        const curCls = (subTargetClass === 'CUSTOM' ? subCustomClass : subTargetClass).toUpperCase();
-                        const stCls = Array.isArray(st.classes) ? st.classes.join(' ') : (st.class || '');
-                        if (curCls && curCls !== 'CUSTOM' && stCls.toUpperCase().includes(curCls)) return true;
-                        // Or if already selected
-                        return subSelectedStudentIds.includes(String(st.regNo)) || subSelectedStudentIds.includes(String(st.adNo));
+                        if (subModalClassFilter === 'ALL' && subModalDeptFilter === 'ALL' && subModalMadhabFilter === 'ALL' && subModalStreamFilter === 'ALL') {
+                          // Default initial view: prioritize selected class or already selected
+                          const curCls = (subTargetClass === 'CUSTOM' ? subCustomClass : subTargetClass).toUpperCase();
+                          const stCls = Array.isArray(st.classes) ? st.classes.join(' ') : (st.class || '');
+                          if (curCls && curCls !== 'CUSTOM' && stCls.toUpperCase().includes(curCls)) return true;
+                          return subSelectedStudentIds.includes(String(st.regNo)) || subSelectedStudentIds.includes(String(st.adNo));
+                        }
+                        return true;
                       }
                       const q = subStudentSearch.toLowerCase();
                       const sName = String(st.firstName || st.name || '').toLowerCase();
@@ -871,13 +962,14 @@ export default function SubjectManager({
                       const idKey = String(st.regNo || st.adNo);
                       const isChecked = subSelectedStudentIds.includes(idKey) || subSelectedStudentIds.includes(String(st.adNo)) || subSelectedStudentIds.includes(String(st.regNo));
                       const stCls = Array.isArray(st.classes) ? st.classes.join(', ') : (st.class || '');
+                      const isUrdu = String(st.adNo || '').toUpperCase().startsWith('U');
                       return (
                         <label
                           key={st.id || idKey}
                           style={{
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '10px',
+                            gap: '8px',
                             padding: '6px 8px',
                             borderRadius: '6px',
                             background: isChecked ? '#f0fdf4' : 'transparent',
@@ -891,14 +983,29 @@ export default function SubjectManager({
                             checked={isChecked}
                             onChange={() => handleToggleStudentSelection(idKey)}
                           />
-                          <span style={{ fontWeight: '800', color: '#0f172a' }}>
+                          <span style={{ fontWeight: '800', color: isUrdu ? '#d97706' : '#2563eb', minWidth: '55px' }}>
                             #{st.adNo}
                           </span>
-                          <span style={{ flex: 1, color: '#334155' }}>
+                          <span style={{ flex: 1, color: '#334155', fontWeight: '600' }}>
                             {st.firstName || st.name}
                           </span>
-                          <span style={{ color: '#64748b', fontSize: '11px', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>
+                          <span style={{ color: '#64748b', fontSize: '10px', background: '#f1f5f9', padding: '2px 5px', borderRadius: '4px' }}>
                             {stCls}
+                          </span>
+                          {st.department && (
+                            <span style={{ color: '#475569', fontSize: '10px', background: '#e2e8f0', padding: '2px 5px', borderRadius: '4px' }}>
+                              {st.department}
+                            </span>
+                          )}
+                          <span style={{
+                            fontSize: '10px',
+                            fontWeight: '700',
+                            padding: '2px 5px',
+                            borderRadius: '4px',
+                            background: String(st.madhab).toLowerCase() === 'hanafi' ? '#fef3c7' : '#ecfdf5',
+                            color: String(st.madhab).toLowerCase() === 'hanafi' ? '#92400e' : '#047857'
+                          }}>
+                            {st.madhab || 'Shafi'}
                           </span>
                         </label>
                       );
