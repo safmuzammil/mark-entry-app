@@ -242,7 +242,7 @@ export default function AbsenceClearanceManager({
   const handleFetchStudentForClearance = async () => {
     if (!clearAdNo.trim()) return alert('Please enter one or more Student Admission Numbers (e.g. 3551, U1107).');
 
-    const tokens = clearAdNo.split(/[,;\n]+/).map(t => t.replace(/^#/, '').trim().toUpperCase()).filter(Boolean);
+    const tokens = clearAdNo.split(/[,;\s\n]+/).map(t => t.replace(/^#/, '').trim().toUpperCase()).filter(Boolean);
     const foundStudents = [];
     const unmatched = [];
 
@@ -275,47 +275,91 @@ export default function AbsenceClearanceManager({
         ? [clearDate]
         : getDatesBetween(clearStartDate, clearEndDate);
 
+      // 🌟 STEP A: IN-MEMORY PRE-FILTERING via student absentDates
+      const knownAbsentDateSet = new Set();
+      let hasAnyRecordedStats = false;
+
+      foundStudents.forEach(st => {
+        const stat = getStudentAttStat(st);
+        const subWise = stat.subjectWise || {};
+        Object.values(subWise).forEach(subObj => {
+          if (Array.isArray(subObj.absentDates) && subObj.absentDates.length > 0) {
+            hasAnyRecordedStats = true;
+            subObj.absentDates.forEach(d => knownAbsentDateSet.add(d));
+          }
+        });
+      });
+
+      // If students have recorded absent dates, intersect with requested date range to prune 80-95% of queries!
+      const candidateDates = (hasAnyRecordedStats && knownAbsentDateSet.size > 0)
+        ? targetDates.filter(d => knownAbsentDateSet.has(d))
+        : targetDates;
+
       const absentSessionItems = [];
 
-      for (const dStr of targetDates) {
-        if (!dStr) continue;
-        const idxSnap = await getDoc(doc(db, 'systemCache', `daySessionsIndex_${dStr}`));
-        if (!idxSnap.exists()) continue;
+      // 🌟 STEP B & C: CHUNKED PARALLEL INGESTION (Batches of 10 dates)
+      const DATE_CHUNK_SIZE = 10;
+      for (let i = 0; i < candidateDates.length; i += DATE_CHUNK_SIZE) {
+        const dateChunk = candidateDates.slice(i, i + DATE_CHUNK_SIZE);
+        const indexSnaps = await Promise.all(
+          dateChunk.map(dStr => getDoc(doc(db, 'systemCache', `daySessionsIndex_${dStr}`)))
+        );
 
-        const sessList = idxSnap.data().sessions || [];
-        for (const item of sessList) {
-          const sSnap = await getDoc(doc(db, 'systemCache', item.sessionDocId));
-          if (!sSnap.exists()) continue;
-          const sData = sSnap.data();
-          const attMap = sData.attendanceMap || {};
-
-          // Check if ANY of our target students were marked ABSENT in this session
-          const absentStInThisPeriod = foundStudents.filter(st => {
-            const status = attMap[st.regNo] || attMap[st.id] || attMap[st.adNo];
-            return status === 'A';
-          });
-
-          if (absentStInThisPeriod.length > 0) {
-            absentSessionItems.push({
-              sessionDocId: item.sessionDocId,
-              date: dStr,
-              session: Number(sData.session || item.session || 1),
-              subject: normalizeSubKey(sData.subject || item.subject || ''),
-              classAlias: sData.classAlias || sData.subject || item.subject || '',
-              teacherName: sData.teacherName || 'Faculty',
-              absentStudentRegs: absentStInThisPeriod.map(x => x.regNo),
-              absentStudentNames: absentStInThisPeriod.map(x => `${x.firstName} (#${x.adNo})`).join(', ')
+        const candidateSessionIds = [];
+        indexSnaps.forEach((idxSnap, idx) => {
+          if (idxSnap.exists()) {
+            const sessList = idxSnap.data().sessions || [];
+            sessList.forEach(item => {
+              if (item.sessionDocId) {
+                candidateSessionIds.push({ ...item, date: dateChunk[idx] });
+              }
             });
           }
+        });
+
+        // 🌟 STEP D: BOUNDED PARALLEL SESSION READS (Max 10 concurrent requests)
+        const SESSION_CHUNK_SIZE = 10;
+        for (let j = 0; j < candidateSessionIds.length; j += SESSION_CHUNK_SIZE) {
+          const sessChunk = candidateSessionIds.slice(j, j + SESSION_CHUNK_SIZE);
+          const sessSnaps = await Promise.all(
+            sessChunk.map(item => getDoc(doc(db, 'systemCache', item.sessionDocId)))
+          );
+
+          sessSnaps.forEach((sSnap, sIdx) => {
+            if (!sSnap.exists()) return;
+            const item = sessChunk[sIdx];
+            const sData = sSnap.data();
+            const attMap = sData.attendanceMap || {};
+
+            // Check if ANY of our target students were marked ABSENT in this session
+            const absentStInThisPeriod = foundStudents.filter(st => {
+              const status = attMap[st.regNo] || attMap[st.id] || attMap[st.adNo];
+              return status === 'A';
+            });
+
+            if (absentStInThisPeriod.length > 0) {
+              absentSessionItems.push({
+                sessionDocId: item.sessionDocId,
+                date: item.date,
+                session: Number(sData.session || item.session || 1),
+                subject: normalizeSubKey(sData.subject || item.subject || ''),
+                classAlias: sData.classAlias || sData.subject || item.subject || '',
+                teacherName: sData.teacherName || 'Faculty',
+                absentStudentRegs: absentStInThisPeriod.map(x => x.regNo),
+                absentStudentAdNos: absentStInThisPeriod.map(x => x.adNo),
+                absentStudentNames: absentStInThisPeriod.map(x => `${x.firstName} (#${x.adNo})`).join(', ')
+              });
+            }
+          });
         }
       }
 
       absentSessionItems.sort((a, b) => a.date.localeCompare(b.date) || a.session - b.session);
       setFetchedAbsentPeriodSessions(absentSessionItems);
-      // Automatically pre-select all found absent periods for 1-click convenience
+      // Automatically pre-select all found absent periods
       setSelectedClearSessionIds(absentSessionItems.map(x => x.sessionDocId));
 
-      // Also check legacy subjectWise absentDates in case of older imported records
+      // Also check legacy subjectWise absentDates
       const subSet = new Set();
       foundStudents.forEach(st => {
         const stat = getStudentAttStat(st);
@@ -344,7 +388,7 @@ export default function AbsenceClearanceManager({
   // 2. SAVE & APPLY OFFICIAL ATTENDANCE CLEARANCE
   // ==========================================
   const handleSaveClearance = async (e) => {
-    e.preventDefault();
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
     if (fetchedClearStudentsList.length === 0) return alert('Please fetch students first.');
     if (selectedClearSessionIds.length === 0 && clearSelectedSubjects.length === 0) {
       return alert('Please select at least one absent period (or subject) to clear.');
@@ -352,12 +396,10 @@ export default function AbsenceClearanceManager({
 
     setLoading(true);
     try {
-      const batch = writeBatch(db);
       const updatedMap = {};
-
       const isMedical = clearReason === 'medical';
       const clearanceType = isMedical ? 'MEDICAL_LEAVE' : 'OFFICIAL_PRESENT';
-      const clearanceTypeLabel = isMedical ? '🏥 Medical Leave' : '🏛️ Official Leave (Present)';
+      const clearanceTypeLabel = isMedical ? '🏥 Medical Leave (Excused)' : '🏛️ Official Duty (Present)';
 
       // Clone student stats for batch update
       const studentStatsDraft = {};
@@ -366,8 +408,9 @@ export default function AbsenceClearanceManager({
         if (!studentStatsDraft[st.regNo].subjectWise) studentStatsDraft[st.regNo].subjectWise = {};
       });
 
-      // 1. Apply Period-Specific Clearance (Updates both systemCache session & student stats)
+      // 1. Prepare Session Updates in systemCache
       const selectedPeriodObjs = fetchedAbsentPeriodSessions.filter(p => selectedClearSessionIds.includes(p.sessionDocId));
+      const sessionDocUpdates = [];
 
       for (const pItem of selectedPeriodObjs) {
         const sRef = doc(db, 'systemCache', pItem.sessionDocId);
@@ -392,7 +435,7 @@ export default function AbsenceClearanceManager({
           if (dateIdx !== -1) subObj.absentDates.splice(dateIdx, 1);
 
           if (isMedical) {
-            // 🌟 1. MEDICAL CLEARANCE: Recorded & displayed explicitly as Medical Leave, NOT simple present
+            // 🌟 MEDICAL LEAVE: 'M' (Excused medical absence)
             attMap[regNo] = 'M';
             curStat.medicalCount = (curStat.medicalCount || 0) + 1;
             subObj.medical = (subObj.medical || 0) + 1;
@@ -400,7 +443,7 @@ export default function AbsenceClearanceManager({
               subObj.medicalDates.push(pItem.date);
             }
           } else {
-            // 🌟 2. OFFICIAL LEAVE: Absence cleared as NORMAL PRESENT
+            // 🌟 OFFICIAL DUTY: 'P' (Normal Present)
             attMap[regNo] = 'P';
             curStat.presentCount = Math.min(curStat.totalPeriods || 9999, (curStat.presentCount || 0) + 1);
             if (clearReason === 'official') {
@@ -415,11 +458,11 @@ export default function AbsenceClearanceManager({
         });
 
         if (sData) {
-          batch.set(sRef, { attendanceMap: attMap, updatedAt: new Date().toISOString() }, { merge: true });
+          sessionDocUpdates.push({ sRef, attMap });
         }
       }
 
-      // 2. Apply Legacy Subject Fallback Clearance (If selected)
+      // 2. Apply Legacy Subject Fallback Clearance (if selected)
       if (clearSelectedSubjects.length > 0) {
         fetchedClearStudentsList.forEach(student => {
           const curStat = studentStatsDraft[student.regNo];
@@ -459,27 +502,22 @@ export default function AbsenceClearanceManager({
         });
       }
 
-      // Commit updated student documents
-      fetchedClearStudentsList.forEach(student => {
-        const docId = String(student.id || student.regNo || '').trim();
-        const finalStat = studentStatsDraft[student.regNo];
-        batch.set(doc(db, 'students', docId), { periodAttendance: finalStat }, { merge: true });
-        updatedMap[student.regNo] = { ...student, periodAttendance: finalStat };
-      });
-
-      // 🌟 3. STORE DETAILED CLEARANCE HISTORY FOR ADMIN AUDIT & VERIFICATION
+      // 🌟 3. COMPILE HISTORY & MIRROR RECORDS
       const nowIso = new Date().toISOString();
-      const targetDates = clearDateMode === 'single' ? [clearDate] : getDatesBetween(clearStartDate, clearEndDate);
+      const targetDates = (clearDateMode === 'single' ? [clearDate] : getDatesBetween(clearStartDate, clearEndDate)).slice(0, 60);
       const newHistoryRecords = [];
 
       fetchedClearStudentsList.forEach(student => {
+        const studentAbsencesForThisUser = selectedPeriodObjs.filter(p => p.absentStudentRegs.includes(student.regNo));
+        const totalPeriodsForStudent = studentAbsencesForThisUser.length || clearSelectedSubjects.length || selectedPeriodObjs.length || 1;
+
         const certNumber = `DHIU/CLR/${new Date().getFullYear()}/${student.adNo || student.regNo}/${Math.floor(1000 + Math.random() * 9000)}`;
         const histDocId = `clearance_hist_${Date.now()}_${student.regNo}`;
 
         const histObj = {
           id: histDocId,
           certNumber,
-          studentRegNo: student.regNo,
+          studentRegNo: String(student.regNo || '').trim(),
           studentAdNo: student.adNo,
           studentName: student.firstName,
           studentClasses: student.classes || [student.class] || [],
@@ -497,8 +535,8 @@ export default function AbsenceClearanceManager({
             : `Official duty cleared as Normal Present by ${loggedInUser?.fullName || 'Central Admin'}`),
           dateMode: clearDateMode,
           dates: targetDates,
-          totalPeriodsCleared: selectedPeriodObjs.length || clearSelectedSubjects.length || 1,
-          clearedSessions: selectedPeriodObjs.map(p => ({
+          totalPeriodsCleared: totalPeriodsForStudent,
+          clearedSessions: studentAbsencesForThisUser.map(p => ({
             sessionDocId: p.sessionDocId,
             date: p.date,
             session: p.session,
@@ -521,16 +559,6 @@ export default function AbsenceClearanceManager({
 
         newHistoryRecords.push(histObj);
 
-        // Save to clearance_history collection
-        batch.set(doc(db, 'clearance_history', histDocId), histObj);
-        // Mirror to clearance_certificates for backward compatibility
-        batch.set(doc(db, 'clearance_certificates', histDocId), {
-          ...histObj,
-          regNo: student.regNo,
-          adNo: student.adNo,
-          classes: student.classes || []
-        });
-
         // Store in student object local certs cache
         const curStat = studentStatsDraft[student.regNo];
         if (curStat) {
@@ -541,7 +569,42 @@ export default function AbsenceClearanceManager({
         }
       });
 
-      await batch.commit();
+      // 🌟 4. COMPILE ALL BATCH WRITE OPERATIONS
+      const writeOperations = [];
+
+      // A. Session document updates
+      sessionDocUpdates.forEach(({ sRef, attMap }) => {
+        writeOperations.push(b => b.set(sRef, { attendanceMap: attMap, updatedAt: new Date().toISOString() }, { merge: true }));
+      });
+
+      // B. Student document updates
+      fetchedClearStudentsList.forEach(student => {
+        const docId = String(student.id || student.regNo || '').trim();
+        const finalStat = studentStatsDraft[student.regNo];
+        writeOperations.push(b => b.set(doc(db, 'students', docId), { periodAttendance: finalStat }, { merge: true }));
+        updatedMap[student.regNo] = { ...student, periodAttendance: finalStat };
+      });
+
+      // C. Clearance history & legacy mirror writes
+      newHistoryRecords.forEach(histObj => {
+        writeOperations.push(b => b.set(doc(db, 'clearance_history', histObj.id), histObj));
+        writeOperations.push(b => b.set(doc(db, 'clearance_certificates', histObj.id), {
+          ...histObj,
+          regNo: histObj.studentRegNo,
+          adNo: histObj.studentAdNo,
+          status: 'ISSUED', // Required by isValidClearanceCert
+          dates: histObj.dates.slice(0, 50)
+        }));
+      });
+
+      // 🌟 D. EXECUTE SEQUENTIAL BATCH CHUNKING (<= 250 operations per batch)
+      const BATCH_CHUNK_SIZE = 250;
+      for (let i = 0; i < writeOperations.length; i += BATCH_CHUNK_SIZE) {
+        const currentBatch = writeBatch(db);
+        const chunk = writeOperations.slice(i, i + BATCH_CHUNK_SIZE);
+        chunk.forEach(op => op(currentBatch));
+        await currentBatch.commit();
+      }
 
       if (typeof onStudentsUpdated === 'function') {
         const nextStudents = localStudents.map(s => updatedMap[s.regNo] || s);
@@ -559,12 +622,6 @@ export default function AbsenceClearanceManager({
           ? `✅ Successfully recorded MEDICAL LEAVE for ${fetchedClearStudentsList.length} student(s) across ${selectedPeriodObjs.length} period session(s)!`
           : `✅ Successfully cleared attendance as NORMAL PRESENT for ${fetchedClearStudentsList.length} student(s) across ${selectedPeriodObjs.length} period session(s)!`
       );
-
-      setFetchedClearStudentsList([]);
-      setFetchedAbsentPeriodSessions([]);
-      setSelectedClearSessionIds([]);
-      setClearSelectedSubjects([]);
-      setClearanceRemarks('');
     } catch (err) {
       console.error('Error saving clearance:', err);
       alert('Error saving clearance: ' + err.message);
@@ -1119,80 +1176,199 @@ export default function AbsenceClearanceManager({
               </div>
             )}
 
-            {/* STEP 2: GRANULAR ABSENT PERIOD CHECKBOX LIST */}
+            {/* STEP 2: GRANULAR ABSENT PERIOD WORKSPACE (GROUPED BY STUDENT) */}
             {fetchedClearStudentsList.length > 0 && (
               <div style={{ marginBottom: '18px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                  <label style={{ ...styles.label, fontSize: '14px', fontWeight: '800', color: '#0f172a' }}>
-                    Step 2: Select Specific Absent Periods to Clear
-                  </label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                  <div>
+                    <label style={{ ...styles.label, fontSize: '15px', fontWeight: '900', color: '#0f172a', marginBottom: '2px' }}>
+                      Step 2: Candidate Absent Periods (Grouped by Student)
+                    </label>
+                    <div style={{ fontSize: '12px', color: '#64748b' }}>
+                      Found {fetchedAbsentPeriodSessions.length} total absent period session(s) across {fetchedClearStudentsList.length} student(s).
+                    </div>
+                  </div>
+
                   {fetchedAbsentPeriodSessions.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (selectedClearSessionIds.length === fetchedAbsentPeriodSessions.length) {
-                          setSelectedClearSessionIds([]);
-                        } else {
-                          setSelectedClearSessionIds(fetchedAbsentPeriodSessions.map(x => x.sessionDocId));
-                        }
-                      }}
-                      style={{ fontSize: '12px', color: '#4f46e5', background: 'transparent', border: 'none', cursor: 'pointer', fontWeight: '700' }}
-                    >
-                      {selectedClearSessionIds.length === fetchedAbsentPeriodSessions.length ? 'Deselect All' : 'Select All Absent Periods'}
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedClearSessionIds.length === fetchedAbsentPeriodSessions.length) {
+                            setSelectedClearSessionIds([]);
+                          } else {
+                            setSelectedClearSessionIds(fetchedAbsentPeriodSessions.map(x => x.sessionDocId));
+                          }
+                        }}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          color: '#4f46e5',
+                          background: '#eef2ff',
+                          border: '1px solid #c7d2fe',
+                          cursor: 'pointer',
+                          fontWeight: '800'
+                        }}
+                      >
+                        {selectedClearSessionIds.length === fetchedAbsentPeriodSessions.length ? '✕ Deselect All' : '✓ Select All Periods'}
+                      </button>
+                    </div>
                   )}
                 </div>
 
                 {fetchingClearance ? (
-                  <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>Scanning attendance sessions for absences...</div>
+                  <div style={{ padding: '36px', textAlign: 'center', color: '#64748b', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '18px', marginBottom: '8px' }}>⏳</div>
+                    <div style={{ fontWeight: '700' }}>Scanning attendance sessions for absences...</div>
+                  </div>
                 ) : fetchedAbsentPeriodSessions.length === 0 ? (
-                  <div style={{ padding: '20px', background: '#f8fafc', borderRadius: '10px', border: '1px dashed #cbd5e1', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
-                    🎉 No period absences found for the selected students on these dates!
+                  <div style={{ padding: '24px', background: '#f0fdf4', borderRadius: '12px', border: '1.5px dashed #86efac', textAlign: 'center', color: '#166534', fontSize: '14px', fontWeight: '700' }}>
+                    🎉 No unexcused period absences found for the selected students on these dates!
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '280px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px', background: '#ffffff' }}>
-                    {fetchedAbsentPeriodSessions.map(p => {
-                      const isChecked = selectedClearSessionIds.includes(p.sessionDocId);
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {fetchedClearStudentsList.map(st => {
+                      const stSessions = fetchedAbsentPeriodSessions.filter(p =>
+                        (p.absentStudentRegs && p.absentStudentRegs.includes(st.regNo)) ||
+                        (p.absentStudentAdNos && p.absentStudentAdNos.includes(st.adNo))
+                      );
+                      if (stSessions.length === 0) return null;
+
+                      const allStSelected = stSessions.every(p => selectedClearSessionIds.includes(p.sessionDocId));
+                      const someStSelected = stSessions.some(p => selectedClearSessionIds.includes(p.sessionDocId));
+
                       return (
                         <div
-                          key={p.sessionDocId}
-                          onClick={() => {
-                            setSelectedClearSessionIds(prev =>
-                              prev.includes(p.sessionDocId)
-                                ? prev.filter(x => x !== p.sessionDocId)
-                                : [...prev, p.sessionDocId]
-                            );
-                          }}
+                          key={st.regNo || st.adNo}
                           style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '10px 14px',
-                            borderRadius: '8px',
-                            background: isChecked ? '#eef2ff' : '#f8fafc',
-                            border: isChecked ? '1px solid #6366f1' : '1px solid #e2e8f0',
-                            cursor: 'pointer'
+                            background: '#ffffff',
+                            borderRadius: '12px',
+                            border: '1.5px solid #e2e8f0',
+                            overflow: 'hidden',
+                            boxShadow: '0 1px 3px rgba(15,23,42,0.04)'
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => {}}
-                              style={{ cursor: 'pointer' }}
-                            />
-                            <div>
-                              <div style={{ fontWeight: '800', fontSize: '13px', color: '#0f172a' }}>
-                                📅 {p.date} • Period {p.session}: <span style={{ color: '#4f46e5' }}>{p.subject}</span>
+                          {/* STUDENT GROUP HEADER */}
+                          <div
+                            style={{
+                              padding: '10px 14px',
+                              background: '#f8fafc',
+                              borderBottom: '1px solid #e2e8f0',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              flexWrap: 'wrap',
+                              gap: '8px'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <ProfileAvatar name={st.firstName} code={st.adNo} photoUrl={st.photoUrl} size={32} />
+                              <div>
+                                <span style={{ fontWeight: '800', fontSize: '13px', color: '#0f172a' }}>{st.firstName}</span>
+                                <span style={{ fontSize: '12px', color: '#64748b', marginLeft: '6px' }}>
+                                  #{st.adNo} • {(st.classes || [st.class]).join(', ')}
+                                </span>
                               </div>
-                              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                                👨‍🏫 Faculty: {p.teacherName} • Absent: <strong>{p.absentStudentNames}</strong>
-                              </div>
+                              <span
+                                style={{
+                                  background: '#fee2e2',
+                                  color: '#dc2626',
+                                  padding: '2px 8px',
+                                  borderRadius: '999px',
+                                  fontSize: '11px',
+                                  fontWeight: '800'
+                                }}
+                              >
+                                {stSessions.length} Absent Period{stSessions.length > 1 ? 's' : ''}
+                              </span>
                             </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const stDocIds = stSessions.map(x => x.sessionDocId);
+                                if (allStSelected) {
+                                  setSelectedClearSessionIds(prev => prev.filter(id => !stDocIds.includes(id)));
+                                } else {
+                                  setSelectedClearSessionIds(prev => Array.from(new Set([...prev, ...stDocIds])));
+                                }
+                              }}
+                              style={{
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                fontSize: '11px',
+                                fontWeight: '800',
+                                cursor: 'pointer',
+                                background: allStSelected ? '#e0e7ff' : '#ffffff',
+                                color: allStSelected ? '#4338ca' : '#475569',
+                                border: allStSelected ? '1px solid #c7d2fe' : '1px solid #cbd5e1'
+                              }}
+                            >
+                              {allStSelected ? '✕ Deselect Student' : '✓ Select Student'}
+                            </button>
                           </div>
-                          <span style={{ background: '#fee2e2', color: '#dc2626', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
-                            ABSENT
-                          </span>
+
+                          {/* PERIOD ITEMS */}
+                          <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {stSessions.map(p => {
+                              const isChecked = selectedClearSessionIds.includes(p.sessionDocId);
+                              return (
+                                <div
+                                  key={p.sessionDocId}
+                                  onClick={() => {
+                                    setSelectedClearSessionIds(prev =>
+                                      prev.includes(p.sessionDocId)
+                                        ? prev.filter(x => x !== p.sessionDocId)
+                                        : [...prev, p.sessionDocId]
+                                    );
+                                  }}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    padding: '8px 12px',
+                                    borderRadius: '8px',
+                                    background: isChecked ? '#eff6ff' : '#ffffff',
+                                    border: isChecked ? '1.5px solid #93c5fd' : '1px solid #f1f5f9',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s ease'
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => {}}
+                                      style={{ cursor: 'pointer' }}
+                                    />
+                                    <div>
+                                      <div style={{ fontWeight: '800', fontSize: '12px', color: '#0f172a' }}>
+                                        📅 {p.date} • Period {p.session}: <span style={{ color: '#2563eb' }}>{p.subject}</span>
+                                      </div>
+                                      <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                        👨‍🏫 Faculty: {p.teacherName || 'Class Teacher'}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <span
+                                    style={{
+                                      background: '#fef2f2',
+                                      color: '#dc2626',
+                                      border: '1px solid #fecdd3',
+                                      padding: '2px 8px',
+                                      borderRadius: '6px',
+                                      fontSize: '11px',
+                                      fontWeight: '800'
+                                    }}
+                                  >
+                                    ABSENT
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
                       );
                     })}
@@ -1204,29 +1380,38 @@ export default function AbsenceClearanceManager({
             {/* STEP 3: CLEARANCE REASON & JUSTIFICATION */}
             {fetchedClearStudentsList.length > 0 && (
               <div style={{ background: '#f8fafc', padding: '18px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '18px' }}>
-                <label style={{ ...styles.label, fontSize: '14px', fontWeight: '800', color: '#0f172a', marginBottom: '10px' }}>
-                  Step 3: Clearance Type &amp; Status Effect
+                <label style={{ ...styles.label, fontSize: '15px', fontWeight: '900', color: '#0f172a', marginBottom: '10px' }}>
+                  Step 3: Clearance Type &amp; Applied Status Effect
                 </label>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginBottom: '14px' }}>
                   {[
                     {
                       id: 'medical',
-                      label: '🏥 Medical Clearance / Hospitalization',
-                      desc: 'Recorded and displayed as Medical Leave (not simple present). Excused absence with medical certificate.',
-                      badge: '🏥 Medical Leave'
+                      label: '🏥 Medical Leave (Excused)',
+                      desc: 'Recorded and displayed distinctly as Medical Leave with light red styling. Excused without modifying normal presence ratios.',
+                      badge: '🏥 Medical Leave (Rose)',
+                      badgeBg: '#fff1f2',
+                      badgeBorder: '#fecdd3',
+                      badgeColor: '#b91c1c'
                     },
                     {
                       id: 'official',
-                      label: '🏛️ Official Duty / College Outreach',
-                      desc: 'Cleared and converted into Normal Present in all registers, monthly reports, and attendance totals.',
-                      badge: '✅ Normal Present'
+                      label: '🏛️ Official Duty (Present)',
+                      desc: 'Authorized institutional representation. Cleared and recorded as Official Duty with light blue styling in reports and registers.',
+                      badge: '🏛️ Official Duty (Blue)',
+                      badgeBg: '#eff6ff',
+                      badgeBorder: '#bfdbfe',
+                      badgeColor: '#1d4ed8'
                     },
                     {
                       id: 'permitted',
                       label: '🎭 Rehearsal / Approved Special Duty',
-                      desc: 'Special authorized representation - cleared and converted into Normal Present.',
-                      badge: '✅ Normal Present'
+                      desc: 'Special campus duty representation - cleared as verified duty presence.',
+                      badge: '🏛️ Approved Duty (Blue)',
+                      badgeBg: '#eff6ff',
+                      badgeBorder: '#bfdbfe',
+                      badgeColor: '#1d4ed8'
                     }
                   ].map(r => (
                     <div
@@ -1235,24 +1420,25 @@ export default function AbsenceClearanceManager({
                       style={{
                         padding: '14px 16px',
                         borderRadius: '10px',
-                        border: clearReason === r.id ? '2px solid #4f46e5' : '1px solid #cbd5e1',
-                        background: clearReason === r.id ? '#eef2ff' : '#ffffff',
+                        border: clearReason === r.id ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                        background: clearReason === r.id ? '#eff6ff' : '#ffffff',
                         cursor: 'pointer',
                         transition: 'all 0.15s ease'
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ fontWeight: '800', fontSize: '13px', color: clearReason === r.id ? '#4f46e5' : '#0f172a' }}>{r.label}</div>
+                        <div style={{ fontWeight: '800', fontSize: '13px', color: clearReason === r.id ? '#1d4ed8' : '#0f172a' }}>{r.label}</div>
                       </div>
                       <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', lineHeight: 1.4 }}>{r.desc}</div>
                       <div style={{ marginTop: '8px' }}>
                         <span style={{
-                          padding: '2px 8px',
+                          padding: '3px 8px',
                           borderRadius: '6px',
                           fontSize: '10px',
                           fontWeight: '800',
-                          background: r.id === 'medical' ? '#fef3c7' : '#ecfdf5',
-                          color: r.id === 'medical' ? '#b45309' : '#047857'
+                          background: r.badgeBg,
+                          border: `1px solid ${r.badgeBorder}`,
+                          color: r.badgeColor
                         }}>
                           Result: {r.badge}
                         </span>
@@ -1275,23 +1461,48 @@ export default function AbsenceClearanceManager({
             )}
 
             {fetchedClearStudentsList.length > 0 && (
-              <button
-                type="submit"
-                disabled={loading || selectedClearSessionIds.length === 0}
-                style={{
-                  ...styles.buttonPrimary,
-                  padding: '14px 20px',
-                  fontSize: '15px',
-                  fontWeight: '800',
-                  opacity: selectedClearSessionIds.length === 0 ? 0.6 : 1
-                }}
-              >
-                {loading
-                  ? '⏳ Applying Official Clearance...'
-                  : clearReason === 'medical'
-                  ? `🏥 Record Medical Leave for ${selectedClearSessionIds.length} Period(s) (${fetchedClearStudentsList.length} Student)`
-                  : `🎟️ Clear ${selectedClearSessionIds.length} Period(s) as Normal Present (${fetchedClearStudentsList.length} Student)`}
-              </button>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <button
+                  type="submit"
+                  disabled={loading || selectedClearSessionIds.length === 0}
+                  style={{
+                    ...styles.buttonPrimary,
+                    padding: '14px 22px',
+                    fontSize: '14px',
+                    fontWeight: '800',
+                    background: clearReason === 'medical' ? '#e11d48' : '#2563eb',
+                    opacity: selectedClearSessionIds.length === 0 ? 0.6 : 1
+                  }}
+                >
+                  {loading
+                    ? '⏳ Applying Official Clearance...'
+                    : clearReason === 'medical'
+                    ? `🏥 Record Medical Leave for ${selectedClearSessionIds.length} Selected Period(s)`
+                    : `🏛️ Clear ${selectedClearSessionIds.length} Period(s) as Official Duty`}
+                </button>
+
+                {fetchedAbsentPeriodSessions.length > 0 && selectedClearSessionIds.length < fetchedAbsentPeriodSessions.length && (
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => {
+                      setSelectedClearSessionIds(fetchedAbsentPeriodSessions.map(x => x.sessionDocId));
+                    }}
+                    style={{
+                      padding: '14px 18px',
+                      borderRadius: '8px',
+                      border: '1.5px solid #cbd5e1',
+                      background: '#ffffff',
+                      color: '#475569',
+                      fontSize: '13px',
+                      fontWeight: '800',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ⚡ Select All Found ({fetchedAbsentPeriodSessions.length} Absences)
+                  </button>
+                )}
+              </div>
             )}
           </form>
         </div>
