@@ -1,71 +1,95 @@
-# Universal Compact Gate Outpass Form with Native Dropdowns & Quick Chips
+# EGM Brainstorm: Attendance Clearance & Medical Exemption Sync Performance Overhaul
 
-* **Author:** safmuzammil
-* **Date:** 2026-11-11
+**Author:** safmuzammil  
+**Status:** In Review (7-Lens Review Stage)  
+**Date:** 2026-11-11  
 
-## Overview
+---
 
-The Gate Outpass creation interface in `OutpassTeacherDesk.jsx` previously rendered Leave Categories (11 buttons), Destinations (11 buttons), Reasons (10 buttons), and Date/Duration Shortcuts (6 buttons) as sprawling multi-row button grids. On mobile screens (375px–412px viewport width), these 38 buttons generated over 1,400px of cumulative vertical scrolling, burying time schedules, student summaries, and submit controls far below the viewport fold.
+## 1. Problem Statement
 
-This design streamlines the form into a clean, mobile-first, universal layout:
-1. **Universal Compact Dropdowns (`<select>`)**: Category, Destination, and Reason are rendered as standard native `<select>` dropdowns with `✍️ Custom ...` at index 0.
-2. **Top Shortcut Chips (2–3 items)**: Fast-lane pills for high-frequency selections (e.g. `🏠 Monthly Home`, `📍 Chemmad`, `📝 Medical Case`).
-3. **Removal of Redundant Duration Chips**: Purges the 5 fixed duration buttons above the date picker (`+1 Hr`, `+2 Hrs`, `Today 6:00 PM`, `+1 Day`, `+3 Days`) to eliminate visual clutter.
-4. **Flexible Open-Ended Return Control**: Provides a dedicated, clean toggle for **`🏥 Open-Ended Return (No fixed deadline)`**. For medical cases, teachers can easily select this option or toggle it off if a specific return time (e.g., a 2-hour hospital checkup) is preferred.
+1. **Masjid Jamath Exemption Disconnect in Extra Attendance**:
+   - In [`NightAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/NightAttendanceManager.jsx#L91-L95), the real-time listener for medical waivers filters strictly on `waiverType == 'SICK_IN_ROOM'`. As a result, students holding sanctioned `JAMATH_EXEMPTION` waivers (e.g. Sayyid Muhammad Sahran `#3462` with a leg fracture) never appear in the Extra Attendance portal.
+   - Teachers taking extra attendance for congregational prayer, study camps, or assemblies receive no indication of legitimate prayer waivers and risk mistakenly penalizing or badgering injured students.
 
-## Goals vs. Non-Goals
+2. **Absence Clearance Permission Crash**:
+   - When attempting to issue an absence clearance in [`AbsenceClearanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/AbsenceClearanceManager.jsx#L525), the application throws:
+     > `Error saving clearance: Missing or insufficient permissions.`
+   - In [`firestore.rules`](file:///D:/Codes/mark-entry-app/firestore.rules), `clearance_certificates` has security rules, but `clearance_history` has **zero declared security rules**, causing Firestore to reject the batch write.
 
-* **In-Scope Goals:**
-  * Convert Leave Category, Destination, and Purpose/Reason into native `<select>` dropdowns with `✍️ Custom ...` at Index 0.
-  * Render 2–3 high-frequency shortcut chips directly alongside each dropdown for 1-tap operation.
-  * Render an autofocus text input immediately below the dropdown when `Custom` is selected.
-  * Remove the 5 fixed duration preset chips (`+1 Hr`, `+2 Hrs`, `Today 6:00 PM`, `+1 Day`, `+3 Days`) from Section 5.
-  * Retain a clean, dedicated toggle for `🏥 Open-Ended Return` allowing teachers to choose whether a medical (or special) leave has a fixed return deadline or is open-ended.
-  * Apply this streamlined layout universally across mobile and desktop.
+3. **Multi-Ad.No Fetching Latency & UI Freezes**:
+   - The "Find Absences" and "Inspect Student Sessions" tools sequentially search unbounded collections across `systemCache` without parallel batching, index acceleration, or local caching.
+   - Searching for multiple students (e.g., `3551, 3392, U1107`) across multi-week date scopes causes the UI to hang indefinitely on "Fetching Absences..." / "Loading sessions...".
 
-* **Out-of-Scope Non-Goals:**
-  * Modifying the Firestore schema for `out_passes`.
-  * Changing gate security scanner logic or barcode verification.
-  * Changing student group selection or bulk-action mechanics.
+4. **Status Confusion (Medical vs Official Leave Representation)**:
+   - Previously, medical leaves risked being lumped together with official duty or converted to normal presence (`PRESENT`), distorting audit logs.
+   - Distinct statuses are required: **Medical Leave** (light red badge) must stay as excused medical absence, while **Official Duty** (light blue badge) represents authorized institutional duty, without forced conversion to simple present.
 
-## Technical Architecture & Component Specifications
+---
 
-### 1. Form Section Layout Pattern
-Each of the three core fields (Category, Destination, Reason) follows an identical 3-tier component pattern:
+## 2. Proposed Architecture & Solutions
 
-```
-[ Section Header & Validation Status Badge (Single line) ]
-[ Native <select> Dropdown (Option 0: "✍️ Custom ...") ]
-[ If Custom: Inline Text Input (autofocus, required) ]
-[ Quick Shortcut Chips (2–3 top items for 1-tap entry) ]
-```
+### A. Extra Attendance Waiver Surfacing
+- Broaden `campus_medical_waivers` subscription in [`NightAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/NightAttendanceManager.jsx) to listen for **all active waivers** (`SICK_IN_ROOM` and `JAMATH_EXEMPTION`).
+- On the student card in Extra Attendance:
+  - If a student holds an active Masjid Exemption, retain initial default as `Present`, but surface a high-visibility badge:
+    `🩹 Masjid Exemption: Leg Fracture / Plaster Cast (Permitted by MUHAMMED MUZAMMIL P)`.
+  - Provide an instant 1-tap **`Sick`** button so the teacher can mark them excused with zero friction.
 
-### 2. Section 5 (Permitted Date & Time Schedule) Simplification
-* **Purge Duration Chips**: Remove `+1 Hr`, `+2 Hrs`, `Today 6:00 PM`, `+1 Day`, and `+3 Days` buttons entirely.
-* **Flexible Open Return Toggle**:
-  * Render a clean, dedicated switch/button above the return deadline:
-    `[ 🏥 Open-Ended Return (Medical / Hospital) ]`
-  * When category `Medical` is selected, `isOpenReturn` can default to active, but teachers retain full control to turn it off and set an exact return time (e.g. 2 hours later).
-  * When `isOpenReturn === true`:
-    - Hides the `To Date & Time` return deadline picker.
-    - Displays an active green confirmation pill: `✓ Open-Ended Return: Student can return at any time without a fixed deadline`.
-  * When `isOpenReturn === false`:
-    - Displays the standard `To Date & Time` picker.
+### B. Firestore Security Rules Fix for `clearance_history`
+- Delegate to `firestore-rules-author` subagent to declare proper declarative rules for `clearance_history` with strict shape and field validation:
+  ```javascript
+  function isValidClearanceHist(data) {
+    return data.keys().hasAll(['id', 'certNumber', 'studentRegNo', 'studentAdNo', 'studentName', 'clearanceType', 'reason', 'dates', 'totalPeriodsCleared', 'issuedByUsername', 'issuedAt']) &&
+           data.id is string &&
+           data.certNumber is string &&
+           data.studentRegNo is string &&
+           data.studentAdNo is string &&
+           data.studentName is string &&
+           data.clearanceType in ['MEDICAL_LEAVE', 'OFFICIAL_PRESENT'] &&
+           data.dates is list && data.dates.size() <= 60 &&
+           data.totalPeriodsCleared is number &&
+           data.issuedByUsername is string;
+  }
 
-### 3. State & Preset Synchronization
-* Tapping a shortcut chip (e.g., `📍 Chemmad`) immediately sets form state and synchronizes the `<select>` value to `Chemmad`.
-* If a custom value is typed, the dropdown reflects `CUSTOM` and the custom input retains focus.
-* `Monthly_Home` continues to automatically set destination to "Home", purpose to "Monthly 3-Day Home Leave", and opens the 1–7 day duration selector.
+  match /clearance_history/{histId} {
+    allow read: if isAuthenticated();
+    allow create: if isStaffOrAdmin() && isValidClearanceHist(request.resource.data);
+    allow update: if isStaffOrAdmin() && isValidClearanceHist(request.resource.data);
+    allow delete: if isAdmin();
+  }
+  ```
+- Ensure both `clearance_history` and `clearance_certificates` write atomically without permission failure across both `AbsenceClearanceManager.jsx` and `PeriodAttendanceMinusAndClearance.jsx`.
 
-## Alternatives Weighed
+### C. Multi-Student Absence Clearance Workspace (Instant Chunked Batch Table)
+- **Chunked Parallel Queries & In-Memory Cache**:
+  - Check existing in-memory daily cache before querying Firestore.
+  - Short-circuit session doc fetching if `daySessionsIndex_{date}` reports zero sessions for that date.
+  - Query in throttled parallel batches of 10 dates to prevent network saturation.
+- **Batch Hierarchy UI**:
+  - Render found absent periods grouped by student in a clean responsive table.
+  - Show each absent period individually with date, period number, subject, and original marking teacher.
+  - Provide:
+    1. **"Clear All Found Absences"** master button.
+    2. Per-student **"Clear Student (N periods)"** button.
+    3. Per-period individual toggle checkboxes to clear one-by-one.
 
-* *Forced Automatic Open-Return with No Toggle*: Rejected per user clarification; teachers need the flexibility to set a specific return deadline even for hospital/clinic visits when appropriate.
-* *Retaining all 6 duration preset buttons*: Rejected; removing the 5 fixed duration chips saves ~100px of vertical space while keeping the essential Open-Return toggle.
+### D. Distinct Status Badging in Attendance Portal (Palette Normalization)
+- Maintain clear semantic differentiation in attendance records without auto-converting medical absences to generic normal presence:
+  - **Medical Leave**: Styled with **light red / rose background** (`#fff1f2` / `#fef2f2`, border `#fecdd3`, text `#b91c1c`). Retained strictly as Medical Excusals.
+  - **Official Duty**: Styled with **light blue background** (`#eff6ff`, border `#bfdbfe`, text `#1d4ed8`). Retained as Official Clearance.
+  - **Normal Present**: Background `#f0fdf4`, border `#bbf7d0`, text `#15803d` (Green).
+  - Eliminate auto-conversion to generic `Normal Present` so student transcripts retain accurate disciplinary and medical provenance.
 
-## Key Decisions & Staging for Next Steps
+---
 
-* **Category Shortcuts**: `🏠 Monthly Home`, `☀️ Evening`, `🕌 Friday`
-* **Destination Shortcuts**: `📍 Home`, `📍 Chemmad`, `📍 Bookplus`
-* **Purpose Shortcuts**: `📝 Monthly 3-Day Home Leave`, `📝 Medical / Hospital Case`, `📝 Personal Purchase`
-* **Schedule Section**: Fixed duration chips purged; dedicated, teacher-selectable `Open-Ended Return` toggle preserved.
-* **Layout Scope**: Universal across all screen sizes.
+## 3. Scope & Boundaries
+
+### In Scope:
+- `NightAttendanceManager.jsx`: Medical waiver listener and Extra Attendance card badging.
+- `AbsenceClearanceManager.jsx` & `PeriodAttendanceMinusAndClearance.jsx`: High-speed batch lookup, multi-Ad.No grouping, per-period selection, and distinct color badging.
+- `firestore.rules`: Declarative security rules for `clearance_history` via `firestore-rules-author`.
+
+### Out of Scope:
+- Modifying Google Sheets sync formats for attendance (attendance does not sync to CCE mark sheets).
+- Modifying Gate Security Kiosk scanning algorithms.
