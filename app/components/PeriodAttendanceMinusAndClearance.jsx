@@ -915,14 +915,15 @@ export default function PeriodAttendanceMinusAndClearance({
         batch.set(doc(db, 'clearance_certificates', certDocId), certObj);
         batch.set(doc(db, 'clearance_history', certDocId), {
           ...certObj,
-          studentRegNo: student.regNo,
+          studentRegNo: String(student.regNo || '').trim(),
           studentAdNo: student.adNo,
           studentClasses: student.classes || [],
           clearanceType: clearReason === 'medical' ? 'MEDICAL_LEAVE' : 'OFFICIAL_PRESENT',
-          clearanceTypeLabel: clearReason === 'medical' ? '🏥 Medical Leave' : '🏛️ Official Leave (Present)',
+          clearanceTypeLabel: clearReason === 'medical' ? '🏥 Medical Leave (Excused)' : '🏛️ Official Duty (Present)',
           totalPeriodsCleared: selectedPeriodObjs.length || clearSelectedSubjects.length || 1,
           issuedByUsername: loggedInUser?.username || 'admin',
           issuedByName: loggedInUser?.fullName || 'Central Admin',
+          issuedAt: nowIso,
           verificationStatus: 'PENDING',
           verifiedBy: null,
           verifiedByName: null,

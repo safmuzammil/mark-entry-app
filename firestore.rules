@@ -120,7 +120,7 @@ rules_version = '2';
 //   - regNo: string (required, <= 50 chars)
 //   - studentName: string (optional, <= 100 chars)
 //   - studentClass: string (optional, <= 50 chars)
-//   - dates: list (optional, <= 50 elements)
+//   - dates: list (optional, <= 60 elements)
 //   - reason: string (optional, <= 100 chars)
 //   - remarks: string (optional, <= 500 chars)
 //   - clearedSessions: list (optional, <= 100 elements)
@@ -128,8 +128,26 @@ rules_version = '2';
 //   - clearedBy: string (optional, <= 100 chars)
 //   - clearedByRole: string (optional, <= 50 chars)
 //   - issuedAt: string or timestamp (optional)
-//   - status: string (required, 'ISSUED' or 'CONFIRMED')
+//   - status: string (optional, 'ISSUED' or 'CONFIRMED')
 //   - studentConfirmedAt: string or timestamp (optional)
+//
+// Collection: clearance_history
+// Document ID: [histId] (e.g. "clearance_hist_1731000000_1001")
+// Fields:
+//   - id: string (required, <= 100 chars)
+//   - certNumber: string (required, <= 100 chars)
+//   - studentRegNo: string (required, <= 50 chars)
+//   - studentAdNo: number or string (required, <= 50 chars if string)
+//   - studentName: string (required, <= 100 chars)
+//   - clearanceType: string (required, 'MEDICAL_LEAVE' or 'OFFICIAL_PRESENT')
+//   - reason: string (required)
+//   - dates: list (required, <= 60 elements)
+//   - totalPeriodsCleared: number (required)
+//   - issuedByUsername: string (required, <= 100 chars)
+//   - issuedAt: string or timestamp (required, <= 50 chars if string)
+//   - clearedSessions: list (optional)
+//   - verificationStatus: string (optional)
+//   - verifiedBy: string (optional)
 //
 // Collection: campus_medical_waivers
 // Document ID: [waiverId] (e.g. "waiver_1731000000_1001" or "waiver_jamath_1731000000_1001")
@@ -346,14 +364,14 @@ service cloud.firestore {
     function isValidClearanceCert(data) {
       return data is map &&
              data.regNo is string && data.regNo.size() >= 1 && data.regNo.size() <= 50 &&
-             data.status is string && (data.status in ['ISSUED', 'CONFIRMED']) &&
+             (!('status' in data) || (data.status is string && (data.status in ['ISSUED', 'CONFIRMED']))) &&
              isValidOptionalString('studentName', 0, 100) &&
              isValidOptionalString('studentClass', 0, 50) &&
              isValidOptionalString('reason', 0, 100) &&
              isValidOptionalString('remarks', 0, 500) &&
              isValidOptionalString('clearedBy', 0, 100) &&
              isValidOptionalString('clearedByRole', 0, 50) &&
-             (!('dates' in data) || (data.dates is list && data.dates.size() <= 50)) &&
+             (!('dates' in data) || (data.dates is list && data.dates.size() <= 60)) &&
              (!('clearedSessions' in data) || (data.clearedSessions is list && data.clearedSessions.size() <= 100)) &&
              (!('clearedLegacySubjects' in data) || (data.clearedLegacySubjects is list && data.clearedLegacySubjects.size() <= 50));
     }
@@ -367,7 +385,27 @@ service cloud.firestore {
              newData.studentConfirmedAt.size() <= 50;
     }
 
-    // 10. campus_medical_waivers validator
+    // 10. clearance_history validator
+    function isValidClearanceHist(data) {
+      return data is map &&
+             data.keys().hasAll([
+               'id', 'certNumber', 'studentRegNo', 'studentAdNo',
+               'studentName', 'clearanceType', 'reason', 'dates',
+               'totalPeriodsCleared', 'issuedByUsername', 'issuedAt'
+             ]) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 100 &&
+             data.certNumber is string && data.certNumber.size() >= 1 && data.certNumber.size() <= 100 &&
+             data.studentRegNo is string && data.studentRegNo.size() >= 1 && data.studentRegNo.size() <= 50 &&
+             (data.studentAdNo is number || (data.studentAdNo is string && data.studentAdNo.size() >= 1 && data.studentAdNo.size() <= 50)) &&
+             data.studentName is string && data.studentName.size() <= 100 &&
+             data.clearanceType in ['MEDICAL_LEAVE', 'OFFICIAL_PRESENT'] &&
+             data.dates is list && data.dates.size() <= 60 &&
+             data.totalPeriodsCleared is number &&
+             data.issuedByUsername is string && data.issuedByUsername.size() <= 100 &&
+             ((data.issuedAt is string && data.issuedAt.size() <= 50) || data.issuedAt is timestamp);
+    }
+
+    // 11. campus_medical_waivers validator
     function isValidMedicalWaiver(data) {
       return data is map &&
              data.id is string && data.id.size() >= 1 && data.id.size() <= 100 &&
@@ -476,7 +514,15 @@ service cloud.firestore {
       allow delete: if isStaffOrAdmin();
     }
 
-    // 10. campus_medical_waivers: Sick in Room bed-rest medical excusals & Masjid Jamath exemptions
+    // 10. clearance_history: Attendance clearance audit records and logs
+    match /clearance_history/{histId} {
+      allow read: if isAuthenticated();
+      allow create: if isStaffOrAdmin() && isValidClearanceHist(request.resource.data);
+      allow update: if isStaffOrAdmin() && isValidClearanceHist(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // 11. campus_medical_waivers: Sick in Room bed-rest medical excusals & Masjid Jamath exemptions
     match /campus_medical_waivers/{waiverId} {
       allow read: if isAuthenticated();
       allow create: if isStaffOrAdmin() && isValidMedicalWaiver(request.resource.data);
