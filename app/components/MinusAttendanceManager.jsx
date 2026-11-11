@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { db } from '../../lib/firebase';
 import { doc, setDoc, writeBatch, collection, query, where, onSnapshot } from 'firebase/firestore';
-import { DEFAULT_CLASSES, styles } from './erpConstants';
+import { DEFAULT_CLASSES, styles, isWaiverActiveOnDate } from './erpConstants';
 import { ProfileAvatar } from './ErpExtensions';
 
 const QUICK_MINUS_REASONS = [
@@ -64,11 +64,12 @@ export default function MinusAttendanceManager({
         where('status', '==', 'ACTIVE')
       );
       const unsubscribe = onSnapshot(q, (snap) => {
+        const todayStr = new Date().toISOString().split('T')[0];
         const exMap = {};
         snap.forEach(docSnap => {
           const data = docSnap.data();
-          const ad = String(data.studentAdNo || '').trim().toUpperCase();
-          if (ad) {
+          const ad = String(data.adNo || data.studentAdNo || '').trim().toUpperCase();
+          if (ad && isWaiverActiveOnDate(data, todayStr)) {
             exMap[ad] = { id: docSnap.id, ...data };
           }
         });

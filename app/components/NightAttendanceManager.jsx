@@ -13,7 +13,7 @@ import {
   limit,
   onSnapshot
 } from 'firebase/firestore';
-import { DEFAULT_CLASSES, styles } from './erpConstants';
+import { DEFAULT_CLASSES, styles, isWaiverActiveOnDate } from './erpConstants';
 import {
   ProfileAvatar,
   openDirectWhatsApp,
@@ -538,7 +538,7 @@ export default function NightAttendanceManager({
       } else {
         // Attendance not finalized yet tonight!
         const campusWaiver = activeCampusWaiversMap[ad.toUpperCase()];
-        if (campusWaiver && campusWaiver.waiverType === 'SICK_IN_ROOM') {
+        if (campusWaiver && campusWaiver.waiverType === 'SICK_IN_ROOM' && isWaiverActiveOnDate(campusWaiver, selectedDate)) {
           newStatus[ad] = 'SICK_ROOM';
         } else if (activeRec) {
           newStatus[ad] = activeRec.status || 'ABSENT';
@@ -1533,13 +1533,13 @@ export default function NightAttendanceManager({
                       </div>
                     )}
 
-                    {activeCampusWaiver && activeCampusWaiver.waiverType === 'SICK_IN_ROOM' && !activeRecAbs && (
+                    {activeCampusWaiver && activeCampusWaiver.waiverType === 'SICK_IN_ROOM' && isWaiverActiveOnDate(activeCampusWaiver, selectedDate) && !activeRecAbs && (
                       <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '7px 10px', borderRadius: '8px', fontSize: '11px', color: '#92400e', lineHeight: 1.35 }}>
                         <div style={{ fontWeight: '700' }}>
                           🤒 Bed Rest in Hostel: {activeCampusWaiver.injuryReason}
                         </div>
                         <div style={{ fontSize: '10px', marginTop: '2px', fontWeight: '700', color: '#b45309' }}>
-                          Permitted by: Usthad {activeCampusWaiver.issuedByName || activeCampusWaiver.issuedBy || 'Class Teacher'} • Room: {activeCampusWaiver.roomNumber || 'Hostel'}
+                          Permitted by: Usthad {activeCampusWaiver.issuedByName || activeCampusWaiver.issuedBy || 'Class Teacher'}{activeCampusWaiver.validUntil ? ` • Valid until: ${activeCampusWaiver.validUntil}` : ''}
                         </div>
                       </div>
                     )}
@@ -2474,7 +2474,7 @@ export default function NightAttendanceManager({
 
               let curStatus = extraStatusMap[ad];
               if (!curStatus) {
-                if (activeCampusWaiver && activeCampusWaiver.waiverType === 'SICK_IN_ROOM') {
+                if (activeCampusWaiver && activeCampusWaiver.waiverType === 'SICK_IN_ROOM' && isWaiverActiveOnDate(activeCampusWaiver, extraDate)) {
                   curStatus = 'SICK_ROOM';
                 } else if (activeRecAbs) {
                   curStatus = activeRecAbs.status || 'ABSENT';
@@ -2515,11 +2515,11 @@ export default function NightAttendanceManager({
                       <div style={{ fontSize: '11px', color: '#64748b' }}>
                         #{ad} • Roll: {st.rollNo || '—'} {isUrdu && <span style={{ background: '#fef3c7', color: '#92400e', padding: '1px 5px', borderRadius: '4px', fontSize: '10px', fontWeight: '800' }}>URDU</span>}
                       </div>
-                      {activeCampusWaiver && activeCampusWaiver.waiverType === 'SICK_IN_ROOM' && (
+                      {activeCampusWaiver && activeCampusWaiver.waiverType === 'SICK_IN_ROOM' && isWaiverActiveOnDate(activeCampusWaiver, extraDate) && (
                         <div style={{ marginTop: '4px', background: '#fffbeb', color: '#92400e', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '700', border: '1px solid #fde68a' }}>
                           <div>🤒 Bed Rest: {activeCampusWaiver.injuryReason}</div>
                           <div style={{ fontSize: '9px', marginTop: '1px', color: '#b45309' }}>
-                            Permitted by: Usthad {activeCampusWaiver.issuedByName || activeCampusWaiver.issuedBy || 'Class Teacher'}
+                            Permitted by: Usthad {activeCampusWaiver.issuedByName || activeCampusWaiver.issuedBy || 'Class Teacher'}{activeCampusWaiver.validUntil ? ` • Valid until: ${activeCampusWaiver.validUntil}` : ''}
                           </div>
                         </div>
                       )}

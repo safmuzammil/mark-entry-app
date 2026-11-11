@@ -463,7 +463,7 @@ export default function UnifiedSchoolPortal() {
       { id: 'absence_clearance', label: 'Absence Clearance', icon: '🎟️', desc: 'Issue & inspect official absence clearance certificates' },
       { id: 'attendance', label: 'Night Attendance', icon: '🌙', desc: 'Hostel roll-call & out-pass verification' },
       { id: 'reports', label: 'Marks & Auditor', icon: '📊', desc: 'CCE mark auditor & level-by-level inspector' },
-      { id: 'outpass', label: 'Out-Pass Portal', icon: '🪪', desc: 'Live campus movement & leave approvals' },
+      { id: 'outpass', label: 'Leaves & Outpass', icon: '🪪', desc: 'Live campus movement & medical waivers' },
       { id: 'mentorship', label: 'Mentorship & Outreach', icon: '🧭', desc: 'Consultancy logs, skills & usthad audit' },
       { id: 'reminders', label: 'Weekly Reminders', icon: '🔔', desc: 'Academic target broadcasts & tracker' },
       { id: 'proxy_marks', label: 'Proxy Mark Entry', icon: '✍️', desc: 'Inspect or enter marks on behalf of faculty' }
@@ -839,7 +839,7 @@ export default function UnifiedSchoolPortal() {
             )}
 
             {activeAdminTab === 'outpass' && (
-              <PortalErrorBoundary tabLabel="Out-Pass Portal">
+              <PortalErrorBoundary tabLabel="Leaves & Outpass">
                 <OutPassPortal
                   key="outpass_portal"
                   embeddedMode={true}

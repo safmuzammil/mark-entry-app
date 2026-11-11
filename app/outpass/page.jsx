@@ -75,7 +75,7 @@ export default function OutPassPortal({
   const [isSecurityKiosk, setIsSecurityKiosk] = useState(false);
   const [securityPinInput, setSecurityPinInput] = useState("");
   const [authChecking, setAuthChecking] = useState(!embeddedMode);
-  const [activeTab, setActiveTab] = useState(initialTab || (isAdminProp ? "admin" : "teacher"));
+  const [activeTab, setActiveTab] = useState(initialTab || "teacher");
 
   const [useGatekeeperFlow, setUseGatekeeperFlow] = useState(
     DEFAULT_GATE_WORKFLOW
@@ -2337,29 +2337,65 @@ export default function OutPassPortal({
         )}
 
         {/* COMPACT SUB-NAVIGATION BAR */}
+        {/* COMPACT UNIFIED SUB-NAVIGATION BAR */}
         <div style={styles.navBar}>
           <div style={styles.navSegmentGroup}>
             {!isSecurityKiosk && (
-              <button
-                type="button"
-                onClick={() => setActiveTab("teacher")}
-                style={
-                  activeTab === "teacher"
-                    ? styles.mainTabActive
-                    : styles.mainTabInactive
-                }
-              >
-                <span>👨‍🏫 Permit Student Leave Desk</span>
-                <span
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("teacher");
+                    setActiveLeaveSubTab("outpass");
+                  }}
                   style={
-                    activeTab === "teacher"
-                      ? styles.tabCounterActive
-                      : styles.tabCounterInactive
+                    activeTab === "teacher" && activeLeaveSubTab === "outpass"
+                      ? styles.mainTabActive
+                      : styles.mainTabInactive
                   }
                 >
-                  {myOutsideCount} Active
-                </span>
-              </button>
+                  <span>🪪 Gate Outpass</span>
+                  <span
+                    style={
+                      activeTab === "teacher" && activeLeaveSubTab === "outpass"
+                        ? styles.tabCounterActive
+                        : styles.tabCounterInactive
+                    }
+                  >
+                    {currentlyOutsidePasses.length} Outside
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("teacher");
+                    setActiveLeaveSubTab("sick_room");
+                  }}
+                  style={
+                    activeTab === "teacher" && activeLeaveSubTab === "sick_room"
+                      ? styles.mainTabActive
+                      : styles.mainTabInactive
+                  }
+                >
+                  <span>🤒 Sick in Room</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("teacher");
+                    setActiveLeaveSubTab("masjid_exempt");
+                  }}
+                  style={
+                    activeTab === "teacher" && activeLeaveSubTab === "masjid_exempt"
+                      ? styles.mainTabActive
+                      : styles.mainTabInactive
+                  }
+                >
+                  <span>🩹 Masjid Exemption</span>
+                </button>
+              </>
             )}
 
             {canSeeReportsTab && (
@@ -2372,16 +2408,7 @@ export default function OutPassPortal({
                     : styles.mainTabInactive
                 }
               >
-                <span>📊 Live Campus &amp; 14 Reports</span>
-                <span
-                  style={
-                    activeTab === "admin"
-                      ? styles.tabCounterActive
-                      : styles.tabCounterInactive
-                  }
-                >
-                  {currentlyOutsidePasses.length} Outside
-                </span>
+                <span>📊 Movement &amp; 14 Reports</span>
               </button>
             )}
 
@@ -2396,7 +2423,7 @@ export default function OutPassPortal({
                       : styles.mainTabInactive
                   }
                 >
-                  <span>📸 Photos (Ad.No) &amp; Leave Locks</span>
+                  <span>⚙️ Settings &amp; Locks</span>
                 </button>
 
                 <button
@@ -2408,7 +2435,7 @@ export default function OutPassPortal({
                       : styles.mainTabInactive
                   }
                 >
-                  <span>🛡️ Security Gate Kiosk</span>
+                  <span>🛡️ Gate Kiosk</span>
                 </button>
               </>
             )}
@@ -2435,67 +2462,9 @@ export default function OutPassPortal({
           </button>
         </div>
 
-        {/* TAB 1: TEACHER DESK + MONTHLY HOME LEAVE */}
+        {/* TAB 1: TEACHER & ADMIN LEAVES DESK (GATE OUTPASS + SICK IN ROOM + MASJID EXEMPTION) */}
         {activeTab === "teacher" && (
           <div>
-            {!isSecurityKiosk && (
-              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', background: '#f1f5f9', padding: '6px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                <button
-                  type="button"
-                  onClick={() => setActiveLeaveSubTab("outpass")}
-                  style={{
-                    flex: 1,
-                    padding: '10px 14px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    fontWeight: '800',
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                    background: activeLeaveSubTab === "outpass" ? '#ffffff' : 'transparent',
-                    color: activeLeaveSubTab === "outpass" ? '#0f172a' : '#64748b',
-                    boxShadow: activeLeaveSubTab === "outpass" ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-                  }}
-                >
-                  🪪 Gate Outpasses (Off-Campus)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveLeaveSubTab("sick_room")}
-                  style={{
-                    flex: 1,
-                    padding: '10px 14px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    fontWeight: '800',
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                    background: activeLeaveSubTab === "sick_room" ? '#ffffff' : 'transparent',
-                    color: activeLeaveSubTab === "sick_room" ? '#b45309' : '#64748b',
-                    boxShadow: activeLeaveSubTab === "sick_room" ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-                  }}
-                >
-                  🤒 Sick in Room (Bed Rest)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveLeaveSubTab("masjid_exempt")}
-                  style={{
-                    flex: 1,
-                    padding: '10px 14px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    fontWeight: '800',
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                    background: activeLeaveSubTab === "masjid_exempt" ? '#ffffff' : 'transparent',
-                    color: activeLeaveSubTab === "masjid_exempt" ? '#0369a1' : '#64748b',
-                    boxShadow: activeLeaveSubTab === "masjid_exempt" ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-                  }}
-                >
-                  🕌 Masjid Jamath Exemptions
-                </button>
-              </div>
-            )}
 
             {activeLeaveSubTab === "sick_room" && !isSecurityKiosk ? (
               <SickInRoomSubTab

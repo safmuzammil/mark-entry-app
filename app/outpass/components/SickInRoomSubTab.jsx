@@ -14,16 +14,32 @@ import {
   getDocs,
 } from "firebase/firestore";
 import { ProfileAvatar } from "@/app/components/ErpExtensions";
+import { isWaiverActiveOnDate } from "@/app/components/erpConstants";
 
 const ILLNESS_PRESETS = [
+  "CUSTOM",
   "Acute Viral Fever / High Temperature",
   "Severe Stomach Flu / Food Poisoning",
-  "Asthma / Respiratory Distress",
-  "Post-Clinic Hospitalization Rest",
   "Severe Migraine / Headache",
-  "Skin Infection / Contagious Rest",
+  "Vomiting / Acute Nausea",
+  "Cold / Cough / Throat Infection",
+  "Asthma / Respiratory Distress",
   "Bed Rest Advised by Doctor",
 ];
+
+const QUICK_ILLNESS_CHIPS = [
+  { label: "🤒 Fever / Flu", value: "Acute Viral Fever / High Temperature" },
+  { label: "🤢 Stomach Ache", value: "Severe Stomach Flu / Food Poisoning" },
+  { label: "🤕 Headache", value: "Severe Migraine / Headache" },
+  { label: "🤮 Vomiting", value: "Vomiting / Acute Nausea" },
+  { label: "🤧 Cold / Cough", value: "Cold / Cough / Throat Infection" },
+];
+
+const addDaysToToday = (days) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+};
 
 export default function SickInRoomSubTab({
   students = [],
@@ -40,14 +56,14 @@ export default function SickInRoomSubTab({
   const [selectedClassFilter, setSelectedClassFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Modal State
+  // Modal State (Streamlined: Reason & End Date Only)
   const [showGrantModal, setShowGrantModal] = useState(false);
   const [selectedStudentAd, setSelectedStudentAd] = useState("");
   const [studentSearchInput, setStudentSearchInput] = useState("");
-  const [reasonPreset, setReasonPreset] = useState(ILLNESS_PRESETS[0]);
+  const [reasonPreset, setReasonPreset] = useState("CUSTOM");
   const [customReason, setCustomReason] = useState("");
-  const [roomNumber, setRoomNumber] = useState("");
-  const [notes, setNotes] = useState("");
+  const [durationPreset, setDurationPreset] = useState("TODAY");
+  const [validUntil, setValidUntil] = useState(() => addDaysToToday(0));
   const [savingWaiver, setSavingWaiver] = useState(false);
 
   // Overnight Bed-Rest Handshake Queue State
@@ -104,11 +120,12 @@ export default function SickInRoomSubTab({
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
+        const todayStr = new Date().toISOString().split("T")[0];
         const active = [];
         const revoked = [];
         snapshot.forEach((docSnap) => {
           const data = { id: docSnap.id, ...docSnap.data() };
-          if (data.status === "ACTIVE") {
+          if (data.status === "ACTIVE" && isWaiverActiveOnDate(data, todayStr)) {
             active.push(data);
           } else {
             revoked.push(data);
@@ -211,23 +228,27 @@ export default function SickInRoomSubTab({
       return;
     }
 
-    const effectiveReason = customReason.trim() ? customReason.trim() : reasonPreset;
+    const effectiveReason = reasonPreset === "CUSTOM"
+      ? (customReason.trim() || "Acute Illness / Bed Rest")
+      : (customReason.trim() ? customReason.trim() : reasonPreset);
     const waiverId = `waiver_${Date.now()}_${st.adNo}`;
     const nowIso = new Date().toISOString();
+    const todayStr = nowIso.split("T")[0];
 
     setSavingWaiver(true);
     try {
       const payload = {
         id: waiverId,
-        studentRegNo: st.regNo || st.adNo,
+        studentRegNo: st.regNo || String(st.adNo),
         adNo: st.adNo,
-        studentName: st.firstName || "",
-        className: (st.classes && st.classes[0]) || st.class || "General",
+        studentName: st.firstName || `Student #${st.adNo}`,
+        className: st.studentClass || (st.classes && st.classes[0]) || st.class || "General",
         department: st.department || "GENERAL",
         waiverType: "SICK_IN_ROOM",
         injuryReason: effectiveReason,
-        roomNumber: roomNumber.trim() || "Hostel Room",
-        notes: notes.trim(),
+        validUntil: validUntil || todayStr,
+        roomNumber: null,
+        notes: null,
         issuedBy: loggedInUser?.username || "teacher",
         issuedByName: loggedInUser?.fullName || loggedInUser?.username || "Class Teacher",
         issuedByRole: isAdmin ? "ADMIN" : "CLASS_TEACHER",
@@ -244,8 +265,9 @@ export default function SickInRoomSubTab({
       setShowGrantModal(false);
       setSelectedStudentAd("");
       setCustomReason("");
-      setRoomNumber("");
-      setNotes("");
+      setReasonPreset("CUSTOM");
+      setDurationPreset("TODAY");
+      setValidUntil(addDaysToToday(0));
 
       if (typeof onWaiverCreated === "function") {
         onWaiverCreated();
@@ -597,7 +619,7 @@ export default function SickInRoomSubTab({
                   <th style={{ padding: "12px 16px" }}>Student</th>
                   <th style={{ padding: "12px 16px" }}>Class</th>
                   <th style={{ padding: "12px 16px" }}>Illness / Reason</th>
-                  <th style={{ padding: "12px 16px" }}>Hostel Location</th>
+                  <th style={{ padding: "12px 16px" }}>Validity</th>
                   <th style={{ padding: "12px 16px" }}>Issued On</th>
                   <th style={{ padding: "12px 16px" }}>Authorized By</th>
                   <th style={{ padding: "12px 16px", textAlign: "right" }}>Actions</th>
@@ -641,8 +663,14 @@ export default function SickInRoomSubTab({
                           </div>
                         )}
                       </td>
-                      <td style={{ padding: "14px 16px", color: "#475569", fontWeight: "600" }}>
-                        📍 {w.roomNumber || "Hostel Room"}
+                      <td style={{ padding: "14px 16px", color: "#475569", fontSize: "12px" }}>
+                        {w.validUntil ? (
+                          <span style={{ fontWeight: "700", color: "#065f46", background: "#ecfdf5", padding: "3px 8px", borderRadius: "6px", border: "1px solid #a7f3d0" }}>
+                            Until {w.validUntil}
+                          </span>
+                        ) : (
+                          <span style={{ fontWeight: "600", color: "#64748b" }}>Open-Ended</span>
+                        )}
                       </td>
                       <td style={{ padding: "14px 16px", color: "#64748b", fontSize: "12px" }}>
                         {new Date(w.issuedAt).toLocaleDateString("en-IN", {
@@ -879,38 +907,46 @@ export default function SickInRoomSubTab({
                 )}
               </div>
 
-              <div style={{ marginBottom: "14px" }}>
+              {/* 1. REASON SELECTION */}
+              <div style={{ marginBottom: "16px" }}>
                 <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "#334155", marginBottom: "6px" }}>
-                  Reason / Ailment Preset *
+                  Reason / Diagnosis *
                 </label>
                 <select
                   value={reasonPreset}
-                  onChange={(e) => setReasonPreset(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setReasonPreset(val);
+                    if (val !== "CUSTOM") {
+                      setCustomReason(val);
+                    }
+                  }}
                   style={{
                     width: "100%",
                     padding: "9px 12px",
                     border: "1.5px solid #cbd5e1",
                     borderRadius: "8px",
                     fontSize: "13px",
+                    background: "#ffffff",
+                    marginBottom: "8px",
                   }}
                 >
-                  {ILLNESS_PRESETS.map((p) => (
+                  <option value="CUSTOM">✍️ Custom Reason / Specific Diagnosis...</option>
+                  {ILLNESS_PRESETS.filter((p) => p !== "CUSTOM").map((p) => (
                     <option key={p} value={p}>
                       {p}
                     </option>
                   ))}
                 </select>
-              </div>
 
-              <div style={{ marginBottom: "14px" }}>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "#334155", marginBottom: "6px" }}>
-                  Or Specific Custom Diagnosis / Ailment
-                </label>
                 <input
                   type="text"
-                  placeholder="e.g. Severe throat infection, bed rest prescribed"
+                  placeholder="e.g. Acute viral fever, severe cold, stomach ache..."
                   value={customReason}
-                  onChange={(e) => setCustomReason(e.target.value)}
+                  onChange={(e) => {
+                    setCustomReason(e.target.value);
+                    if (reasonPreset !== "CUSTOM") setReasonPreset("CUSTOM");
+                  }}
                   style={{
                     width: "100%",
                     padding: "9px 12px",
@@ -920,46 +956,110 @@ export default function SickInRoomSubTab({
                     boxSizing: "border-box",
                   }}
                 />
+
+                {/* 1-Tap Template Preset Chips */}
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px" }}>
+                  {QUICK_ILLNESS_CHIPS.map((chip) => (
+                    <button
+                      key={chip.label}
+                      type="button"
+                      onClick={() => {
+                        setReasonPreset("CUSTOM");
+                        setCustomReason(chip.value);
+                      }}
+                      style={{
+                        padding: "5px 10px",
+                        borderRadius: "6px",
+                        fontSize: "11px",
+                        fontWeight: "700",
+                        cursor: "pointer",
+                        background: customReason === chip.value ? "#fef3c7" : "#f8fafc",
+                        color: customReason === chip.value ? "#92400e" : "#475569",
+                        border: customReason === chip.value ? "1.5px solid #f59e0b" : "1px solid #cbd5e1",
+                        transition: "all 0.1s ease",
+                      }}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div style={{ marginBottom: "14px" }}>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "#334155", marginBottom: "6px" }}>
-                  Hostel Room / Location
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Room 204, Wing B"
-                  value={roomNumber}
-                  onChange={(e) => setRoomNumber(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "9px 12px",
-                    border: "1.5px solid #cbd5e1",
-                    borderRadius: "8px",
-                    fontSize: "13px",
-                    boxSizing: "border-box",
-                  }}
-                />
-              </div>
-
+              {/* 2. VALIDITY DURATION */}
               <div style={{ marginBottom: "20px" }}>
                 <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "#334155", marginBottom: "6px" }}>
-                  Additional Notes (Doctor visit, medicine, etc.)
+                  Validity Duration (Default: Today Only) *
                 </label>
-                <textarea
-                  rows={2}
-                  placeholder="Optional medical observations or care instructions..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
+                  {[
+                    { id: "TODAY", label: "Today Only", days: 0 },
+                    { id: "1_DAY", label: "+1 Day (Tomorrow)", days: 1 },
+                    { id: "2_DAYS", label: "+2 Days (Day After)", days: 2 },
+                    { id: "CUSTOM", label: "📅 Custom Date", days: null },
+                  ].map((btn) => (
+                    <button
+                      key={btn.id}
+                      type="button"
+                      onClick={() => {
+                        setDurationPreset(btn.id);
+                        if (btn.days !== null) {
+                          setValidUntil(addDaysToToday(btn.days));
+                        }
+                      }}
+                      style={{
+                        padding: "6px 12px",
+                        borderRadius: "6px",
+                        fontSize: "11px",
+                        fontWeight: "800",
+                        cursor: "pointer",
+                        background: durationPreset === btn.id ? "#0f172a" : "#f1f5f9",
+                        color: durationPreset === btn.id ? "#ffffff" : "#475569",
+                        border: durationPreset === btn.id ? "1px solid #0f172a" : "1px solid #cbd5e1",
+                        transition: "all 0.1s ease",
+                      }}
+                    >
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+
+                {durationPreset === "CUSTOM" && (
+                  <input
+                    type="date"
+                    value={validUntil}
+                    min={addDaysToToday(0)}
+                    onChange={(e) => setValidUntil(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1.5px solid #cbd5e1",
+                      borderRadius: "8px",
+                      fontSize: "13px",
+                      boxSizing: "border-box",
+                      marginBottom: "8px",
+                    }}
+                  />
+                )}
+
+                <div
                   style={{
-                    width: "100%",
-                    padding: "9px 12px",
-                    border: "1.5px solid #cbd5e1",
+                    background: "#ecfdf5",
+                    border: "1px solid #a7f3d0",
+                    padding: "7px 12px",
                     borderRadius: "8px",
-                    fontSize: "13px",
-                    boxSizing: "border-box",
+                    fontSize: "11px",
+                    color: "#065f46",
+                    fontWeight: "700",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
                   }}
-                />
+                >
+                  <span>⏳</span>
+                  <span>
+                    Excuses student through <strong>{validUntil}</strong> (Auto-expires at Midnight)
+                  </span>
+                </div>
               </div>
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>

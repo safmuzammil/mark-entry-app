@@ -5,7 +5,7 @@ import { auth, db } from '../../lib/firebase';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc, getDocs, setDoc, deleteDoc, collection, writeBatch, query, where, orderBy, limit } from 'firebase/firestore';
-import { DEFAULT_CLASSES, DEFAULT_SUBJECTS, DHIU_LOGO_URL, styles, sortStudentsByDepartment } from './erpConstants';
+import { DEFAULT_CLASSES, DEFAULT_SUBJECTS, DHIU_LOGO_URL, styles, sortStudentsByDepartment, isWaiverActiveOnDate } from './erpConstants';
 import { doesClassMatchAlias, openDirectWhatsApp, resolveClassTeacherForStudent, CollapsibleCard } from './ErpExtensions';
 import PeriodAttendanceReportsHub from './PeriodAttendanceReportsHub';
 import PeriodAttendanceMinusAndClearance from './PeriodAttendanceMinusAndClearance';
@@ -319,7 +319,7 @@ export default function PeriodAttendanceManager({
           waiversSnap.forEach(wDoc => {
             const w = wDoc.data();
             const rawAd = w.adNo || w.studentAdNo;
-            if (w && rawAd) {
+            if (w && rawAd && isWaiverActiveOnDate(w, attDate)) {
               const cleanAd = String(rawAd).trim().toUpperCase();
               if (!allRecs.some(x => String(x.adNo || '').trim().toUpperCase() === cleanAd)) {
                 allRecs.push({
@@ -328,7 +328,9 @@ export default function PeriodAttendanceManager({
                   status: 'SICK_ROOM',
                   reason: w.injuryReason || w.illnessReason || w.diagnosis || 'Sick in Room (Bed Rest)',
                   recordedBy: w.issuedByName || w.issuedBy || w.authorizedByName || 'Class Teacher',
-                  hasDuration: false,
+                  startDate: w.issuedAt ? w.issuedAt.split('T')[0] : attDate,
+                  endDate: w.validUntil || attDate,
+                  hasDuration: Boolean(w.validUntil && w.validUntil !== (w.issuedAt ? w.issuedAt.split('T')[0] : attDate)),
                   isMedical: true
                 });
               }

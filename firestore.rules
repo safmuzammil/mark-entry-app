@@ -149,6 +149,7 @@ rules_version = '2';
 //   - issuedByRole: string (required, <= 50 chars)
 //   - issuedAt: string or timestamp (required, <= 50 chars if string)
 //   - status: string (required, 'ACTIVE' or 'REVOKED')
+//   - validUntil: string or null (optional, <= 20 chars)
 //   - revokedAt: string or timestamp or null (optional, <= 50 chars if string)
 //   - revokedBy: string or null (optional, <= 100 chars)
 //   - revokedByName: string or null (optional, <= 100 chars)
@@ -381,6 +382,7 @@ service cloud.firestore {
              data.issuedByRole is string && data.issuedByRole.size() >= 1 && data.issuedByRole.size() <= 50 &&
              ((data.issuedAt is string && data.issuedAt.size() <= 50) || data.issuedAt is timestamp) &&
              data.status is string && (data.status in ['ACTIVE', 'REVOKED']) &&
+             (!('validUntil' in data) || data.validUntil == null || (data.validUntil is string && data.validUntil.size() <= 20)) &&
              (!('department' in data) || data.department == null || (data.department is string && data.department.size() <= 50)) &&
              (!('roomNumber' in data) || data.roomNumber == null || (data.roomNumber is string && data.roomNumber.size() <= 50)) &&
              (!('notes' in data) || data.notes == null || (data.notes is string && data.notes.size() <= 500)) &&

@@ -32,6 +32,13 @@ export const parseCSVLine = (str) => {
 
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+export const isWaiverActiveOnDate = (waiver, targetDate) => {
+  if (!waiver || waiver.status !== 'ACTIVE') return false;
+  if (!targetDate) return true;
+  if (!waiver.validUntil) return true;
+  return targetDate <= waiver.validUntil;
+};
+
 // 🌟 MINIMALIST SHUHOOD DESIGN SYSTEM (Clean Indigo #4f46e5 + Soft Slate #f8fafc)
 export const styles = {
   pageBackground: {

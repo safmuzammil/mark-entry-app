@@ -13,8 +13,10 @@ import {
   limit,
 } from "firebase/firestore";
 import { ProfileAvatar } from "@/app/components/ErpExtensions";
+import { isWaiverActiveOnDate } from "@/app/components/erpConstants";
 
 const INJURY_PRESETS = [
+  "CUSTOM",
   "Leg Fracture / Plaster Cast (Cannot climb stairs)",
   "Bandage / Open Surgical Wound (Loss of Wudhu / Dressing)",
   "Crutches / Severe Ankle Sprain (Mobility impaired)",
@@ -22,6 +24,19 @@ const INJURY_PRESETS = [
   "Severe Knee Joint Inflammation",
   "Temporary Mobility Impairment / Medical Waiver",
 ];
+
+const QUICK_INJURY_CHIPS = [
+  { label: "🩹 Leg Fracture / Cast", value: "Leg Fracture / Plaster Cast (Cannot climb stairs)" },
+  { label: "🩼 Crutches / Sprain", value: "Crutches / Severe Ankle Sprain (Mobility impaired)" },
+  { label: "🩸 Open Wound / Dressing", value: "Bandage / Open Surgical Wound (Loss of Wudhu / Dressing)" },
+  { label: "🦶 Ankle Bruise", value: "Temporary Mobility Impairment / Medical Waiver" },
+];
+
+const addDaysToToday = (days) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+};
 
 export default function MasjidExemptionSubTab({
   students = [],
@@ -38,13 +53,14 @@ export default function MasjidExemptionSubTab({
   const [selectedClassFilter, setSelectedClassFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Modal State
+  // Modal State (Streamlined: Reason & End Date Only)
   const [showGrantModal, setShowGrantModal] = useState(false);
   const [selectedStudentAd, setSelectedStudentAd] = useState("");
   const [studentSearchInput, setStudentSearchInput] = useState("");
-  const [reasonPreset, setReasonPreset] = useState(INJURY_PRESETS[0]);
+  const [reasonPreset, setReasonPreset] = useState("CUSTOM");
   const [customReason, setCustomReason] = useState("");
-  const [notes, setNotes] = useState("");
+  const [durationPreset, setDurationPreset] = useState("TODAY");
+  const [validUntil, setValidUntil] = useState(() => addDaysToToday(0));
   const [savingWaiver, setSavingWaiver] = useState(false);
 
   // Allowed Classes & Grades for User (Permits own class + same grade class teachers + admin all campus)
@@ -97,11 +113,12 @@ export default function MasjidExemptionSubTab({
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
+        const todayStr = new Date().toISOString().split("T")[0];
         const active = [];
         const revoked = [];
         snapshot.forEach((docSnap) => {
           const data = { id: docSnap.id, ...docSnap.data() };
-          if (data.status === "ACTIVE") {
+          if (data.status === "ACTIVE" && isWaiverActiveOnDate(data, todayStr)) {
             active.push(data);
           } else {
             revoked.push(data);
@@ -139,22 +156,27 @@ export default function MasjidExemptionSubTab({
       return;
     }
 
-    const effectiveReason = customReason.trim() ? customReason.trim() : reasonPreset;
+    const effectiveReason = reasonPreset === "CUSTOM"
+      ? (customReason.trim() || "Temporary Mobility Impairment / Medical Waiver")
+      : (customReason.trim() ? customReason.trim() : reasonPreset);
     const waiverId = `waiver_jamath_${Date.now()}_${st.adNo}`;
     const nowIso = new Date().toISOString();
+    const todayStr = nowIso.split("T")[0];
 
     setSavingWaiver(true);
     try {
       const payload = {
         id: waiverId,
-        studentRegNo: st.regNo || st.adNo,
+        studentRegNo: String(st.regNo || st.adNo || "unknown"),
         adNo: st.adNo,
-        studentName: st.firstName || "",
+        studentName: st.firstName || `Student #${st.adNo}`,
         className: st.studentClass || st.className || (st.classes && st.classes[0]) || st.class || "General",
         department: st.department || "GENERAL",
         waiverType: "JAMATH_EXEMPTION",
         injuryReason: effectiveReason,
-        notes: notes.trim(),
+        validUntil: validUntil || todayStr,
+        roomNumber: null,
+        notes: null,
         issuedBy: loggedInUser?.username || "teacher",
         issuedByName: loggedInUser?.fullName || loggedInUser?.username || "Class Teacher",
         issuedByRole: isAdmin ? "ADMIN" : "CLASS_TEACHER",
@@ -171,7 +193,9 @@ export default function MasjidExemptionSubTab({
       setShowGrantModal(false);
       setSelectedStudentAd("");
       setCustomReason("");
-      setNotes("");
+      setReasonPreset("CUSTOM");
+      setDurationPreset("TODAY");
+      setValidUntil(addDaysToToday(0));
 
       if (typeof onWaiverCreated === "function") {
         onWaiverCreated();
@@ -476,6 +500,7 @@ export default function MasjidExemptionSubTab({
                   <th style={{ padding: "12px 16px" }}>Student</th>
                   <th style={{ padding: "12px 16px" }}>Class</th>
                   <th style={{ padding: "12px 16px" }}>Injury / Mobility Diagnosis</th>
+                  <th style={{ padding: "12px 16px" }}>Validity</th>
                   <th style={{ padding: "12px 16px" }}>Classroom Status</th>
                   <th style={{ padding: "12px 16px" }}>Issued On</th>
                   <th style={{ padding: "12px 16px" }}>Authorized By</th>
@@ -514,11 +539,21 @@ export default function MasjidExemptionSubTab({
                         >
                           🩹 {w.injuryReason}
                         </span>
-                        {w.notes && (
-                          <div style={{ fontSize: "11px", color: "#64748b", marginTop: "4px" }}>
-                            &ldquo;{w.notes}&rdquo;
-                          </div>
-                        )}
+                      </td>
+                      <td style={{ padding: "14px 16px" }}>
+                        <span
+                          style={{
+                            background: "#eff6ff",
+                            color: "#1d4ed8",
+                            border: "1px solid #bfdbfe",
+                            padding: "3px 8px",
+                            borderRadius: "6px",
+                            fontSize: "11px",
+                            fontWeight: "800",
+                          }}
+                        >
+                          {w.validUntil ? `Until ${w.validUntil}` : "Open-Ended"}
+                        </span>
                       </td>
                       <td style={{ padding: "14px 16px" }}>
                         <span
@@ -770,38 +805,46 @@ export default function MasjidExemptionSubTab({
                 )}
               </div>
 
-              <div style={{ marginBottom: "14px" }}>
+              {/* 1. REASON SELECTION */}
+              <div style={{ marginBottom: "16px" }}>
                 <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "#334155", marginBottom: "6px" }}>
-                  Injury / Mobility Condition Preset *
+                  Reason / Mobility Condition *
                 </label>
                 <select
                   value={reasonPreset}
-                  onChange={(e) => setReasonPreset(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setReasonPreset(val);
+                    if (val !== "CUSTOM") {
+                      setCustomReason(val);
+                    }
+                  }}
                   style={{
                     width: "100%",
                     padding: "9px 12px",
                     border: "1.5px solid #cbd5e1",
                     borderRadius: "8px",
                     fontSize: "13px",
+                    background: "#ffffff",
+                    marginBottom: "8px",
                   }}
                 >
-                  {INJURY_PRESETS.map((p) => (
+                  <option value="CUSTOM">✍️ Custom Reason / Specific Diagnosis...</option>
+                  {INJURY_PRESETS.filter((p) => p !== "CUSTOM").map((p) => (
                     <option key={p} value={p}>
                       {p}
                     </option>
                   ))}
                 </select>
-              </div>
 
-              <div style={{ marginBottom: "14px" }}>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "#334155", marginBottom: "6px" }}>
-                  Or Specific Medical Diagnosis / Description
-                </label>
                 <input
                   type="text"
-                  placeholder="e.g. Left ankle ligament tear, crutches prescribed"
+                  placeholder="e.g. Left ankle ligament tear, crutches prescribed..."
                   value={customReason}
-                  onChange={(e) => setCustomReason(e.target.value)}
+                  onChange={(e) => {
+                    setCustomReason(e.target.value);
+                    if (reasonPreset !== "CUSTOM") setReasonPreset("CUSTOM");
+                  }}
                   style={{
                     width: "100%",
                     padding: "9px 12px",
@@ -811,26 +854,107 @@ export default function MasjidExemptionSubTab({
                     boxSizing: "border-box",
                   }}
                 />
+
+                {/* 1-Tap Template Preset Chips */}
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px" }}>
+                  {QUICK_INJURY_CHIPS.map((chip) => (
+                    <button
+                      key={chip.label}
+                      type="button"
+                      onClick={() => {
+                        setReasonPreset("CUSTOM");
+                        setCustomReason(chip.value);
+                      }}
+                      style={{
+                        padding: "5px 10px",
+                        borderRadius: "6px",
+                        fontSize: "11px",
+                        fontWeight: "700",
+                        cursor: "pointer",
+                        background: customReason === chip.value ? "#ccfbf1" : "#f8fafc",
+                        color: customReason === chip.value ? "#0f766e" : "#475569",
+                        border: customReason === chip.value ? "1.5px solid #0d9488" : "1px solid #cbd5e1",
+                        transition: "all 0.1s ease",
+                      }}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
+              {/* 2. VALIDITY DURATION */}
               <div style={{ marginBottom: "20px" }}>
                 <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "#334155", marginBottom: "6px" }}>
-                  Additional Notes (Doctor name, cast removal expected date, etc.)
+                  Validity Duration (Default: Today Only) *
                 </label>
-                <textarea
-                  rows={2}
-                  placeholder="Optional orthopedic or recovery notes..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
+                  {[
+                    { id: "TODAY", label: "Today Only", days: 0 },
+                    { id: "1_DAY", label: "+1 Day (Tomorrow)", days: 1 },
+                    { id: "2_DAYS", label: "+2 Days (Day After)", days: 2 },
+                    { id: "CUSTOM", label: "📅 Custom Date", days: null },
+                  ].map((btn) => (
+                    <button
+                      key={btn.id}
+                      type="button"
+                      onClick={() => {
+                        setDurationPreset(btn.id);
+                        if (btn.days !== null) {
+                          setValidUntil(addDaysToToday(btn.days));
+                        }
+                      }}
+                      style={{
+                        padding: "6px 12px",
+                        borderRadius: "6px",
+                        fontSize: "11px",
+                        fontWeight: "800",
+                        cursor: "pointer",
+                        background: durationPreset === btn.id ? "#0f172a" : "#f1f5f9",
+                        color: durationPreset === btn.id ? "#ffffff" : "#475569",
+                        border: durationPreset === btn.id ? "1px solid #0f172a" : "1px solid #cbd5e1",
+                        transition: "all 0.1s ease",
+                      }}
+                    >
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+
+                {durationPreset === "CUSTOM" && (
+                  <input
+                    type="date"
+                    value={validUntil}
+                    min={addDaysToToday(0)}
+                    onChange={(e) => setValidUntil(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1.5px solid #cbd5e1",
+                      borderRadius: "8px",
+                      fontSize: "13px",
+                      boxSizing: "border-box",
+                      marginBottom: "8px",
+                    }}
+                  />
+                )}
+
+                <div
                   style={{
-                    width: "100%",
-                    padding: "9px 12px",
-                    border: "1.5px solid #cbd5e1",
+                    background: "#ecfdf5",
+                    border: "1px solid #a7f3d0",
+                    padding: "7px 12px",
                     borderRadius: "8px",
-                    fontSize: "13px",
-                    boxSizing: "border-box",
+                    fontSize: "11px",
+                    color: "#065f46",
+                    fontWeight: "600",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
                   }}
-                />
+                >
+                  <span>🗓️</span> Exemption valid until: <strong>{validUntil || "Today"} (End of Day)</strong>
+                </div>
               </div>
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
