@@ -5,7 +5,7 @@ import { auth, db } from '../../lib/firebase';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc, getDocs, setDoc, deleteDoc, collection, writeBatch, query, where, orderBy, limit } from 'firebase/firestore';
-import { DEFAULT_CLASSES, DEFAULT_SUBJECTS, DHIU_LOGO_URL, styles, sortStudentsByDepartment, isWaiverActiveOnDate } from './erpConstants';
+import { DEFAULT_CLASSES, DEFAULT_SUBJECTS, DEPARTMENTS, MADHABS, DHIU_LOGO_URL, styles, sortStudentsByDepartment, isWaiverActiveOnDate } from './erpConstants';
 import { doesClassMatchAlias, openDirectWhatsApp, resolveClassTeacherForStudent, CollapsibleCard } from './ErpExtensions';
 import PeriodAttendanceReportsHub from './PeriodAttendanceReportsHub';
 import PeriodAttendanceMinusAndClearance from './PeriodAttendanceMinusAndClearance';
@@ -198,6 +198,8 @@ export default function PeriodAttendanceManager({
   const [nmAlias, setNmAlias] = useState('');
   const [nmSelectedEnrollmentId, setNmSelectedEnrollmentId] = useState('');
   const [nmClassFilter, setNmClassFilter] = useState('All');
+  const [nmDeptFilter, setNmDeptFilter] = useState('All');
+  const [nmMadhabFilter, setNmMadhabFilter] = useState('All');
   const [nmStreamFilter, setNmStreamFilter] = useState('All');
   const [nmStudentSearch, setNmStudentSearch] = useState('');
   const [nmSelectedStudentRegs, setNmSelectedStudentRegs] = useState([]);
@@ -1767,7 +1769,10 @@ export default function PeriodAttendanceManager({
     const isUrdu = String(st.adNo || '').toUpperCase().startsWith('U');
     const stClasses = Array.isArray(st.classes) ? st.classes : [st.class];
     if (nmClassFilter !== 'All' && !stClasses.includes(nmClassFilter)) return false;
+    if (nmDeptFilter !== 'All' && String(st.department || '').toUpperCase() !== String(nmDeptFilter).toUpperCase()) return false;
+    if (nmMadhabFilter !== 'All' && String(st.madhab || '').toUpperCase() !== String(nmMadhabFilter).toUpperCase()) return false;
     if (nmStreamFilter === 'Urdu' && !isUrdu) return false;
+    if (nmStreamFilter === 'Non-Urdu' && isUrdu) return false;
     if (nmStreamFilter === 'General' && isUrdu) return false;
     if (nmStudentSearch.trim()) {
       const q = nmStudentSearch.trim().toLowerCase();
@@ -3112,40 +3117,180 @@ export default function PeriodAttendanceManager({
               </button>
             </div>
 
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' }}>
-              <input type="text" value={nmStudentSearch} onChange={e => setNmStudentSearch(e.target.value)} placeholder="Search student name or Ad.No..." style={{ ...styles.input, maxWidth: '260px' }} />
-              <select value={nmClassFilter} onChange={e => setNmClassFilter(e.target.value)} style={{ ...styles.input, maxWidth: '170px' }}>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={nmStudentSearch}
+                onChange={e => setNmStudentSearch(e.target.value)}
+                placeholder="Search student name or Ad.No..."
+                style={{ ...styles.input, minWidth: '200px', flex: '1 1 200px' }}
+              />
+
+              {/* Class Filter */}
+              <select
+                value={nmClassFilter}
+                onChange={e => setNmClassFilter(e.target.value)}
+                style={{ ...styles.input, minWidth: '130px', flex: '1 1 130px' }}
+              >
                 <option value="All">All Classes</option>
                 {DEFAULT_CLASSES.map(c => <option key={c} value={c}>Class {c}</option>)}
               </select>
+
+              {/* Department Filter */}
+              <select
+                value={nmDeptFilter}
+                onChange={e => setNmDeptFilter(e.target.value)}
+                style={{ ...styles.input, minWidth: '150px', flex: '1 1 150px' }}
+              >
+                <option value="All">All Departments</option>
+                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+
+              {/* Madhab Filter */}
+              <select
+                value={nmMadhabFilter}
+                onChange={e => setNmMadhabFilter(e.target.value)}
+                style={{ ...styles.input, minWidth: '130px', flex: '1 1 130px' }}
+              >
+                <option value="All">All Madhabs</option>
+                <option value="Shafi">Shafi</option>
+                <option value="Hanafi">Hanafi</option>
+              </select>
+
+              {/* Urdu / Non-Urdu Category Filter */}
+              <select
+                value={nmStreamFilter}
+                onChange={e => setNmStreamFilter(e.target.value)}
+                style={{ ...styles.input, minWidth: '150px', flex: '1 1 150px' }}
+              >
+                <option value="All">All Categories (Urdu & Non-Urdu)</option>
+                <option value="Urdu">Urdu Stream Only (Ad #U...)</option>
+                <option value="Non-Urdu">Non-Urdu Stream Only</option>
+              </select>
+
+              {/* Select All / Deselect All Action Buttons */}
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const visibleRegs = filteredNmStudents.map(s => s.regNo);
+                    setNmSelectedStudentRegs(prev => Array.from(new Set([...prev, ...visibleRegs])));
+                  }}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #c7d2fe',
+                    background: '#eef2ff',
+                    color: '#4f46e5',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  ✓ Select All ({filteredNmStudents.length})
+                </button>
+                {nmSelectedStudentRegs.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setNmSelectedStudentRegs([])}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid #fecaca',
+                      background: '#fef2f2',
+                      color: '#dc2626',
+                      fontSize: '12px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    ✕ Clear ({nmSelectedStudentRegs.length})
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div style={{ maxHeight: '320px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+            <div style={{ maxHeight: '340px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-                <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', borderBottom: '1px solid #e2e8f0', zIndex: 1 }}>
                   <tr>
-                    <th style={{ padding: '10px 14px', width: '40px' }}>✓</th>
+                    <th style={{ padding: '10px 14px', width: '40px' }}>
+                      <input
+                        type="checkbox"
+                        checked={filteredNmStudents.length > 0 && filteredNmStudents.every(s => nmSelectedStudentRegs.includes(s.regNo))}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            const visibleRegs = filteredNmStudents.map(s => s.regNo);
+                            setNmSelectedStudentRegs(prev => Array.from(new Set([...prev, ...visibleRegs])));
+                          } else {
+                            const visibleRegsSet = new Set(filteredNmStudents.map(s => s.regNo));
+                            setNmSelectedStudentRegs(prev => prev.filter(r => !visibleRegsSet.has(r)));
+                          }
+                        }}
+                      />
+                    </th>
                     <th style={{ padding: '10px 14px' }}>AD.NO</th>
                     <th style={{ padding: '10px 14px' }}>STUDENT NAME</th>
-                    <th style={{ padding: '10px 14px' }}>CLASS &amp; DEPT</th>
+                    <th style={{ padding: '10px 14px' }}>CLASS</th>
+                    <th style={{ padding: '10px 14px' }}>DEPT</th>
+                    <th style={{ padding: '10px 14px' }}>MADHAB</th>
+                    <th style={{ padding: '10px 14px' }}>STREAM</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredNmStudents.map((st) => {
-                    const checked = nmSelectedStudentRegs.includes(st.regNo);
-                    return (
-                      <tr
-                        key={st.regNo}
-                        onClick={() => setNmSelectedStudentRegs(prev => prev.includes(st.regNo) ? prev.filter(r => r !== st.regNo) : [...prev, st.regNo])}
-                        style={{ borderBottom: '1px solid #f1f5f9', background: checked ? '#eef2ff' : '#ffffff', cursor: 'pointer' }}
-                      >
-                        <td style={{ padding: '10px 14px' }}><input type="checkbox" checked={checked} readOnly /></td>
-                        <td style={{ padding: '10px 14px', fontWeight: '600' }}>#{st.adNo}</td>
-                        <td style={{ padding: '10px 14px', fontWeight: '700' }}>{st.firstName}</td>
-                        <td style={{ padding: '10px 14px' }}>{(st.classes || []).join(', ')} ({st.department || 'GENERAL'})</td>
-                      </tr>
-                    );
-                  })}
+                  {filteredNmStudents.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
+                        No students match the selected filter criteria.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredNmStudents.map((st) => {
+                      const checked = nmSelectedStudentRegs.includes(st.regNo);
+                      const isUrdu = String(st.adNo || '').toUpperCase().startsWith('U');
+                      return (
+                        <tr
+                          key={st.regNo}
+                          onClick={() => setNmSelectedStudentRegs(prev => prev.includes(st.regNo) ? prev.filter(r => r !== st.regNo) : [...prev, st.regNo])}
+                          style={{ borderBottom: '1px solid #f1f5f9', background: checked ? '#eef2ff' : '#ffffff', cursor: 'pointer' }}
+                        >
+                          <td style={{ padding: '10px 14px' }}><input type="checkbox" checked={checked} readOnly /></td>
+                          <td style={{ padding: '10px 14px', fontWeight: '700', color: isUrdu ? '#d97706' : '#2563eb' }}>
+                            #{st.adNo}
+                          </td>
+                          <td style={{ padding: '10px 14px', fontWeight: '700' }}>{st.firstName}</td>
+                          <td style={{ padding: '10px 14px' }}>{(st.classes || []).join(', ') || st.class || '—'}</td>
+                          <td style={{ padding: '10px 14px', fontWeight: '600' }}>{st.department || 'GENERAL'}</td>
+                          <td style={{ padding: '10px 14px' }}>
+                            <span style={{
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              background: String(st.madhab).toLowerCase() === 'hanafi' ? '#fef3c7' : '#ecfdf5',
+                              color: String(st.madhab).toLowerCase() === 'hanafi' ? '#92400e' : '#047857'
+                            }}>
+                              {st.madhab || 'Shafi'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 14px' }}>
+                            <span style={{
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              background: isUrdu ? '#fdf2f8' : '#f1f5f9',
+                              color: isUrdu ? '#9d174d' : '#475569'
+                            }}>
+                              {isUrdu ? 'Urdu' : 'Non-Urdu'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
