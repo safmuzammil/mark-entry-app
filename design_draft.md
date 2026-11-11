@@ -1,323 +1,199 @@
-# Streamlined Leave Granting & Unified Admin Leaves Hub
+# Design Document: Universal Compact Gate Outpass Form with Native Dropdowns & Quick Chips
 
-*   **Author:** safmuzammil
-*   **Status:** Draft
-*   **Date:** 2026-11-11
-
---------------------------------------------------------------------------------
-
-## Overview
-
-This technical design outlines the streamlining of the campus medical waiver modal forms and the restructuring of the Administrator leave management desk within the Darul Huda Degree Campus ERP.
-
-The current waiver grant interface demands five distinct inputs, including location and freeform notes that are unnecessary for campus operations, while relegating custom diagnoses below a lengthy preset list. Additionally, the Admin Portal exposes gate passes under an isolated `Out-Pass Portal` view without surfacing the internal `Sick in Room` and `Masjid Exemption` sub-tabs available to teachers.
-
-This design introduces a rapid 3-step modal (Student Search, Custom-First Reason with 1-tap template chips, and Validity End Date defaulting to end-of-day expiration) and unifies the Admin navigation into a 4-tab `Leaves & Outpass` desk with campus-wide search and issuance privileges.
-
-## The Problem
-
-1. **Mobile Input Overhead for Faculty**: When recording bed rest for acute ailments or issuing stair-climbing exemptions, teachers currently face five form fields on mobile viewports. Fields such as "Hostel Room / Location" and "Additional Notes" add needless typing and screen clutter since campus wardens do not conduct in-room dispensary rounds.
-2. **Preset Inflexibility**: Custom diagnoses are currently forced into a secondary input below a rigid dropdown list, creating cognitive friction when a student presents with an unlisted condition.
-3. **Absence of Expiration Timing**: Current waivers persist indefinitely until a faculty member remembers to manually click "Mark Recovered". This leads to stale waivers lingering across days, artificially suppressing attendance counts.
-4. **Admin Portal Fragmentation**: Administrators currently see only gate outpass logs under `Out-Pass Portal` (`🪪`). To view internal sick bed rests or prayer exemptions, admins have to navigate external interfaces rather than managing all three institutional leave categories in a centralized hub.
-
-## Goals
-
-*   **Sub-5-Second Mobile Leave Issuance**: Reduce the leave granting modal to strictly three intuitive steps: predictive student picker, reason selection, and validity duration.
-*   **Custom-First Reason Architecture**: Position `✍️ Custom Reason...` as option 0 with autofocus text entry, accompanied by 1-tap template preset chips (`Fever / Flu`, `Stomach Ache`, `Sprain / Bruise`) that immediately populate the field.
-*   **Automated Date Expiration**: Default all new bed-rest waivers to expire at midnight of the current date (`23:59:59`), with quick duration chips (`Today Only`, `+1 Day`, `+2 Days`, `Custom Date`) for multi-day excusals.
-*   **Unified Admin Leaves Desk**: Elevate Admin Portal navigation to `Leaves & Outpass` (`🪪`), presenting a persistent 4-tab interface:
-    1. `🪪 Gate Outpass`
-    2. `🤒 Sick in Room`
-    3. `🩹 Masjid Jamath Exemption`
-    4. `📊 Movement & Audit Reports`
-*   **Backward Compatibility Invariant**: Preserve existing production waivers without a `validUntil` field as active until manually revoked, preventing premature mass-expiration.
-
-## Non-Goals
-
-*   **Hostel Room Tracking**: Tracking student bed or wing occupancy is explicitly out of scope because wardens do not perform hostel room inspections.
-*   **Pharmacy & Medication Tracking**: Managing medical inventory, prescriptions, or dispensary doctor logs.
-*   **Multi-Step Approval Workflows**: Requiring multiple sign-offs (e.g., student request → warden approval → principal signature). Waivers remain directly authorizable by Class Teachers and Administrators.
-
-## Open Questions
-
-*   None. All architectural and operational requirements were confirmed during the multi-lens brainstorm.
-
-## Critical User Journeys (CUJs)
-
-### CUJ 1: Class Teacher Grants Same-Day Bed Rest on Mobile
-*   **Given**: A teacher is taking morning period attendance or receiving a student message regarding acute fever.
-*   **When**: The teacher opens `Leaves & Outpass` → `Sick in Room`, searches for the student (`Salman` or `#3456`), taps `[🤒 Fever / Flu]` chip, and taps `[Confirm & Grant Bed Rest]`.
-*   **Then**: The waiver is saved with `validUntil` set to today's date. Periods 1–9 automatically display `🤒 Sick in Room` in Amber without academic penalty. At midnight tonight, the waiver naturally lapses, requiring zero manual cleanup next morning.
-
-### CUJ 2: Class Teacher Issues Multi-Day Sprain Exemption
-*   **Given**: A student has suffered a foot injury requiring a 3-day recovery.
-*   **When**: The teacher selects the student in `Masjid Jamath Exemption`, taps `[+2 Days (Day After)]` chip, enters `Right foot sprain, bandage applied`, and confirms.
-*   **Then**: The waiver persists across today and the next two days, protecting the student in `MinusAttendanceManager` from "Jamath Missing" deductions. On the fourth day, the waiver ceases excusal automatically.
-
-### CUJ 3: Administrator Manages All Campus Leaves
-*   **Given**: The administrator logs into the main ERP dashboard.
-*   **When**: The admin taps `Leaves & Outpass` in the navigation drawer.
-*   **Then**: The admin sees four sibling tabs: `Gate Outpass`, `Sick in Room`, `Masjid Exemption`, and `Movement Reports`. The admin can search any student across all classes to inspect or grant bed rest or Jamath exemptions.
-
-
---------------------------------------------------------------------------------
-
-## Technical Plan (Architecture)
-
-### 1. Architectural System Topology
-
-```mermaid
-flowchart TD
-    subgraph UI ["User Interface Layer"]
-        CT["Teacher Portal View"]
-        ADM["Admin Main Dashboard"]
-        SUB1["🪪 Gate Outpass Sub-Tab"]
-        SUB2["🤒 Sick in Room Sub-Tab"]
-        SUB3["🩹 Masjid Exemption Sub-Tab"]
-        SUB4["📊 Movement Reports Sub-Tab"]
-        MODAL["Streamlined Grant Modal"]
-    end
-
-    subgraph Core ["Core Attendance Consumers"]
-        PAM["Period Attendance Manager"]
-        NAM["Night Attendance Manager"]
-        MAM["Minus Attendance Manager"]
-    end
-
-    subgraph Store ["Firestore Persistence Layer"]
-        DB_WAIVERS[("campus_medical_waivers<br/>• validUntil: YYYY-MM-DD<br/>• waiverType: SICK_IN_ROOM / JAMATH_EXEMPTION<br/>• status: ACTIVE / REVOKED")]
-        DB_OUTPASS[("out_passes<br/>• status: APPROVED / OUTSIDE / RETURNED")]
-    end
-
-    CT -->|"Leaves & Outpass"| SUB1 & SUB2 & SUB3
-    ADM -->|"Leaves & Outpass (4 Tabs)"| SUB1 & SUB2 & SUB3 & SUB4
-    SUB2 & SUB3 --> MODAL
-    MODAL -->|"setDoc with validUntil"| DB_WAIVERS
-    
-    PAM & NAM & MAM -->|"isWaiverActiveOnDate(w, dateStr)"| DB_WAIVERS
-```
-
-### 2. Streamlined Leave Modal Architecture
-
-The modal UI in both `SickInRoomSubTab.jsx` and `MasjidExemptionSubTab.jsx` is re-engineered from a multi-field questionnaire into an agile 3-tier action card:
-
-1. **Section 1: Verified Student Picker**:
-   * Reactive text input matching student first name, admission number (`#adNo`), or class.
-   * Selecting a candidate renders a compact verified banner with photo avatar, roll number, and an instant `[✕ Change]` action.
-2. **Section 2: Custom-First Reason with 1-Tap Template Chips**:
-   * Dropdown selector with `✍️ Custom Reason...` fixed at index 0.
-   * When `✍️ Custom Reason...` is active, a single-line input field appears with placeholder `e.g. Severe throat infection...`.
-   * Directly below the input sits a horizontal flex-wrap palette of 1-tap template chips:
-     * *Sick in Room*: `[🤒 Fever / Flu]`, `[🤢 Stomach Ache]`, `[🤕 Headache / Migraine]`, `[🤮 Vomiting / Nausea]`, `[🤧 Cold / Cough]`.
-     * *Masjid Exemption*: `[🩹 Leg Fracture / Cast]`, `[🩼 Crutches / Sprain]`, `[🩸 Open Wound / Dressing]`, `[🦶 Ankle Bruise]`.
-   * Tapping any chip immediately sets the reason text and commits the selection without scrolling.
-3. **Section 3: Validity End Date (`validUntil`)**:
-   * Quick duration buttons:
-     - `[Today Only]` (Sets `validUntil = todayStr`) — selected by default.
-     - `[+1 Day (Tomorrow)]` (Sets `validUntil = todayStr + 1 day`).
-     - `[+2 Days (Day After)]` (Sets `validUntil = todayStr + 2 days`).
-     - `[Custom Date]` (Reveals native `<input type="date">` for longer recoveries).
-   * Live visual status echo:
-     `<div style="color: #047857; background: #ecfdf5; padding: 6px 10px; borderRadius: 6px;">`
-     `⏳ Excuses student through {formattedDate} (Auto-expires at Midnight)`
-     `</div>`
-4. **Eliminated Fields**:
-   * `roomNumber` and `notes` are completely purged from both JSX and Firestore document payload.
-
-### 3. Expiration Engine & Attendance Engine Sync
-
-All attendance consumers synchronize against an authoritative helper function:
-
-```javascript
-/**
- * Evaluates whether a campus medical waiver is active on a specific operational date.
- * 
- * @param {Object} waiver - The document from campus_medical_waivers
- * @param {string} targetDate - The attendance session date (YYYY-MM-DD)
- * @returns {boolean} True if the waiver excuses the student on targetDate
- */
-export const isWaiverActiveOnDate = (waiver, targetDate) => {
-  if (!waiver || waiver.status !== 'ACTIVE') return false;
-  
-  // Backward compatibility: legacy waivers without validUntil remain open-ended
-  // until explicitly marked recovered:
-  if (!waiver.validUntil) return true;
-  
-  return targetDate <= waiver.validUntil;
-};
-```
-
-#### Consumer Implementations:
-* **Period Attendance (`PeriodAttendanceManager.jsx`)**:
-  Maps active waivers where `isWaiverActiveOnDate(w, selectedDate)` into `allRecs` with:
-  ```javascript
-  {
-    startDate: w.issuedAt ? w.issuedAt.split('T')[0] : selectedDate,
-    endDate: w.validUntil || selectedDate,
-    hasDuration: Boolean(w.validUntil && w.validUntil !== selectedDate),
-    reason: w.injuryReason,
-    isMedical: true,
-    isSickRoom: true,
-    permittedBy: w.issuedByName || 'Class Teacher'
-  }
-  ```
-* **Night Attendance (`NightAttendanceManager.jsx`)**:
-  When evaluating pre-saved status or calculating the nightly absentee roster:
-  Filters `activeCampusWaiversMap` against `isWaiverActiveOnDate(w, selectedDate)`. Lapsed waivers do not mark students `SICK_ROOM`.
-* **Minus Attendance (`MinusAttendanceManager.jsx`)**:
-  Cross-checks `activeJamathExemptions` against `isWaiverActiveOnDate(w, selectedDate)` before evaluating missing Jamath deductions.
-
-### 4. Admin Portal 4-Tab Desk Architecture
-
-In `app/page.jsx`, the navigation drawer entry is updated:
-```javascript
-{ id: 'outpass', label: 'Leaves & Outpass', icon: '🪪', desc: 'Live campus movement & medical waivers' }
-```
-
-In `app/outpass/page.jsx`, when `isAdminProp === true` or user has Admin privileges:
-* The previous role selector tab (`activeTab === "admin"`) is elevated into a persistent horizontal segmented bar:
-  1. `[🪪 Gate Outpass]` (`activeTab = "outpass"`) — Includes real-time off-campus counters, gate pass issuance, and security barcode logs.
-  2. `[🤒 Sick in Room]` (`activeTab = "sick_room"`) — Direct embedding of `SickInRoomSubTab` with `isAdmin={true}` (unrestricted all-campus student search).
-  3. `[🩹 Masjid Jamath Exemption]` (`activeTab = "masjid_exempt"`) — Direct embedding of `MasjidExemptionSubTab` with `isAdmin={true}` (unrestricted all-campus search).
-  4. `[📊 Movement Reports]` (`activeTab = "admin_reports"`) — Direct access to the 14 institutional movement and compliance analytics reports.
-* Top toolbar actions preserve access to `⚙️ Settings` (student ID photo uploads & schedule locks) and `🛡️ Security Kiosk`.
-
-
---------------------------------------------------------------------------------
-
-## Alternatives Considered
-
-### Alternative 1: Retaining Hostel Room Tracking & Silent Data Enrichment
-*   **Description**: Keeping a hostel room input or silently injecting the student's registered hostel room from their profile into the waiver document behind the scenes.
-*   **Pros**: Preserves hostel wing location in case outside emergency personnel require room location.
-*   **Cons**: Introduces unnecessary database fields and code complexity for a feature that is unused operationally.
-*   **Reason for Rejection**: *Rejected by author*: Campus wardens do not conduct in-room bed inspections or dispensary visits in this institution. Room tracking has zero operational utility and creates needless cognitive and data overhead.
-
-### Alternative 2: Scheduled Midnight Cron/Batch Job to Mutate Document Status to 'EXPIRED'
-*   **Description**: Running a nightly Firebase Cloud Function or automated client batch at midnight to query active waivers and write `status = 'EXPIRED'` to Firestore.
-*   **Pros**: Allows simple query filtering with `where("status", "==", "ACTIVE")` without evaluating date math in client components.
-*   **Cons**: Adds cloud infrastructure dependencies, potential billing/quota overhead, and introduces race conditions if the cron fails or delays.
-*   **Reason for Rejection**: *Rejected by author*: Evaluating expiration dynamically in client memory (`targetDate <= validUntil`) is instantaneous, offline-compatible, requires zero background workers, and eliminates database write costs.
-
-### Alternative 3: Sub-Modal Dialog for Custom Diagnoses
-*   **Description**: Keeping preset ailment buttons and opening a secondary popup modal when the user taps "Custom Reason".
-*   **Pros**: Keeps the primary modal small until custom input is needed.
-*   **Cons**: Stacking nested modals on mobile viewports causes iOS/Android keyboard dismissal bugs, scroll locks, and visual disorientation.
-*   **Reason for Rejection**: *Rejected by author*: Placing `✍️ Custom Reason...` directly at index 0 of the dropdown and revealing an inline text box provides immediate access without modal-in-modal nesting.
-
-### Alternative 4: Hiding Sick in Room & Masjid Exemption Inside Admin Reports
-*   **Description**: Leaving the Admin navigation as `Out-Pass Portal` and adding tabs for bed rest inside the existing 14-report audit table.
-*   **Pros**: Avoids altering the top-level navigation layout.
-*   **Cons**: Degrades internal waivers into read-only audit logs. Administrators would be unable to quickly grant, extend, or revoke leaves across campus classes.
-*   **Reason for Rejection**: *Rejected by author*: The Admin Portal must provide full operational parity with the Teacher Portal, allowing administrators to search and grant waivers across all classes from a unified 4-tab desk.
-
---------------------------------------------------------------------------------
-
-## Non-Functional Requirements
-
-### 1. Performance & Latency
-*   **Instant Client-Side Filtering**: Expiration checks run synchronously in local state without issuing additional network roundtrips to Firestore.
-*   **Mobile Touch Ergonomics**: All quick-duration chips and template buttons maintain a minimum 44×44px tap area to support rapid single-handed operation on mobile devices.
-
-### 2. Backward Compatibility & Zero-Downtime Rollout
-*   **Legacy Record Preservation**: Existing documents in `campus_medical_waivers` lacking a `validUntil` attribute are treated as open-ended active waivers, ensuring no active student excusal is prematurely stripped during deployment.
-*   **Schema Safety**: The addition of `validUntil` is strictly additive and fully conforms to existing `firestore.rules` validators.
-
-
---------------------------------------------------------------------------------
-
-## Detailed Implementation Plan
-
-### Target Files to Create/Modify
-
-#### 1. [`app/outpass/components/SickInRoomSubTab.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/SickInRoomSubTab.jsx) (Modify)
-*   **Type / Scope**: React Component (Bed Rest Sub-Tab)
-*   **Proposed Changes**:
-    *   **Purge Clutter Fields**: Remove `roomNumber` and `notes` state hooks, labels, inputs, and payload bindings.
-    *   **Custom-First Reason Combobox**:
-        *   Restructure `ILLNESS_PRESETS` to place `'CUSTOM'` (`"✍️ Custom Diagnosis / Reason..."`) at index 0.
-        *   When `'CUSTOM'` is active, render an autofocus single-line input field.
-        *   Render a horizontal flex-wrap palette of 1-tap template chips (`[🤒 Fever / Flu]`, `[🤢 Stomach Ache]`, `[🤕 Headache / Migraine]`, `[🤮 Vomiting / Nausea]`, `[🤧 Cold / Cough]`). Tapping any chip immediately sets the custom input text and syncs the selection.
-    *   **Validity Duration Selector**:
-        *   Add `durationPreset` state (`'TODAY'` | `'1_DAY'` | `'2_DAYS'` | `'CUSTOM'`) defaulting to `'TODAY'`.
-        *   Add `validUntil` date state defaulting to `new Date().toISOString().split('T')[0]`.
-        *   Provide 1-tap duration buttons: `[Today Only]`, `[+1 Day (Tomorrow)]`, `[+2 Days (Day After)]`, `[Custom Date]`.
-        *   Render a live visual confirmation pill: `⏳ Excuses student through {validUntil} (Auto-expires at Midnight)`.
-    *   **Payload & Filtering**:
-        *   Save `validUntil` into Firestore document payload (`status: 'ACTIVE'`).
-        *   Update active list filter to use `isWaiverActiveOnDate(w, todayStr)`. Lapsed waivers display in the Historical / Revoked section as `Expired`.
-
-#### 2. [`app/outpass/components/MasjidExemptionSubTab.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/MasjidExemptionSubTab.jsx) (Modify)
-*   **Type / Scope**: React Component (Masjid Jamath Exemption Sub-Tab)
-*   **Proposed Changes**:
-    *   **Purge Clutter Fields**: Remove `notes` textarea and payload binding.
-    *   **Custom-First Reason Combobox**:
-        *   Place `'CUSTOM'` (`"✍️ Custom Condition / Description..."`) at index 0 of `INJURY_PRESETS`.
-        *   Render 1-tap template chips (`[🩹 Leg Fracture / Cast]`, `[🩼 Crutches / Sprain]`, `[🩸 Open Wound / Dressing]`, `[🦶 Ankle Bruise]`) below the input.
-    *   **Validity Duration Selector**:
-        *   Implement identical `validUntil` date selector and 1-tap duration chips defaulting to `'TODAY'`.
-    *   **Payload & Filtering**:
-        *   Save `validUntil` into Firestore document payload.
-        *   Update active list filter to use `isWaiverActiveOnDate(w, todayStr)`.
-
-#### 3. [`app/page.jsx`](file:///D:/Codes/mark-entry-app/app/page.jsx) (Modify)
-*   **Type / Scope**: Main Navigation & Layout Container
-*   **Proposed Changes**:
-    *   Update navigation drawer items and desktop tab descriptors:
-        *   Change `label: 'Out-Pass Portal'` to `label: 'Leaves & Outpass'`.
-        *   Update description to `'Live campus movement & medical waivers'`.
-
-#### 4. [`app/outpass/page.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/page.jsx) (Modify)
-*   **Type / Scope**: Unified Leaves & Outpass Routing Desk
-*   **Proposed Changes**:
-    *   Elevate Admin navigation hierarchy:
-        *   When `isAdminProp === true` or user is Admin, render the persistent 4-tab segmented navigation bar:
-            1. `[🪪 Gate Outpass]`
-            2. `[🤒 Sick in Room]`
-            3. `[🩹 Masjid Jamath Exemption]`
-            4. `[📊 Movement Reports]`
-        *   Embed `SickInRoomSubTab` and `MasjidExemptionSubTab` directly with `isAdmin={true}` to enable unrestricted campus-wide student search and granting.
-        *   Keep secondary Admin utilities (`⚙️ Settings` for student photo uploads/schedule locks and `🛡️ Security Kiosk`) accessible in the top-right toolbar.
-
-#### 5. [`app/components/PeriodAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/PeriodAttendanceManager.jsx) (Modify)
-*   **Type / Scope**: Period Attendance Engine
-*   **Proposed Changes**:
-    *   Filter active `campus_medical_waivers` using `isWaiverActiveOnDate(w, selectedDate)`.
-    *   Explicitly map `startDate: w.issuedAt ? w.issuedAt.split('T')[0] : selectedDate` and `endDate: w.validUntil || selectedDate`.
-    *   Pass `hasDuration: Boolean(w.validUntil && w.validUntil !== selectedDate)` so period attendance multi-day date range comparisons function accurately.
-
-#### 6. [`app/components/NightAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/NightAttendanceManager.jsx) (Modify)
-*   **Type / Scope**: Night Roll-Call Manager
-*   **Proposed Changes**:
-    *   In the real-time listener and nightly absentee calculation, evaluate `isWaiverActiveOnDate(w, selectedDate)` for every document in `activeCampusWaiversMap`.
-    *   Ensure waivers that have passed their `validUntil` date do not trigger `SICK_ROOM` status in night attendance.
-
-#### 7. [`firestore.rules`](file:///D:/Codes/mark-entry-app/firestore.rules) (Modify)
-*   **Type / Scope**: Security Rules & Schema Validator
-*   **Proposed Changes**:
-    *   Update `isValidMedicalWaiver(data)` domain validator to permit the optional `validUntil` field:
-        `(!('validUntil' in data) || data.validUntil == null || (data.validUntil is string && data.validUntil.size() <= 20))`
+* **Author:** safmuzammil
+* **Date:** 2026-11-11
+* **Status:** In Review (Drafting)
 
 ---
 
-### Verification Plan
+## 1. Problem Statement
 
-*   **Compilation & Build**:
-    *   Run `npm run build` with Turbopack outside sandbox to ensure zero JSX syntax, import, or prop type errors.
-*   **Modal Form Verification**:
-    *   Verify modal renders on mobile viewports (<640px) without scrolling or hidden submit buttons.
-    *   Test tapping template chips (`[🤒 Fever / Flu]`) immediately sets the custom input.
-    *   Test duration chips (`[Today Only]`, `[+1 Day]`, `[+2 Days]`, `[Custom Date]`) accurately calculate and display the live preview pill.
-*   **Expiration Verification**:
-    *   Grant a test waiver with `validUntil = today`. Confirm it appears active on today's date.
-    *   Verify that navigating to tomorrow's date treats the waiver as expired in Period, Night, and Minus Attendance.
-    *   Verify that legacy waivers without `validUntil` remain active.
-*   **Admin Portal 4-Tab Verification**:
-    *   Log in as Admin and open `Leaves & Outpass`.
-    *   Confirm all 4 tabs (`Gate Outpass`, `Sick in Room`, `Masjid Exemption`, `Movement Reports`) are accessible.
-    *   Confirm Admin can search any campus student in both medical sub-tabs.
+In the Gate Outpass creation portal ([`app/outpass/components/OutpassTeacherDesk.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/OutpassTeacherDesk.jsx)), leave categories (11 buttons), destinations (11 buttons), leave purposes (10 buttons), and duration shortcuts (6 buttons) are rendered as fully expanded, multi-row button grids. 
 
---------------------------------------------------------------------------------
+On mobile viewports (widths 360px–412px), these 38 buttons consume more than 1,400px of vertical height. As a result, critical interaction controls—including the date/time schedule pickers, student summary cards, and the approval submit button—are pushed 3 to 4 screen heights below the fold. Faculty members and administrators must perform repetitive vertical scrolling and navigate visual clutter to issue routine passes, increasing tap friction and causing accidental mis-taps.
 
-*Drafted with EGM*
+---
+
+## 2. Overview
+
+This design restructures the Gate Outpass creation desk into a compact, mobile-first interface applied universally across mobile and desktop displays:
+
+1. **Standard Native Dropdown Pickers (`<select>`)**: Converts Leave Category, Destination, and Purpose into compact HTML `<select>` elements that invoke the mobile OS bottom selection sheet (iOS wheel picker / Android bottom dialog).
+2. **Index-0 Custom Input Trigger**: Places `✍️ Custom ...` at option 0 of each dropdown. Selecting it displays an inline autofocus text input directly below the dropdown.
+3. **High-Frequency Shortcut Chips**: Displays 2–3 1-tap shortcut pills alongside each dropdown for the most common institutional destinations and leave reasons (e.g., `Home`, `Chemmad`, `Bookplus`), bidirectionally mirrored with the dropdown state.
+4. **Purged Duration Clutter in Section 5**: Removes the 5 fixed duration preset chips (`+1 Hr`, `+2 Hrs`, `Today 6:00 PM`, `+1 Day`, `+3 Days`) above the date picker.
+5. **Flexible Teacher-Controlled Open Return**: Replaces the duration cluster with a dedicated, teacher-controlled toggle for **`🏥 Open-Ended Return (No fixed deadline)`**. For medical visits, teachers can either activate open-ended return or specify an exact expected return time.
+
+---
+
+## 3. Goals & Non-Goals
+
+### In-Scope Goals
+* **Mobile Height Optimization**: Reduce cumulative vertical form space consumed by categories, destinations, purposes, and duration shortcuts by >60%.
+* **Universal Layout**: Apply the compact dropdown + shortcut chip architecture consistently across all device viewports.
+* **1-Tap Workflow Preservation**: Retain rapid 1-tap selection for high-frequency movements via 2–3 shortcut chips per field.
+* **Flexible Custom Entries**: Support free-form custom input across Category, Destination, and Purpose via option 0 triggers.
+* **Automated Schedule Cascades**: Maintain automatic population logic (e.g., `Monthly_Home` auto-selecting Home and 3 days, `Evening` applying 21:30 curfew).
+* **Flexible Medical Return**: Provide a clean toggle for open-ended return while allowing fixed-time medical leaves when appropriate.
+
+### Out-of-Scope Non-Goals
+* Modifying the Firestore schema or database security rules for `out_passes`.
+* Changing barcode scanner or gate security kiosk verification operations.
+* Modifying student group selection or bulk-action mechanics.
+
+---
+
+## 4. Technical Plan
+
+### 4.1 Component Architecture & Form Tiering
+
+Each selection domain follows a standardized, responsive 3-tier component pattern:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ Header: "2. Leave Category"                [✓ Selected: Monthly Home] │
+├────────────────────────────────────────────────────────────────────────┤
+│ <select> [ ✍️ Custom Category... / Monthly Home / 1_Day / Evening ... ]  │
+├────────────────────────────────────────────────────────────────────────┤
+│ [If Custom]: [ <input type="text" placeholder="Type custom..." /> ]    │
+├────────────────────────────────────────────────────────────────────────┤
+│ Shortcut Chips: [ 🏠 Monthly Home ]  [ ☀️ Evening ]  [ 🕌 Friday ]      │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 1. Section 2: Leave Category
+* **Native Dropdown**:
+  * Option 0: `Custom` (`✍️ Custom Leave Category...`)
+  * Options 1..N: Standard predefined categories (`Monthly_Home`, `1_Day`, `2_Day`, `Weekend_Thu_Sat`, `Friday`, `Evening`, `General`, `Medical`, `Outreach`, `Official`).
+* **Shortcut Chips**: `🏠 Monthly Home`, `☀️ Evening`, `🕌 Friday`.
+* **Automations**:
+  * Selecting `Monthly_Home` displays the compact 1–7 day selector bar (`[1 Day]`, `[2 Days]`, `[3 Days]` ... `[7 Days]`), automatically sets destination to `"Home"`, purpose to `"Monthly 3-Day Home Leave"`, and applies 3-day duration.
+  * Selecting `Evening` applies standard evening curfew (21:30).
+  * Selecting `Weekend_Thu_Sat` applies 2-day duration.
+  * Selecting `Custom` displays the custom category text input.
+
+#### 2. Section 3: Destination
+* **Native Dropdown**:
+  * Option 0: `CUSTOM` (`✍️ Custom Destination / Place...`)
+  * Options 1..N: Standard predefined places (`Home`, `Chemmad`, `Bookplus`, `Mampuram`, `Tirurangadi Hospital`, `Bank / ATM`, `Barber Shop`, `Medical Store`, `Kozhikode`, `Malappuram`).
+* **Shortcut Chips**: `📍 Home`, `📍 Chemmad`, `📍 Bookplus`.
+* **Custom Input**: Displayed when `isCustomDestActive` or value is not in presets.
+
+#### 3. Section 4: Purpose / Reason for Leave
+* **Native Dropdown**:
+  * Option 0: `CUSTOM` (`✍️ Custom Purpose / Reason...`)
+  * Options 1..N: Standard reasons (`Monthly 3-Day Home Leave`, `Bookplus / Stationery`, `Medical / Hospital Case`, `Friday Jumu'ah / Outing`, `Personal Purchase`, `Department / Official Work`, `Family Function / Visit`, `Dental / Eye Checkup`, `Home Leave`).
+* **Shortcut Chips**: `📝 Monthly 3-Day Leave`, `📝 Medical / Hospital Case`, `📝 Personal Purchase`.
+* **Custom Input**: Displayed when `isCustomPurposeActive` or value is not in presets.
+
+#### 4. Section 5: Permitted Date & Time Schedule
+* **Purged Elements**: Permanently removes `+1 Hr`, `+2 Hrs`, `Today 6:00 PM`, `+1 Day`, and `+3 Days` buttons.
+* **Flexible Open Return Toggle**:
+  * Renders a dedicated button/toggle: `🏥 Open-Ended Return (No fixed return deadline)`.
+  * Toggling active sets `isOpenReturn = true`.
+  * When `isOpenReturn === true`:
+    - Hides the `To Date & Time` return deadline picker.
+    - Shows an active confirmation badge: `✓ 🏥 Open-Ended Return: Return time is open-ended until student checks in at gate`.
+  * When `isOpenReturn === false`:
+    - Displays the standard `To Date & Time` return deadline picker.
+  * If the teacher chooses `Medical` as category or purpose, `isOpenReturn` can optionally be toggled on with 1 tap, but teachers retain full freedom to set an exact return deadline for short hospital appointments.
+
+---
+
+### 4.2 State Machine & Bidirectional Synchronization
+
+```mermaid
+flowchart TD
+    UserAction{"User Action"} -->|Taps Shortcut Chip| SetChipState["Update State + Dropdown Value = Chip.value"]
+    UserAction -->|Selects Option from Dropdown| SetSelectState["Update State + Active Chip Highlight"]
+    UserAction -->|Selects Custom Option| OpenCustomInput["Set State = CUSTOM + Reveal Autofocus Text Input"]
+    UserAction -->|Toggles Open Return| ToggleOpenReturn["Toggle isOpenReturn (Show/Hide Return Deadline Picker)"]
+
+    SetChipState --> CheckAutomations{"Check Preset Automations"}
+    SetSelectState --> CheckAutomations
+    
+    CheckAutomations -->|Monthly Home| ApplyMonthly["Dest=Home, Purpose=Monthly 3-Day, Duration=3d, Show 1-7d bar"]
+    CheckAutomations -->|Evening| ApplyEvening["Set Return Time to 21:30"]
+    CheckAutomations -->|Weekend| ApplyWeekend["Set Duration to 2d"]
+```
+
+---
+
+### 4.3 Modified Files
+
+1. [`app/outpass/components/OutpassTeacherDesk.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/OutpassTeacherDesk.jsx):
+   * Replaces Category button grid with native `<select>` + 3 shortcut chips + custom input.
+   * Replaces Destination button grid with native `<select>` + 3 shortcut chips + custom input.
+   * Replaces Purpose button grid with native `<select>` + 3 shortcut chips + custom input.
+   * Purges duration preset buttons from Section 5.
+   * Restyles `Open Return` into a clean, dedicated toggle switch with descriptive status pill.
+
+---
+
+## 5. Alternatives Considered
+
+1. **Custom Popover / Action Sheet Dialogs**:
+   * *Rejected by author*: Increases bundle size, introduces z-index and modal layering issues in scrollable containers, and introduces touch latency compared to native OS bottom sheets on iOS and Android.
+
+2. **Horizontal Scrolling Chip Rows (`overflow-x: auto`)**:
+   * *Rejected by author*: Horizontally scrollable chips hide off-screen choices from immediate view, diminish discoverability, and frequently collide with mobile browser navigation swipe gestures.
+
+3. **Pure Dropdowns without Any Shortcut Chips**:
+   * *Rejected by author*: Forcing faculty to open the OS picker sheet for every routine pass (e.g. going to Home or Bookplus) increases tap fatigue. The 2–3 shortcut chips preserve instant 1-tap approvals for >80% of volume.
+
+4. **Mandatory Automatic Open Return for All Medical Leaves**:
+   * *Rejected by author*: Teachers frequently grant short medical passes (e.g., 2 hours for a local clinic checkup or pharmacy visit) where an expected return time is essential. Making open return an accessible toggle preserves faculty discretion.
+
+5. **Retaining Section 5 Duration Shortcut Chips**:
+   * *Rejected by author*: The 5 duration chips (`+1 Hr`, `+2 Hrs`, `6:00 PM`, etc.) occupied substantial vertical room while offering redundant functionality already supported by the date/time picker and category automations.
+
+---
+
+## 6. Detailed Implementation Plan
+
+The implementation proceeds in a single unified execution plan touching the outpass presentation components and system documentation:
+
+### Step 1: Refactor Category Section in `OutpassTeacherDesk.jsx`
+* **File**: [`app/outpass/components/OutpassTeacherDesk.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/OutpassTeacherDesk.jsx)
+* **Changes**:
+  * Replace the `LEAVE_CATEGORIES.map` button grid (lines 823–847) with a native `<select>` dropdown.
+  * Define Option 0 as `value="Custom"` (`✍️ Custom Leave Category...`), followed by mapped options from `LEAVE_CATEGORIES.filter(c => c !== 'Custom')`.
+  * Render 3 shortcut chips (`🏠 Monthly Home`, `☀️ Evening`, `🕌 Friday`) directly below the dropdown.
+  * Bind `onChange` to invoke `handleSelectCategoryOption(e.target.value)`.
+  * Retain conditional rendering of the 1–7 day duration selector when `leaveCategory === 'Monthly_Home'`.
+  * Retain conditional rendering of `customCategoryText` input when `leaveCategory === 'Custom'`.
+
+### Step 2: Refactor Destination Section in `OutpassTeacherDesk.jsx`
+* **File**: [`app/outpass/components/OutpassTeacherDesk.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/OutpassTeacherDesk.jsx)
+* **Changes**:
+  * Replace the `QUICK_DESTINATIONS.map` button grid (lines 903–945) with a native `<select>` dropdown.
+  * Define Option 0 as `value="CUSTOM"` (`✍️ Custom Destination / Place...`), followed by mapped destinations from `QUICK_DESTINATIONS`.
+  * Render 3 shortcut chips (`📍 Home`, `📍 Chemmad`, `📍 Bookplus`) directly below the dropdown.
+  * Bind dropdown selection: if a standard place is chosen, update `destination` and set `isCustomDestActive = false`; if `CUSTOM` is selected, set `isCustomDestActive = true` and focus custom text input.
+  * Render the custom destination `<input>` when `isCustomDestActive || (destination && !QUICK_DESTINATIONS.includes(destination))`.
+
+### Step 3: Refactor Purpose Section in `OutpassTeacherDesk.jsx`
+* **File**: [`app/outpass/components/OutpassTeacherDesk.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/OutpassTeacherDesk.jsx)
+* **Changes**:
+  * Replace the `QUICK_PURPOSES.map` button grid (lines 973–1015) with a native `<select>` dropdown.
+  * Define Option 0 as `value="CUSTOM"` (`✍️ Custom Purpose / Reason...`), followed by mapped reasons from `QUICK_PURPOSES`.
+  * Render 3 shortcut chips (`📝 Monthly 3-Day Leave`, `📝 Medical / Hospital Case`, `📝 Personal Purchase`) directly below the dropdown.
+  * Bind dropdown selection: if standard reason is chosen, update `purpose` and set `isCustomPurposeActive = false`; if `CUSTOM` is selected, set `isCustomPurposeActive = true` and focus custom text input.
+  * Render the custom purpose `<input>` when `isCustomPurposeActive || (purpose && !QUICK_PURPOSES.includes(purpose))`.
+
+### Step 4: Streamline Section 5 (Date & Time Schedule) in `OutpassTeacherDesk.jsx`
+* **File**: [`app/outpass/components/OutpassTeacherDesk.jsx`](file:///D:/Codes/mark-entry-app/app/outpass/components/OutpassTeacherDesk.jsx)
+* **Changes**:
+  * Delete the duration shortcut buttons container (lines 1049–1076): remove `+1 Hr`, `+2 Hrs`, `Today 6:00 PM`, `+1 Day`, and `+3 Days`.
+  * Replace the existing open-return button (lines 1077–1093) with a dedicated, styled toggle card:
+    - Button text: `🏥 Open-Ended Return (No fixed return deadline)`.
+    - Active state: Emerald green background, checkmark badge, and active status text.
+  * Retain conditional rendering of `To Date & Time` deadline picker: hidden when `isOpenReturn === true`, displayed when `false`.
+  * Add visual confirmation pill when open return is active: `✓ 🏥 Open-Ended Return Active: Student can return at any time without a fixed deadline`.
+
+### Step 5: Verification & Quality Assurance
+* Verify responsive layout on mobile viewport emulation (iPhone SE, iPhone 14, Pixel 7 at 375px–412px width).
+* Verify bidirectional synchronization between chips and dropdowns.
+* Test that `Monthly_Home` continues setting destination to Home and applying 3-day duration.
+* Execute `npm run build` with `BypassSandbox: true` to confirm zero compilation or TypeScript errors.
+* Register finalized design in [`docs/designs/SITEMAP.md`](file:///D:/Codes/mark-entry-app/docs/designs/SITEMAP.md).
