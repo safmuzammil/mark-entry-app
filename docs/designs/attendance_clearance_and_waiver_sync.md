@@ -2,7 +2,7 @@
 
 * **Author:** safmuzammil
 * **Date:** 2026-11-11
-* **Status:** APPROVED
+* **Status:** IN REVIEW
 
 ---
 
@@ -40,12 +40,12 @@ This design introduces a high-performance, fault-tolerant attendance clearance a
    - Keeps initial roll-call state non-destructive (`Present`), with a 1-tap `Sick` button for immediate excusal.
 
 2. **Declarative Security Rules for `clearance_history`**:
-   - Implements a dedicated schema validator `isValidClearanceHist` in [`firestore.rules`](file:///D:/Codes/mark-entry-app/firestore.rules) checking required string attributes, bounded array sizes (`dates <= 60`, `clearedSessions <= 100`), and role authorization (`isStaffOrAdmin()`).
+   - Implements a dedicated schema validator `isValidClearanceHist` in [`firestore.rules`](file:///D:/Codes/mark-entry-app/firestore.rules) checking required string/numeric attributes, bounded array sizes (`dates <= 60`), and role authorization (`isStaffOrAdmin()`). Accommodates numeric and string admission numbers (`data.studentAdNo is number || (data.studentAdNo is string ...)`).
 
 3. **High-Velocity Multi-Student Batch Clearance Workspace**:
-   - Implements a chunked parallel query engine utilizing client-side cached daily session indexes (`daySessionsIndex_{date}`) in batches of 10 dates, short-circuiting dates with zero sessions.
+   - Implements a two-tiered search engine: (1) preliminary conditioning using in-memory set intersection of target student `absentDates`, and (2) chunked parallel retrieval of `daySessionsIndex_{date}` in batches of 10 dates, short-circuiting dates with zero sessions.
    - Groups candidate absences by student in a responsive batch table displaying each individual absent period (Date, Period Number, Subject, Original Teacher).
-   - Provides a master **"Clear All Found Absences"** action, per-student batch clearance, and granular per-period checkboxes.
+   - Provides a master **"Clear All Found Absences"** action, per-student batch clearance, and granular per-period checkboxes, committed in safe chunks of $\le 250$ write operations.
 
 4. **Normalized Visual & Data Status Palette**:
    - **Medical Leave**: Light red/rose badge (`#fff1f2` / `#fef2f2`, border `#fecdd3`, text `#b91c1c`), preserved as excused medical absence.
@@ -59,9 +59,9 @@ This design introduces a high-performance, fault-tolerant attendance clearance a
 
 ### In-Scope Goals
 * **Real-time Waiver Visibility**: Automatically surface active Masjid Jamath Exemptions in Extra Attendance roll-call cards with a 1-tap excusal action.
-* **Permission Crash Elimination**: Author and deploy strict declarative security rules for `clearance_history` in `firestore.rules`.
-* **Zero UI Lag on Multi-Student Queries**: Accelerate absence searching across multiple admission numbers to sub-second responses via cached daily indexes and parallel chunking.
-* **Granular Batch Workspace**: Support clearing all candidate absences at once, per student, or per period.
+* **Permission Crash Elimination**: Author and deploy strict declarative security rules for `clearance_history` in `firestore.rules` supporting both numeric and string admission numbers.
+* **Zero UI Lag on Multi-Student Queries**: Accelerate absence searching across multiple admission numbers to sub-second responses (<300ms) via in-memory `absentDates` filtering and cached daily indexes.
+* **Granular Batch Workspace with Safe Commit Chunking**: Support clearing all candidate absences at once, per student, or per period, bounded by $\le 250$ writes per commit.
 * **Semantic Status Preservation**: Maintain explicit separation between Medical Leave (rose/red) and Official Duty (blue).
 
 ### Out-of-Scope Non-Goals
@@ -86,9 +86,12 @@ flowchart TD
     end
 
     subgraph Security ["Firestore Security Rules"]
-        VAL["isValidClearanceHist(data)"]
-        RULE["match /clearance_history/{id}"]
-        RULE --> VAL
+        VAL_H["isValidClearanceHist(data)"]
+        VAL_C["isValidClearanceCert(data)"]
+        RULE_H["match /clearance_history/{id}"]
+        RULE_C["match /clearance_certificates/{id}"]
+        RULE_H --> VAL_H
+        RULE_C --> VAL_C
     end
 
     subgraph ExtraAttendancePortal ["NightAttendanceManager.jsx"]
@@ -97,15 +100,18 @@ flowchart TD
     end
 
     subgraph ClearancePortal ["AbsenceClearanceManager.jsx"]
-        CACHE_ENGINE["Fast Chunked Index Engine<br/>(daySessionsIndex_{date})"]
+        PRE_FILTER["In-Memory absentDates Filter<br/>(localStudents pre-conditioning)"]
+        CACHE_ENGINE["Fast Chunked Index Engine<br/>(daySessionsIndex_{date} in 10-date batches)"]
         BATCH_UI["Multi-Student Batch Clearance Workspace<br/>(Grouped by Student + Per-Period Checkboxes)"]
         
-        SC --> CACHE_ENGINE
+        PRE_FILTER --> CACHE_ENGINE
+        SC <-->|Read Indexes & Update attendanceMap| CACHE_ENGINE
         CACHE_ENGINE --> BATCH_UI
-        BATCH_UI -->|Atomic Batch Commit| CH & CC & ST
+        BATCH_UI -->|Chunked Batch Commit <=250 writes| CH & CC & ST & SC
     end
 
-    RULE -.->|Enforces Authorization| CH
+    RULE_H -.->|Enforces Authorization| CH
+    RULE_C -.->|Enforces Authorization| CC
 ```
 
 ---
@@ -122,7 +128,7 @@ flowchart TD
   );
   ```
 * **Student Roll-Call Card Enhancement**:
-  When rendering students in Extra Attendance:
+  When rendering students in Extra Attendance, verify date validity (`isWaiverActiveOnDate(waiver, extraDate)`):
   - Check `activeCampusWaiversMap[st.adNo]`.
   - If `waiverType === 'JAMATH_EXEMPTION'`:
     - Display an amber badge:
@@ -135,7 +141,7 @@ flowchart TD
     - Defaults to `SICK_ROOM` or 1-tap selectable.
 
 #### 2. Declarative Security Rules for `clearance_history` (`firestore.rules`)
-* Author dedicated validation and match rules:
+* Author dedicated validation and match rules supporting both numeric and alphanumeric admission numbers:
   ```javascript
   function isValidClearanceHist(data) {
     return data.keys().hasAll([
@@ -143,15 +149,16 @@ flowchart TD
       'studentName', 'clearanceType', 'reason', 'dates',
       'totalPeriodsCleared', 'issuedByUsername', 'issuedAt'
     ]) &&
-    data.id is string &&
-    data.certNumber is string &&
-    data.studentRegNo is string &&
-    data.studentAdNo is string &&
-    data.studentName is string &&
+    data.id is string && data.id.size() >= 1 && data.id.size() <= 100 &&
+    data.certNumber is string && data.certNumber.size() >= 1 && data.certNumber.size() <= 100 &&
+    data.studentRegNo is string && data.studentRegNo.size() >= 1 && data.studentRegNo.size() <= 50 &&
+    (data.studentAdNo is number || (data.studentAdNo is string && data.studentAdNo.size() >= 1 && data.studentAdNo.size() <= 50)) &&
+    data.studentName is string && data.studentName.size() <= 100 &&
     data.clearanceType in ['MEDICAL_LEAVE', 'OFFICIAL_PRESENT'] &&
     data.dates is list && data.dates.size() <= 60 &&
     data.totalPeriodsCleared is number &&
-    data.issuedByUsername is string;
+    data.issuedByUsername is string && data.issuedByUsername.size() <= 100 &&
+    ((data.issuedAt is string && data.issuedAt.size() <= 50) || data.issuedAt is timestamp);
   }
 
   match /clearance_history/{histId} {
@@ -163,12 +170,13 @@ flowchart TD
   ```
 
 #### 3. High-Velocity Multi-Student Absence Querying Engine (`AbsenceClearanceManager.jsx`)
-* **Parallel Chunked Ingestion**:
+* **In-Memory Pre-Filtering & Chunked Parallel Ingestion**:
   - Accept multiple admission numbers separated by commas or spaces (e.g. `3551, 3392, U1107`).
-  - Calculate target date list.
-  - Ingest `daySessionsIndex_{date}` in throttled parallel batches of 10 dates via `Promise.all`.
-  - If `daySessionsIndex_{date}` reports 0 sessions, immediately skip without requesting individual session docs.
-  - For active sessions, retrieve candidate session docs in parallel and locate records where candidate student is marked `ABSENT` (`val === 'A'`).
+  - Resolve each admission number against `localStudents` in memory to retrieve the student's `regNo`, `name`, `classes`, and `department`.
+  - Extract the union of all `absentDates` across all subjects for target students from `student.periodAttendance.subjectWise.*.absentDates`.
+  - Filter this union against the requested clearance date range (`clearStartDate` to `clearEndDate`).
+  - Ingest `daySessionsIndex_{date}` for the candidate absent dates in throttled parallel batches of 10 dates via `Promise.all`.
+  - Concurrently retrieve session docs using a bounded pool (max 10 concurrent requests) and locate records where candidate student is marked `ABSENT` (`val === 'A'`).
 * **Multi-Student Batch Workspace**:
   - Organize findings into a nested student hierarchy:
     ```
@@ -183,21 +191,13 @@ flowchart TD
     - **`✓ Select / Deselect All`**
     - Per-period individual toggle checkboxes.
 
-#### 4. Semantic Status Separation & Color Palette Normalization
-* **Status Badges & Tokens**:
-  - **Medical Leave**:
-    - Container: `background: #fff1f2; border: 1px solid #fecdd3; color: #b91c1c;`
-    - Action Label: `🏥 Record Medical Leave (Excused)`
-    - Applied Status in Session: `MEDICAL_LEAVE` (never generic `PRESENT`)
-    - Effect: Excused from academic absence penalties without modifying official presence ratios.
-  - **Official Duty**:
-    - Container: `background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8;`
-    - Action Label: `🏛️ Clear Official Duty (Official Present)`
-    - Applied Status in Session: `OFFICIAL_DUTY` or `PRESENT`
-    - Effect: Counted as verified institutional representation.
-  - **Unexcused Absence**:
-    - Container: `background: #fef2f2; border: 1px solid #fca5a5; color: #dc2626;`
-
+#### 4. Semantic Status Separation & Taxonomy Mapping
+* **Taxonomy Matrix**:
+  | UI Action Label | UI Styling / Palette | `clearance_history.clearanceType` | `systemCache.attendanceMap[regNo]` | Academic Effect |
+  | :--- | :--- | :--- | :---: | :--- |
+  | **Medical Leave (Excused)** | Light Rose (`#fff1f2`, border `#fecdd3`, text `#b91c1c`) | `'MEDICAL_LEAVE'` | `'M'` | Excused medical absence. Excluded from unexcused absence penalty without inflating normal presence. |
+  | **Official Duty (Present)** | Light Blue (`#eff6ff`, border `#bfdbfe`, text `#1d4ed8`) | `'OFFICIAL_PRESENT'` | `'P'` | Authorized institutional representation. Counted as verified duty presence. |
+  | **Unexcused Absence** | Red (`#fef2f2`, border `#fca5a5`, text `#dc2626`) | N/A (Uncleared) | `'A'` | Unexcused absence subject to shortage calculation. |
 
 ---
 
@@ -206,7 +206,7 @@ flowchart TD
 | Alternative Considered | Pros | Cons | Why Rejected |
 | :--- | :--- | :--- | :--- |
 | **Alternative A: Client-side sequential date scan** (Status quo) | Simple `for` loop; low concurrent connection count. | Hangs the browser UI for 1–2 minutes when querying wide date spans across multiple students; freezes rendering loop. | Unusable in production for multi-student or multi-week audits; users see "Searching..." indefinitely. |
-| **Alternative B: Cloud Function background aggregation** | Offloads query computation to Google Cloud infrastructure; client receives pre-computed results. | Adds cold-start latency (1–3s); increases infrastructure cost; requires server deployment and maintenance outside client app bundle. | Overkill. Chunked parallel client querying (`daySessionsIndex_{date}`) completes in <300ms using local client cache with zero backend cost. |
+| **Alternative B: Cloud Function background aggregation** | Offloads query computation to Google Cloud infrastructure; client receives pre-computed results. | Adds cold-start latency (1–3s); increases infrastructure cost; requires server deployment and maintenance outside client app bundle. | Overkill. Pre-filtering with in-memory `absentDates` + chunked parallel client querying (`daySessionsIndex_{date}`) completes in <300ms using local client cache with zero backend cost. |
 | **Alternative C: Unifying all clearance under generic `PRESENT`** | Simpler database schema; eliminates need for special `MEDICAL_LEAVE` status tracking. | Destroys medical leave audit trails; students with genuine illness cannot be distinguished from students on official college duties. | Explicitly rejected by institution and user requirement: Medical leaves must remain identifiable as excused medical records in light red. |
 | **Alternative D: Client-side unrestricted writes to `clearance_history`** | Quickest fix for permission error without drafting detailed security rules. | Leaves the audit collection vulnerable to unauthorized tampering, data corruption, or malicious deletion. | Violates zero-trust security and Firestore declarative guidelines; strict schema validation rules must be deployed. |
 
@@ -218,48 +218,117 @@ flowchart TD
 * **Target File**: [`firestore.rules`](file:///D:/Codes/mark-entry-app/firestore.rules)
 * **Execution**: Delegate authoring to the `firestore-rules-author` subagent in accordance with the mandatory security guidelines.
 * **Specification**:
-  - Add validator function `isValidClearanceHist(data)`.
-  - Add match block for `match /clearance_history/{histId}` with authenticated read, staff/admin create/update, and admin-only delete.
-  - Verify syntax and run `firebase deploy --only firestore:rules` or validate rules compilation.
+  1. **Add Validator Function `isValidClearanceHist(data)`**:
+     ```javascript
+     function isValidClearanceHist(data) {
+       return data.keys().hasAll([
+         'id', 'certNumber', 'studentRegNo', 'studentAdNo',
+         'studentName', 'clearanceType', 'reason', 'dates',
+         'totalPeriodsCleared', 'issuedByUsername', 'issuedAt'
+       ]) &&
+       data.id is string && data.id.size() >= 1 && data.id.size() <= 100 &&
+       data.certNumber is string && data.certNumber.size() >= 1 && data.certNumber.size() <= 100 &&
+       data.studentRegNo is string && data.studentRegNo.size() >= 1 && data.studentRegNo.size() <= 50 &&
+       (data.studentAdNo is number || (data.studentAdNo is string && data.studentAdNo.size() >= 1 && data.studentAdNo.size() <= 50)) &&
+       data.studentName is string && data.studentName.size() <= 100 &&
+       data.clearanceType in ['MEDICAL_LEAVE', 'OFFICIAL_PRESENT'] &&
+       data.dates is list && data.dates.size() <= 60 &&
+       data.totalPeriodsCleared is number &&
+       data.issuedByUsername is string && data.issuedByUsername.size() <= 100 &&
+       ((data.issuedAt is string && data.issuedAt.size() <= 50) || data.issuedAt is timestamp);
+     }
+     ```
+  2. **Add Match Block for `clearance_history`**:
+     ```javascript
+     match /clearance_history/{histId} {
+       allow read: if isAuthenticated();
+       allow create: if isStaffOrAdmin() && isValidClearanceHist(request.resource.data);
+       allow update: if isStaffOrAdmin() && isValidClearanceHist(request.resource.data);
+       allow delete: if isAdmin();
+     }
+     ```
+  3. **Verify and Deploy**: Verify syntax via `firebase deploy --only firestore:rules` or rules emulator test suite.
+
+---
 
 ### Phase 2: Extra Attendance Waiver Listener & Card UI
 * **Target File**: [`app/components/NightAttendanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/NightAttendanceManager.jsx)
 * **Actions**:
-  1. Broaden `campus_medical_waivers` query from `where('waiverType', '==', 'SICK_IN_ROOM')` to `where('status', '==', 'ACTIVE')`.
-  2. Map waivers by student admission number (`adNo`) into `activeCampusWaiversMap`.
-  3. In the student roll-call card, display the prominent badge:
-     - For `JAMATH_EXEMPTION`: Amber badge with icon 🩹, mobility diagnosis, and authorizing teacher name.
-     - For `SICK_IN_ROOM`: Rose badge with icon 🤒, bed-rest diagnosis, and authorizing teacher name.
-  4. Ensure initial attendance status defaults cleanly (e.g. `Present` for Jamath exemptions or non-destructive default) and provide a 1-tap `Sick` button so attendance takers can record excusal in one click.
+  1. **Broaden Real-Time Listener**:
+     In `useEffect` (lines 89–113), update the query from `where('waiverType', '==', 'SICK_IN_ROOM')` to:
+     ```javascript
+     const q = query(
+       collection(db, 'campus_medical_waivers'),
+       where('status', '==', 'ACTIVE')
+     );
+     ```
+  2. **Index Active Waivers**:
+     Populate `activeCampusWaiversMap` keyed by uppercase admission number:
+     ```javascript
+     const ad = String(data.adNo || data.studentAdNo || '').trim().toUpperCase();
+     if (ad) wMap[ad] = { id: docSnap.id, ...data };
+     ```
+  3. **Contextual Badge Display**:
+     In the student card rendering, verify date validity (`isWaiverActiveOnDate(waiver, extraDate)`). If active:
+     - For `JAMATH_EXEMPTION`: Amber badge with icon 🩹, `waiver.injuryReason`, and `waiver.issuedByName`.
+     - For `SICK_IN_ROOM`: Rose badge with icon 🤒, `waiver.injuryReason`, and `waiver.issuedByName`.
+  4. **Roll-Call Status Defaults & 1-Tap Excusal**:
+     - For students with `JAMATH_EXEMPTION`, default roll-call status cleanly to `PRESENT` (do not flag as absent).
+     - For students with `SICK_IN_ROOM`, provide a 1-tap `🤒 Sick in Room` button on the roll-call card that sets `extraStatusMap[ad] = 'SICK_ROOM'` and auto-populates `absentReasonsMap[ad] = waiver.injuryReason || 'Medical Bed Rest'`.
+
+---
 
 ### Phase 3: High-Velocity Clearance Engine & Multi-Student Batch Workspace
 * **Target File**: [`app/components/AbsenceClearanceManager.jsx`](file:///D:/Codes/mark-entry-app/app/components/AbsenceClearanceManager.jsx)
 * **Actions**:
-  1. **Multi-Input Parsing**: Parse comma/space-separated admission numbers from the input box.
-  2. **Chunked Parallel Search**:
-     - Partition date range into chunks of 10 dates.
-     - Fetch `daySessionsIndex_{date}` in parallel.
-     - Fast skip empty dates.
-     - Concurrently read session documents for active dates.
-     - Extract only sessions where target students are marked `ABSENT`.
-  3. **Hierarchical Batch Workspace**:
-     - Render candidate absences grouped by student card.
-     - List each absent period in a distinct row with Date, Period Number, Subject Name, Faculty Name, and current status.
-     - Implement Select All / Deselect All, Student-level toggle, and individual period checkboxes.
-     - Add master action: `⚡ Clear All Found Absences (N)` alongside individual student clearance buttons.
-  4. **Status Badging & Provenance Preservation**:
-     - Support separate clearance modes:
-       - **Medical Leave**: Excused medical status with light red badge (`#fff1f2`, border `#fecdd3`, text `#b91c1c`).
-       - **Official Duty**: Authorized duty with light blue badge (`#eff6ff`, border `#bfdbfe`, text `#1d4ed8`).
-     - Commit batch updates atomically to `clearance_history`, `clearance_certificates`, and individual session records in `systemCache`.
+  1. **Multi-Input Parsing & Identity Resolution**:
+     - Parse comma- or space-separated admission numbers from `clearAdNo`.
+     - Resolve each admission number against `localStudents` in memory to retrieve the full student record (`regNo`, `adNo`, `firstName`, `classes`, `department`).
+  2. **In-Memory Pre-Filtering & Chunked Parallel Search**:
+     - **Step A (In-Memory Pre-Filter)**: Extract the union of all `absentDates` across all subjects for target students from `student.periodAttendance.subjectWise.*.absentDates`.
+     - **Step B (Range Intersection)**: Filter this union to only include dates falling within the requested clearance date range (`clearStartDate` to `clearEndDate`).
+     - **Step C (Chunked Parallel Fetch)**: Partition only the candidate absent dates into parallel chunks of $\le 10$ dates. Query `doc(db, 'systemCache', 'daySessionsIndex_' + dStr)` for these dates concurrently.
+     - **Step D (Session Retrieval with Concurrency Guard)**: For active sessions containing target student absences, fetch session docs using a bounded concurrency pool (max 10 concurrent requests).
+  3. **Hierarchical Batch Workspace UI**:
+     - Render candidate absences grouped by student card with Select All / Deselect All, student-level toggles, and individual period checkboxes.
+     - Add master bulk action `⚡ Clear All Found Absences (N)` alongside individual student clearance buttons.
+  4. **Status Taxonomy & Multi-Target Batch Write Chunking**:
+     - Standardize data mapping:
+       * **Medical Leave**: UI = `🏥 Medical Leave (Excused)`, History `clearanceType = 'MEDICAL_LEAVE'`, Session Code = `'M'`.
+       * **Official Duty**: UI = `🏛️ Official Duty (Present)`, History `clearanceType = 'OFFICIAL_PRESENT'`, Session Code = `'P'`.
+     - **Batch Write Chunking ($\le 250$ Operations)**:
+       Build an array of write operations across:
+       1. `clearance_history/{histDocId}`: write full `histObj`.
+       2. `clearance_certificates/{histDocId}`: write mirror payload explicitly including `status: 'ISSUED'` and `dates: targetDates.slice(0, 50)`.
+       3. `systemCache/{sessionDocId}`: update `attendanceMap[studentRegNo]` to `'M'` or `'P'`.
+       4. `students/{studentDocId}`: update `periodAttendance` stats (`presentCount`, `medicalCount`, `officialCount`, and prune `absentDates`).
+       Partition all writes into discrete chunks of $\le 250$ operations:
+       ```javascript
+       const CHUNK_SIZE = 250;
+       for (let i = 0; i < allOperations.length; i += CHUNK_SIZE) {
+         const batch = writeBatch(db);
+         const chunk = allOperations.slice(i, i + CHUNK_SIZE);
+         chunk.forEach(op => op(batch));
+         await batch.commit();
+       }
+       ```
+
+---
 
 ### Phase 4: Sync Secondary Clearance Component
 * **Target File**: [`app/components/PeriodAttendanceMinusAndClearance.jsx`](file:///D:/Codes/mark-entry-app/app/components/PeriodAttendanceMinusAndClearance.jsx)
 * **Actions**:
-  - Update any shared clearance helpers or styling to ensure consistent permissions, performance, and color palette across both clearance tabs.
+  1. Synchronize the clearance save handler (`handleApplyClearance`, lines 1080–1150):
+     - Ensure session document updates in `systemCache` write single-character codes (`'M'`, `'P'`).
+     - If writing to `clearance_certificates`, explicitly include `status: 'ISSUED'`.
+     - Ensure writes to `students` and `systemCache` obey the $\le 250$ write batch chunking limit.
+  2. Align the color palette and status badges with Phase 3 (Rose `#fff1f2` for Medical, Blue `#eff6ff` for Official).
 
-### Phase 5: Verification & Production Build
-1. Build verification via `npm run build` to confirm zero JSX, syntax, or type errors.
-2. Verify Firestore rules syntax against Firebase emulators / schema parser.
-3. Validate multi-student query performance (<300ms for multi-week spans).
-4. Verify visual fidelity against provided screenshots.
+---
+
+### Phase 5: Verification & Production Regression Suite
+1. **Compilation & Build**: Run `npm run build` to guarantee zero JSX, ESLint, or TypeScript syntax errors.
+2. **Security Rules Verification**: Test `isValidClearanceHist` against Firebase Emulator suite. Assert that numeric `studentAdNo` (e.g. `3462`) and string `studentAdNo` (e.g. `'U1107'`) both pass rule evaluation.
+3. **500-Write Batch Stress Test**: Execute a simulated bulk clearance with $>100$ absent periods across 10 students (total write operations $>400$). Verify all batches commit cleanly without transaction limit errors.
+4. **Mirror Write Validation**: Verify that documents created in `clearance_certificates` contain `status: 'ISSUED'` and pass `isValidClearanceCert`.
+5. **Latency Validation**: Run multi-student search over a 60-day range. Confirm that in-memory `absentDates` pre-filtering keeps query execution time $<300\text{ms}$.
