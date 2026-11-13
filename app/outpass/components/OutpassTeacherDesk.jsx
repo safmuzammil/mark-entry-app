@@ -293,6 +293,133 @@ export default function OutpassTeacherDesk({
     applyDaysDuration(selectedMonthlyDays, `${selectedMonthlyDays}d`);
   };
 
+  // ============================================================================
+  // MAIN SUB-TAB: 🌍 ALL CAMPUS OUTSIDE STUDENTS (VISIBLE TO EVERY TEACHER)
+  // ============================================================================
+  if (activeLeaveSubTab === "all_campus_outside") {
+    const allCampusOut = passes.filter((p) => {
+      if (p.status !== "OUTSIDE" && p.status !== "APPROVED") return false;
+      if (!teacherSearch.trim()) return true;
+      const q = teacherSearch.toLowerCase();
+      return (
+        p.studentName?.toLowerCase().includes(q) ||
+        String(p.adNo).toLowerCase().includes(q) ||
+        String(p.studentClass).toLowerCase().includes(q) ||
+        p.destination?.toLowerCase().includes(q) ||
+        getOfficialTeacherName(p.teacherName).toLowerCase().includes(q)
+      );
+    });
+
+    return (
+      <div style={styles.card}>
+        <div style={styles.cardHeaderRow}>
+          <div>
+            <h3 style={styles.cardTitle}>
+              🌍 All Campus Outside Students ({allCampusOut.length})
+            </h3>
+            <p style={styles.cardSubtitle}>
+              Live list of all students currently outside campus or permitted to exit, with time limits and permitting teacher details.
+            </p>
+          </div>
+        </div>
+
+        <div style={{ position: "relative", marginBottom: 14 }}>
+          <input
+            type="text"
+            placeholder="Search outside students by name, Ad.No, class, destination, or permitting teacher..."
+            value={teacherSearch}
+            onChange={(e) => setTeacherSearch(e.target.value)}
+            style={styles.searchInputSmall}
+          />
+        </div>
+
+        {allCampusOut.length === 0 ? (
+          <div style={styles.emptyStateBox}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>🏫</div>
+            <div style={{ fontWeight: 700, color: "#334155" }}>
+              All students are currently inside campus!
+            </div>
+          </div>
+        ) : (
+          <div style={styles.passListScroll}>
+            {allCampusOut.map((p) => {
+              const isOverdue = isPassOverdue(p);
+              const photoUrl = getStudentPhotoByAdNo(p.adNo);
+              return (
+                <div
+                  key={p.id}
+                  style={{
+                    ...styles.passCardItem,
+                    borderLeft: isOverdue ? "4px solid #e11d48" : "4px solid #f59e0b",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: 12, flex: 1, minWidth: 220 }}>
+                      <StudentAvatar
+                        name={p.studentName}
+                        adNo={p.adNo}
+                        photoUrl={photoUrl}
+                        size={44}
+                        onClick={() =>
+                          setZoomPhotoStudent({
+                            name: p.studentName,
+                            adNo: p.adNo,
+                            studentClass: p.studentClass,
+                            photoUrl,
+                          })
+                        }
+                      />
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <span style={{ fontWeight: 800, fontSize: 15, color: "#0f172a" }}>
+                            {p.studentName}
+                          </span>
+                          <span style={styles.adNoBadge}>#{p.adNo}</span>
+                          <span style={styles.classPill}>Class {p.studentClass}</span>
+                          <span style={{ ...styles.classPill, background: "#eef2ff", color: "#4f46e5" }}>
+                            {p.leaveCategory || "General"}
+                          </span>
+                        </div>
+
+                        <div style={{ fontSize: 13, color: "#1e293b", marginTop: 4, fontWeight: 600 }}>
+                          📍 {p.destination} — <span style={{ color: "#64748b" }}>{p.purpose}</span>
+                        </div>
+
+                        <div style={{ fontSize: 12, color: "#0f172a", marginTop: 4, background: "#f8fafc", padding: "6px 10px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                          <div>
+                            👨‍🏫 <strong>Permitted By:</strong> Usthad {getOfficialTeacherName(p.teacherName)}
+                            {p.teacherPhone ? ` (📞 ${p.teacherPhone})` : ""}
+                          </div>
+                          <div style={{ marginTop: 2 }}>
+                            🕒 <strong>Time Limit:</strong> {formatDateTime12Hour(p.permittedFrom)} ➔{" "}
+                            <strong style={{ color: isOverdue ? "#e11d48" : "#047857" }}>
+                              {formatDateTime12Hour(p.permittedTo, p.isOpenReturn)}
+                            </strong>
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: 4, fontSize: 12, fontWeight: 800, color: isOverdue ? "#e11d48" : "#047857" }}>
+                          ⏱️ {getRemainingTimeText(p)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <span style={getStatusBadgeStyle(p, now)}>
+                      {p.status === "OUTSIDE" && isOverdue ? "🚨 OVERDUE OUTSIDE" : p.status === "OUTSIDE" ? "🟠 OUTSIDE CAMPUS" : "🔵 PERMITTED"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ============================================================================
+  // MAIN SUB-TAB: 📋 MY PERMITTED & CLASS STUDENTS
+  // ============================================================================
   if (activeLeaveSubTab === "my_permitted") {
     return (
       <div style={styles.card}>
@@ -342,11 +469,6 @@ export default function OutpassTeacherDesk({
               count: myUnverifiedCount,
             },
             { id: "RETURNED", label: "Returned", count: myReturnedCount },
-            {
-              id: "ALL_CAMPUS_OUTSIDE",
-              label: "🌍 All Campus Outside",
-              count: passes.filter((p) => p.status === "OUTSIDE" || p.status === "APPROVED").length,
-            },
             {
               id: "LATE_COMERS",
               label: "🚨 Habitual Late Comers",
@@ -431,107 +553,8 @@ export default function OutpassTeacherDesk({
           )}
         </div>
 
-        {teacherStatusFilter === "ALL_CAMPUS_OUTSIDE" ? (
-          (() => {
-            const allCampusOut = passes.filter((p) => {
-              if (p.status !== "OUTSIDE" && p.status !== "APPROVED") return false;
-              if (!teacherSearch.trim()) return true;
-              const q = teacherSearch.toLowerCase();
-              return (
-                p.studentName?.toLowerCase().includes(q) ||
-                String(p.adNo).toLowerCase().includes(q) ||
-                String(p.studentClass).toLowerCase().includes(q) ||
-                p.destination?.toLowerCase().includes(q) ||
-                getOfficialTeacherName(p.teacherName).toLowerCase().includes(q)
-              );
-            });
-
-            if (allCampusOut.length === 0) {
-              return (
-                <div style={styles.emptyStateBox}>
-                  <div style={{ fontSize: 32, marginBottom: 8 }}>🏫</div>
-                  <div style={{ fontWeight: 700, color: "#334155" }}>
-                    All students are currently inside campus!
-                  </div>
-                </div>
-              );
-            }
-
-            return (
-              <div style={styles.passListScroll}>
-                {allCampusOut.map((p) => {
-                  const isOverdue = isPassOverdue(p);
-                  const photoUrl = getStudentPhotoByAdNo(p.adNo);
-                  return (
-                    <div
-                      key={p.id}
-                      style={{
-                        ...styles.passCardItem,
-                        borderLeft: isOverdue ? "4px solid #e11d48" : "4px solid #f59e0b",
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
-                        <div style={{ display: "flex", gap: 12, flex: 1, minWidth: 220 }}>
-                          <StudentAvatar
-                            name={p.studentName}
-                            adNo={p.adNo}
-                            photoUrl={photoUrl}
-                            size={44}
-                            onClick={() =>
-                              setZoomPhotoStudent({
-                                name: p.studentName,
-                                adNo: p.adNo,
-                                studentClass: p.studentClass,
-                                photoUrl,
-                              })
-                            }
-                          />
-                          <div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                              <span style={{ fontWeight: 800, fontSize: 15, color: "#0f172a" }}>
-                                {p.studentName}
-                              </span>
-                              <span style={styles.adNoBadge}>#{p.adNo}</span>
-                              <span style={styles.classPill}>Class {p.studentClass}</span>
-                              <span style={{ ...styles.classPill, background: "#eef2ff", color: "#4f46e5" }}>
-                                {p.leaveCategory || "General"}
-                              </span>
-                            </div>
-
-                            <div style={{ fontSize: 13, color: "#1e293b", marginTop: 4, fontWeight: 600 }}>
-                              📍 {p.destination} — <span style={{ color: "#64748b" }}>{p.purpose}</span>
-                            </div>
-
-                            <div style={{ fontSize: 12, color: "#0f172a", marginTop: 4, background: "#f8fafc", padding: "6px 10px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
-                              <div>
-                                👨‍🏫 <strong>Permitted By:</strong> Usthad {getOfficialTeacherName(p.teacherName)}
-                                {p.teacherPhone ? ` (📞 ${p.teacherPhone})` : ""}
-                              </div>
-                              <div style={{ marginTop: 2 }}>
-                                🕒 <strong>Time Limit:</strong> {formatDateTime12Hour(p.permittedFrom)} ➔{" "}
-                                <strong style={{ color: isOverdue ? "#e11d48" : "#047857" }}>
-                                  {formatDateTime12Hour(p.permittedTo, p.isOpenReturn)}
-                                </strong>
-                              </div>
-                            </div>
-
-                            <div style={{ marginTop: 4, fontSize: 12, fontWeight: 800, color: isOverdue ? "#e11d48" : "#047857" }}>
-                              ⏱️ {getRemainingTimeText(p)}
-                            </div>
-                          </div>
-                        </div>
-
-                        <span style={getStatusBadgeStyle(p, now)}>
-                          {p.status === "OUTSIDE" && isOverdue ? "🚨 OVERDUE OUTSIDE" : p.status === "OUTSIDE" ? "🟠 OUTSIDE CAMPUS" : "🔵 PERMITTED"}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()
-        ) : teacherStatusFilter === "LATE_COMERS" ? (
+        {/* HABITUAL LATE COMERS SUB-SUB-TAB VIEW */}
+        {teacherStatusFilter === "LATE_COMERS" ? (
           habitualLateComersList.length === 0 ? (
             <div style={styles.emptyStateBox}>
               <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>

@@ -2077,18 +2077,15 @@ const [tsrQuickStatusFilter, setTsrQuickStatusFilter] = useState('ALL'); // 'ALL
       {!isEventLeaderUser && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff', padding: '10px 14px', borderRadius: '12px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '8px' }}>
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-            {[
+           {[
               { id: 'cards', match: ['cards', 'mark_sheet'], label: `Subject Cards (${attendanceEnrollments.length})` },
-              { id: 'teacher_subject_report', match: ['teacher_subject_report'], label: '📊 My Subject Reports' },
-              ...(userRole === 'admin' || myCtClasses.length > 0 ? [
-                { id: 'live_monitor', match: ['live_monitor'], label: userRole === 'admin' ? '⏱️ All Classes Period Monitor' : `⏱️ Class ${myCtClasses.join(', ')} Period Monitor` }
+              ...(userRole !== 'admin' ? [
+                { id: 'teacher_subject_report', match: ['teacher_subject_report'], label: '📊 My Subject Reports' }
               ] : []),
               ...(userRole === 'admin' ? [
                 { id: 'reports_hub', match: ['reports_hub'], label: 'Master Reports Hub' },
-                { id: 'shortage', match: ['shortage'], label: `Shortage <85% (${shortageCount})` },
                 { id: 'clearance', match: ['clearance'], label: 'Clearance' },
                 { id: 'manage_leaders', match: ['manage_leaders', 'rehearsal_leader'], label: `Event Leaders (${eventLeadersList.length})` },
-                { id: 'non_mark_subjects', match: ['non_mark_subjects'], label: 'Non-Mark Subjects' },
                 { id: 'import_old', match: ['import_old'], label: 'Import Shuhood' }
               ] : [])
             ].map(tab => {

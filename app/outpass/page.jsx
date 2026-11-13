@@ -2419,6 +2419,29 @@ export default function OutPassPortal({
                 >
                   <span>🩹 Masjid Exemption</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("teacher");
+                    setActiveLeaveSubTab("all_campus_outside");
+                  }}
+                  style={
+                    activeTab === "teacher" && activeLeaveSubTab === "all_campus_outside"
+                      ? styles.mainTabActive
+                      : styles.mainTabInactive
+                  }
+                >
+                  <span>🌍 All Campus Outside</span>
+                  <span
+                    style={
+                      activeTab === "teacher" && activeLeaveSubTab === "all_campus_outside"
+                        ? styles.tabCounterActive
+                        : styles.tabCounterInactive
+                    }
+                  >
+                    {passes.filter((p) => p.status === "OUTSIDE" || p.status === "APPROVED").length}
+                  </span>
+                </button>
               </>
             )}
 
