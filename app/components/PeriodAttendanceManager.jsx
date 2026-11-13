@@ -5,7 +5,7 @@ import { auth, db } from '../../lib/firebase';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc, getDocs, setDoc, deleteDoc, collection, writeBatch, query, where, orderBy, limit } from 'firebase/firestore';
-import { DEFAULT_CLASSES, DEFAULT_SUBJECTS, DEPARTMENTS, MADHABS, DHIU_LOGO_URL, styles, sortStudentsByDepartment, isWaiverActiveOnDate } from './erpConstants';
+import { DEFAULT_CLASSES, DEFAULT_SUBJECTS, DEPARTMENTS, MADHABS, DHIU_LOGO_URL, styles, sortStudentsByDepartment, isWaiverActiveOnDate, isTimestampWithinWindow } from './erpConstants';
 import { doesClassMatchAlias, openDirectWhatsApp, resolveClassTeacherForStudent, CollapsibleCard } from './ErpExtensions';
 import PeriodAttendanceReportsHub from './PeriodAttendanceReportsHub';
 import PeriodAttendanceMinusAndClearance from './PeriodAttendanceMinusAndClearance';
@@ -206,6 +206,16 @@ export default function PeriodAttendanceManager({
   const [nmSelectedStudentRegs, setNmSelectedStudentRegs] = useState([]);
 
   const [clearancePrintStudent, setClearancePrintStudent] = useState(null);
+  // --- 5. TEACHER SUBJECT REPORTS TAB STATE (Point 1.7) ---
+const [tsrEnrollmentId, setTsrEnrollmentId] = useState('ALL');
+const [tsrFilterMode, setTsrFilterMode] = useState('ALL_TIME'); // 'ALL_TIME' | 'MONTH' | 'DATE_RANGE' | 'SPECIFIC_DATE'
+const [tsrMonth, setTsrMonth] = useState(() => new Date().toISOString().slice(0, 7));
+const [tsrStartDate, setTsrStartDate] = useState(() => new Date().toISOString().split('T')[0]);
+const [tsrEndDate, setTsrEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+const [tsrSpecificDate, setTsrSpecificDate] = useState(() => new Date().toISOString().split('T')[0]);
+const [tsrSessionsCache, setTsrSessionsCache] = useState([]);
+const [tsrLoading, setTsrLoading] = useState(false);
+const [tsrSearch, setTsrSearch] = useState('');
 
   const isoToLocalYMD = (isoStr) => {
     if (!isoStr) return '';
@@ -247,9 +257,14 @@ export default function PeriodAttendanceManager({
           const isReturned = status === 'RETURNED' || status === 'ARRIVED_AT_GATE' || Boolean(data.actualReturnTime || data.verifiedReturnedAt || data.teacherVerifiedTime);
           const isCurrentlyOutside = (status === 'APPROVED' || status === 'OUTSIDE') && !isReturned;
           const isActiveNow = status === 'APPROVED' || status === 'OUTSIDE' || status === 'ARRIVED_AT_GATE';
-          const isWithinDateWindow = depDate && attDate >= depDate && attDate <= retDate;
+          const isWithinTimeWindow = isTimestampWithinWindow({
+            targetDateStr: attDate,
+            startIso: data.permittedFrom || data.departureDate || data.createdAt,
+            endIso: data.actualReturnTime || data.permittedTo || data.returnDate,
+            isOpenReturn: Boolean(data.isOpenReturn)
+          });
 
-          if (isWithinDateWindow && (isActiveNow || status === 'RETURNED')) {
+          if (isWithinTimeWindow && isCurrentlyOutside) {
             const passAdNo = String(data.adNo || '').trim().toUpperCase();
             const passRegNo = String(data.studentRegNo || data.regNo || '').trim().toUpperCase();
 
@@ -263,10 +278,13 @@ export default function PeriodAttendanceManager({
             if (targetKey) {
               const cat = String(data.leaveCategory || data.category || 'General');
               const catLower = cat.toLowerCase();
-              const isOfficial = catLower.includes('official') || catLower.includes('outreach');
+              const purpLower = String(data.purpose || data.reason || '').toLowerCase();
+              const isOfficial = catLower.includes('official') || catLower.includes('outreach') || purpLower.includes('official');
+              const isMedical = catLower.includes('medical') || purpLower.includes('medical') || purpLower.includes('hospital') || purpLower.includes('dental');
               opMap[targetKey] = {
                 category: cat,
                 isOfficial,
+                isMedical,
                 status,
                 isReturned,
                 isCurrentlyOutside,
@@ -312,7 +330,7 @@ export default function PeriodAttendanceManager({
           });
         }
 
-        // 🌟 Map Active Campus Medical Waivers (Sick in Room / Bed Rest)
+        // 🌟 Map Active Campus Medical Waivers (ONLY SICK_IN_ROOM — Jamath Exemption is excluded in Period Attendance!)
         try {
           const waiversSnap = await getDocs(query(
             collection(db, 'campus_medical_waivers'),
@@ -332,8 +350,12 @@ export default function PeriodAttendanceManager({
                   reason: w.injuryReason || w.illnessReason || w.diagnosis || 'Sick in Room (Bed Rest)',
                   recordedBy: w.issuedByName || w.issuedBy || w.authorizedByName || 'Class Teacher',
                   startDate: w.issuedAt ? w.issuedAt.split('T')[0] : attDate,
+                  startTime: w.startTime || '00:00',
                   endDate: w.validUntil || attDate,
-                  hasDuration: Boolean(w.validUntil && w.validUntil !== (w.issuedAt ? w.issuedAt.split('T')[0] : attDate)),
+                  endTime: w.validUntilTime || '23:59',
+                  startTimeIso: w.permittedFrom || w.issuedAt,
+                  endDateTimeIso: w.permittedTo || w.validUntilIso,
+                  hasDuration: Boolean(w.validUntil),
                   isMedical: true
                 });
               }
@@ -343,37 +365,44 @@ export default function PeriodAttendanceManager({
           console.warn('Could not fetch active sick waivers:', waiverErr);
         }
 
-        const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
-
         allRecs.forEach(rec => {
+          // Exclude Jamath Exemption from Period Attendance
+          if (String(rec.status || '').toUpperCase() === 'JAMATH_EXEMPTION' || String(rec.waiverType || '').toUpperCase() === 'JAMATH_EXEMPTION') {
+            return;
+          }
+
+          const isActiveNow = isTimestampWithinWindow({
+            targetDateStr: attDate,
+            startIso: rec.startDateTimeIso || rec.startTimeIso || rec.permittedFrom,
+            endIso: rec.endDateTimeIso || rec.permittedTo,
+            startDateStr: rec.startDate || rec.date || '',
+            startTimeStr: rec.startTime || '00:00',
+            endDateStr: rec.hasDuration && rec.endDate ? rec.endDate : (rec.startDate || rec.date || ''),
+            endTimeStr: rec.hasDuration && rec.endTime ? rec.endTime : '23:59',
+            isOpenReturn: false
+          });
+
+          if (!isActiveNow) return;
+
           const cleanAd = String(rec.adNo || '').trim().toUpperCase();
           const cleanReg = String(rec.studentRegNo || '').trim().toUpperCase();
 
-          const startDate = rec.startDate || rec.date || '';
-          const endDate = rec.hasDuration && rec.endDate ? rec.endDate : startDate;
-
-          if (startDate && attDate < startDate) return;
-          if (endDate && attDate > endDate) return;
-
-          if (rec.hasDuration && rec.endDateTimeIso) {
-            const endMs = new Date(rec.endDateTimeIso).getTime();
-            if (!isNaN(endMs) && attDate === todayStr && Date.now() > endMs) {
-              return; // Expired!
-            }
-          }
-
           const stStatus = String(rec.status || 'ABSENT').toUpperCase();
           const reasonLower = String(rec.reason || '').toLowerCase();
-          const isOfficial = stStatus === 'OFFICIAL' || reasonLower.includes('official') || reasonLower.includes('outreach') || reasonLower.includes('duty');
-          const isMedical = stStatus === 'SICK_ROOM' || reasonLower.includes('sick') || reasonLower.includes('fever') || reasonLower.includes('medical') || reasonLower.includes('hospital') || reasonLower.includes('doctor');
+          const isOfficial = stStatus === 'OFFICIAL' || reasonLower.includes('official') || reasonLower.includes('outreach') || reasonLower.includes('duty') || reasonLower.includes('rehearsal');
+          const isMedical = stStatus === 'SICK_ROOM' || stStatus === 'MEDICAL' || reasonLower.includes('sick') || reasonLower.includes('fever') || reasonLower.includes('medical') || reasonLower.includes('hospital') || reasonLower.includes('doctor');
+          const isPermittedLeave = stStatus === 'OUTPASS' || stStatus === 'LEAVE' || (!isOfficial && !isMedical && stStatus !== 'ABSENT');
 
           const recObj = {
             status: stStatus,
             reason: rec.reason || '',
             isOfficial,
             isMedical,
+            isPermittedLeave,
             recordedBy: rec.recordedBy || 'Teacher',
             hasDuration: Boolean(rec.hasDuration),
+            startDate: rec.startDate,
+            startTime: rec.startTime,
             endDate: rec.endDate,
             endTime: rec.endTime
           };
@@ -598,8 +627,14 @@ export default function PeriodAttendanceManager({
             } else if (recAbs && recAbs.isMedical) {
               sMap[regKey] = 'M';
               autoAbs.push(regKey);
+            } else if (op && op.isCurrentlyOutside && op.isMedical) {
+              sMap[regKey] = 'M';
+              autoAbs.push(regKey);
             } else if (op && op.isCurrentlyOutside) {
-              sMap[regKey] = 'L'; // 🌟 Non-official active gate outpasses mapped to Permitted Leave 'L'
+              sMap[regKey] = 'L';
+              autoAbs.push(regKey);
+            } else if (recAbs && recAbs.isPermittedLeave) {
+              sMap[regKey] = 'L';
               autoAbs.push(regKey);
             } else if (recAbs) {
               sMap[regKey] = recAbs.status === 'SICK_ROOM' ? 'M' : 'A';
@@ -742,6 +777,28 @@ export default function PeriodAttendanceManager({
       alert(`✅ Copied ${group.students.length} absentee(s) of Class ${group.className} to clipboard!`);
     });
   };
+
+  useEffect(() => {
+  async function loadSessionsForTeacherReport() {
+    if (activeTab !== 'teacher_subject_report') return;
+    setTsrLoading(true);
+    try {
+      const snap = await getDocs(query(collection(db, 'systemCache'), limit(800)));
+      const list = [];
+      snap.forEach(d => {
+        if (d.id.startsWith('periodSession_')) {
+          list.push({ id: d.id, ...d.data() });
+        }
+      });
+      setTsrSessionsCache(list);
+    } catch (e) {
+      console.warn('Error loading sessions for teacher subject report:', e);
+    } finally {
+      setTsrLoading(false);
+    }
+  }
+  loadSessionsForTeacherReport();
+}, [activeTab]);
 
   const handleCopyAllAbsentees = () => {
     if (absentStudentsByClassGroups.length === 0) return;
@@ -2004,6 +2061,7 @@ export default function PeriodAttendanceManager({
             {[
               { id: 'cards', match: ['cards', 'mark_sheet'], label: `Subject Cards (${attendanceEnrollments.length})` },
               { id: 'live_monitor', match: ['live_monitor'], label: '⏱️ Class & Period Monitor' },
+              { id: 'teacher_subject_report', match: ['teacher_subject_report'], label: '📊 My Subject Reports' },
               { id: 'reports_hub', match: ['reports_hub'], label: 'Monthly / Daily / Total Reports' },
               { id: 'shortage', match: ['shortage'], label: `Shortage <85% (${shortageCount})` },
               ...(userRole === 'admin' ? [
@@ -3452,7 +3510,268 @@ export default function PeriodAttendanceManager({
           </div>
         </div>
       )}
+      {/* 🌟 VIEW: TEACHER SUBJECT ATTENDANCE REPORT (Point 1.7) */}
+      {activeTab === 'teacher_subject_report' && !isEventLeaderUser && (
+        <div style={styles.card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
+            <div>
+              <span style={{ background: '#eef2ff', color: '#4f46e5', padding: '3px 9px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
+                📊 SUBJECT-BASED STUDENT ATTENDANCE ANALYTICS
+              </span>
+              <h3 style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
+                {activeTeacherObj?.fullName || 'Teacher'} — Subject Attendance &amp; Conversion Summary
+              </h3>
+            </div>
 
+            {userRole === 'admin' && (
+              <select
+                value={selectedTeacherUsername}
+                onChange={e => {
+                  setSelectedTeacherUsername(e.target.value);
+                  setTsrEnrollmentId('ALL');
+                }}
+                style={{ ...styles.input, width: 'auto', minWidth: '240px', fontWeight: '700' }}
+              >
+                {localTeachers.filter(t => !t.isEventLeader).map(t => (
+                  <option key={t.username} value={t.username}>{t.fullName} (@{t.username})</option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* FILTERS BAR: SUBJECT + PERIOD FILTER (ALL TIME / MONTH / DATE RANGE / SPECIFIC DATE) */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '18px', alignItems: 'end' }}>
+            <div>
+              <label style={styles.label}>1. Select Subject Batch</label>
+              <select
+                value={tsrEnrollmentId}
+                onChange={e => setTsrEnrollmentId(e.target.value)}
+                style={{ ...styles.input, fontWeight: '700' }}
+              >
+                <option value="ALL">All My Subjects Combined ({attendanceEnrollments.length})</option>
+                {attendanceEnrollments.map(env => (
+                  <option key={env.id} value={env.id}>{env.alias || env.subject} ({env.targetClass || `Grade ${env.grade}`})</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={styles.label}>2. Date Filter Mode</label>
+              <select
+                value={tsrFilterMode}
+                onChange={e => setTsrFilterMode(e.target.value)}
+                style={{ ...styles.input, fontWeight: '700' }}
+              >
+                <option value="ALL_TIME">Total Semester (All Recorded Sessions)</option>
+                <option value="MONTH">Specific Month</option>
+                <option value="DATE_RANGE">Specific Date Range (From ➔ To)</option>
+                <option value="SPECIFIC_DATE">Specific Single Date</option>
+              </select>
+            </div>
+
+            {tsrFilterMode === 'MONTH' && (
+              <div>
+                <label style={styles.label}>Select Month</label>
+                <input type="month" value={tsrMonth} onChange={e => setTsrMonth(e.target.value)} style={styles.input} />
+              </div>
+            )}
+
+            {tsrFilterMode === 'DATE_RANGE' && (
+              <>
+                <div>
+                  <label style={styles.label}>From Date</label>
+                  <input type="date" value={tsrStartDate} onChange={e => setTsrStartDate(e.target.value)} style={styles.input} />
+                </div>
+                <div>
+                  <label style={styles.label}>To Date</label>
+                  <input type="date" value={tsrEndDate} onChange={e => setTsrEndDate(e.target.value)} style={styles.input} />
+                </div>
+              </>
+            )}
+
+            {tsrFilterMode === 'SPECIFIC_DATE' && (
+              <div>
+                <label style={styles.label}>Select Date</label>
+                <input type="date" value={tsrSpecificDate} onChange={e => setTsrSpecificDate(e.target.value)} style={styles.input} />
+              </div>
+            )}
+
+            <div>
+              <label style={styles.label}>Search Student</label>
+              <input
+                type="text"
+                placeholder="Search Name or #Ad.No..."
+                value={tsrSearch}
+                onChange={e => setTsrSearch(e.target.value)}
+                style={styles.input}
+              />
+            </div>
+          </div>
+
+          {tsrLoading ? (
+            <div style={{ padding: '32px', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>
+              ⏳ Calculating subject attendance &amp; conversions...
+            </div>
+          ) : (() => {
+            const targetEnvs = tsrEnrollmentId === 'ALL'
+              ? attendanceEnrollments
+              : attendanceEnrollments.filter(e => e.id === tsrEnrollmentId);
+
+            const rows = [];
+            targetEnvs.forEach(env => {
+              const subKey = normalizeSubKey(isAttendanceOnlyEnrollment(env) ? (env.alias || env.subject) : (env.subject || env.alias));
+              const enrolledList = getStudentsForEnrollment(env);
+
+              // Match sessions in cache belonging to this enrollment/subject
+              const matchingSessions = tsrSessionsCache.filter(sess => {
+                if (!sess.date) return false;
+                if (tsrFilterMode === 'MONTH' && !String(sess.date).startsWith(tsrMonth)) return false;
+                if (tsrFilterMode === 'DATE_RANGE') {
+                  if (tsrStartDate && sess.date < tsrStartDate) return false;
+                  if (tsrEndDate && sess.date > tsrEndDate) return false;
+                }
+                if (tsrFilterMode === 'SPECIFIC_DATE' && sess.date !== tsrSpecificDate) return false;
+
+                if (sess.enrollmentId && sess.enrollmentId === env.id) return true;
+                const sessSub = normalizeSubKey(sess.subject || sess.classAlias || '');
+                const sameTeacher = !sess.teacherUsername || String(sess.teacherUsername).toLowerCase() === String(activeTeacherObj?.username || '').toLowerCase();
+                return sessSub === subKey && sameTeacher;
+              });
+
+              enrolledList.forEach(st => {
+                if (tsrSearch.trim()) {
+                  const q = tsrSearch.toLowerCase();
+                  if (!String(st.firstName || '').toLowerCase().includes(q) && !String(st.adNo || '').toLowerCase().includes(q)) return;
+                }
+
+                const reg = String(st.regNo || '').trim();
+                const ad = String(st.adNo || '').trim();
+                const idKey = String(st.id || '').trim();
+
+                let totalTaken = 0;
+                let normalPresent = 0;
+                let officialConverted = 0;
+                let medicalConverted = 0;
+                let permittedLeave = 0;
+                let unexcusedAbsent = 0;
+
+                if (tsrFilterMode === 'ALL_TIME' && matchingSessions.length === 0) {
+                  // Fallback to student.periodAttendance.subjectWise if cache has no sessions
+                  const pStat = getStudentAttStat(st);
+                  const sObj = (pStat.subjectWise || {})[subKey] || {};
+                  totalTaken = Number(sObj.total) || 0;
+                  officialConverted = Number(sObj.official) || 0;
+                  medicalConverted = Number(sObj.medical) || 0;
+                  permittedLeave = Number(sObj.permitted) || 0;
+                  const combinedPres = Number(sObj.present) || 0;
+                  normalPresent = Math.max(0, combinedPres - officialConverted);
+                  unexcusedAbsent = Math.max(0, totalTaken - combinedPres - medicalConverted - permittedLeave);
+                } else {
+                  matchingSessions.forEach(sess => {
+                    const map = sess.attendanceMap || {};
+                    const val = map[reg] || map[idKey] || map[ad];
+                    if (!val) return;
+                    totalTaken++;
+                    if (val === 'P') normalPresent++;
+                    else if (val === 'O') officialConverted++;
+                    else if (val === 'M') medicalConverted++;
+                    else if (val === 'L') permittedLeave++;
+                    else if (val === 'A') unexcusedAbsent++;
+                  });
+                }
+
+                const totalPresenceWithOfficial = normalPresent + officialConverted;
+                const totalAbsenceRaw = unexcusedAbsent + permittedLeave + medicalConverted;
+                const totalPresencePct = totalTaken > 0 ? ((totalPresenceWithOfficial / totalTaken) * 100).toFixed(1) : '100.0';
+                const medicalPct = totalTaken > 0 ? ((medicalConverted / totalTaken) * 100).toFixed(1) : '0.0';
+
+                rows.push({
+                  key: `${env.id}_${st.regNo}`,
+                  subjectLabel: env.alias || env.subject,
+                  student: st,
+                  totalTaken,
+                  normalPresent,
+                  officialConverted,
+                  medicalConverted,
+                  permittedLeave,
+                  unexcusedAbsent,
+                  totalAbsenceRaw,
+                  totalPresenceWithOfficial,
+                  totalPresencePct,
+                  medicalPct
+                });
+              });
+            });
+
+            return (
+              <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left', minWidth: '960px' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px' }}>#</th>
+                      <th style={{ padding: '12px' }}>Subject</th>
+                      <th style={{ padding: '12px' }}>Student &amp; Ad.No</th>
+                      <th style={{ padding: '12px', textAlign: 'center' }}>Total Taken</th>
+                      <th style={{ padding: '12px', textAlign: 'center', color: '#047857' }}>Normal Pres (P)</th>
+                      <th style={{ padding: '12px', textAlign: 'center', color: '#0d9488' }}>Official Conv (O)</th>
+                      <th style={{ padding: '12px', textAlign: 'center', background: '#ecfdf5', color: '#065f46' }}>Total Presence (P + O)</th>
+                      <th style={{ padding: '12px', textAlign: 'center', color: '#e11d48' }}>Absence (A / L)</th>
+                      <th style={{ padding: '12px', textAlign: 'center', color: '#d97706' }}>Medical Conv (M)</th>
+                      <th style={{ padding: '12px', textAlign: 'center', background: '#eef2ff', color: '#4f46e5' }}>Total Presence %</th>
+                      <th style={{ padding: '12px', textAlign: 'center', background: '#fffbeb', color: '#b45309' }}>Medical Leave %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.length === 0 ? (
+                      <tr>
+                        <td colSpan={11} style={{ padding: '28px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
+                          No student records match the selected filters.
+                        </td>
+                      </tr>
+                    ) : (
+                      rows.map((r, idx) => (
+                        <tr key={r.key} style={{ borderBottom: '1px solid #f1f5f9', background: '#ffffff' }}>
+                          <td style={{ padding: '10px 12px', color: '#64748b' }}>{idx + 1}</td>
+                          <td style={{ padding: '10px 12px', fontWeight: '700', color: '#4f46e5' }}>{r.subjectLabel}</td>
+                          <td style={{ padding: '10px 12px', fontWeight: '700', color: '#0f172a' }}>
+                            {r.student.firstName} <span style={{ color: '#64748b', fontSize: '11px' }}>(#{r.student.adNo} • {(r.student.classes || []).join(',')})</span>
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '800' }}>{r.totalTaken}</td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '700', color: '#047857' }}>{r.normalPresent}</td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '700', color: '#0d9488' }}>{r.officialConverted}</td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '900', background: '#f0fdf4', color: '#065f46' }}>
+                            {r.totalPresenceWithOfficial}
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '700', color: '#e11d48' }}>
+                            {r.unexcusedAbsent + r.permittedLeave} {r.permittedLeave > 0 ? `(A:${r.unexcusedAbsent}, L:${r.permittedLeave})` : ''}
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '700', color: '#d97706' }}>{r.medicalConverted}</td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center', background: '#f5f3ff' }}>
+                            <span style={{
+                              background: Number(r.totalPresencePct) < 85 ? '#fee2e2' : '#dcfce7',
+                              color: Number(r.totalPresencePct) < 85 ? '#b91c1c' : '#15803d',
+                              padding: '3px 9px',
+                              borderRadius: '999px',
+                              fontWeight: '800',
+                              fontSize: '11px'
+                            }}>
+                              {r.totalPresencePct}%
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center', background: '#fffbeb', fontWeight: '800', color: '#b45309' }}>
+                            {r.medicalPct}%
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+      
       {/* 🌟 LIVE CLASS & PERIOD ATTENDANCE MONITOR */}
       {activeTab === 'live_monitor' && !isEventLeaderUser && (
         <ClassPeriodMonitorTab

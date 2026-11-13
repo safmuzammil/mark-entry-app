@@ -32,11 +32,77 @@ export const parseCSVLine = (str) => {
 
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+export const getLocalYMD = (d = new Date()) => {
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return '';
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+};
+
+export const isTimestampWithinWindow = ({
+  targetDateStr,
+  startIso,
+  endIso,
+  startDateStr,
+  startTimeStr,
+  endDateStr,
+  endTimeStr,
+  isOpenReturn = false
+}) => {
+  const now = new Date();
+  const todayStr = getLocalYMD(now);
+  const checkDate = targetDateStr || todayStr;
+
+  let startMs = null;
+  if (startIso) {
+    const d = new Date(startIso);
+    if (!isNaN(d.getTime())) startMs = d.getTime();
+  } else if (startDateStr) {
+    const t = startTimeStr && /^\d{2}:\d{2}/.test(startTimeStr) ? startTimeStr : '00:00';
+    const d = new Date(`${startDateStr}T${t}:00`);
+    if (!isNaN(d.getTime())) startMs = d.getTime();
+  }
+
+  let endMs = null;
+  if (!isOpenReturn) {
+    if (endIso) {
+      const d = new Date(endIso);
+      if (!isNaN(d.getTime())) endMs = d.getTime();
+    } else if (endDateStr) {
+      const t = endTimeStr && /^\d{2}:\d{2}/.test(endTimeStr) ? endTimeStr : '23:59';
+      const d = new Date(`${endDateStr}T${t}:59`);
+      if (!isNaN(d.getTime())) endMs = d.getTime();
+    }
+  }
+
+  const sDate = startIso ? getLocalYMD(startIso) : (startDateStr || '');
+  const eDate = isOpenReturn ? '2099-12-31' : (endIso ? getLocalYMD(endIso) : (endDateStr || sDate || '2099-12-31'));
+
+  if (sDate && checkDate < sDate) return false;
+  if (eDate && checkDate > eDate) return false;
+
+  // Strict real-time enforcement when taking attendance today:
+  // Must NOT show before start time begins, and MUST stop showing once permitted time ends!
+  if (checkDate === todayStr) {
+    const nowMs = now.getTime();
+    if (startMs !== null && nowMs < startMs) return false;
+    if (!isOpenReturn && endMs !== null && nowMs > endMs) return false;
+  }
+
+  return true;
+};
+
 export const isWaiverActiveOnDate = (waiver, targetDate) => {
   if (!waiver || waiver.status !== 'ACTIVE') return false;
-  if (!targetDate) return true;
-  if (!waiver.validUntil) return true;
-  return targetDate <= waiver.validUntil;
+  return isTimestampWithinWindow({
+    targetDateStr: targetDate,
+    startIso: waiver.permittedFrom || waiver.startTimeIso || waiver.issuedAt || waiver.createdAt,
+    endIso: waiver.permittedTo || waiver.endTimeIso || waiver.validUntilIso,
+    startDateStr: waiver.startDate || (waiver.issuedAt ? String(waiver.issuedAt).split('T')[0] : ''),
+    startTimeStr: waiver.startTime || '00:00',
+    endDateStr: waiver.validUntil || waiver.endDate || '2099-12-31',
+    endTimeStr: waiver.validUntilTime || waiver.endTime || '23:59',
+    isOpenReturn: Boolean(waiver.isOpenReturn)
+  });
 };
 
 // 🌟 MINIMALIST SHUHOOD DESIGN SYSTEM (Clean Indigo #4f46e5 + Soft Slate #f8fafc)

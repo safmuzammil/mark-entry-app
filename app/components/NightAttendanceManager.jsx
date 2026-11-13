@@ -13,7 +13,7 @@ import {
   limit,
   onSnapshot
 } from 'firebase/firestore';
-import { DEFAULT_CLASSES, styles, isWaiverActiveOnDate } from './erpConstants';
+import { DEFAULT_CLASSES, styles, isWaiverActiveOnDate, isTimestampWithinWindow } from './erpConstants';
 import {
   ProfileAvatar,
   openDirectWhatsApp,
@@ -114,9 +114,17 @@ export default function NightAttendanceManager({
   const [absenceModalStatus, setAbsenceModalStatus] = useState('ABSENT');
   const [absenceModalReason, setAbsenceModalReason] = useState('🤒 Sick / Fever in Room');
   const [absenceModalHasDuration, setAbsenceModalHasDuration] = useState(false);
-  const [absenceModalEndDate, setAbsenceModalEndDate] = useState('');
-  const [absenceModalEndTime, setAbsenceModalEndTime] = useState('22:00');
-  const [absenceModalSaving, setAbsenceModalSaving] = useState(false);
+ const [absenceModalStartDate, setAbsenceModalStartDate] = useState(() => getTodayDateString());
+const [absenceModalStartTime, setAbsenceModalStartTime] = useState('08:00');
+const [absenceModalEndDate, setAbsenceModalEndDate] = useState('');
+const [absenceModalEndTime, setAbsenceModalEndTime] = useState('22:00');
+const [absenceModalSaving, setAbsenceModalSaving] = useState(false);
+
+// Sub-tab inside the 3rd "Attendance Reports" tab & Class Teacher Summary state (Point 1.8)
+const [reportsSubTab, setReportsSubTab] = useState('night_reports'); // 'night_reports' | 'extra_reports'
+const [ctSummaryScope, setCtSummaryScope] = useState('date'); // 'date' | 'month' | 'semester'
+const [ctSummaryDate, setCtSummaryDate] = useState(() => getTodayDateString());
+const [ctSummaryMonth, setCtSummaryMonth] = useState(() => getTodayDateString().slice(0, 7));
 
   // 🌟 EXTRA ATTENDANCE STATE (Same-Day Multi-Session Recording & Reports)
   const [extraDate, setExtraDate] = useState(getTodayDateString());
@@ -360,6 +368,85 @@ export default function NightAttendanceManager({
     ? 'Admin'
     : (loggedInTeacher?.fullName || loggedInTeacher?.username || 'Teacher');
 
+  const myPriv = loggedInTeacher?.outpassPrivileges || {};
+const myCtClasses = Array.isArray(myPriv.classTeacherOf)
+  ? myPriv.classTeacherOf
+  : Array.isArray(loggedInTeacher?.classTeacherOf)
+  ? loggedInTeacher.classTeacherOf
+  : [];
+
+const hasFullAllClassPreRecordPower = Boolean(
+  isAdmin || myPriv.isPrincipal || myPriv.isOfficeSecretary
+);
+const isOutreachCoordRole = Boolean(myPriv.isOutreachCoordinator || myPriv.canApproveOutreach);
+const isNiicsCoordRole = Boolean(myPriv.isNiicsCoordinator);
+const isClassTeacherRole = myCtClasses.length > 0;
+
+// Check if the logged-in user can pre-record leave for a given student & status
+const checkPreRecordPermission = (studentObj, targetStatus = null) => {
+  if (!studentObj) return { allowed: false, reason: 'No student selected.' };
+  const stCls = studentObj.studentClass || studentObj.class || (Array.isArray(studentObj.classes) ? studentObj.classes[0] : '');
+  const isUrdu = isUrduStudent(studentObj);
+
+  if (hasFullAllClassPreRecordPower) {
+    return { allowed: true, allowedStatuses: ['OUTPASS', 'OFFICIAL', 'SICK_ROOM', 'ABSENT'], roleLabel: 'Admin / Principal / Office Secretary (All Classes & Leave Types)' };
+  }
+  if (isClassTeacherRole && myCtClasses.includes(stCls)) {
+    return { allowed: true, allowedStatuses: ['OUTPASS', 'OFFICIAL', 'SICK_ROOM', 'ABSENT'], roleLabel: `Class Teacher of ${stCls} (All Leave Types)` };
+  }
+  if (isNiicsCoordRole && isUrdu) {
+    return { allowed: true, allowedStatuses: ['OUTPASS', 'OFFICIAL', 'SICK_ROOM', 'ABSENT'], roleLabel: 'NIICS Coordinator (Urdu Students All Leave Types)' };
+  }
+  if (isOutreachCoordRole) {
+    if (targetStatus && targetStatus !== 'OFFICIAL') {
+      return { allowed: false, allowedStatuses: ['OFFICIAL'], reason: 'Outreach Coordinator can only pre-record Official / Rehearsal leaves.' };
+    }
+    return { allowed: true, allowedStatuses: ['OFFICIAL'], roleLabel: 'Outreach Coordinator (Official & Rehearsal Leave Only)' };
+  }
+  return {
+    allowed: false,
+    allowedStatuses: [],
+    reason: isClassTeacherRole
+      ? `Class Teachers can only pre-record leaves for their assigned class (${myCtClasses.join(', ')}).`
+      : isNiicsCoordRole
+      ? 'NIICS Coordinator can only pre-record leaves for Urdu stream students (#U...).'
+      : 'Only Admin, Principal, Office Secretary, Outreach Coordinator, NIICS Coordinator, or the assigned Class Teacher can pre-record leaves.'
+  };
+};
+
+const canUsePreRecordButton = Boolean(
+  hasFullAllClassPreRecordPower || isOutreachCoordRole || isNiicsCoordRole || isClassTeacherRole
+);
+
+const handleCopyExtraUnexcusedAbsentees = () => {
+  const targetStudents = extraBaseClassStudents.filter(st => includeUrdu || !isUrduStudent(st));
+  const unexcusedList = targetStudents.filter(st => {
+    const ad = String(st.adNo || '').trim();
+    const cur = extraStatusMap[ad];
+    const activeWaiver = activeCampusWaiversMap[ad.toUpperCase()];
+    const isWaiverNow = activeWaiver && isWaiverActiveOnDate(activeWaiver, extraDate);
+    const activeRec = getActiveRecordedAbsenceForStudent(ad, extraDate);
+    const activePass = getActiveOutpassForStudent(ad, extraDate);
+    if (cur) return cur === 'ABSENT';
+    return !isWaiverNow && !activeRec && !activePass && false;
+  });
+
+  const effectiveReason = extraReason === 'CUSTOM' ? customExtraReason.trim() : extraReason.trim();
+  const lines = [
+    `*⚡ EXTRA ATTENDANCE — UNEXCUSED ABSENTEES (A)*`,
+    `📅 Date: ${extraDate} | Class: ${extraClass}`,
+    `🏷️ Reason: ${effectiveReason || 'Extra Session'}`,
+    `👨‍🏫 Taken By: ${recorderName}`,
+    `-----------------------------------------`,
+    unexcusedList.length === 0
+      ? `✅ Zero Unexcused Absentees!`
+      : unexcusedList.map((s, i) => `${i + 1}. *${s.firstName}* (#${s.adNo}) — Absent (A)`).join('\n')
+  ];
+  navigator.clipboard.writeText(lines.join('\n')).then(() => {
+    alert(`📋 Copied ${unexcusedList.length} unexcused absent (A) student(s) to clipboard!`);
+  });
+};
+
   const canViewAdminAnalytics = Boolean(
     isAdmin ||
     loggedInTeacher?.outpassPrivileges?.isPrincipal ||
@@ -417,78 +504,71 @@ export default function NightAttendanceManager({
     initData();
   }, []);
 
-    const getActiveOutpassForStudent = (adNo) => {
-    const cleanAd = String(adNo || '').trim().toLowerCase();
-    if (!cleanAd) return null;
-    const todayStr = getTodayDateString();
+    const getActiveOutpassForStudent = (adNo, dateOverride = null) => {
+  const cleanAd = String(adNo || '').trim().toLowerCase();
+  if (!cleanAd) return null;
+  const targetDate = dateOverride || selectedDate || getTodayDateString();
 
-    return activePasses.find(p => {
-      if (String(p.adNo || '').trim().toLowerCase() !== cleanAd) return false;
-      const st = String(p.status || '').toUpperCase();
-      if (st === 'CANCELLED') return false;
+  return activePasses.find(p => {
+    if (String(p.adNo || '').trim().toLowerCase() !== cleanAd) return false;
+    const st = String(p.status || '').toUpperCase();
+    if (st === 'CANCELLED') return false;
 
-      // 🌟 If student has returned and verified inside campus, he is NO LONGER off-campus!
-      const isReturned = st === 'RETURNED' || st === 'ARRIVED_AT_GATE' || Boolean(p.actualReturnTime || p.verifiedReturnedAt || p.teacherVerifiedTime);
-      if (isReturned) return false;
+    const isReturned = st === 'RETURNED' || st === 'ARRIVED_AT_GATE' || Boolean(p.actualReturnTime || p.verifiedReturnedAt || p.teacherVerifiedTime);
+    if (isReturned) return false;
 
-      const fromYMD = isoToLocalYMD(p.permittedFrom || p.createdAt);
-      const toYMD = p.isOpenReturn || !p.permittedTo
-        ? (p.actualReturnTime ? isoToLocalYMD(p.actualReturnTime) : '2099-12-31')
-        : isoToLocalYMD(p.actualReturnTime || p.permittedTo);
+    if (st !== 'OUTSIDE' && st !== 'APPROVED') return false;
 
-      if (selectedDate === todayStr && (st === 'OUTSIDE' || st === 'APPROVED')) {
-        return !fromYMD || selectedDate >= fromYMD;
-      }
-      if (fromYMD && selectedDate >= fromYMD && selectedDate <= toYMD) {
-        return st === 'OUTSIDE' || st === 'APPROVED';
-      }
-      return false;
+    return isTimestampWithinWindow({
+      targetDateStr: targetDate,
+      startIso: p.permittedFrom || p.createdAt,
+      endIso: p.actualReturnTime || p.permittedTo,
+      isOpenReturn: Boolean(p.isOpenReturn)
     });
-  };
+  });
+};
 
-  const getReturnedOutpassForStudent = (adNo) => {
-    const cleanAd = String(adNo || '').trim().toLowerCase();
-    if (!cleanAd) return null;
-    return activePasses.find(p => {
-      if (String(p.adNo || '').trim().toLowerCase() !== cleanAd) return false;
-      const st = String(p.status || '').toUpperCase();
-      if (st === 'CANCELLED') return false;
-      return st === 'RETURNED' || st === 'ARRIVED_AT_GATE' || Boolean(p.actualReturnTime || p.verifiedReturnedAt || p.teacherVerifiedTime);
-    });
-  };
+const getReturnedOutpassForStudent = (adNo) => {
+  const cleanAd = String(adNo || '').trim().toLowerCase();
+  if (!cleanAd) return null;
+  return activePasses.find(p => {
+    if (String(p.adNo || '').trim().toLowerCase() !== cleanAd) return false;
+    const st = String(p.status || '').toUpperCase();
+    if (st === 'CANCELLED') return false;
+    return st === 'RETURNED' || st === 'ARRIVED_AT_GATE' || Boolean(p.actualReturnTime || p.verifiedReturnedAt || p.teacherVerifiedTime);
+  });
+};
 
-  const getActiveRecordedAbsenceForStudent = (adNo, dateStr) => {
-    const cleanAd = String(adNo || '').trim().toUpperCase();
-    if (!cleanAd) return null;
+const getActiveRecordedAbsenceForStudent = (adNo, dateStr) => {
+  const cleanAd = String(adNo || '').trim().toUpperCase();
+  if (!cleanAd) return null;
 
-    let rec = recordedAbsencesMap[cleanAd];
-    if (!rec || rec.isCancelled) {
-      const dailyPre = (dailyDocData.preRecordedAbsences || {})[selectedClass]?.[String(adNo).trim()];
-      if (dailyPre && !dailyPre.isCancelled) rec = dailyPre;
-    }
+  let rec = recordedAbsencesMap[cleanAd];
+  if (!rec || rec.isCancelled) {
+    const dailyPre = (dailyDocData.preRecordedAbsences || {})[selectedClass]?.[String(adNo).trim()];
+    if (dailyPre && !dailyPre.isCancelled) rec = dailyPre;
+  }
 
-    if (!rec || rec.isCancelled) return null;
+  if (!rec || rec.isCancelled) return null;
 
-    const targetDate = dateStr || selectedDate || getTodayDateString();
-    const startDate = rec.startDate || rec.date || '';
-    const endDate = rec.hasDuration && rec.endDate ? rec.endDate : startDate;
+  const targetDate = dateStr || selectedDate || getTodayDateString();
+  const startDate = rec.startDate || rec.date || '';
+  const endDate = rec.hasDuration && rec.endDate ? rec.endDate : startDate;
 
-    if (startDate && targetDate < startDate) return null;
-    if (endDate && targetDate > endDate) return null;
+  const withinWindow = isTimestampWithinWindow({
+    targetDateStr: targetDate,
+    startIso: rec.startDateTimeIso,
+    endIso: rec.endDateTimeIso,
+    startDateStr: startDate,
+    startTimeStr: rec.startTime || '00:00',
+    endDateStr: endDate,
+    endTimeStr: rec.hasDuration && rec.endTime ? rec.endTime : '23:59',
+    isOpenReturn: false
+  });
 
-    if (rec.hasDuration && rec.endDateTimeIso) {
-      const endMs = new Date(rec.endDateTimeIso).getTime();
-      if (!isNaN(endMs)) {
-        const todayStr = getTodayDateString();
-        if (targetDate === todayStr && Date.now() > endMs) {
-          // Duration expired! Automatically revert student to normal
-          return null;
-        }
-      }
-    }
-
-    return rec;
-  };
+  if (!withinWindow) return null;
+  return rec;
+};
 
   const loadDateAttendance = async (dateStr) => {
     setLoading(true);
@@ -576,119 +656,160 @@ export default function NightAttendanceManager({
     }
   };
 
-  useEffect(() => {
-    if ((viewMode === 'regular_absentees' || (viewMode === 'admin_summary' && nightRepScope !== 'daily')) && monthlyDocsList.length === 0) {
-      loadRecent30DaysForAnalytics();
-    }
-    if (viewMode === 'extra_reports' && recordedExtraList.length === 0) {
-      loadExtraAttendanceRecords();
-    }
-  }, [viewMode, nightRepScope]);
+ useEffect(() => {
+  if (
+    (viewMode === 'regular_absentees' ||
+      viewMode === 'ct_class_summary' ||
+      viewMode === 'attendance_reports' ||
+      (viewMode === 'admin_summary' && nightRepScope !== 'daily')) &&
+    monthlyDocsList.length === 0
+  ) {
+    loadRecent30DaysForAnalytics();
+  }
+  if ((viewMode === 'extra_reports' || viewMode === 'attendance_reports') && recordedExtraList.length === 0) {
+    loadExtraAttendanceRecords();
+  }
+}, [viewMode, nightRepScope]);
 
-  const openAbsenceModal = (student, initialStatus = 'ABSENT', existingRec = null) => {
-    setAbsenceModalStudent(student);
-    setAbsenceModalStatus(initialStatus || 'ABSENT');
-    if (existingRec) {
-      setAbsenceModalReason(existingRec.reason || '');
-      setAbsenceModalHasDuration(Boolean(existingRec.hasDuration));
-      setAbsenceModalEndDate(existingRec.endDate || selectedDate);
-      setAbsenceModalEndTime(existingRec.endTime || '22:00');
-    } else {
-      setAbsenceModalReason(
-        initialStatus === 'SICK_ROOM' ? '🤒 Sick / Fever in Room' :
-        initialStatus === 'OUTPASS' ? '🏡 Home Leave (Approved)' :
-        initialStatus === 'OFFICIAL' ? '🏛️ Campus / Official Duty' :
-        '🤒 Sick / Fever in Room'
-      );
-      setAbsenceModalHasDuration(false);
-      setAbsenceModalEndDate(selectedDate);
-      setAbsenceModalEndTime('22:00');
-    }
+  const openAbsenceModal = (student, initialStatus = 'OUTPASS', existingRec = null) => {
+  const perm = checkPreRecordPermission(student);
+  if (!perm.allowed) {
+    return alert(`🔒 Permission Restricted:\n${perm.reason}`);
+  }
+  const now = new Date();
+  const curHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const defaultStatus = perm.allowedStatuses.includes(initialStatus)
+    ? initialStatus
+    : perm.allowedStatuses[0] || 'OFFICIAL';
+
+  setAbsenceModalStudent(student);
+  setAbsenceModalStatus(defaultStatus);
+  if (existingRec) {
+    setAbsenceModalReason(existingRec.reason || '');
+    setAbsenceModalStartDate(existingRec.startDate || selectedDate);
+    setAbsenceModalStartTime(existingRec.startTime || '08:00');
+    setAbsenceModalHasDuration(Boolean(existingRec.hasDuration));
+    setAbsenceModalEndDate(existingRec.endDate || selectedDate);
+    setAbsenceModalEndTime(existingRec.endTime || '22:00');
+  } else {
+    setAbsenceModalReason(
+      defaultStatus === 'SICK_ROOM' ? '🤒 Sick / Fever in Room' :
+      defaultStatus === 'OUTPASS' ? '🏡 Permitted Leave' :
+      defaultStatus === 'OFFICIAL' ? '🏛️ Official / Rehearsal Duty' :
+      '🤒 Sick / Fever in Room'
+    );
+    setAbsenceModalStartDate(selectedDate);
+    setAbsenceModalStartTime(curHHMM);
+    setAbsenceModalHasDuration(true);
+    setAbsenceModalEndDate(selectedDate);
+    setAbsenceModalEndTime('22:00');
+  }
+};
+
+const handleSaveSingleStudentAbsence = async () => {
+  if (!absenceModalStudent) return;
+  const st = absenceModalStudent;
+  const perm = checkPreRecordPermission(st, absenceModalStatus);
+  if (!perm.allowed) {
+    return alert(`🔒 Permission Restricted:\n${perm.reason}`);
+  }
+
+  const ad = String(st.adNo || '').trim();
+  const cleanAd = ad.toUpperCase();
+  const now = new Date();
+
+  const effectiveReason = (absenceModalReason || '').trim() || (
+    absenceModalStatus === 'SICK_ROOM' ? 'Medical / Sick in Room' :
+    absenceModalStatus === 'OUTPASS' ? 'Permitted Leave' :
+    absenceModalStatus === 'OFFICIAL' ? 'Official / Rehearsal Leave' : 'Absent'
+  );
+
+  const effectiveStartDate = absenceModalStartDate || selectedDate;
+  const effectiveStartTime = absenceModalStartTime || '00:00';
+  const startDateTimeIso = new Date(`${effectiveStartDate}T${effectiveStartTime}:00`).toISOString();
+
+  const effectiveEndDate = absenceModalHasDuration && absenceModalEndDate ? absenceModalEndDate : effectiveStartDate;
+  const effectiveEndTime = absenceModalHasDuration && absenceModalEndTime ? absenceModalEndTime : '23:59';
+  const endDateTimeIso = new Date(`${effectiveEndDate}T${effectiveEndTime}:59`).toISOString();
+
+  const absenceRecord = {
+    adNo: ad,
+    studentName: st.firstName || st.name || 'Student',
+    studentRegNo: st.regNo || '',
+    className: selectedClass,
+    status: absenceModalStatus || 'OUTPASS',
+    reason: effectiveReason,
+    startDate: effectiveStartDate,
+    startTime: effectiveStartTime,
+    startDateTimeIso,
+    hasDuration: Boolean(absenceModalHasDuration),
+    endDate: effectiveEndDate,
+    endTime: effectiveEndTime,
+    endDateTimeIso,
+    recordedBy: recorderName || 'Teacher',
+    recordedAt: now.toISOString(),
+    isCancelled: false
   };
 
-  const handleSaveSingleStudentAbsence = async () => {
-    if (!absenceModalStudent) return;
-    const st = absenceModalStudent;
-    const ad = String(st.adNo || '').trim();
-    const cleanAd = ad.toUpperCase();
-    const now = new Date();
-
-    const effectiveReason = (absenceModalReason || '').trim() || (
-      absenceModalStatus === 'SICK_ROOM' ? 'Sick / In Room' :
-      absenceModalStatus === 'OUTPASS' ? 'Home / Permitted Leave' :
-      absenceModalStatus === 'OFFICIAL' ? 'Campus / Official Duty' : 'Absent'
-    );
-
-    const effectiveEndDate = absenceModalHasDuration && absenceModalEndDate ? absenceModalEndDate : selectedDate;
-    const effectiveEndTime = absenceModalHasDuration && absenceModalEndTime ? absenceModalEndTime : '22:00';
-    const endDateTimeIso = new Date(`${effectiveEndDate}T${effectiveEndTime}:00`).toISOString();
-
-    const absenceRecord = {
-      adNo: ad,
-      studentName: st.firstName || st.name || 'Student',
-      studentRegNo: st.regNo || '',
-      className: selectedClass,
-      status: absenceModalStatus || 'ABSENT',
-      reason: effectiveReason,
-      startDate: selectedDate,
-      startTime: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
-      hasDuration: Boolean(absenceModalHasDuration),
-      endDate: effectiveEndDate,
-      endTime: effectiveEndTime,
-      endDateTimeIso,
-      recordedBy: recorderName || 'Teacher',
-      recordedAt: now.toISOString(),
-      isCancelled: false
+  setAbsenceModalSaving(true);
+  try {
+    const newMap = {
+      ...recordedAbsencesMap,
+      [cleanAd]: absenceRecord
     };
 
-    setAbsenceModalSaving(true);
-    try {
-      const newMap = {
-        ...recordedAbsencesMap,
-        [cleanAd]: absenceRecord
-      };
+    await setDoc(doc(db, 'systemCache', 'recordedStudentAbsences'), {
+      absences: newMap,
+      lastUpdated: now.toISOString()
+    }, { merge: true });
 
-      await setDoc(doc(db, 'systemCache', 'recordedStudentAbsences'), {
-        absences: newMap,
-        lastUpdated: now.toISOString()
-      }, { merge: true });
+    const existingClassPre = (dailyDocData.preRecordedAbsences || {})[selectedClass] || {};
+    const updatedClassPre = {
+      ...existingClassPre,
+      [ad]: absenceRecord
+    };
+    const updatedPreMap = {
+      ...(dailyDocData.preRecordedAbsences || {}),
+      [selectedClass]: updatedClassPre
+    };
 
-      // Also mirror into night_attendance doc for selected date
-      const existingClassPre = (dailyDocData.preRecordedAbsences || {})[selectedClass] || {};
-      const updatedClassPre = {
-        ...existingClassPre,
-        [ad]: absenceRecord
-      };
-      const updatedPreMap = {
-        ...(dailyDocData.preRecordedAbsences || {}),
-        [selectedClass]: updatedClassPre
-      };
+    await setDoc(doc(db, 'night_attendance', selectedDate), {
+      date: selectedDate,
+      classes: dailyDocData.classes || {},
+      preRecordedAbsences: updatedPreMap,
+      lastUpdated: now.toISOString()
+    }, { merge: true });
 
-      await setDoc(doc(db, 'night_attendance', selectedDate), {
-        date: selectedDate,
-        classes: dailyDocData.classes || {},
-        preRecordedAbsences: updatedPreMap,
-        lastUpdated: now.toISOString()
-      }, { merge: true });
+    setRecordedAbsencesMap(newMap);
+    setDailyDocData(prev => ({
+      ...prev,
+      preRecordedAbsences: updatedPreMap
+    }));
 
-      setRecordedAbsencesMap(newMap);
-      setDailyDocData(prev => ({
-        ...prev,
-        preRecordedAbsences: updatedPreMap
-      }));
+    // Only update current statusMap if the start time has already begun
+    if (isTimestampWithinWindow({
+      targetDateStr: selectedDate,
+      startIso: startDateTimeIso,
+      endIso: endDateTimeIso,
+      startDateStr: effectiveStartDate,
+      startTimeStr: effectiveStartTime,
+      endDateStr: effectiveEndDate,
+      endTimeStr: effectiveEndTime
+    })) {
       setStatusMap(prev => ({
         ...prev,
-        [ad]: absenceModalStatus || 'ABSENT'
+        [ad]: absenceModalStatus || 'OUTPASS'
       }));
-
-      setAbsenceModalStudent(null);
-    } catch (err) {
-      console.error('Error saving single student absence:', err);
-      alert('Error saving absence: ' + err.message);
-    } finally {
-      setAbsenceModalSaving(false);
     }
-  };
+
+    setAbsenceModalStudent(null);
+  } catch (err) {
+    console.error('Error saving single student absence:', err);
+    alert('Error saving absence: ' + err.message);
+  } finally {
+    setAbsenceModalSaving(false);
+  }
+};
 
   const handleMarkPresentAndClearAbsence = async (st) => {
     const ad = String(st.adNo || '').trim();
@@ -1151,12 +1272,15 @@ export default function NightAttendanceManager({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
           {[
-            { id: 'take_attendance', label: 'Take Class Attendance' },
-            { id: 'extra_attendance', label: '⚡ Extra Attendance (Same Day)' },
-            { id: 'extra_reports', label: '📊 Extra Attendance Reports' },
+            { id: 'take_attendance', label: '1. Take Night Attendance' },
+            { id: 'extra_attendance', label: '2. ⚡ Extra Attendance' },
+            { id: 'attendance_reports', label: '3. 📊 Attendance Reports' },
+            ...(isClassTeacherRole || isAdmin ? [
+              { id: 'ct_class_summary', label: `🏫 My Class Night Summary (${myCtClasses[0] || selectedClass})` }
+            ] : []),
             ...(canViewAdminAnalytics ? [
-              { id: 'admin_summary', label: 'Institution & Monthly Summary' },
-              { id: 'regular_absentees', label: 'Regular Absentees Tracker' }
+              { id: 'admin_summary', label: 'Institution Summary' },
+              { id: 'regular_absentees', label: 'All-Classes Regular Absentees' }
             ] : [])
           ].map(tab => {
             const active = viewMode === tab.id;
@@ -1543,7 +1667,7 @@ export default function NightAttendanceManager({
                       </div>
                     )}
 
-                    {activeCampusWaiver && isWaiverActiveOnDate(activeCampusWaiver, selectedDate) && !activeRecAbs && (
+                    {activeCampusWaiver && activeCampusWaiver.waiverType === 'SICK_IN_ROOM' && isWaiverActiveOnDate(activeCampusWaiver, selectedDate) && !activeRecAbs && (
                       <div
                         style={{
                           background: activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '#fffbeb' : '#fff1f2',
@@ -1774,41 +1898,42 @@ export default function NightAttendanceManager({
                   </button>
                 </div>
 
-                {/* 1. STATUS CATEGORY SELECTOR */}
+                {/* 1. STATUS CATEGORY SELECTOR (Filtered by Role Permission) */}
                 <div>
                   <label style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>
-                    1. Absence Category:
+                    1. Leave / Absence Category ({checkPreRecordPermission(absenceModalStudent).roleLabel}):
                   </label>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
                     {[
-                      { id: 'ABSENT', label: '🔴 Absent', color: '#e11d48' },
-                      { id: 'OUTPASS', label: '🪪 Leave', color: '#4f46e5' },
-                      { id: 'OFFICIAL', label: '🏛️ Official', color: '#0d9488' },
-                      { id: 'SICK_ROOM', label: '🤒 Sick', color: '#d97706' }
-                    ].map(cat => {
-                      const isSel = absenceModalStatus === cat.id;
-                      return (
-                        <button
-                          key={cat.id}
-                          type="button"
-                          onClick={() => setAbsenceModalStatus(cat.id)}
-                          style={{
-                            padding: '8px 4px',
-                            borderRadius: '8px',
-                            fontSize: '12px',
-                            fontWeight: '700',
-                            cursor: 'pointer',
-                            border: isSel ? `2px solid ${cat.color}` : '1px solid #cbd5e1',
-                            background: isSel ? `${cat.color}15` : '#ffffff',
-                            color: isSel ? cat.color : '#475569',
-                            textAlign: 'center',
-                            transition: 'all 0.15s ease'
-                          }}
-                        >
-                          {cat.label}
-                        </button>
-                      );
-                    })}
+                      { id: 'OUTPASS', label: '🟣 Leave (L)', color: '#8b5cf6' },
+                      { id: 'OFFICIAL', label: '🏛️ Official (O)', color: '#0d9488' },
+                      { id: 'SICK_ROOM', label: '🤒 Medical (M)', color: '#d97706' },
+                      { id: 'ABSENT', label: '🔴 Absent (A)', color: '#e11d48' }
+                    ]
+                      .filter(cat => checkPreRecordPermission(absenceModalStudent).allowedStatuses.includes(cat.id))
+                      .map(cat => {
+                        const isSel = absenceModalStatus === cat.id;
+                        return (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => setAbsenceModalStatus(cat.id)}
+                            style={{
+                              padding: '8px 4px',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              fontWeight: '700',
+                              cursor: 'pointer',
+                              border: isSel ? `2px solid ${cat.color}` : '1px solid #cbd5e1',
+                              background: isSel ? `${cat.color}15` : '#ffffff',
+                              color: isSel ? cat.color : '#475569',
+                              textAlign: 'center'
+                            }}
+                          >
+                            {cat.label}
+                          </button>
+                        );
+                      })}
                   </div>
                 </div>
 
@@ -1916,7 +2041,29 @@ export default function NightAttendanceManager({
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                         <div>
                           <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '4px' }}>
-                            End Date:
+                            Permitted From (Start Date):
+                          </label>
+                          <input
+                            type="date"
+                            value={absenceModalStartDate}
+                            onChange={(e) => setAbsenceModalStartDate(e.target.value)}
+                            style={{ ...styles.input, width: '100%', fontSize: '12px', padding: '7px 10px' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '4px' }}>
+                            Permitted From (Start Time):
+                          </label>
+                          <input
+                            type="time"
+                            value={absenceModalStartTime}
+                            onChange={(e) => setAbsenceModalStartTime(e.target.value)}
+                            style={{ ...styles.input, width: '100%', fontSize: '12px', padding: '7px 10px' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '4px' }}>
+                            Permitted Until (End Date):
                           </label>
                           <input
                             type="date"
@@ -1927,7 +2074,7 @@ export default function NightAttendanceManager({
                         </div>
                         <div>
                           <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '4px' }}>
-                            End Time:
+                            Permitted Until (End Time):
                           </label>
                           <input
                             type="time"
@@ -2491,6 +2638,13 @@ export default function NightAttendanceManager({
               <button type="button" onClick={() => handleExtraMarkAll('ABSENT')} style={{ ...styles.buttonSecondary, color: '#e11d48' }}>
                 ✕ Mark All Absent
               </button>
+              <button
+                type="button"
+                onClick={handleCopyExtraUnexcusedAbsentees}
+                style={styles.buttonSecondary}
+              >
+                📋 Copy Unexcused Absent (A) Only
+              </button>
             </div>
 
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -2516,7 +2670,9 @@ export default function NightAttendanceManager({
               let curStatus = extraStatusMap[ad];
               if (!curStatus) {
                 if (activeCampusWaiver && activeCampusWaiver.waiverType === 'SICK_IN_ROOM' && isWaiverActiveOnDate(activeCampusWaiver, extraDate)) {
-                  curStatus = 'SICK_ROOM';
+                curStatus = 'SICK_ROOM';
+              } else if (activeCampusWaiver && activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' && isWaiverActiveOnDate(activeCampusWaiver, extraDate)) {
+                curStatus = 'JAMATH_EXEMPTION';
                 } else if (activeRecAbs) {
                   curStatus = activeRecAbs.status || 'ABSENT';
                 } else if (activePass) {
@@ -2596,11 +2752,12 @@ export default function NightAttendanceManager({
 
                   <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                     {[
-                      { id: 'PRESENT', label: 'Pres', activeBg: '#10b981' },
-                      { id: 'ABSENT', label: 'Abs', activeBg: '#e11d48' },
-                      { id: 'LEAVE', label: 'Leave', activeBg: '#8b5cf6' },
-                      { id: 'SICK_ROOM', label: 'Sick', activeBg: '#d97706' },
-                      { id: 'OFFICIAL', label: 'Off', activeBg: '#0d9488' }
+                      { id: 'PRESENT', label: 'P', activeBg: '#10b981' },
+                      { id: 'ABSENT', label: 'A', activeBg: '#e11d48' },
+                      { id: 'LEAVE', label: 'L', activeBg: '#8b5cf6' },
+                      { id: 'SICK_ROOM', label: 'M', activeBg: '#d97706' },
+                      { id: 'OFFICIAL', label: 'O', activeBg: '#0d9488' },
+                      { id: 'JAMATH_EXEMPTION', label: 'Jamath', activeBg: '#0284c7' }
                     ].map(b => (
                       <button
                         key={b.id}
@@ -2663,78 +2820,149 @@ export default function NightAttendanceManager({
       )}
 
       {/* =========================================================
-          MODE 5: EXTRA ATTENDANCE REPORTS & ARCHIVE
+          MODE 5: 3RD TAB — UNIFIED ATTENDANCE REPORTS (NIGHT + EXTRA SUB-TABS) (Point 1.8)
          ========================================================= */}
-      {viewMode === 'extra_reports' && (
+      {(viewMode === 'attendance_reports' || viewMode === 'extra_reports') && (
         <div style={styles.card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid #f1f5f9', paddingBottom: '14px' }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
-                📊 Extra Attendance Reports &amp; History
+                📊 Attendance Reports Hub (Night &amp; Extra Roll-Calls)
               </h3>
               <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
-                View and forward all same-day extra roll-calls recorded for specific events, camps, and checks.
+                Switch between Night Attendance Reports and Extra Attendance Reports below.
               </p>
             </div>
-            <button type="button" onClick={loadExtraAttendanceRecords} style={styles.buttonSecondary}>
-              🔄 Refresh List
+
+            {/* TWO SUB-TABS: 1. NIGHT ATTENDANCE REPORTS | 2. EXTRA ATTENDANCE REPORTS */}
+            <div style={{ display: 'flex', gap: '8px', background: '#f1f5f9', padding: '5px', borderRadius: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setReportsSubTab('night_reports')}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  fontWeight: '800',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  border: 'none',
+                  background: reportsSubTab === 'night_reports' ? '#4f46e5' : 'transparent',
+                  color: reportsSubTab === 'night_reports' ? '#ffffff' : '#475569'
+                }}
+              >
+                🌙 Night Attendance Reports
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReportsSubTab('extra_reports');
+                  loadExtraAttendanceRecords();
+                }}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  fontWeight: '800',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  border: 'none',
+                  background: reportsSubTab === 'extra_reports' ? '#4f46e5' : 'transparent',
+                  color: reportsSubTab === 'extra_reports' ? '#ffffff' : '#475569'
+                }}
+              >
+                ⚡ Extra Attendance Reports
+              </button>
+            </div>
+          </div>
+
+          {/* FILTER BAR (Shared Clean Style for Both Sub-Tabs) */}
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '16px', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <div>
+                <label style={styles.label}>Filter by Class</label>
+                <select
+                  value={extraRepClass}
+                  onChange={e => setExtraRepClass(e.target.value)}
+                  style={{ ...styles.input, width: '140px', padding: '7px 12px' }}
+                >
+                  <option value="ALL">All Classes</option>
+                  {DEFAULT_CLASSES.map(c => <option key={c} value={c}>Class {c}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label style={styles.label}>Filter by Date</label>
+                <input
+                  type="date"
+                  value={extraRepDate}
+                  onChange={e => setExtraRepDate(e.target.value)}
+                  style={{ ...styles.input, width: '160px', padding: '7px 12px' }}
+                />
+              </div>
+              {extraRepDate && (
+                <button
+                  type="button"
+                  onClick={() => setExtraRepDate('')}
+                  style={{ ...styles.buttonSecondary, marginTop: '16px', padding: '7px 12px', fontSize: '12px' }}
+                >
+                  Clear Date
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (reportsSubTab === 'night_reports') loadRecent30DaysForAnalytics();
+                else loadExtraAttendanceRecords();
+              }}
+              style={styles.buttonSecondary}
+            >
+              🔄 Refresh Reports
             </button>
           </div>
 
-          {/* FILTER BAR */}
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '16px', alignItems: 'center' }}>
-            <div>
-              <label style={styles.label}>Filter by Class</label>
-              <select
-                value={extraRepClass}
-                onChange={e => setExtraRepClass(e.target.value)}
-                style={{ ...styles.input, width: '140px', padding: '7px 12px' }}
-              >
-                <option value="ALL">All Classes</option>
-                {DEFAULT_CLASSES.map(c => <option key={c} value={c}>Class {c}</option>)}
-              </select>
-            </div>
+          {/* SUB-TAB 1: NIGHT ATTENDANCE REPORTS (Using Exact Card Style of Extra Attendance Reports!) */}
+          {reportsSubTab === 'night_reports' ? (() => {
+            const nightCards = [];
+            const docsSource = monthlyDocsList.length > 0 ? monthlyDocsList : [{ date: selectedDate, ...dailyDocData }];
 
-            <div>
-              <label style={styles.label}>Filter by Date</label>
-              <input
-                type="date"
-                value={extraRepDate}
-                onChange={e => setExtraRepDate(e.target.value)}
-                style={{ ...styles.input, width: '160px', padding: '7px 12px' }}
-              />
-            </div>
-            {extraRepDate && (
-              <button
-                type="button"
-                onClick={() => setExtraRepDate('')}
-                style={{ ...styles.buttonSecondary, marginTop: '16px', padding: '7px 12px', fontSize: '12px' }}
-              >
-                Clear Date
-              </button>
-            )}
-          </div>
+            docsSource.forEach(dayDoc => {
+              const dStr = dayDoc.date || selectedDate;
+              if (extraRepDate && dStr !== extraRepDate) return;
+              const clsMap = dayDoc.classes || {};
+              Object.keys(clsMap).forEach(clsKey => {
+                if (extraRepClass !== 'ALL' && clsKey !== extraRepClass) return;
+                const rec = clsMap[clsKey];
+                if (!rec) return;
+                nightCards.push({
+                  id: `night_${dStr}_${clsKey}`,
+                  date: dStr,
+                  className: clsKey,
+                  ...rec
+                });
+              });
+            });
 
-          {/* SESSIONS CARDS LIST */}
-          {loadingExtraReports ? (
-            <div style={{ padding: '30px', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>Loading extra attendance records...</div>
-          ) : (() => {
-            const filteredSessions = recordedExtraList
-              .filter(item => extraRepClass === 'ALL' || item.className === extraRepClass)
-              .filter(item => !extraRepDate || item.date === extraRepDate);
-
-            if (filteredSessions.length === 0) {
+            if (nightCards.length === 0) {
               return (
                 <div style={{ padding: '36px', background: '#f8fafc', borderRadius: '12px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
-                  No extra attendance records found for the selected filters.
+                  No night attendance records found for the selected filters.
                 </div>
               );
             }
 
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {filteredSessions.map(sess => {
+                {nightCards.map(sess => {
                   const ct = getClassTeacherForClass(sess.className);
+                  const clsSts = students.filter(s => (s.classes || []).includes(sess.className));
+                  const unexcusedNames = clsSts
+                    .filter(s => (sess.absentAdNos || []).includes(String(s.adNo)))
+                    .map(s => `${s.firstName} (#${s.adNo})`);
+                  const leaveCount = (sess.outpassAdNos?.length || 0) + (sess.permittedAdNos?.length || 0);
+                  const medCount = sess.sickAdNos?.length || 0;
+                  const offCount = sess.officialAdNos?.length || 0;
+
                   return (
                     <div
                       key={sess.id}
@@ -2752,7 +2980,7 @@ export default function NightAttendanceManager({
                       }}
                     >
                       <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                           <span style={{ background: '#4f46e5', color: '#ffffff', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
                             Class {sess.className}
                           </span>
@@ -2760,32 +2988,45 @@ export default function NightAttendanceManager({
                             📅 {sess.date}
                           </span>
                           <span style={{ background: '#e0e7ff', color: '#3730a3', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>
-                            🏷️ {sess.reason}
-                          </span>
-                          <span style={{ background: sess.includeUrdu ? '#dcfce7' : '#fef3c7', color: sess.includeUrdu ? '#15803d' : '#92400e', padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '800' }}>
-                            {sess.includeUrdu ? 'Urdu Included' : 'Urdu Skipped'}
+                            🌙 Night Roll-Call
                           </span>
                         </div>
 
-                        <div style={{ marginTop: '8px', fontSize: '13px', color: '#0f172a', fontWeight: '700' }}>
-                          Present: <span style={{ color: '#059669' }}>{sess.presentCount}</span> / Absent: <span style={{ color: '#e11d48' }}>{sess.absentCount}</span> • Total Strength: {sess.totalStrength}
+                        <div style={{ marginTop: '8px', fontSize: '13px', color: '#0f172a', fontWeight: '700', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          <span>Present: <strong style={{ color: '#059669' }}>{sess.presentCount}</strong></span>
+                          <span>• Absent (A): <strong style={{ color: '#e11d48' }}>{(sess.absentAdNos || []).length}</strong></span>
+                          <span>• Medical (M): <strong style={{ color: '#d97706' }}>{medCount}</strong></span>
+                          <span>• Official (O): <strong style={{ color: '#0d9488' }}>{offCount}</strong></span>
+                          <span>• Outpass Leave (L): <strong style={{ color: '#4f46e5' }}>{leaveCount}</strong></span>
+                          <span>• Strength: <strong>{sess.totalStrength || clsSts.length}</strong></span>
                         </div>
 
-                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '3px' }}>
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
                           👨‍🏫 Recorded By: {sess.takenBy || 'Teacher'} • Class Faculty: {ct?.fullName || 'Not assigned'}
-                          {sess.absentList && sess.absentList.length > 0 && (
-                            <div style={{ marginTop: '4px', color: '#e11d48', fontWeight: '600' }}>
-                              Absentees: {sess.absentList.map(a => a.name).join(', ')}
+                          {unexcusedNames.length > 0 && (
+                            <div style={{ marginTop: '4px', color: '#e11d48', fontWeight: '700' }}>
+                              🔴 Unexcused Absentees (A): {unexcusedNames.join(', ')}
                             </div>
                           )}
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                         <button
                           type="button"
-                          onClick={() => handleSendExtraToClassTeacher(sess)}
-                          style={{ ...styles.buttonSuccess, background: '#25D366', color: '#ffffff', padding: '8px 14px', fontSize: '12px', fontWeight: '800', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                          onClick={() => {
+                            const txt = [
+                              `*🌙 NIGHT ATTENDANCE REPORT — CLASS ${sess.className}*`,
+                              `📅 Date: ${sess.date} | Recorded By: ${sess.takenBy || 'Faculty'}`,
+                              `📊 Strength: ${sess.totalStrength || clsSts.length} | Present: ${sess.presentCount} | Absent (A): ${(sess.absentAdNos || []).length} | Medical (M): ${medCount} | Official (O): ${offCount} | Leave (L): ${leaveCount}`,
+                              `-----------------------------------------`,
+                              unexcusedNames.length > 0
+                                ? `🔴 *Unexcused Absentees (A):*\n${unexcusedNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}`
+                                : `✅ Zero Unexcused Absentees!`
+                            ].join('\n');
+                            openDirectWhatsApp(ct?.whatsappNumber || ct?.mobileNumber, txt);
+                          }}
+                          style={{ ...styles.buttonSuccess, background: '#25D366', color: '#ffffff', padding: '8px 14px', fontSize: '12px', fontWeight: '800', width: 'auto', marginTop: 0 }}
                         >
                           📲 Forward to Class Teacher
                         </button>
@@ -2795,9 +3036,362 @@ export default function NightAttendanceManager({
                 })}
               </div>
             );
-          })()}
+          })() : (
+            /* SUB-TAB 2: EXTRA ATTENDANCE REPORTS */
+            loadingExtraReports ? (
+              <div style={{ padding: '30px', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>Loading extra attendance records...</div>
+            ) : (() => {
+              const filteredSessions = recordedExtraList
+                .filter(item => extraRepClass === 'ALL' || item.className === extraRepClass)
+                .filter(item => !extraRepDate || item.date === extraRepDate);
+
+              if (filteredSessions.length === 0) {
+                return (
+                  <div style={{ padding: '36px', background: '#f8fafc', borderRadius: '12px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
+                    No extra attendance records found for the selected filters.
+                  </div>
+                );
+              }
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {filteredSessions.map(sess => {
+                    const ct = getClassTeacherForClass(sess.className);
+                    return (
+                      <div
+                        key={sess.id}
+                        style={{
+                          padding: '16px 18px',
+                          borderRadius: '12px',
+                          border: '1px solid #e2e8f0',
+                          background: '#ffffff',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: '12px',
+                          boxShadow: '0 1px 3px rgba(15,23,42,0.03)'
+                        }}
+                      >
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <span style={{ background: '#4f46e5', color: '#ffffff', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
+                              Class {sess.className}
+                            </span>
+                            <span style={{ fontSize: '12px', fontWeight: '700', color: '#64748b' }}>
+                              📅 {sess.date}
+                            </span>
+                            <span style={{ background: '#e0e7ff', color: '#3730a3', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>
+                              🏷️ {sess.reason}
+                            </span>
+                            <span style={{ background: sess.includeUrdu ? '#dcfce7' : '#fef3c7', color: sess.includeUrdu ? '#15803d' : '#92400e', padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '800' }}>
+                              {sess.includeUrdu ? 'Urdu Included' : 'Urdu Skipped'}
+                            </span>
+                          </div>
+
+                          <div style={{ marginTop: '8px', fontSize: '13px', color: '#0f172a', fontWeight: '700' }}>
+                            Present: <span style={{ color: '#059669' }}>{sess.presentCount}</span> / Absent (A): <span style={{ color: '#e11d48' }}>{sess.absentCount}</span> • Total Strength: {sess.totalStrength}
+                          </div>
+
+                          <div style={{ fontSize: '11px', color: '#64748b', marginTop: '3px' }}>
+                            👨‍🏫 Recorded By: {sess.takenBy || 'Teacher'} • Class Faculty: {ct?.fullName || 'Not assigned'}
+                            {sess.absentList && sess.absentList.length > 0 && (
+                              <div style={{ marginTop: '4px', color: '#e11d48', fontWeight: '600' }}>
+                                Absentees: {sess.absentList.map(a => a.name).join(', ')}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleSendExtraToClassTeacher(sess)}
+                            style={{ ...styles.buttonSuccess, background: '#25D366', color: '#ffffff', padding: '8px 14px', fontSize: '12px', fontWeight: '800', width: 'auto', marginTop: 0 }}
+                          >
+                            📲 Forward to Class Teacher
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()
+          )}
         </div>
       )}
+
+      {/* =========================================================
+          MODE 6: CLASS TEACHER NIGHT ATTENDANCE SUMMARY & REGULAR ABSENTEES TRACKER (Point 1.8)
+         ========================================================= */}
+      {viewMode === 'ct_class_summary' && (isClassTeacherRole || isAdmin) && (() => {
+        const targetCtClass = isClassTeacherRole ? (myCtClasses[0] || selectedClass) : selectedClass;
+        const myClassSts = students.filter(s => (s.classes || []).includes(targetCtClass));
+
+        // Scoped night docs based on Specific Date / Month / Total Semester
+        const scopedNightDocs = ctSummaryScope === 'date'
+          ? (monthlyDocsList.some(d => d.date === ctSummaryDate)
+              ? monthlyDocsList.filter(d => d.date === ctSummaryDate)
+              : ctSummaryDate === selectedDate
+              ? [{ date: selectedDate, ...dailyDocData }]
+              : [])
+          : ctSummaryScope === 'month'
+          ? monthlyDocsList.filter(d => String(d.date || '').startsWith(ctSummaryMonth))
+          : monthlyDocsList;
+
+        let tilePresent = 0;
+        let tileMedical = 0;
+        let tileOfficial = 0;
+        let tileNoReasonAbsent = 0;
+        let tileOutpassLeave = 0;
+
+        const studentBreakdown = myClassSts.map(st => {
+          const ad = String(st.adNo || '').trim();
+          let nightsHeld = 0;
+          let pres = 0;
+          let med = 0;
+          let off = 0;
+          let noReasonAbs = 0;
+          let outpassLv = 0;
+          const unexcusedDates = [];
+
+          scopedNightDocs.forEach(dDoc => {
+            const cRec = (dDoc.classes || {})[targetCtClass];
+            if (!cRec) return;
+            nightsHeld++;
+            if ((cRec.absentAdNos || []).includes(ad)) {
+              noReasonAbs++;
+              unexcusedDates.push(dDoc.date);
+            } else if ((cRec.sickAdNos || []).includes(ad)) {
+              med++;
+            } else if ((cRec.officialAdNos || []).includes(ad)) {
+              off++;
+            } else if ((cRec.outpassAdNos || []).includes(ad) || (cRec.permittedAdNos || []).includes(ad)) {
+              outpassLv++;
+            } else {
+              pres++;
+            }
+          });
+
+          tilePresent += pres;
+          tileMedical += med;
+          tileOfficial += off;
+          tileNoReasonAbsent += noReasonAbs;
+          tileOutpassLeave += outpassLv;
+
+          const attPct = nightsHeld > 0 ? (((pres + off) / nightsHeld) * 100).toFixed(1) : '100.0';
+
+          return {
+            student: st,
+            nightsHeld,
+            pres,
+            med,
+            off,
+            noReasonAbs,
+            outpassLv,
+            unexcusedDates,
+            attPct
+          };
+        });
+
+        const regularAbsenteesInMyClass = [...studentBreakdown]
+          .filter(r => r.noReasonAbs > 0)
+          .sort((a, b) => b.noReasonAbs - a.noReasonAbs);
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div style={styles.card}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+                <div>
+                  <span style={{ background: '#eef2ff', color: '#4f46e5', padding: '3px 9px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
+                    🏫 CLASS TEACHER NIGHT ATTENDANCE COMMAND
+                  </span>
+                  <h3 style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
+                    Class {targetCtClass} — Night Attendance Summary &amp; Regular Absentees Tracker
+                  </h3>
+                </div>
+
+                {/* FILTER CONTROLS: SPECIFIC DATE / MONTH / TOTAL SEMESTER */}
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {(isAdmin || myCtClasses.length > 1) && (
+                    <select
+                      value={selectedClass}
+                      onChange={e => setSelectedClass(e.target.value)}
+                      style={{ ...styles.input, width: 'auto', padding: '7px 12px', fontWeight: '700' }}
+                    >
+                      {(isAdmin ? DEFAULT_CLASSES : myCtClasses).map(c => (
+                        <option key={c} value={c}>Class {c}</option>
+                      ))}
+                    </select>
+                  )}
+
+                  {[
+                    { id: 'date', label: '📅 Specific Date' },
+                    { id: 'month', label: '🗓️ Monthly' },
+                    { id: 'semester', label: '📚 Total Semester' }
+                  ].map(sc => (
+                    <button
+                      key={sc.id}
+                      type="button"
+                      onClick={() => setCtSummaryScope(sc.id)}
+                      style={{
+                        padding: '7px 14px',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        fontWeight: '800',
+                        cursor: 'pointer',
+                        border: ctSummaryScope === sc.id ? '1.5px solid #4f46e5' : '1px solid #cbd5e1',
+                        background: ctSummaryScope === sc.id ? '#4f46e5' : '#ffffff',
+                        color: ctSummaryScope === sc.id ? '#ffffff' : '#334155'
+                      }}
+                    >
+                      {sc.label}
+                    </button>
+                  ))}
+
+                  {ctSummaryScope === 'date' && (
+                    <input
+                      type="date"
+                      value={ctSummaryDate}
+                      onChange={e => {
+                        setCtSummaryDate(e.target.value);
+                        setSelectedDate(e.target.value);
+                      }}
+                      style={{ ...styles.input, width: 'auto', padding: '6px 10px', fontSize: '12px', fontWeight: '700' }}
+                    />
+                  )}
+
+                  {ctSummaryScope === 'month' && (
+                    <input
+                      type="month"
+                      value={ctSummaryMonth}
+                      onChange={e => setCtSummaryMonth(e.target.value)}
+                      style={{ ...styles.input, width: 'auto', padding: '6px 10px', fontSize: '12px', fontWeight: '700' }}
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* 🌟 6 TOP KPI TILES FOR CLASS TEACHER */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+                <div style={{ padding: '14px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                  <div style={{ fontSize: '10px', fontWeight: '800', color: '#64748b' }}>1. TOTAL CLASS STRENGTH</div>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>{myClassSts.length}</div>
+                </div>
+                <div style={{ padding: '14px', borderRadius: '12px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center' }}>
+                  <div style={{ fontSize: '10px', fontWeight: '800', color: '#047857' }}>2. TOTAL PRESENT</div>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#065f46', marginTop: '4px' }}>{tilePresent}</div>
+                </div>
+                <div style={{ padding: '14px', borderRadius: '12px', background: '#fffbeb', border: '1.5px solid #fde68a', textAlign: 'center' }}>
+                  <div style={{ fontSize: '10px', fontWeight: '800', color: '#b45309' }}>3. TOTAL MEDICAL (M)</div>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#d97706', marginTop: '4px' }}>{tileMedical}</div>
+                </div>
+                <div style={{ padding: '14px', borderRadius: '12px', background: '#f0fdfa', border: '1.5px solid #99f6e4', textAlign: 'center' }}>
+                  <div style={{ fontSize: '10px', fontWeight: '800', color: '#0f766e' }}>4. TOTAL OFFICIAL (O)</div>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#0d9488', marginTop: '4px' }}>{tileOfficial}</div>
+                </div>
+                <div style={{ padding: '14px', borderRadius: '12px', background: '#fff1f2', border: '1.5px solid #fecdd3', textAlign: 'center' }}>
+                  <div style={{ fontSize: '10px', fontWeight: '800', color: '#be123c' }}>5. NO-REASON ABSENT (A)</div>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#e11d48', marginTop: '4px' }}>{tileNoReasonAbsent}</div>
+                </div>
+                <div style={{ padding: '14px', borderRadius: '12px', background: '#eef2ff', border: '1.5px solid #c7d2fe', textAlign: 'center' }}>
+                  <div style={{ fontSize: '10px', fontWeight: '800', color: '#4338ca' }}>6. OUTPASS LEAVE (L)</div>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#4f46e5', marginTop: '4px' }}>{tileOutpassLeave}</div>
+                </div>
+              </div>
+
+              {/* STUDENT-BY-STUDENT NIGHT SUMMARY TABLE FOR THIS CLASS */}
+              <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px', marginBottom: '22px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', minWidth: '780px' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px' }}>#</th>
+                      <th style={{ padding: '12px' }}>Student Name &amp; Ad.No</th>
+                      <th style={{ padding: '12px', textAlign: 'center' }}>Nights Recorded</th>
+                      <th style={{ padding: '12px', textAlign: 'center', color: '#047857' }}>Present (P)</th>
+                      <th style={{ padding: '12px', textAlign: 'center', color: '#d97706' }}>Medical (M)</th>
+                      <th style={{ padding: '12px', textAlign: 'center', color: '#0d9488' }}>Official (O)</th>
+                      <th style={{ padding: '12px', textAlign: 'center', color: '#4f46e5' }}>Outpass Leave (L)</th>
+                      <th style={{ padding: '12px', textAlign: 'center', color: '#e11d48' }}>No-Reason Absent (A)</th>
+                      <th style={{ padding: '12px', textAlign: 'center' }}>Night %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {studentBreakdown.map((r, idx) => (
+                      <tr key={r.student.regNo || idx} style={{ borderBottom: '1px solid #f1f5f9', background: r.noReasonAbs > 0 ? '#fff1f2' : '#ffffff' }}>
+                        <td style={{ padding: '10px 12px', color: '#64748b' }}>{r.student.rollNo || idx + 1}</td>
+                        <td style={{ padding: '10px 12px', fontWeight: '700', color: '#0f172a' }}>
+                          {r.student.firstName} <span style={{ color: '#64748b', fontSize: '11px' }}>(#{r.student.adNo})</span>
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '700' }}>{r.nightsHeld}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '800', color: '#047857' }}>{r.pres}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '700', color: '#d97706' }}>{r.med}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '700', color: '#0d9488' }}>{r.off}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '700', color: '#4f46e5' }}>{r.outpassLv}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '900', color: r.noReasonAbs > 0 ? '#e11d48' : '#64748b' }}>{r.noReasonAbs}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                          <span style={{
+                            background: Number(r.attPct) < 85 ? '#fee2e2' : '#dcfce7',
+                            color: Number(r.attPct) < 85 ? '#b91c1c' : '#15803d',
+                            padding: '3px 9px',
+                            borderRadius: '999px',
+                            fontWeight: '800',
+                            fontSize: '11px'
+                          }}>
+                            {r.nightsHeld > 0 ? `${r.attPct}%` : '—'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* REGULAR ABSENTEES TRACKER OF HIS CLASS ONLY */}
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
+                  🚨 Regular Night Absentees Tracker — Class {targetCtClass} Only ({regularAbsenteesInMyClass.length} Students)
+                </h4>
+                {regularAbsenteesInMyClass.length === 0 ? (
+                  <div style={{ padding: '20px', textAlign: 'center', color: '#047857', fontWeight: '700', background: '#ecfdf5', borderRadius: '10px', border: '1px solid #a7f3d0' }}>
+                    ✅ Zero unexcused night absentees in Class {targetCtClass} for this period!
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: '12px' }}>
+                    {regularAbsenteesInMyClass.map((item, idx) => (
+                      <div key={item.student.adNo} style={{ padding: '14px', borderRadius: '12px', border: '1.5px solid #fecdd3', background: '#ffffff', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <ProfileAvatar name={item.student.firstName} code={item.student.adNo} photoUrl={item.student.photoUrl} size={36} />
+                            <div>
+                              <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '14px' }}>#{idx + 1} • {item.student.firstName}</div>
+                              <div style={{ fontSize: '11px', color: '#64748b' }}>Ad.No: #{item.student.adNo} • Class {targetCtClass}</div>
+                            </div>
+                          </div>
+                          <span style={{ background: '#e11d48', color: '#ffffff', padding: '4px 9px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
+                            {item.noReasonAbs} Night{item.noReasonAbs > 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#be123c', fontWeight: '600' }}>
+                          📅 Dates: {item.unexcusedDates.slice(0, 6).join(', ')}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openDirectWhatsApp(item.student.parentWhatsapp || item.student.parentMobile, `Assalamu Alaikum, official notice from Class Teacher (${targetCtClass}) regarding unexcused night absence of ${item.student.firstName} (#${item.student.adNo}):`)}
+                          style={styles.buttonSecondary}
+                        >
+                          💬 Contact Parent on WhatsApp
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -2342,7 +2342,7 @@ export default function OutPassPortal({
           <div style={styles.navSegmentGroup}>
             {!isSecurityKiosk && (
               <>
-                <button
+               <button
                   type="button"
                   onClick={() => {
                     setActiveTab("teacher");
@@ -2363,6 +2363,30 @@ export default function OutPassPortal({
                     }
                   >
                     {currentlyOutsidePasses.length} Outside
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("teacher");
+                    setActiveLeaveSubTab("my_permitted");
+                  }}
+                  style={
+                    activeTab === "teacher" && activeLeaveSubTab === "my_permitted"
+                      ? styles.mainTabActive
+                      : styles.mainTabInactive
+                  }
+                >
+                  <span>📋 My Permitted &amp; Class Students</span>
+                  <span
+                    style={
+                      activeTab === "teacher" && activeLeaveSubTab === "my_permitted"
+                        ? styles.tabCounterActive
+                        : styles.tabCounterInactive
+                    }
+                  >
+                    {myPermittedPasses.length}
                   </span>
                 </button>
 
@@ -2484,6 +2508,8 @@ export default function OutPassPortal({
               />
             ) : (
           <OutpassTeacherDesk
+            activeLeaveSubTab={activeLeaveSubTab}
+            setActiveLeaveSubTab={setActiveLeaveSubTab}
             myPrivileges={myPrivileges}
             hasPrincipalPower={hasPrincipalPower}
             classFilter={classFilter}
