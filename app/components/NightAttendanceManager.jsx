@@ -1805,7 +1805,7 @@ const handleSaveSingleStudentAbsence = async () => {
                             gap: '3px'
                           }}
                         >
-                          🏛️ Off
+                          🏛️ Official
                         </button>
                       </div>
 
@@ -2658,11 +2658,11 @@ const handleSaveSingleStudentAbsence = async () => {
             </div>
           </div>
 
-          {/* STUDENT CARDS GRID */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '10px', marginBottom: '20px' }}>
-            {extraStudentsList.map(st => {
+          {/* STUDENT CARDS GRID (Exact Night Attendance Card Style) */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(285px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+            {extraStudentsList.map((st, idx) => {
               const ad = String(st.adNo || '').trim();
-              const activePass = getActiveOutpassForStudent(ad);
+              const activePass = getActiveOutpassForStudent(ad, extraDate);
               const activeRecAbs = getActiveRecordedAbsenceForStudent(ad, extraDate);
               const activeCampusWaiver = activeCampusWaiversMap[ad.toUpperCase()];
               const isUrdu = isUrduStudent(st);
@@ -2670,9 +2670,9 @@ const handleSaveSingleStudentAbsence = async () => {
               let curStatus = extraStatusMap[ad];
               if (!curStatus) {
                 if (activeCampusWaiver && activeCampusWaiver.waiverType === 'SICK_IN_ROOM' && isWaiverActiveOnDate(activeCampusWaiver, extraDate)) {
-                curStatus = 'SICK_ROOM';
-              } else if (activeCampusWaiver && activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' && isWaiverActiveOnDate(activeCampusWaiver, extraDate)) {
-                curStatus = 'JAMATH_EXEMPTION';
+                  curStatus = 'SICK_ROOM';
+                } else if (activeCampusWaiver && activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' && isWaiverActiveOnDate(activeCampusWaiver, extraDate)) {
+                  curStatus = 'JAMATH_EXEMPTION';
                 } else if (activeRecAbs) {
                   curStatus = activeRecAbs.status || 'ABSENT';
                 } else if (activePass) {
@@ -2682,102 +2682,166 @@ const handleSaveSingleStudentAbsence = async () => {
                 }
               }
 
-              const isAbsent = curStatus === 'ABSENT';
-              const isOutpass = curStatus === 'OUTPASS';
-              const isOfficial = curStatus === 'OFFICIAL';
-              const isSick = curStatus === 'SICK_ROOM';
+              const cardThemes = {
+                PRESENT: { bg: '#ffffff', border: '#e2e8f0', badgeBg: '#dcfce7', badgeColor: '#15803d', label: 'Present' },
+                ABSENT: { bg: '#fff1f2', border: '#fecdd3', badgeBg: '#ffe4e6', badgeColor: '#e11d48', label: 'Absent' },
+                LEAVE: { bg: '#eef2ff', border: '#c7d2fe', badgeBg: '#e0e7ff', badgeColor: '#4338ca', label: 'Leave' },
+                OUTPASS: { bg: '#eef2ff', border: '#c7d2fe', badgeBg: '#e0e7ff', badgeColor: '#4338ca', label: 'Leave' },
+                OFFICIAL: { bg: '#f0fdfa', border: '#99f6e4', badgeBg: '#ccfbf1', badgeColor: '#0f766e', label: 'Official' },
+                SICK_ROOM: { bg: '#fffbeb', border: '#fde68a', badgeBg: '#fef3c7', badgeColor: '#b45309', label: 'Medical' },
+                JAMATH_EXEMPTION: { bg: '#f0f9ff', border: '#bae6fd', badgeBg: '#e0f2fe', badgeColor: '#0369a1', label: 'Jamath Exempt' }
+              };
+              const theme = cardThemes[curStatus] || cardThemes.PRESENT;
 
               return (
                 <div
                   key={st.id || ad}
                   onClick={() => handleExtraQuickTap(ad)}
                   style={{
-                    padding: '12px 14px',
-                    borderRadius: '10px',
+                    padding: '14px',
+                    borderRadius: '12px',
                     cursor: 'pointer',
                     userSelect: 'none',
-                    border: isAbsent ? '1.5px solid #fecdd3' : isOutpass ? '1.5px solid #fef08a' : isOfficial ? '1.5px solid #bae6fd' : isSick ? '1.5px solid #e9d5ff' : '1.5px solid #e2e8f0',
-                    background: isAbsent ? '#fff1f2' : isOutpass ? '#fefce8' : isOfficial ? '#f0f9ff' : isSick ? '#faf5ff' : '#ffffff',
+                    border: `1.5px solid ${theme.border}`,
+                    background: theme.bg,
                     display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
+                    flexDirection: 'column',
                     gap: '10px',
-                    boxShadow: '0 1px 2px rgba(15,23,42,0.03)'
+                    transition: 'all 0.15s ease'
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
-                    <ProfileAvatar name={st.firstName} code={ad} photoUrl={st.photoUrl} size={36} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: '700', fontSize: '13px', color: '#0f172a' }}>{st.firstName}</div>
-                      <div style={{ fontSize: '11px', color: '#64748b' }}>
-                        #{ad} • Roll: {st.rollNo || '—'} {isUrdu && <span style={{ background: '#fef3c7', color: '#92400e', padding: '1px 5px', borderRadius: '4px', fontSize: '10px', fontWeight: '800' }}>URDU</span>}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <ProfileAvatar name={st.firstName} code={ad} photoUrl={st.photoUrl} size={38} />
+                      <div>
+                        <div style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a', lineHeight: 1.25 }}>
+                          #{st.rollNo || idx + 1} • {st.firstName}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600', marginTop: '2px' }}>
+                          Ad.No: #{ad} • {st.department || 'GEN'} {isUrdu && <span style={{ background: '#fef3c7', color: '#92400e', padding: '1px 5px', borderRadius: '4px', fontSize: '10px', fontWeight: '800' }}>URDU</span>}
+                        </div>
                       </div>
-                      {activeCampusWaiver && isWaiverActiveOnDate(activeCampusWaiver, extraDate) && (
-                        <div
-                          style={{
-                            marginTop: '4px',
-                            background: activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '#fffbeb' : '#fff1f2',
-                            color: activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '#92400e' : '#be123c',
-                            padding: '3px 8px',
-                            borderRadius: '6px',
-                            fontSize: '10px',
-                            fontWeight: '800',
-                            border: `1px solid ${activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '#fde68a' : '#fecdd3'}`
-                          }}
-                        >
-                          <div>{activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '🩹 Masjid Exemption' : '🤒 Bed Rest'}: {activeCampusWaiver.injuryReason || activeCampusWaiver.diagnosis || 'Medical Waiver'}</div>
-                          <div style={{ fontSize: '9px', marginTop: '1px', color: activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '#b45309' : '#b91c1c' }}>
-                            Permitted by: Usthad {activeCampusWaiver.issuedByName || activeCampusWaiver.issuedBy || 'Class Teacher'}{activeCampusWaiver.validUntil ? ` • Valid until: ${activeCampusWaiver.validUntil}` : ''}
-                          </div>
-                        </div>
-                      )}
-                      {activeRecAbs && !activeCampusWaiver && (
-                        <div style={{ marginTop: '4px', background: '#fffbeb', color: '#92400e', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '700', border: '1px solid #fde68a' }}>
-                          <div>📌 {activeRecAbs.reason} {activeRecAbs.hasDuration && activeRecAbs.endDate ? `(Until ${activeRecAbs.endDate})` : ''}</div>
-                          <div style={{ fontSize: '9px', marginTop: '1px', opacity: 0.85 }}>
-                            Permitted by: Usthad {activeRecAbs.recordedBy || 'Class Teacher'}
-                          </div>
-                        </div>
-                      )}
-                      {activePass && (
-                        <div style={{ marginTop: '4px', background: '#fffbeb', color: '#92400e', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '700', border: '1px solid #fde68a' }}>
-                          <div>🪪 Outpass: {activePass.destination} ({activePass.leaveCategory || 'Leave'})</div>
-                          <div style={{ fontSize: '9px', marginTop: '1px', opacity: 0.85 }}>
-                            Permitted by: Usthad {activePass.teacherName || activePass.permittedBy || 'Class Teacher'}
-                          </div>
-                        </div>
-                      )}
                     </div>
+
+                    <span style={{ background: theme.badgeBg, color: theme.badgeColor, padding: '3px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: '800', whiteSpace: 'nowrap' }}>
+                      {theme.label}
+                    </span>
                   </div>
 
-                  <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                    {[
-                      { id: 'PRESENT', label: 'P', activeBg: '#10b981' },
-                      { id: 'ABSENT', label: 'A', activeBg: '#e11d48' },
-                      { id: 'LEAVE', label: 'L', activeBg: '#8b5cf6' },
-                      { id: 'SICK_ROOM', label: 'M', activeBg: '#d97706' },
-                      { id: 'OFFICIAL', label: 'O', activeBg: '#0d9488' },
-                      { id: 'JAMATH_EXEMPTION', label: 'Jamath', activeBg: '#0284c7' }
-                    ].map(b => (
+                  {activeCampusWaiver && isWaiverActiveOnDate(activeCampusWaiver, extraDate) && (
+                    <div
+                      style={{
+                        background: activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '#f0f9ff' : '#fffbeb',
+                        color: activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '#0369a1' : '#92400e',
+                        padding: '7px 10px',
+                        borderRadius: '8px',
+                        fontSize: '11px',
+                        fontWeight: '700',
+                        border: `1px solid ${activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '#bae6fd' : '#fde68a'}`
+                      }}
+                    >
+                      <div style={{ fontWeight: '800' }}>
+                        {activeCampusWaiver.waiverType === 'JAMATH_EXEMPTION' ? '🩹 Masjid Exemption' : '🤒 Bed Rest'}: {activeCampusWaiver.injuryReason || activeCampusWaiver.diagnosis || 'Medical Waiver'}
+                      </div>
+                      <div style={{ fontSize: '10px', marginTop: '2px' }}>
+                        Permitted by: Usthad {activeCampusWaiver.issuedByName || activeCampusWaiver.issuedBy || 'Class Teacher'}{activeCampusWaiver.validUntil ? ` • Valid until: ${activeCampusWaiver.validUntil}` : ''}
+                      </div>
+                    </div>
+                  )}
+
+                  {activeRecAbs && !activeCampusWaiver && (
+                    <div style={{ background: '#fffbeb', color: '#92400e', padding: '7px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: '700', border: '1px solid #fde68a' }}>
+                      <div>📌 {activeRecAbs.reason} {activeRecAbs.hasDuration && activeRecAbs.endDate ? `(Until ${activeRecAbs.endDate})` : ''}</div>
+                      <div style={{ fontSize: '10px', marginTop: '2px', opacity: 0.9 }}>
+                        Permitted by: Usthad {activeRecAbs.recordedBy || 'Class Teacher'}
+                      </div>
+                    </div>
+                  )}
+
+                  {activePass && (
+                    <div style={{ background: '#eef2ff', color: '#4338ca', padding: '7px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: '700', border: '1px solid #c7d2fe' }}>
+                      <div>🪪 Outpass ({activePass.leaveCategory || 'Leave'}): {activePass.destination}</div>
+                      <div style={{ fontSize: '10px', marginTop: '2px' }}>
+                        Permitted by: Usthad {activePass.teacherName || activePass.permittedBy || 'Class Teacher'}
+                      </div>
+                    </div>
+                  )}
+
+                  <div onClick={(e) => e.stopPropagation()} style={{ paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(75px, 1fr))', gap: '6px' }}>
                       <button
-                        key={b.id}
                         type="button"
-                        onClick={() => setExtraStatusMap(prev => ({ ...prev, [ad]: b.id }))}
+                        onClick={() => setExtraStatusMap(prev => ({ ...prev, [ad]: 'PRESENT' }))}
                         style={{
-                          padding: '4px 8px',
-                          borderRadius: '6px',
-                          fontSize: '11px',
-                          fontWeight: '800',
-                          cursor: 'pointer',
-                          background: (curStatus === b.id || (b.id === 'LEAVE' && curStatus === 'OUTPASS')) ? b.activeBg : '#f1f5f9',
-                          color: (curStatus === b.id || (b.id === 'LEAVE' && curStatus === 'OUTPASS')) ? '#ffffff' : '#475569',
-                          border: (curStatus === b.id || (b.id === 'LEAVE' && curStatus === 'OUTPASS')) ? `1px solid ${b.activeBg}` : '1px solid #cbd5e1',
-                          transition: 'all 0.15s ease'
+                          padding: '8px 6px', borderRadius: '8px', fontSize: '11px', fontWeight: '800', cursor: 'pointer',
+                          background: curStatus === 'PRESENT' ? '#10b981' : '#f8fafc',
+                          color: curStatus === 'PRESENT' ? '#ffffff' : '#475569',
+                          border: curStatus === 'PRESENT' ? '1.5px solid #10b981' : '1px solid #e2e8f0'
                         }}
                       >
-                        {b.label}
+                        🟢 Pres
                       </button>
-                    ))}
+                      <button
+                        type="button"
+                        onClick={() => setExtraStatusMap(prev => ({ ...prev, [ad]: 'ABSENT' }))}
+                        style={{
+                          padding: '8px 6px', borderRadius: '8px', fontSize: '11px', fontWeight: '800', cursor: 'pointer',
+                          background: curStatus === 'ABSENT' ? '#e11d48' : '#f8fafc',
+                          color: curStatus === 'ABSENT' ? '#ffffff' : '#475569',
+                          border: curStatus === 'ABSENT' ? '1.5px solid #e11d48' : '1px solid #e2e8f0'
+                        }}
+                      >
+                        🔴 Abs
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExtraStatusMap(prev => ({ ...prev, [ad]: 'LEAVE' }))}
+                        style={{
+                          padding: '8px 6px', borderRadius: '8px', fontSize: '11px', fontWeight: '800', cursor: 'pointer',
+                          background: (curStatus === 'LEAVE' || curStatus === 'OUTPASS') ? '#8b5cf6' : '#faf5ff',
+                          color: (curStatus === 'LEAVE' || curStatus === 'OUTPASS') ? '#ffffff' : '#7c3aed',
+                          border: (curStatus === 'LEAVE' || curStatus === 'OUTPASS') ? '1.5px solid #8b5cf6' : '1px solid #e9d5ff'
+                        }}
+                      >
+                        🟣 Leave
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExtraStatusMap(prev => ({ ...prev, [ad]: 'SICK_ROOM' }))}
+                        style={{
+                          padding: '8px 6px', borderRadius: '8px', fontSize: '11px', fontWeight: '800', cursor: 'pointer',
+                          background: curStatus === 'SICK_ROOM' ? '#d97706' : '#fffbeb',
+                          color: curStatus === 'SICK_ROOM' ? '#ffffff' : '#b45309',
+                          border: curStatus === 'SICK_ROOM' ? '1.5px solid #d97706' : '1px solid #fde68a'
+                        }}
+                      >
+                        🤒 Sick
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExtraStatusMap(prev => ({ ...prev, [ad]: 'OFFICIAL' }))}
+                        style={{
+                          padding: '8px 6px', borderRadius: '8px', fontSize: '11px', fontWeight: '800', cursor: 'pointer',
+                          background: curStatus === 'OFFICIAL' ? '#0d9488' : '#f0fdfa',
+                          color: curStatus === 'OFFICIAL' ? '#ffffff' : '#0f766e',
+                          border: curStatus === 'OFFICIAL' ? '1.5px solid #0d9488' : '1px solid #99f6e4'
+                        }}
+                      >
+                        🏛️ Official
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExtraStatusMap(prev => ({ ...prev, [ad]: 'JAMATH_EXEMPTION' }))}
+                        style={{
+                          padding: '8px 6px', borderRadius: '8px', fontSize: '11px', fontWeight: '800', cursor: 'pointer',
+                          background: curStatus === 'JAMATH_EXEMPTION' ? '#0284c7' : '#f0f9ff',
+                          color: curStatus === 'JAMATH_EXEMPTION' ? '#ffffff' : '#0369a1',
+                          border: curStatus === 'JAMATH_EXEMPTION' ? '1.5px solid #0284c7' : '1px solid #bae6fd'
+                        }}
+                      >
+                        🩹 Jamath
+                      </button>
+                    </div>
                   </div>
                 </div>
               );

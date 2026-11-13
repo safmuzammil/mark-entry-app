@@ -2375,21 +2375,46 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
         }
       });
 
-            const isAbsentMoreThan5Days = totalDaysAbsent >= 5;
+      const isAbsentMoreThan5Days = totalDaysAbsent >= 5;
       const dayAttPct = workingDaysHeld > 0 ? ((totalDaysPresent / workingDaysHeld) * 100).toFixed(1) : '100.0';
+      const is100PctPresent = workingDaysHeld > 0 && totalDaysAbsent === 0;
+      const isBelow85Pct = workingDaysHeld > 0 && Number(dayAttPct) < 85;
 
-      // 🌟 Compute leaveReasonsList safely for student
+      // Total Minus, Medical, and Official counts for this student
+      const pStat = getStudentAttStat(st);
+      const minusCount = Number(pStat.minusCount) || 0;
+      const medicalCount = Number(pStat.medicalCount) || 0;
+      const officialCount = Number(pStat.officialCount) || 0;
+
       const liveOp = liveOutpassesMap[reg] || liveOutpassesMap[ad];
       const leaveReasonsList = liveOp ? [`${liveOp.category || 'Leave'}${liveOp.destination ? ` (${liveOp.destination})` : ''}`] : [];
 
-      return { student: st, workingDaysHeld, totalDaysPresent, totalDaysAbsent, dayAttPct, absentDatesDetails, isAbsentMoreThan5Days, leaveReasonsList };
+      return {
+        student: st,
+        workingDaysHeld,
+        totalDaysPresent,
+        totalDaysAbsent,
+        dayAttPct,
+        is100PctPresent,
+        isBelow85Pct,
+        minusCount,
+        medicalCount,
+        officialCount,
+        absentDatesDetails,
+        isAbsentMoreThan5Days,
+        leaveReasonsList
+      };
     });
   }, [hasClassDuty, classStudentsList, fnAnMonthSessionsCache, liveOutpassesMap]);
 
   const classAbsentGt5Count = classFnAnRows.filter(r => r.isAbsentMoreThan5Days).length;
+  const class100PctCount = classFnAnRows.filter(r => r.is100PctPresent).length;
+  const classBelow85Count = classFnAnRows.filter(r => r.isBelow85Pct).length;
 
   const filteredClassFnAnRows = classFnAnRows.filter(r => {
     if (classTeacherFnAnFilter === 'ABSENT_GT_5') return r.isAbsentMoreThan5Days;
+    if (classTeacherFnAnFilter === 'PRESENT_100') return r.is100PctPresent;
+    if (classTeacherFnAnFilter === 'BELOW_85') return r.isBelow85Pct;
     return true;
   });
 
@@ -2698,7 +2723,7 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
         </div>
       </div>
 
-      {/* 🌟 CLASS TEACHER LIVE PRESENCE & TODAY'S PERIOD ATTENDANCE FEED */}
+     {/* 🌟 CLASS TEACHER LIVE PRESENCE & TODAY'S PERIOD ATTENDANCE FEED */}
       {((hasClassDuty && !isOutreachView && teacherViewMode === 'CLASS') || (isAdmin && !isOutreachView)) && (
         <div style={{ background: '#ffffff', padding: '20px', borderRadius: '16px', border: '1px solid #cbd5e1', marginBottom: '22px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
@@ -2707,16 +2732,22 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                 🏫 CLASS TEACHER LIVE FEED
               </span>
               <h3 style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
-                Class {myClassTeacherOf.join(', ')} — Campus Presence &amp; Today's Periods
+                Class {myClassTeacherOf.join(', ') || adminClassFilter} — Campus Presence &amp; Period Register
               </h3>
             </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <span style={{ fontSize: '12px', fontWeight: '700', color: '#475569' }}>Month:</span>
-              <input type="month" value={selectedMonthForFnAn} onChange={e => setSelectedMonthForFnAn(e.target.value)} style={{ ...styles.input, width: '165px', padding: '6px 10px', fontSize: '12px', fontWeight: '700' }} />
-            </div>
+            {isAdmin && (
+              <select
+                value={adminClassFilter}
+                onChange={e => setAdminClassFilter(e.target.value)}
+                style={{ ...styles.input, width: 'auto', fontWeight: '800' }}
+              >
+                {DEFAULT_CLASSES.map(c => <option key={c} value={c}>Class {c}</option>)}
+              </select>
+            )}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '18px' }}>
+          {/* 4 TOP KPI TILES */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '14px' }}>
             <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
               <span style={{ fontSize: '10px', fontWeight: '800', color: '#64748b' }}>TOTAL CLASS STRENGTH</span>
               <div style={{ fontSize: '24px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>{classStudentsList.length}</div>
@@ -2735,43 +2766,22 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
             </div>
           </div>
 
-          {/* Today's Period-by-Period Roll-Call Feed for Class */}
-          <div style={{ marginBottom: '16px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-            <div style={{ fontWeight: '800', fontSize: '13px', color: '#0f172a', marginBottom: '8px' }}>
-              📅 Today's Period Attendance Feed (Periods 1 to 9):
+          {/* 🌟 MONTH FILTER PLACED BENEATH THE TILES */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', background: '#f8fafc', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>📅 Filter Register by Month:</span>
+              <input
+                type="month"
+                value={selectedMonthForFnAn}
+                onChange={e => setSelectedMonthForFnAn(e.target.value)}
+                style={{ ...styles.input, width: '175px', padding: '6px 10px', fontSize: '13px', fontWeight: '700' }}
+              />
             </div>
-            {todayPeriodsCache.length === 0 ? (
-              <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
-                No period attendance recorded for today yet.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {todayPeriodsCache.map(sess => {
-                  const mapVals = Object.values(sess.attendanceMap || {});
-                  const presC = mapVals.filter(v => v === 'P' || v === 'O').length;
-                  const absC = mapVals.length - presC;
-                  return (
-                    <div key={sess.id} style={{ background: '#ffffff', border: '1px solid #cbd5e1', padding: '8px 12px', borderRadius: '8px', fontSize: '12px' }}>
-                      <span style={{ background: '#4f46e5', color: '#ffffff', padding: '1px 6px', borderRadius: '4px', fontWeight: '800', fontSize: '10px' }}>
-                        P{sess.session}
-                      </span>
-                      <strong style={{ marginLeft: '6px', color: '#0f172a' }}>{sess.classAlias || sess.subject}</strong>
-                      <div style={{ fontSize: '11px', color: '#475569', marginTop: '2px' }}>
-                        ✅ {presC} Pres • ❌ {absC} Abs ({sess.teacherName})
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
 
-          {/* 🌟 CLASS TEACHER ATTENDANCE REGISTER SUB-TABS */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '2px solid #e2e8f0', paddingBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {[
-                { id: 'daily_register', label: '📋 Working Day Register (FN & AN)', icon: '📅' },
-                { id: 'monthly_summary', label: '🌤️ Monthly Day Summary', icon: '📊' },
+                { id: 'daily_register', label: '📋 Specific Day Period Register (1–9)', icon: '📅' },
+                { id: 'monthly_summary', label: '🌤️ Monthly Summary (100% / <85% / Minus / Leaves)', icon: '📊' },
                 { id: 'full_month_matrix', label: '📑 Full Month Matrix Grid', icon: '🗂️' }
               ].map(tb => (
                 <button
@@ -2795,26 +2805,23 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                   <span>{tb.icon}</span> {tb.label}
                 </button>
               ))}
-            </div>
-
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <button
                 type="button"
                 onClick={handleExportClassRegisterExcel}
-                style={{ ...styles.buttonSecondary, padding: '7px 12px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                style={{ ...styles.buttonSecondary, padding: '7px 12px', fontSize: '11px' }}
               >
-                <span>📥</span> Export Register to Excel
+                📥 Export Excel
               </button>
             </div>
           </div>
 
-          {/* VIEW 1: DAILY WORKING DAY REGISTER (FORENOON & AFTERNOON ROLL CALL) */}
+          {/* VIEW 1: SPECIFIC DAY PERIOD REGISTER (STRICTLY 9 COLOR-CODED CHIPS 1..9 PER STUDENT) */}
           {classTeacherSubView === 'daily_register' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ background: '#f8fafc', padding: '14px 18px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>
-                    Select Working Date:
+                    Select Specific Date:
                   </span>
                   <input
                     type="date"
@@ -2836,32 +2843,28 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                   )}
                 </div>
 
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', fontSize: '11px', fontWeight: '700' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#10b981', color: '#ffffff', padding: '3px 8px', borderRadius: '6px' }}>Green = Present</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#e11d48', color: '#ffffff', padding: '3px 8px', borderRadius: '6px' }}>Red = Absent</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#e2e8f0', color: '#64748b', padding: '3px 8px', borderRadius: '6px' }}>Gray = Not Taken</span>
+
                   {registerVerificationStatus ? (
                     <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '6px 12px', borderRadius: '8px', fontSize: '11px', fontWeight: '800' }}>
-                      ✓ Verified &amp; Signed by {registerVerificationStatus.verifiedBy} on {new Date(registerVerificationStatus.verifiedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      ✓ Verified by {registerVerificationStatus.verifiedBy}
                     </span>
                   ) : (
                     <button
                       type="button"
                       onClick={handleVerifyDailyRegister}
                       disabled={isVerifyingRegister}
-                      style={{ ...styles.buttonPrimary, background: '#059669', padding: '7px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      style={{ ...styles.buttonPrimary, background: '#059669', padding: '7px 14px', fontSize: '12px' }}
                     >
-                      <span>✍️</span> {isVerifyingRegister ? 'Signing...' : `Verify & Sign Register (${selectedRegisterDate})`}
+                      ✍️ {isVerifyingRegister ? 'Signing...' : `Verify & Sign (${selectedRegisterDate})`}
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => window.print()}
-                    style={{ ...styles.buttonSecondary, padding: '7px 12px', fontSize: '12px' }}
-                  >
-                    🖨️ Print Day Sheet
-                  </button>
                 </div>
               </div>
 
-              {/* Working Day Register Table */}
               <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left', minWidth: '780px' }}>
                   <thead>
@@ -2869,148 +2872,144 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                       <th style={{ padding: '10px 12px', width: '40px' }}>#</th>
                       <th style={{ padding: '10px 12px' }}>Student Name</th>
                       <th style={{ padding: '10px 12px' }}>Ad.No</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>
-                        🌅 FORENOON (Periods 1–6)
-                        <div style={{ fontSize: '9px', fontWeight: '600', color: '#64748b' }}>Present in any = Present</div>
-                      </th>
-                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>
-                        🌇 AFTERNOON (Periods 7–9)
-                        <div style={{ fontSize: '9px', fontWeight: '600', color: '#64748b' }}>Present in any = Present</div>
-                      </th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>🌅 Forenoon (P1–P6)</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>🌇 Afternoon (P7–P9)</th>
                       <th style={{ padding: '10px 12px', textAlign: 'center' }}>Day Result</th>
-                      <th style={{ padding: '10px 12px' }}>Period Breakdown Details</th>
+                      <th style={{ padding: '10px 12px' }}>9-Period Status (Periods 1 to 9)</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(() => {
+                    {classStudentsList.map((st, idx) => {
+                      const reg = String(st.regNo || '').trim();
+                      const sId = String(st.id || '').trim();
+                      const ad = String(st.adNo || '').trim().toUpperCase();
                       const daySessions = fnAnMonthSessionsCache.filter(s => s.date === selectedRegisterDate);
-                      const fnSess = daySessions.filter(s => Number(s.session) <= 6).sort((a,b) => a.session - b.session);
-                      const anSess = daySessions.filter(s => Number(s.session) > 6).sort((a,b) => a.session - b.session);
 
-                      if (daySessions.length === 0) {
-                        return (
-                          <tr>
-                            <td colSpan={7} style={{ padding: '30px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
-                              No period attendance sessions recorded on <strong>{selectedRegisterDate}</strong> for this class yet.
-                            </td>
-                          </tr>
-                        );
-                      }
+                      // Build strictly 9 period slots (1 to 9) for THIS student only
+                      const ninePeriods = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(pNum => {
+                        const sessionsForPeriod = daySessions.filter(s => Number(s.session) === pNum && !s.isRehearsal);
+                        let foundStatus = null;
+                        for (const sess of sessionsForPeriod) {
+                          const map = sess.attendanceMap || {};
+                          // Only count if this student is explicitly in this session's attendanceMap!
+                          const val = map[reg] || map[sId] || map[ad] || map[st.adNo];
+                          if (val) {
+                            if (val === 'P' || val === 'O') {
+                              foundStatus = 'PRESENT';
+                              break;
+                            }
+                            foundStatus = 'ABSENT';
+                          }
+                        }
+                        return { period: pNum, state: foundStatus || 'NOT_TAKEN' };
+                      });
 
-                      return classStudentsList.map((st, idx) => {
-                        const reg = st.regNo;
-                        const ad = String(st.adNo || '').trim().toUpperCase();
+                      const fnTaken = ninePeriods.slice(0, 6).filter(p => p.state !== 'NOT_TAKEN');
+                      const anTaken = ninePeriods.slice(6, 9).filter(p => p.state !== 'NOT_TAKEN');
 
-                        const fnDetails = fnSess.map(s => {
-                          const val = (s.attendanceMap || {})[reg] || (s.attendanceMap || {})[st.id] || (s.attendanceMap || {})[ad] || 'A';
-                          return { session: s.session, subject: s.subject || s.classAlias, status: val };
-                        });
+                      const isFnPres = fnTaken.length > 0 ? fnTaken.some(p => p.state === 'PRESENT') : null;
+                      const isAnPres = anTaken.length > 0 ? anTaken.some(p => p.state === 'PRESENT') : null;
 
-                        const anDetails = anSess.map(s => {
-                          const val = (s.attendanceMap || {})[reg] || (s.attendanceMap || {})[st.id] || (s.attendanceMap || {})[ad] || 'A';
-                          return { session: s.session, subject: s.subject || s.classAlias, status: val };
-                        });
+                      const isFullPres = isFnPres === true && isAnPres === true;
+                      const isHalfPres = (isFnPres === true && isAnPres !== true) || (isFnPres !== true && isAnPres === true);
 
-                        const isFnPres = fnSess.length > 0 ? fnDetails.some(p => p.status === 'P' || p.status === 'O') : null;
-                        const isAnPres = anSess.length > 0 ? anDetails.some(p => p.status === 'P' || p.status === 'O') : null;
+                      return (
+                        <tr key={st.regNo} style={{ borderBottom: '1px solid #f1f5f9', background: isFnPres === false && isAnPres === false ? '#fff1f2' : '#ffffff' }}>
+                          <td style={{ padding: '10px 12px', color: '#64748b', fontWeight: '700' }}>{st.rollNo || idx + 1}</td>
+                          <td style={{ padding: '10px 12px', fontWeight: '700', color: '#0f172a' }}>{st.firstName}</td>
+                          <td style={{ padding: '10px 12px', color: '#475569', fontWeight: '600' }}>#{st.adNo}</td>
 
-                        const isFullPres = isFnPres && isAnPres;
-                        const isHalfPres = (isFnPres && !isAnPres) || (!isFnPres && isAnPres);
+                          <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                            {isFnPres === null ? (
+                              <span style={{ color: '#94a3b8' }}>— Not Taken —</span>
+                            ) : isFnPres ? (
+                              <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
+                                🟢 FN PRESENT (0.5d)
+                              </span>
+                            ) : (
+                              <span style={{ background: '#fff1f2', color: '#be123c', border: '1px solid #fecdd3', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
+                                🔴 FN ABSENT (0.0d)
+                              </span>
+                            )}
+                          </td>
 
-                        return (
-                          <tr key={st.regNo} style={{ borderBottom: '1px solid #f1f5f9', background: !isFnPres && !isAnPres ? '#fff1f2' : '#ffffff' }}>
-                            <td style={{ padding: '10px 12px', color: '#64748b', fontWeight: '700' }}>{st.rollNo || idx + 1}</td>
-                            <td style={{ padding: '10px 12px', fontWeight: '700', color: '#0f172a' }}>{st.firstName}</td>
-                            <td style={{ padding: '10px 12px', color: '#475569', fontWeight: '600' }}>#{st.adNo}</td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                            {isAnPres === null ? (
+                              <span style={{ color: '#94a3b8' }}>— Not Taken —</span>
+                            ) : isAnPres ? (
+                              <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
+                                🟢 AN PRESENT (0.5d)
+                              </span>
+                            ) : (
+                              <span style={{ background: '#fff1f2', color: '#be123c', border: '1px solid #fecdd3', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
+                                🔴 AN ABSENT (0.0d)
+                              </span>
+                            )}
+                          </td>
 
-                            {/* FN Status */}
-                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                              {fnSess.length === 0 ? (
-                                <span style={{ color: '#94a3b8' }}>— No FN —</span>
-                              ) : isFnPres ? (
-                                <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
-                                  🟢 FN PRESENT (0.5d)
-                                </span>
-                              ) : (
-                                <span style={{ background: '#fff1f2', color: '#be123c', border: '1px solid #fecdd3', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
-                                  🔴 FN ABSENT (0.0d)
-                                </span>
-                              )}
-                            </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '800' }}>
+                            {isFnPres === null && isAnPres === null ? (
+                              <span style={{ color: '#94a3b8' }}>—</span>
+                            ) : isFullPres ? (
+                              <span style={{ color: '#047857', background: '#dcfce7', padding: '3px 8px', borderRadius: '6px' }}>1.0d Full</span>
+                            ) : isHalfPres ? (
+                              <span style={{ color: '#d97706', background: '#fef3c7', padding: '3px 8px', borderRadius: '6px' }}>0.5d Half</span>
+                            ) : (
+                              <span style={{ color: '#e11d48', background: '#fee2e2', padding: '3px 8px', borderRadius: '6px' }}>0.0d Absent</span>
+                            )}
+                          </td>
 
-                            {/* AN Status */}
-                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                              {anSess.length === 0 ? (
-                                <span style={{ color: '#94a3b8' }}>— No AN —</span>
-                              ) : isAnPres ? (
-                                <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
-                                  🟢 AN PRESENT (0.5d)
-                                </span>
-                              ) : (
-                                <span style={{ background: '#fff1f2', color: '#be123c', border: '1px solid #fecdd3', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
-                                  🔴 AN ABSENT (0.0d)
-                                </span>
-                              )}
-                            </td>
-
-                            {/* Day Result */}
-                            <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '800' }}>
-                              {isFullPres ? (
-                                <span style={{ color: '#047857', background: '#dcfce7', padding: '3px 8px', borderRadius: '6px' }}>
-                                  1.0d Full
-                                </span>
-                              ) : isHalfPres ? (
-                                <span style={{ color: '#d97706', background: '#fef3c7', padding: '3px 8px', borderRadius: '6px' }}>
-                                  0.5d Half
-                                </span>
-                              ) : (
-                                <span style={{ color: '#e11d48', background: '#fee2e2', padding: '3px 8px', borderRadius: '6px' }}>
-                                  0.0d Absent
-                                </span>
-                              )}
-                            </td>
-
-                            {/* Period Breakdown */}
-                            <td style={{ padding: '10px 12px', fontSize: '11px' }}>
-                              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                                {[...fnDetails, ...anDetails].map((p, pIdx) => (
+                          {/* STRICTLY 9 NUMBERED PERIOD CHIPS (1 TO 9) */}
+                          <td style={{ padding: '10px 12px' }}>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                              {ninePeriods.map(pObj => {
+                                const isPres = pObj.state === 'PRESENT';
+                                const isAbs = pObj.state === 'ABSENT';
+                                return (
                                   <span
-                                    key={pIdx}
+                                    key={pObj.period}
+                                    title={`Period ${pObj.period}: ${isPres ? 'Present' : isAbs ? 'Absent' : 'Attendance Not Taken'}`}
                                     style={{
-                                      padding: '1px 5px',
-                                      borderRadius: '4px',
-                                      fontSize: '10px',
-                                      fontWeight: '700',
-                                      background: p.status === 'P' || p.status === 'O' ? '#ecfdf5' : '#fee2e2',
-                                      color: p.status === 'P' || p.status === 'O' ? '#047857' : '#be123c',
-                                      border: p.status === 'P' || p.status === 'O' ? '1px solid #a7f3d0' : '1px solid #fecdd3'
+                                      width: '26px',
+                                      height: '26px',
+                                      borderRadius: '7px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      fontSize: '12px',
+                                      fontWeight: '800',
+                                      background: isPres ? '#10b981' : isAbs ? '#e11d48' : '#f1f5f9',
+                                      color: isPres || isAbs ? '#ffffff' : '#64748b',
+                                      border: isPres ? '1px solid #059669' : isAbs ? '1px solid #be123c' : '1px solid #cbd5e1'
                                     }}
                                   >
-                                    P{p.session}:{p.status}
+                                    {pObj.period}
                                   </span>
-                                ))}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      });
-                    })()}
+                                );
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             </div>
           )}
 
-          {/* VIEW 2: MONTHLY SUMMARY TABLE WITH FILTERS */}
+          {/* VIEW 2: MONTHLY SUMMARY TABLE WITH 100% PRESENT, BELOW 85%, MINUS, MEDICAL & OFFICIAL */}
           {classTeacherSubView === 'monthly_summary' && (
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
                 <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>
-                  🌤️ Monthly Day Summary (Forenoon + Afternoon Sessions)
+                  🌤️ Monthly Day Summary &amp; Leave Totals ({selectedMonthForFnAn})
                 </div>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                   {[
                     { id: 'ALL', label: `All Students (${classFnAnRows.length})` },
+                    { id: 'PRESENT_100', label: `🏆 100% Present (${class100PctCount})` },
+                    { id: 'BELOW_85', label: `⚠️ Below 85% (${classBelow85Count})` },
                     { id: 'ABSENT_GT_5', label: `🚨 Absent ≥ 5 Days (${classAbsentGt5Count})` }
                   ].map(p => (
                     <button
@@ -3018,8 +3017,8 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                       type="button"
                       onClick={() => setClassTeacherFnAnFilter(p.id)}
                       style={{
-                        padding: '5px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer',
-                        border: classTeacherFnAnFilter === p.id ? '1px solid #4f46e5' : '1px solid #cbd5e1',
+                        padding: '6px 12px', borderRadius: '8px', fontSize: '11px', fontWeight: '800', cursor: 'pointer',
+                        border: classTeacherFnAnFilter === p.id ? '1.5px solid #4f46e5' : '1px solid #cbd5e1',
                         background: classTeacherFnAnFilter === p.id ? '#4f46e5' : '#ffffff',
                         color: classTeacherFnAnFilter === p.id ? '#ffffff' : '#334155'
                       }}
@@ -3030,54 +3029,65 @@ export function MentorAndOutreachTab({ students, teachers, loggedInTeacher, isAd
                 </div>
               </div>
 
-
-          <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left', minWidth: '750px' }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '10px', fontWeight: '800', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '10px 12px' }}>Student</th>
-                  <th style={{ padding: '10px 12px' }}>Ad.No</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'center' }}>Working Days</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'center' }}>Days Present</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'center' }}>Days Absent</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'center' }}>Attendance %</th>
-                  <th style={{ padding: '10px 12px' }}>Absent Dates &amp; Leave Reasons</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredClassFnAnRows.map(r => (
-                  <tr key={r.student.regNo} style={{ borderBottom: '1px solid #f1f5f9', background: r.isAbsentMoreThan5Days ? '#fff1f2' : '#ffffff' }}>
-                    <td style={{ padding: '11px 12px', fontWeight: '700', color: '#0f172a' }}>{r.student.firstName}</td>
-                    <td style={{ padding: '11px 12px', color: '#475569' }}>#{r.student.adNo}</td>
-                    <td style={{ padding: '11px 12px', textAlign: 'center', fontWeight: '700' }}>{r.workingDaysHeld}d</td>
-                    <td style={{ padding: '11px 12px', textAlign: 'center', fontWeight: '700', color: '#047857' }}>{r.totalDaysPresent}d</td>
-                    <td style={{ padding: '11px 12px', textAlign: 'center', fontWeight: '800', color: r.totalDaysAbsent >= 5 ? '#e11d48' : '#334155' }}>
-                      {r.totalDaysAbsent}d
-                    </td>
-                    <td style={{ padding: '11px 12px', textAlign: 'center' }}>
-                      <span style={{ background: Number(r.dayAttPct) < 85 ? '#fee2e2' : '#dcfce7', color: Number(r.dayAttPct) < 85 ? '#e11d48' : '#15803d', padding: '2px 8px', borderRadius: '999px', fontWeight: '800' }}>
-                        {r.dayAttPct}%
-                      </span>
-                    </td>
-                    <td style={{ padding: '11px 12px', fontSize: '11px' }}>
-                      {r.absentDatesDetails.length > 0 && (
-                        <div style={{ color: '#e11d48', fontWeight: '600' }}>
-                          📅 {r.absentDatesDetails.slice(0, 5).join(', ')}
-                        </div>
-                      )}
-                      {(Array.isArray(r.leaveReasonsList) && r.leaveReasonsList.length > 0) ? (
-                        <div style={{ color: '#475569', fontWeight: '600', marginTop: '2px' }}>
-                          🪪 {r.leaveReasonsList.join(' • ')}
-                        </div>
-                      ) : r.totalDaysAbsent === 0 ? (
-                        <span style={{ color: '#047857', fontWeight: '700' }}>✓ 100% Present</span>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left', minWidth: '920px' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '10px', fontWeight: '800', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '10px 12px' }}>Student</th>
+                      <th style={{ padding: '10px 12px' }}>Ad.No</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>Working Days</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>Days Present</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>Days Absent</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>Att %</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center', color: '#e11d48' }}>Total Minus</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center', color: '#d97706' }}>Medical Leaves</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center', color: '#0d9488' }}>Official Leaves</th>
+                      <th style={{ padding: '10px 12px' }}>Absent Dates &amp; Leave Reasons</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredClassFnAnRows.map(r => (
+                      <tr key={r.student.regNo} style={{ borderBottom: '1px solid #f1f5f9', background: r.isAbsentMoreThan5Days ? '#fff1f2' : '#ffffff' }}>
+                        <td style={{ padding: '11px 12px', fontWeight: '700', color: '#0f172a' }}>{r.student.firstName}</td>
+                        <td style={{ padding: '11px 12px', color: '#475569' }}>#{r.student.adNo}</td>
+                        <td style={{ padding: '11px 12px', textAlign: 'center', fontWeight: '700' }}>{r.workingDaysHeld}d</td>
+                        <td style={{ padding: '11px 12px', textAlign: 'center', fontWeight: '700', color: '#047857' }}>{r.totalDaysPresent}d</td>
+                        <td style={{ padding: '11px 12px', textAlign: 'center', fontWeight: '800', color: r.totalDaysAbsent >= 5 ? '#e11d48' : '#334155' }}>
+                          {r.totalDaysAbsent}d
+                        </td>
+                        <td style={{ padding: '11px 12px', textAlign: 'center' }}>
+                          <span style={{ background: Number(r.dayAttPct) < 85 ? '#fee2e2' : '#dcfce7', color: Number(r.dayAttPct) < 85 ? '#e11d48' : '#15803d', padding: '2px 8px', borderRadius: '999px', fontWeight: '800' }}>
+                            {r.dayAttPct}%
+                          </span>
+                        </td>
+                        <td style={{ padding: '11px 12px', textAlign: 'center', fontWeight: '800', color: r.minusCount > 0 ? '#e11d48' : '#64748b' }}>
+                          {r.minusCount > 0 ? `-${r.minusCount}` : '0'}
+                        </td>
+                        <td style={{ padding: '11px 12px', textAlign: 'center', fontWeight: '800', color: '#d97706' }}>
+                          {r.medicalCount}
+                        </td>
+                        <td style={{ padding: '11px 12px', textAlign: 'center', fontWeight: '800', color: '#0d9488' }}>
+                          {r.officialCount}
+                        </td>
+                        <td style={{ padding: '11px 12px', fontSize: '11px' }}>
+                          {r.absentDatesDetails.length > 0 && (
+                            <div style={{ color: '#e11d48', fontWeight: '600' }}>
+                              📅 {r.absentDatesDetails.slice(0, 5).join(', ')}
+                            </div>
+                          )}
+                          {(Array.isArray(r.leaveReasonsList) && r.leaveReasonsList.length > 0) ? (
+                            <div style={{ color: '#475569', fontWeight: '600', marginTop: '2px' }}>
+                              🪪 {r.leaveReasonsList.join(' • ')}
+                            </div>
+                          ) : r.totalDaysAbsent === 0 ? (
+                            <span style={{ color: '#047857', fontWeight: '700' }}>✓ 100% Present</span>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 

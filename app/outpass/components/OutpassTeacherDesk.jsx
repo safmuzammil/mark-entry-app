@@ -129,10 +129,9 @@ export default function OutpassTeacherDesk({
   const [isCustomPurposeActive, setIsCustomPurposeActive] = useState(false);
   const [customCategoryText, setCustomCategoryText] = useState("");
 
-  // Stream toggle & custom student search for Class Teacher Home Leave Module
-  const [homeLeaveStreamMode, setHomeLeaveStreamMode] = useState("MALAYALI_ONLY"); // 'MALAYALI_ONLY' | 'URDU_ONLY' | 'ALL'
+  const [homeLeaveStreamMode, setHomeLeaveStreamMode] = useState("MALAYALI_ONLY");
   const [batchCustomSearch, setBatchCustomSearch] = useState("");
-  const [lateComerScopeFilter, setLateComerScopeFilter] = useState("ALL"); // 'ALL' | 'MY_CLASS' | 'MY_PERMITTED'
+  const [lateComerScopeFilter, setLateComerScopeFilter] = useState("ALL");
 
   const showStudentSearchBox = isGroupMode ? true : !selectedStudent;
 
@@ -157,7 +156,6 @@ export default function OutpassTeacherDesk({
         p.status === "APPROVED")
   ).length;
 
-  // Custom search matches inside the Home Leave Module
   const batchCustomMatches = useMemo(() => {
     const q = batchCustomSearch.trim().toLowerCase();
     if (!q) return [];
@@ -170,7 +168,6 @@ export default function OutpassTeacherDesk({
       .slice(0, 6);
   }, [batchCustomSearch, students]);
 
-  // Habitual Late Comers calculation (from teacher's permitted passes + his assigned class passes)
   const habitualLateComersList = useMemo(() => {
     const map = {};
     const myOfficialName = getOfficialTeacherName(staffName).toLowerCase();
@@ -296,9 +293,6 @@ export default function OutpassTeacherDesk({
     applyDaysDuration(selectedMonthlyDays, `${selectedMonthlyDays}d`);
   };
 
-  // ============================================================================
-  // SUB-TAB 2: MY PERMITTED & CLASS STUDENTS (+ HABITUAL LATE COMERS SUB-SUB-TAB)
-  // ============================================================================
   if (activeLeaveSubTab === "my_permitted") {
     return (
       <div style={styles.card}>
@@ -338,7 +332,6 @@ export default function OutpassTeacherDesk({
           </div>
         </div>
 
-        {/* SUB-SUB-TABS INCLUDING HABITUAL LATE COMERS */}
         <div style={styles.segmentedBar}>
           {[
             { id: "ALL", label: "All Mine", count: myPermittedPasses.length },
@@ -349,6 +342,11 @@ export default function OutpassTeacherDesk({
               count: myUnverifiedCount,
             },
             { id: "RETURNED", label: "Returned", count: myReturnedCount },
+            {
+              id: "ALL_CAMPUS_OUTSIDE",
+              label: "🌍 All Campus Outside",
+              count: passes.filter((p) => p.status === "OUTSIDE" || p.status === "APPROVED").length,
+            },
             {
               id: "LATE_COMERS",
               label: "🚨 Habitual Late Comers",
@@ -433,8 +431,107 @@ export default function OutpassTeacherDesk({
           )}
         </div>
 
-        {/* HABITUAL LATE COMERS SUB-SUB-TAB VIEW */}
-        {teacherStatusFilter === "LATE_COMERS" ? (
+        {teacherStatusFilter === "ALL_CAMPUS_OUTSIDE" ? (
+          (() => {
+            const allCampusOut = passes.filter((p) => {
+              if (p.status !== "OUTSIDE" && p.status !== "APPROVED") return false;
+              if (!teacherSearch.trim()) return true;
+              const q = teacherSearch.toLowerCase();
+              return (
+                p.studentName?.toLowerCase().includes(q) ||
+                String(p.adNo).toLowerCase().includes(q) ||
+                String(p.studentClass).toLowerCase().includes(q) ||
+                p.destination?.toLowerCase().includes(q) ||
+                getOfficialTeacherName(p.teacherName).toLowerCase().includes(q)
+              );
+            });
+
+            if (allCampusOut.length === 0) {
+              return (
+                <div style={styles.emptyStateBox}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>🏫</div>
+                  <div style={{ fontWeight: 700, color: "#334155" }}>
+                    All students are currently inside campus!
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div style={styles.passListScroll}>
+                {allCampusOut.map((p) => {
+                  const isOverdue = isPassOverdue(p);
+                  const photoUrl = getStudentPhotoByAdNo(p.adNo);
+                  return (
+                    <div
+                      key={p.id}
+                      style={{
+                        ...styles.passCardItem,
+                        borderLeft: isOverdue ? "4px solid #e11d48" : "4px solid #f59e0b",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: 12, flex: 1, minWidth: 220 }}>
+                          <StudentAvatar
+                            name={p.studentName}
+                            adNo={p.adNo}
+                            photoUrl={photoUrl}
+                            size={44}
+                            onClick={() =>
+                              setZoomPhotoStudent({
+                                name: p.studentName,
+                                adNo: p.adNo,
+                                studentClass: p.studentClass,
+                                photoUrl,
+                              })
+                            }
+                          />
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <span style={{ fontWeight: 800, fontSize: 15, color: "#0f172a" }}>
+                                {p.studentName}
+                              </span>
+                              <span style={styles.adNoBadge}>#{p.adNo}</span>
+                              <span style={styles.classPill}>Class {p.studentClass}</span>
+                              <span style={{ ...styles.classPill, background: "#eef2ff", color: "#4f46e5" }}>
+                                {p.leaveCategory || "General"}
+                              </span>
+                            </div>
+
+                            <div style={{ fontSize: 13, color: "#1e293b", marginTop: 4, fontWeight: 600 }}>
+                              📍 {p.destination} — <span style={{ color: "#64748b" }}>{p.purpose}</span>
+                            </div>
+
+                            <div style={{ fontSize: 12, color: "#0f172a", marginTop: 4, background: "#f8fafc", padding: "6px 10px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                              <div>
+                                👨‍🏫 <strong>Permitted By:</strong> Usthad {getOfficialTeacherName(p.teacherName)}
+                                {p.teacherPhone ? ` (📞 ${p.teacherPhone})` : ""}
+                              </div>
+                              <div style={{ marginTop: 2 }}>
+                                🕒 <strong>Time Limit:</strong> {formatDateTime12Hour(p.permittedFrom)} ➔{" "}
+                                <strong style={{ color: isOverdue ? "#e11d48" : "#047857" }}>
+                                  {formatDateTime12Hour(p.permittedTo, p.isOpenReturn)}
+                                </strong>
+                              </div>
+                            </div>
+
+                            <div style={{ marginTop: 4, fontSize: 12, fontWeight: 800, color: isOverdue ? "#e11d48" : "#047857" }}>
+                              ⏱️ {getRemainingTimeText(p)}
+                            </div>
+                          </div>
+                        </div>
+
+                        <span style={getStatusBadgeStyle(p, now)}>
+                          {p.status === "OUTSIDE" && isOverdue ? "🚨 OVERDUE OUTSIDE" : p.status === "OUTSIDE" ? "🟠 OUTSIDE CAMPUS" : "🔵 PERMITTED"}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()
+        ) : teacherStatusFilter === "LATE_COMERS" ? (
           habitualLateComersList.length === 0 ? (
             <div style={styles.emptyStateBox}>
               <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
@@ -583,8 +680,7 @@ export default function OutpassTeacherDesk({
                             fontWeight: 800,
                           }}
                         >
-                          🚨 {item.lateCount} Late Return
-                          {item.lateCount > 1 ? "s" : ""}
+                          🚨 {item.lateCount} Late Return{item.lateCount > 1 ? "s" : ""}
                         </span>
 
                         {stObj && (
@@ -1147,9 +1243,7 @@ export default function OutpassTeacherDesk({
 
                       const reportLines = [
                         `*DARUL HUDA DEGREE SECTION — MONTHLY HOME LEAVE REPORT*`,
-                        `*Scope:* Class ${myActiveClasses.join(", ")} | *By:* ${getOfficialTeacherName(
-                          staffName
-                        )}`,
+                        `*Scope:* Class ${myActiveClasses.join(", ")} | *By:* ${getOfficialTeacherName(staffName)}`,
                         `*Date:* ${new Date().toLocaleDateString("en-IN", {
                           day: "2-digit",
                           month: "short",
@@ -1161,15 +1255,7 @@ export default function OutpassTeacherDesk({
                           ? ["None — All students returned on time!"]
                           : unpermittedLate.map(
                               (p, i) =>
-                                `${i + 1}. *${p.studentName}* (#${p.adNo}, ${
-                                  p.studentClass
-                                }) — Due: ${formatDateTime12Hour(
-                                  p.permittedTo
-                                )} [${
-                                  p.status === "RETURNED"
-                                    ? "Returned Late"
-                                    : "Still Outside"
-                                }]`
+                                `${i + 1}. *${p.studentName} (#${p.adNo}, ${p.studentClass})* — Due: ${formatDateTime12Hour(p.permittedTo)} [${p.status === "RETURNED" ? "Returned Late" : "Still Outside"}]`
                             )),
                         ``,
                         `*⏳ PERMITTED EXTENSIONS (${permittedExtensions.length}):*`,
@@ -1177,11 +1263,7 @@ export default function OutpassTeacherDesk({
                           ? ["None"]
                           : permittedExtensions.map(
                               (p, i) =>
-                                `${i + 1}. *${p.studentName}* (#${
-                                  p.adNo
-                                }) — Extended till ${formatDateTime12Hour(
-                                  p.permittedTo
-                                )} (Reason: ${p.extensionReason})`
+                                `${i + 1}. *${p.studentName} (#${p.adNo})* — Extended till ${formatDateTime12Hour(p.permittedTo)} (Reason: ${p.extensionReason})`
                             )),
                       ];
 
