@@ -779,27 +779,45 @@ const [tsrQuickStatusFilter, setTsrQuickStatusFilter] = useState('ALL'); // 'ALL
     });
   };
 
-  useEffect(() => {
-  async function loadSessionsForTeacherReport() {
-    if (activeTab !== 'teacher_subject_report') return;
-    setTsrLoading(true);
-    try {
-      const snap = await getDocs(query(collection(db, 'systemCache'), limit(800)));
-      const list = [];
-      snap.forEach(d => {
-        if (d.id.startsWith('periodSession_')) {
-          list.push({ id: d.id, ...d.data() });
-        }
-      });
-      setTsrSessionsCache(list);
-    } catch (e) {
-      console.warn('Error loading sessions for teacher subject report:', e);
-    } finally {
-      setTsrLoading(false);
+ useEffect(() => {
+    async function loadSessionsForTeacherReport() {
+      if (activeTab !== 'teacher_subject_report') return;
+      setTsrLoading(true);
+      try {
+        // Fetch full systemCache collection without a small limit so November & all months are included
+        const snap = await getDocs(collection(db, 'systemCache'));
+        const sessionMapById = {};
+
+        snap.forEach(d => {
+          const id = d.id;
+          const data = d.data() || {};
+          if (id.startsWith('periodSession_')) {
+            sessionMapById[id] = { id, ...data };
+          } else if (id.startsWith('daySessionsIndex_')) {
+            const dateFromId = id.replace('daySessionsIndex_', '');
+            const sessionsArr = Array.isArray(data.sessions) ? data.sessions : [];
+            sessionsArr.forEach(s => {
+              const sId = s.sessionDocId || `periodSession_${data.date || dateFromId}_${s.subject}_${s.session}`;
+              if (!sessionMapById[sId]) {
+                sessionMapById[sId] = {
+                  id: sId,
+                  date: data.date || dateFromId,
+                  ...s
+                };
+              }
+            });
+          }
+        });
+
+        setTsrSessionsCache(Object.values(sessionMapById));
+      } catch (e) {
+        console.warn('Error loading sessions for teacher subject report:', e);
+      } finally {
+        setTsrLoading(false);
+      }
     }
-  }
-  loadSessionsForTeacherReport();
-}, [activeTab]);
+    loadSessionsForTeacherReport();
+  }, [activeTab]);
 
   const handleCopyAllAbsentees = () => {
     if (absentStudentsByClassGroups.length === 0) return;
@@ -3581,24 +3599,88 @@ const [tsrQuickStatusFilter, setTsrQuickStatusFilter] = useState('ALL'); // 'ALL
         let subjectPeriodsHeldCount = 0;
         const allRows = [];
 
-        targetEnvs.forEach(env => {
+       targetEnvs.forEach(env => {
           const subKey = normalizeSubKey(isAttendanceOnlyEnrollment(env) ? (env.alias || env.subject) : (env.subject || env.alias));
           const enrolledList = getStudentsForEnrollment(env);
+          const enrolledSet = new Set(
+            enrolledList.flatMap(s => [
+              String(s.regNo || '').trim().toUpperCase(),
+              String(s.adNo || '').trim().toUpperCase(),
+              String(s.id || '').trim().toUpperCase()
+            ]).filter(Boolean)
+          );
 
+          const envUniqueKey = String(env.id || env.targetClass || '').replace(/[^a-zA-Z0-9]/g, '_');
+          const eAliasClean = String(env.alias || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+          const eSubClean = String(env.subject || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+          const eTargetClean = String(env.targetClass || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+          // 1. Find all matching session docs in systemCache for this subject batch & date filter
           const matchingSessions = tsrSessionsCache.filter(sess => {
-            if (!sess.date) return false;
-            if (tsrFilterMode === 'MONTH' && !String(sess.date).startsWith(tsrMonth)) return false;
+            const sessDate = sess.date || (sess.id?.startsWith('periodSession_') ? sess.id.split('_')[1] : '');
+            if (!sessDate) return false;
+
+            if (tsrFilterMode === 'MONTH' && !String(sessDate).startsWith(tsrMonth)) return false;
             if (tsrFilterMode === 'DATE_RANGE') {
-              if (tsrStartDate && sess.date < tsrStartDate) return false;
-              if (tsrEndDate && sess.date > tsrEndDate) return false;
+              if (tsrStartDate && sessDate < tsrStartDate) return false;
+              if (tsrEndDate && sessDate > tsrEndDate) return false;
             }
-            if (tsrFilterMode === 'SPECIFIC_DATE' && sess.date !== tsrSpecificDate) return false;
+            if (tsrFilterMode === 'SPECIFIC_DATE' && sessDate !== tsrSpecificDate) return false;
 
             if (sess.enrollmentId && sess.enrollmentId === env.id) return true;
-            const sessSub = normalizeSubKey(sess.subject || sess.classAlias || '');
-            const sameTeacher = !sess.teacherUsername || String(sess.teacherUsername).toLowerCase() === String(activeTeacherObj?.username || '').toLowerCase();
-            return sessSub === subKey && sameTeacher;
+            if (envUniqueKey && (sess.id?.includes(envUniqueKey) || sess.sessionDocId?.includes(envUniqueKey))) return true;
+
+            const sSubNorm = normalizeSubKey(sess.subject || sess.classAlias || '');
+            const sSubClean = String(sess.subject || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+            const sAliasClean = String(sess.classAlias || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+            const sDocClean = String(sess.id || sess.sessionDocId || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+            if (eAliasClean && (sAliasClean.includes(eAliasClean) || sSubClean.includes(eAliasClean) || sDocClean.includes(eAliasClean))) {
+              return true;
+            }
+            if (eTargetClean && (sAliasClean.includes(eTargetClean) || sDocClean.includes(eTargetClean))) {
+              if (sSubNorm === subKey || (eSubClean && (sSubClean.includes(eSubClean) || sAliasClean.includes(eSubClean)))) {
+                return true;
+              }
+            }
+
+            // Also match if same subject and the session's attendanceMap contains students from this batch
+            if (sSubNorm === subKey) {
+              const mapKeys = Object.keys(sess.attendanceMap || {});
+              const hasBatchStudents = mapKeys.some(k => enrolledSet.has(String(k).trim().toUpperCase()));
+              if (hasBatchStudents) return true;
+            }
+
+            return false;
           });
+
+          // Helper to find a student's subjectWise record regardless of key formatting
+          const getStudentSubjectRecord = (st) => {
+            const pStat = getStudentAttStat(st);
+            const sw = pStat.subjectWise || {};
+            if (sw[subKey]) return sw[subKey];
+            const foundKey = Object.keys(sw).find(k => {
+              const kNorm = normalizeSubKey(k);
+              const kClean = String(k).toUpperCase().replace(/[^A-Z0-9]/g, '');
+              return kNorm === subKey || (eAliasClean && kClean.includes(eAliasClean)) || (eSubClean && kClean.includes(eSubClean));
+            });
+            return foundKey ? sw[foundKey] : {};
+          };
+
+          // Helper to check if an absentDate string falls within the active filter
+          const isDateInSelectedFilter = (dStr) => {
+            if (!dStr) return false;
+            const cleanD = String(dStr).trim().slice(0, 10);
+            if (tsrFilterMode === 'ALL_TIME') return true;
+            if (tsrFilterMode === 'MONTH') return cleanD.startsWith(tsrMonth);
+            if (tsrFilterMode === 'DATE_RANGE') {
+              if (tsrStartDate && cleanD < tsrStartDate) return false;
+              if (tsrEndDate && cleanD > tsrEndDate) return false;
+              return true;
+            }
+            if (tsrFilterMode === 'SPECIFIC_DATE') return cleanD === tsrSpecificDate;
+            return true;
+          };
 
           subjectPeriodsHeldCount += matchingSessions.length;
 
@@ -3614,21 +3696,10 @@ const [tsrQuickStatusFilter, setTsrQuickStatusFilter] = useState('ALL'); // 'ALL
             let permittedLeave = 0;
             let unexcusedAbsent = 0;
 
-            if (tsrFilterMode === 'ALL_TIME' && matchingSessions.length === 0) {
-              // Strictly read ONLY this subject's entry from subjectWise
-              const pStat = getStudentAttStat(st);
-              const sObj = (pStat.subjectWise || {})[subKey] || {};
-              totalTaken = Number(sObj.total) || 0;
-              officialConverted = Number(sObj.official) || 0;
-              medicalConverted = Number(sObj.medical) || 0;
-              permittedLeave = Number(sObj.permitted) || 0;
-              const combinedPres = Number(sObj.present) || 0;
-              normalPresent = Math.max(0, combinedPres - officialConverted);
-              unexcusedAbsent = Math.max(0, totalTaken - combinedPres - medicalConverted - permittedLeave);
-            } else {
+            if (matchingSessions.length > 0) {
               matchingSessions.forEach(sess => {
                 const map = sess.attendanceMap || {};
-                const val = map[reg] || map[idKey] || map[ad];
+                const val = map[reg] || map[idKey] || map[ad] || map[reg.toUpperCase()] || map[ad.toUpperCase()];
                 if (!val) return;
                 totalTaken++;
                 if (val === 'P') normalPresent++;
@@ -3637,6 +3708,35 @@ const [tsrQuickStatusFilter, setTsrQuickStatusFilter] = useState('ALL'); // 'ALL
                 else if (val === 'L') permittedLeave++;
                 else if (val === 'A') unexcusedAbsent++;
               });
+            }
+
+            // 🌟 Fallback to student.periodAttendance.subjectWise when sessions were imported or not in systemCache
+            if (totalTaken === 0) {
+              const sObj = getStudentSubjectRecord(st);
+              const swTotal = Number(sObj.total) || 0;
+              const swOfficial = Number(sObj.official) || 0;
+              const swMedical = Number(sObj.medical) || 0;
+              const swPermitted = Number(sObj.permitted) || 0;
+              const swPresentCombined = Number(sObj.present) || 0;
+              const swAbsentDates = Array.isArray(sObj.absentDates) ? sObj.absentDates : [];
+
+              if (tsrFilterMode === 'ALL_TIME') {
+                totalTaken = swTotal;
+                officialConverted = swOfficial;
+                medicalConverted = swMedical;
+                permittedLeave = swPermitted;
+                normalPresent = Math.max(0, swPresentCombined - swOfficial);
+                unexcusedAbsent = Math.max(0, swTotal - swPresentCombined - swMedical - swPermitted);
+              } else if (swTotal > 0) {
+                // Filter absentDates by the selected Month / Date Range
+                const filteredAbsCount = swAbsentDates.filter(isDateInSelectedFilter).length;
+                totalTaken = swTotal;
+                officialConverted = swOfficial;
+                medicalConverted = Math.min(swMedical, filteredAbsCount);
+                permittedLeave = swPermitted;
+                unexcusedAbsent = Math.max(0, filteredAbsCount - medicalConverted);
+                normalPresent = Math.max(0, totalTaken - officialConverted - medicalConverted - permittedLeave - unexcusedAbsent);
+              }
             }
 
             if (totalTaken > subjectPeriodsHeldCount) {
