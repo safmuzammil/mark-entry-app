@@ -1,9 +1,9 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { db } from '../../lib/firebase';
 import { doc, getDoc, getDocs, collection } from 'firebase/firestore';
-import { DEFAULT_CLASSES, DEFAULT_SUBJECTS, styles } from './erpConstants';
+import { DEFAULT_CLASSES, styles } from './erpConstants';
 import { openDirectWhatsApp } from './ErpExtensions';
 
 export default function PeriodAttendanceReportsHub({
@@ -23,48 +23,97 @@ export default function PeriodAttendanceReportsHub({
   setSelectedTeacherUsername,
   setAttEnrollmentId,
   setAttDate,
-  setAttSession,
-  loading,
-  setLoading,
-  setStatusMsg
+  setAttSession
 }) {
   // --- 1. REPORTS HUB STATE ---
   const [repScope, setRepScope] = useState(() => {
-    const ctClasses = activeTeacherObj?.outpassPrivileges?.classTeacherOf || activeTeacherObj?.classTeacherOf || loggedInUser?.outpassPrivileges?.classTeacherOf || loggedInUser?.classTeacherOf || [];
+    const ctClasses =
+      activeTeacherObj?.outpassPrivileges?.classTeacherOf ||
+      activeTeacherObj?.classTeacherOf ||
+      loggedInUser?.outpassPrivileges?.classTeacherOf ||
+      loggedInUser?.classTeacherOf ||
+      [];
     const hasCt = Array.isArray(ctClasses) ? ctClasses.length > 0 : Boolean(ctClasses);
-    return (userRole === 'admin' || hasCt) ? 'fn_an_monthly' : 'total';
+    return userRole === 'admin' || hasCt ? 'total' : 'total';
   });
+
   const [repClass, setRepClass] = useState(() => {
-    const ctClasses = activeTeacherObj?.outpassPrivileges?.classTeacherOf || activeTeacherObj?.classTeacherOf || loggedInUser?.outpassPrivileges?.classTeacherOf || loggedInUser?.classTeacherOf || [];
+    const ctClasses =
+      activeTeacherObj?.outpassPrivileges?.classTeacherOf ||
+      activeTeacherObj?.classTeacherOf ||
+      loggedInUser?.outpassPrivileges?.classTeacherOf ||
+      loggedInUser?.classTeacherOf ||
+      [];
     const firstCt = Array.isArray(ctClasses) ? ctClasses[0] : ctClasses;
-    return (userRole !== 'admin' && firstCt) ? firstCt : 'ALL';
+    return userRole !== 'admin' && firstCt ? firstCt : 'ALL';
   });
+
   const [repMonth, setRepMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [totalFilterMonth, setTotalFilterMonth] = useState('ALL'); // 'ALL' or 'YYYY-MM' for Total Semester Summary
   const [repDate, setRepDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [repTeacher, setRepTeacher] = useState(userRole === 'admin' ? 'ALL' : (loggedInUser?.username || 'ALL'));
+  const [repTeacher, setRepTeacher] = useState(
+    userRole === 'admin' ? 'ALL' : loggedInUser?.username || 'ALL'
+  );
   const [repSubject, setRepSubject] = useState('ALL');
-  const [repMinusMode, setRepMinusMode] = useState('both'); // 'both' | 'with_minus' | 'without_minus'
+  const [repMinusMode, setRepMinusMode] = useState('both');
   const [repSearch, setRepSearch] = useState('');
   const [dailySessionsCache, setDailySessionsCache] = useState([]);
+  const [allPeriodSessionsCache, setAllPeriodSessionsCache] = useState([]);
   const [loadingReport, setLoadingReport] = useState(false);
   const [showReportFilters, setShowReportFilters] = useState(false);
+
+  // 🌟 STUDENT DRILLDOWN STATE (Matches Screenshots 4, 5, and 6)
+  const [selectedProfileStudent, setSelectedProfileStudent] = useState(null);
+  const [studentDrilldownView, setStudentDrilldownView] = useState('stats'); // 'stats' | 'details'
+  const [focusedSubjectKey, setFocusedSubjectKey] = useState('ALL'); // 'ALL' or specific subKey
+  const [showMinusDetailsBanner, setShowMinusDetailsBanner] = useState(false);
 
   // 🌟 FN (Periods 1-6) & AN (Periods 7-9) Monthly Day Strategy State
   const [fnAnMonthSessions, setFnAnMonthSessions] = useState([]);
   const [fnAnOutpasses, setFnAnOutpasses] = useState([]);
   const [fnAnRecordedAbsences, setFnAnRecordedAbsences] = useState([]);
-  const [fnAnFilterMode, setFnAnFilterMode] = useState('ALL'); // 'ALL' | 'ABSENT_GT_5' | 'PRESENT_ALL_DAYS'
-  const [fnAnViewMode, setFnAnViewMode] = useState('summary'); // 'summary' | 'register_grid'
+  const [fnAnFilterMode, setFnAnFilterMode] = useState('ALL');
+  const [fnAnViewMode, setFnAnViewMode] = useState('summary');
   const [loadingFnAn, setLoadingFnAn] = useState(false);
 
-  // Load Daily Recorded Sessions when `repScope === 'daily'`
+  // Load all period sessions from systemCache so we can build the exact Monthly Date-Square Calendars & Month-Filtered Totals
+  useEffect(() => {
+    async function loadAllPeriodSessions() {
+      if (activeTab !== 'reports_hub') return;
+      try {
+        const snap = await getDocs(collection(db, 'systemCache'));
+        const sessMap = {};
+        snap.forEach(d => {
+          const id = d.id;
+          const data = d.data() || {};
+          if (id.startsWith('periodSession_')) {
+            sessMap[id] = { id, ...data };
+          } else if (id.startsWith('daySessionsIndex_')) {
+            const dFromId = id.replace('daySessionsIndex_', '');
+            (data.sessions || []).forEach(s => {
+              const sId = s.sessionDocId || `periodSession_${data.date || dFromId}_${s.subject}_${s.session}`;
+              if (!sessMap[sId]) {
+                sessMap[sId] = { id: sId, date: data.date || dFromId, ...s };
+              }
+            });
+          }
+        });
+        setAllPeriodSessionsCache(Object.values(sessMap));
+      } catch (err) {
+        console.warn('Error loading all period sessions for reports:', err);
+      }
+    }
+    loadAllPeriodSessions();
+  }, [activeTab]);
+
+  // Load Daily Recorded Sessions for non-admin teachers when `repScope === 'daily'`
   useEffect(() => {
     async function fetchDailySessionsForReport() {
       if (activeTab !== 'reports_hub' || repScope !== 'daily' || !repDate) return;
       setLoadingReport(true);
       try {
         const idxSnap = await getDoc(doc(db, 'systemCache', `daySessionsIndex_${repDate}`));
-        const list = idxSnap.exists() ? (idxSnap.data().sessions || []) : [];
+        const list = idxSnap.exists() ? idxSnap.data().sessions || [] : [];
         const fullSessions = [];
         for (const item of list) {
           const sSnap = await getDoc(doc(db, 'systemCache', item.sessionDocId));
@@ -83,7 +132,7 @@ export default function PeriodAttendanceReportsHub({
     fetchDailySessionsForReport();
   }, [activeTab, repScope, repDate]);
 
-  // 🌟 Load Month Period Sessions & Out-Passes when `repScope === 'fn_an_monthly'`
+  // Load Month Period Sessions & Out-Passes when `repScope === 'fn_an_monthly'`
   useEffect(() => {
     async function fetchFnAnMonthData() {
       if (activeTab !== 'reports_hub' || repScope !== 'fn_an_monthly' || !repMonth) return;
@@ -129,14 +178,18 @@ export default function PeriodAttendanceReportsHub({
   const teacherAllowedStudentRegs = new Set();
   const subjectColsSet = new Set();
 
-  const myCtClasses = React.useMemo(() => {
+  const myCtClasses = useMemo(() => {
     const set = new Set();
-    const addClean = (val) => {
+    const addClean = val => {
       if (!val) return;
       if (Array.isArray(val)) {
         val.filter(Boolean).forEach(c => set.add(String(c).trim().toUpperCase()));
       } else if (typeof val === 'string') {
-        val.split(',').map(s => s.trim().toUpperCase()).filter(Boolean).forEach(c => set.add(c));
+        val
+          .split(',')
+          .map(s => s.trim().toUpperCase())
+          .filter(Boolean)
+          .forEach(c => set.add(c));
       }
     };
     addClean(activeTeacherObj?.outpassPrivileges?.classTeacherOf);
@@ -144,12 +197,18 @@ export default function PeriodAttendanceReportsHub({
     addClean(loggedInUser?.outpassPrivileges?.classTeacherOf);
     addClean(loggedInUser?.classTeacherOf);
 
-    const myUser = String(activeTeacherObj?.username || loggedInUser?.username || '').trim().toLowerCase();
-    const myName = String(activeTeacherObj?.fullName || loggedInUser?.fullName || '').trim().toLowerCase();
+    const myUser = String(activeTeacherObj?.username || loggedInUser?.username || '')
+      .trim()
+      .toLowerCase();
+    const myName = String(activeTeacherObj?.fullName || loggedInUser?.fullName || '')
+      .trim()
+      .toLowerCase();
 
     if (myUser && myUser !== 'admin') {
       localStudents.forEach(st => {
-        const ctUser = String(st.classTeacherUsername || st.classTeacher || '').trim().toLowerCase();
+        const ctUser = String(st.classTeacherUsername || st.classTeacher || '')
+          .trim()
+          .toLowerCase();
         const ctName = String(st.classTeacherName || '').trim().toLowerCase();
         if ((ctUser && ctUser === myUser) || (ctName && ctName === myName)) {
           const stClasses = Array.isArray(st.classes) ? st.classes : [st.class].filter(Boolean);
@@ -169,19 +228,13 @@ export default function PeriodAttendanceReportsHub({
     }
   }, [isPureSubjectTeacher, repScope]);
 
-  useEffect(() => {
-    if (isClassTeacher && repScope === 'fn_an_monthly') {
-      if (repClass === 'ALL' || !myCtClasses.includes(repClass)) {
-        if (myCtClasses.length > 0) setRepClass(myCtClasses[0]);
-      }
-    }
-  }, [isClassTeacher, repScope, myCtClasses, repClass]);
-
   myCtClasses.forEach(c => teacherAllowedClassesSet.add(c));
 
   if (userRole !== 'admin') {
     attendanceEnrollments.forEach(env => {
-      const subKey = normalizeSubKey(isAttendanceOnlyEnrollment(env) ? (env.alias || env.subject) : env.subject);
+      const subKey = normalizeSubKey(
+        isAttendanceOnlyEnrollment(env) ? env.alias || env.subject : env.subject
+      );
       subjectColsSet.add(subKey);
       const enrolled = getStudentsForEnrollment(env);
       enrolled.forEach(st => {
@@ -189,7 +242,6 @@ export default function PeriodAttendanceReportsHub({
         (st.classes || [st.class]).filter(Boolean).forEach(c => teacherAllowedClassesSet.add(c));
       });
     });
-    // Also include students in Class Teacher's designated class
     if (myCtClasses.length > 0) {
       localStudents.forEach(st => {
         const stCls = Array.isArray(st.classes) ? st.classes : [st.class];
@@ -200,12 +252,15 @@ export default function PeriodAttendanceReportsHub({
     }
   } else if (repTeacher !== 'ALL') {
     const tObj = localTeachers.find(t => t.username === repTeacher);
-    (tObj?.enrollments || []).filter(e => !isHifzEnrollment(e)).forEach(env => {
-      subjectColsSet.add(normalizeSubKey(isAttendanceOnlyEnrollment(env) ? (env.alias || env.subject) : env.subject));
-    });
+    (tObj?.enrollments || [])
+      .filter(e => !isHifzEnrollment(e))
+      .forEach(env => {
+        subjectColsSet.add(
+          normalizeSubKey(isAttendanceOnlyEnrollment(env) ? env.alias || env.subject : env.subject)
+        );
+      });
   }
 
-  // 🌟 For Class Teachers: also collect all subjects taken by students in their CT class so they can see all subject attendance
   const ctClassSubKeys = new Set();
   if (myCtClasses.length > 0 && Array.isArray(localStudents)) {
     localStudents.forEach(st => {
@@ -222,7 +277,7 @@ export default function PeriodAttendanceReportsHub({
     });
   }
 
-  const allDaysInSelectedMonth = React.useMemo(() => {
+  const allDaysInSelectedMonth = useMemo(() => {
     if (!repMonth) return [];
     const parts = repMonth.split('-');
     const year = parseInt(parts[0], 10);
@@ -245,9 +300,14 @@ export default function PeriodAttendanceReportsHub({
     return days;
   }, [repMonth]);
 
-  const availableClassesForDropdown = userRole === 'admin'
-    ? DEFAULT_CLASSES
-    : (repScope === 'fn_an_monthly' ? (myCtClasses.length > 0 ? myCtClasses : Array.from(teacherAllowedClassesSet)) : Array.from(teacherAllowedClassesSet));
+  const availableClassesForDropdown =
+    userRole === 'admin'
+      ? DEFAULT_CLASSES
+      : repScope === 'fn_an_monthly'
+      ? myCtClasses.length > 0
+        ? myCtClasses
+        : Array.from(teacherAllowedClassesSet)
+      : Array.from(teacherAllowedClassesSet);
 
   const filteredReportStudents = localStudents.filter(st => {
     if (userRole !== 'admin') {
@@ -255,14 +315,21 @@ export default function PeriodAttendanceReportsHub({
       const ad = String(st.adNo || '').trim().toUpperCase();
       const stClasses = (st.classes || [st.class] || []).map(c => String(c).toUpperCase().trim());
       const isCtStudent = stClasses.some(c => myCtClasses.includes(c));
-      const isTeachingStudent = teacherAllowedStudentRegs.has(reg) || teacherAllowedStudentRegs.has(ad) || teacherAllowedStudentRegs.has(st.regNo);
+      const isTeachingStudent =
+        teacherAllowedStudentRegs.has(reg) ||
+        teacherAllowedStudentRegs.has(ad) ||
+        teacherAllowedStudentRegs.has(st.regNo);
       if (!isCtStudent && !isTeachingStudent) return false;
     }
     const stClasses = Array.isArray(st.classes) ? st.classes : [st.class];
     if (repClass !== 'ALL' && !stClasses.includes(repClass)) return false;
     if (repSearch.trim()) {
       const q = repSearch.trim().toLowerCase();
-      if (!String(st.firstName || '').toLowerCase().includes(q) && !String(st.adNo || '').toLowerCase().includes(q)) return false;
+      if (
+        !String(st.firstName || '').toLowerCase().includes(q) &&
+        !String(st.adNo || '').toLowerCase().includes(q)
+      )
+        return false;
     }
     return true;
   });
@@ -277,13 +344,14 @@ export default function PeriodAttendanceReportsHub({
   }
 
   const teacherSubKeys = new Set(
-    attendanceEnrollments.map(env => normalizeSubKey(isAttendanceOnlyEnrollment(env) ? (env.alias || env.subject) : env.subject))
+    attendanceEnrollments.map(env =>
+      normalizeSubKey(isAttendanceOnlyEnrollment(env) ? env.alias || env.subject : env.subject)
+    )
   );
   let subjectColumns = Array.from(subjectColsSet);
   if (userRole !== 'admin') {
     const isViewingCtClass = repClass !== 'ALL' && myCtClasses.includes(repClass);
     if (isViewingCtClass) {
-      // 🌟 Class Teacher viewing their designated class: show ALL subjects taken by this class!
       const classSubKeys = new Set();
       filteredReportStudents.forEach(st => {
         const sw = getStudentAttStat(st).subjectWise || {};
@@ -293,8 +361,6 @@ export default function PeriodAttendanceReportsHub({
       });
       subjectColumns = subjectColumns.filter(s => classSubKeys.has(s));
     } else if (repClass !== 'ALL') {
-      // 🌟 Viewing a class where they only teach as subject faculty:
-      // Show ONLY the subjects this teacher teaches in this class!
       const classEnrollmentSubs = new Set(
         attendanceEnrollments
           .filter(env => {
@@ -302,12 +368,14 @@ export default function PeriodAttendanceReportsHub({
             const alias = String(env.alias || '').toUpperCase().trim();
             return tCls === repClass || alias.includes(repClass);
           })
-          .map(env => normalizeSubKey(isAttendanceOnlyEnrollment(env) ? (env.alias || env.subject) : env.subject))
+          .map(env =>
+            normalizeSubKey(isAttendanceOnlyEnrollment(env) ? env.alias || env.subject : env.subject)
+          )
       );
-      subjectColumns = subjectColumns.filter(s => classEnrollmentSubs.size > 0 ? classEnrollmentSubs.has(s) : teacherSubKeys.has(s));
+      subjectColumns = subjectColumns.filter(s =>
+        classEnrollmentSubs.size > 0 ? classEnrollmentSubs.has(s) : teacherSubKeys.has(s)
+      );
     } else {
-      // repClass === 'ALL'
-      // Show teacher's own subjects, plus subjects of their CT class if they are a Class Teacher
       subjectColumns = subjectColumns.filter(s => teacherSubKeys.has(s) || ctClassSubKeys.has(s));
     }
   }
@@ -315,7 +383,88 @@ export default function PeriodAttendanceReportsHub({
     subjectColumns = subjectColumns.filter(s => s === repSubject);
   }
 
-  // 🌟 COMPUTE FORENOON (PERIODS 1-6) & AFTERNOON (PERIODS 7-9) 2-SESSION DAILY TOTALS FOR MONTH
+  // Helper to compute a student's Total Semester / Month-filtered summary metrics
+  const computeStudentSummaryMetrics = (st, monthFilter = 'ALL') => {
+    const stat = getStudentAttStat(st);
+    const sw = stat.subjectWise || {};
+    const reg = String(st.regNo || '').trim();
+    const sId = String(st.id || '').trim();
+    const ad = String(st.adNo || '').trim().toUpperCase();
+
+    if (monthFilter && monthFilter !== 'ALL') {
+      // Filter by specific month using cached sessions or absentDates fallback
+      const monthSess = allPeriodSessionsCache.filter(
+        s => String(s.date || '').startsWith(monthFilter) && !s.isRehearsal
+      );
+
+      let mTotal = 0;
+      let mNormalPres = 0;
+      let mOfficial = 0;
+      let mMedical = 0;
+      let mAbsent = 0;
+
+      monthSess.forEach(sess => {
+        const map = sess.attendanceMap || {};
+        const val = map[reg] || map[sId] || map[ad] || map[st.adNo];
+        if (!val) return;
+        mTotal++;
+        if (val === 'P') mNormalPres++;
+        else if (val === 'O') mOfficial++;
+        else if (val === 'M') {
+          mMedical++;
+          mAbsent++;
+        } else {
+          mAbsent++;
+        }
+      });
+
+      const minusC = (stat.minusLogs || [])
+        .filter(l => String(l.date || '').startsWith(monthFilter))
+        .reduce((acc, l) => acc + (Number(l.count) || 0), 0);
+
+      const grandTotalPres = mNormalPres + mOfficial;
+      const netAfterMinus = Math.max(0, grandTotalPres - minusC);
+      const netPct = mTotal > 0 ? ((netAfterMinus / mTotal) * 100).toFixed(1) : '100.0';
+
+      return {
+        totalTaken: mTotal,
+        normalPresent: mNormalPres,
+        totalAbsence: mAbsent,
+        officialCount: mOfficial,
+        medicalCount: mMedical,
+        grandTotalPres,
+        minusCount: minusC,
+        netAfterMinus,
+        netPct
+      };
+    }
+
+    // Whole Semester Summary
+    const totalTaken = Number(stat.totalPeriods) || 0;
+    const combinedPres = Number(stat.presentCount) || 0; // In PeriodAttendanceManager, presentCount includes P + O
+    const officialCount = Number(stat.officialCount) || 0;
+    const medicalCount = Number(stat.medicalCount) || 0;
+    const normalPresent = Math.max(0, combinedPres - officialCount);
+    const grandTotalPres = normalPresent + officialCount;
+    const totalAbsence = Math.max(0, totalTaken - grandTotalPres);
+    const minusCount = Number(stat.minusCount) || 0;
+    const netAfterMinus = Math.max(0, grandTotalPres - minusCount);
+    const netPct = totalTaken > 0 ? ((netAfterMinus / totalTaken) * 100).toFixed(1) : '100.0';
+
+    return {
+      totalTaken,
+      normalPresent,
+      totalAbsence,
+      officialCount,
+      medicalCount,
+      grandTotalPres,
+      minusCount,
+      netAfterMinus,
+      netPct
+    };
+  };
+
+  // Compute FN/AN Monthly Rows
   const computeFnAnMonthlyRows = () => {
     return filteredReportStudents.map(st => {
       const reg = st.regNo;
@@ -327,7 +476,15 @@ export default function PeriodAttendanceReportsHub({
         const sReg = String(st.regNo || '').trim();
         const sAd = String(st.adNo || '').trim().toUpperCase();
         const sId = String(st.id || '').trim();
-        const status = attMap[sReg] || attMap[sAd] || attMap[sId] || attMap[sReg.toLowerCase()] || attMap[sAd.toLowerCase()] || attMap[reg] || attMap[st.id] || attMap[ad];
+        const status =
+          attMap[sReg] ||
+          attMap[sAd] ||
+          attMap[sId] ||
+          attMap[sReg.toLowerCase()] ||
+          attMap[sAd.toLowerCase()] ||
+          attMap[reg] ||
+          attMap[st.id] ||
+          attMap[ad];
         if (!status) return;
 
         const dStr = sess.date;
@@ -349,43 +506,47 @@ export default function PeriodAttendanceReportsHub({
       let totalDaysAbsent = 0;
       const absentDatesDetails = [];
 
-      Object.keys(dateMap).sort().forEach(dStr => {
-        const { fnStatuses, anStatuses } = dateMap[dStr];
-        const hasFn = fnStatuses.length > 0;
-        const hasAn = anStatuses.length > 0;
+      Object.keys(dateMap)
+        .sort()
+        .forEach(dStr => {
+          const { fnStatuses, anStatuses } = dateMap[dStr];
+          const hasFn = fnStatuses.length > 0;
+          const hasAn = anStatuses.length > 0;
 
-        const isFnPresent = hasFn ? fnStatuses.some(c => c === 'P' || c === 'O') : false;
-        const isAnPresent = hasAn ? anStatuses.some(c => c === 'P' || c === 'O') : false;
+          const isFnPresent = hasFn ? fnStatuses.some(c => c === 'P' || c === 'O') : false;
+          const isAnPresent = hasAn ? anStatuses.some(c => c === 'P' || c === 'O') : false;
 
-        if (hasFn) {
-          fnTotalCount += 1;
-          if (isFnPresent) fnPresentCount += 1;
-        }
-        if (hasAn) {
-          anTotalCount += 1;
-          if (isAnPresent) anPresentCount += 1;
-        }
-
-        if (hasFn && hasAn) {
-          workingDaysHeld += 1;
-          const dayPres = (isFnPresent ? 0.5 : 0) + (isAnPresent ? 0.5 : 0);
-          const dayAbs = 1 - dayPres;
-          totalDaysPresent += dayPres;
-          totalDaysAbsent += dayAbs;
-          if (dayAbs > 0) {
-            absentDatesDetails.push(`${dStr} (${!isFnPresent && !isAnPresent ? 'Full Day' : isFnPresent ? 'AN Absent' : 'FN Absent'})`);
+          if (hasFn) {
+            fnTotalCount += 1;
+            if (isFnPresent) fnPresentCount += 1;
           }
-        } else if (hasFn || hasAn) {
-          workingDaysHeld += 0.5;
-          const halfPres = (hasFn && isFnPresent) || (hasAn && isAnPresent) ? 0.5 : 0;
-          const halfAbs = 0.5 - halfPres;
-          totalDaysPresent += halfPres;
-          totalDaysAbsent += halfAbs;
-          if (halfAbs > 0) {
-            absentDatesDetails.push(`${dStr} (${hasFn ? 'FN Absent' : 'AN Absent'})`);
+          if (hasAn) {
+            anTotalCount += 1;
+            if (isAnPresent) anPresentCount += 1;
           }
-        }
-      });
+
+          if (hasFn && hasAn) {
+            workingDaysHeld += 1;
+            const dayPres = (isFnPresent ? 0.5 : 0) + (isAnPresent ? 0.5 : 0);
+            const dayAbs = 1 - dayPres;
+            totalDaysPresent += dayPres;
+            totalDaysAbsent += dayAbs;
+            if (dayAbs > 0) {
+              absentDatesDetails.push(
+                `${dStr} (${!isFnPresent && !isAnPresent ? 'Full Day' : isFnPresent ? 'AN Absent' : 'FN Absent'})`
+              );
+            }
+          } else if (hasFn || hasAn) {
+            workingDaysHeld += 0.5;
+            const halfPres = (hasFn && isFnPresent) || (hasAn && isAnPresent) ? 0.5 : 0;
+            const halfAbs = 0.5 - halfPres;
+            totalDaysPresent += halfPres;
+            totalDaysAbsent += halfAbs;
+            if (halfAbs > 0) {
+              absentDatesDetails.push(`${dStr} (${hasFn ? 'FN Absent' : 'AN Absent'})`);
+            }
+          }
+        });
 
       const studentMonthPasses = fnAnOutpasses.filter(p => {
         if (String(p.adNo || '').trim().toUpperCase() !== ad) return false;
@@ -402,11 +563,18 @@ export default function PeriodAttendanceReportsHub({
       });
 
       const leaveReasonsList = [
-        ...studentMonthPasses.map(p =>
-          `${p.leaveCategory || 'Leave'}: ${p.destination || 'Out'}${p.purpose ? ` (${p.purpose})` : ''}`
+        ...studentMonthPasses.map(
+          p => `${p.leaveCategory || 'Leave'}: ${p.destination || 'Out'}${p.purpose ? ` (${p.purpose})` : ''}`
         ),
-        ...studentMonthRecordedAbs.map(r =>
-          `${r.status === 'SICK_ROOM' ? 'Medical / Sick' : r.status === 'OFFICIAL' ? 'Official Duty' : 'Leave'}: ${r.reason || 'Recorded Absence'}`
+        ...studentMonthRecordedAbs.map(
+          r =>
+            `${
+              r.status === 'SICK_ROOM'
+                ? 'Medical / Sick'
+                : r.status === 'OFFICIAL'
+                ? 'Official Duty'
+                : 'Leave'
+            }: ${r.reason || 'Recorded Absence'}`
         )
       ];
 
@@ -443,6 +611,32 @@ export default function PeriodAttendanceReportsHub({
   });
 
   const handleExportReportMatrixExcel = () => {
+    if (repScope === 'total') {
+      const rows = filteredReportStudents.map((st, idx) => {
+        const m = computeStudentSummaryMetrics(st, totalFilterMonth);
+        return {
+          '#': idx + 1,
+          'STUDENT NAME': st.firstName,
+          'ADMISSION NO': st.adNo,
+          'CLASS': (st.classes || []).join(', '),
+          'TOTAL ATTENDANCE TAKEN': m.totalTaken,
+          'TOTAL PRESENT (NORMAL)': m.normalPresent,
+          'TOTAL ABSENCE': m.totalAbsence,
+          'OFFICIAL LEAVE': m.officialCount,
+          'MEDICAL LEAVE': m.medicalCount,
+          'GRAND TOTAL (PRESENT + OFFICIAL)': m.grandTotalPres,
+          'TOTAL MINUS': m.minusCount > 0 ? -m.minusCount : 0,
+          'NET TOTAL (GRAND TOTAL - MINUS)': m.netAfterMinus,
+          'NET %': `${m.netPct}%`
+        };
+      });
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Total_Semester_Summary');
+      XLSX.writeFile(wb, `Total_Semester_Attendance_${repClass}_${totalFilterMonth}.xlsx`);
+      return;
+    }
+
     if (repScope === 'fn_an_monthly') {
       const rows = displayedFnAnRows.map((r, idx) => ({
         '#': idx + 1,
@@ -492,8 +686,6 @@ export default function PeriodAttendanceReportsHub({
         'STUDENT NAME': st.firstName,
         'ADMISSION NO': st.adNo,
         'CLASS': (st.classes || []).join(', '),
-        'TOTAL PERIODS': totP,
-        'PRESENT PERIODS': presP,
         'GROSS %': `${grossPct}%`,
         'MINUS': -minusC,
         'OVERALL NET %': `${netPct}%`
@@ -523,15 +715,467 @@ export default function PeriodAttendanceReportsHub({
     XLSX.writeFile(wb, `Attendance_Report_${repScope.toUpperCase()}_${repClass}.xlsx`);
   };
 
+  // ============================================================================
+  // 🌟 STUDENT DRILLDOWN VIEW (MATCHES SCREENSHOTS 4, 5 & 6)
+  // ============================================================================
+  if (selectedProfileStudent) {
+    const st = selectedProfileStudent;
+    const stat = getStudentAttStat(st);
+    const sw = stat.subjectWise || {};
+    const reg = String(st.regNo || '').trim();
+    const sId = String(st.id || '').trim();
+    const ad = String(st.adNo || '').trim().toUpperCase();
+    const stCls = (st.classes || [st.class] || [])[0] || '';
+
+    const totalClassesHeld = Number(stat.totalPeriods) || 0;
+    const totalPresentWithOfficial = Number(stat.presentCount) || 0;
+    const totalOfficial = Number(stat.officialCount) || 0;
+    const totalMedical = Number(stat.medicalCount) || 0;
+    const totalAbsent = Math.max(0, totalClassesHeld - totalPresentWithOfficial);
+    const minusCount = Number(stat.minusCount) || 0;
+    const minusLogs = Array.isArray(stat.minusLogs) ? stat.minusLogs : [];
+
+    const overallPct =
+      totalClassesHeld > 0
+        ? Math.round((Math.max(0, totalPresentWithOfficial - minusCount) / totalClassesHeld) * 100)
+        : 100;
+    const medicalPct =
+      totalClassesHeld > 0 ? Math.round((totalMedical / totalClassesHeld) * 100) : 0;
+    const officialPct =
+      totalClassesHeld > 0 ? Math.round((totalOfficial / totalClassesHeld) * 100) : 0;
+
+    const subjectEntries = Object.entries(sw)
+      .filter(([k]) => k.toUpperCase() !== 'HIFZ')
+      .map(([subKey, sObj]) => {
+        const sTot = Number(sObj.total) || 0;
+        const sPres = Number(sObj.present) || 0;
+        const sNotPres = Math.max(0, sTot - sPres);
+        const sPct = sTot > 0 ? ((sPres / sTot) * 100).toFixed(2) : '100.00';
+        const displayTitle = sKeyIncludesClass(subKey, stCls) ? subKey : `${subKey} ${stCls}`;
+        return {
+          subKey,
+          displayTitle,
+          total: sTot,
+          present: sPres,
+          notPresent: sNotPres,
+          pct: sPct,
+          absentDates: Array.isArray(sObj.absentDates) ? sObj.absentDates : []
+        };
+      })
+      .sort((a, b) => a.displayTitle.localeCompare(b.displayTitle));
+
+    function sKeyIncludesClass(k, c) {
+      if (!c) return true;
+      return String(k).toUpperCase().includes(String(c).toUpperCase());
+    }
+
+    // Build month-by-month green/red day squares for a subject (Pic 6)
+    const buildSubjectMonthCalendarGroups = subEntry => {
+      const subNorm = normalizeSubKey(subEntry.subKey);
+      const matchingSess = allPeriodSessionsCache.filter(sess => {
+        if (!sess.date || sess.isRehearsal) return false;
+        const sNorm = normalizeSubKey(sess.subject || sess.classAlias || '');
+        if (sNorm !== subNorm && !String(sess.classAlias || '').toUpperCase().includes(subNorm)) {
+          return false;
+        }
+        const map = sess.attendanceMap || {};
+        return Boolean(map[reg] || map[sId] || map[ad] || map[st.adNo]);
+      });
+
+      // Map date -> Present or Absent
+      const dateStatusList = [];
+      if (matchingSess.length > 0) {
+        matchingSess
+          .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+          .forEach(sess => {
+            const map = sess.attendanceMap || {};
+            const val = map[reg] || map[sId] || map[ad] || map[st.adNo];
+            const isPres = val === 'P' || val === 'O';
+            dateStatusList.push({
+              dateStr: sess.date,
+              isPresent: isPres
+            });
+          });
+      } else {
+        // Fallback when sessions were imported via Shuhood: use absentDates + synthetic present dates
+        const absSet = new Set(subEntry.absentDates.map(d => String(d).slice(0, 10)));
+        subEntry.absentDates.forEach(dStr => {
+          dateStatusList.push({ dateStr: String(dStr).slice(0, 10), isPresent: false });
+        });
+        // Also scan any general session dates where this student was present
+        allPeriodSessionsCache.forEach(sess => {
+          if (!sess.date) return;
+          const map = sess.attendanceMap || {};
+          const val = map[reg] || map[sId] || map[ad];
+          if ((val === 'P' || val === 'O') && !absSet.has(sess.date) && dateStatusList.length < subEntry.total) {
+            dateStatusList.push({ dateStr: sess.date, isPresent: true });
+          }
+        });
+      }
+
+      // Group by Month Title (e.g. "OCTOBER 2026", "NOVEMBER 2026")
+      const monthGroups = {};
+      dateStatusList.forEach(item => {
+        const dObj = new Date(`${item.dateStr}T00:00:00`);
+        const mLabel = !isNaN(dObj.getTime())
+          ? dObj.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase()
+          : item.dateStr.slice(0, 7);
+        const dayNum = !isNaN(dObj.getTime()) ? dObj.getDate() : item.dateStr.slice(8, 10);
+        if (!monthGroups[mLabel]) monthGroups[mLabel] = [];
+        monthGroups[mLabel].push({
+          dayNum,
+          dateStr: item.dateStr,
+          isPresent: item.isPresent
+        });
+      });
+
+      return Object.entries(monthGroups);
+    };
+
+    return (
+      <div style={{ background: '#ffffff', padding: '26px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+        {/* TOP HEADER BAR WITH BACK BUTTON AND "Go To Details ->" BUTTON */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => {
+                if (studentDrilldownView === 'details') {
+                  setStudentDrilldownView('stats');
+                  setFocusedSubjectKey('ALL');
+                } else {
+                  setSelectedProfileStudent(null);
+                }
+              }}
+              style={styles.buttonSecondary}
+            >
+              ⬅ {studentDrilldownView === 'details' ? 'Back to Attendance Statistics' : 'Back to Master Report'}
+            </button>
+            <div>
+              <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '800', color: '#0f172a' }}>
+                📈 Attendance Statistics — {st.firstName} (#{st.adNo} • {stCls})
+              </h2>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (studentDrilldownView === 'stats') {
+                setFocusedSubjectKey('ALL');
+                setStudentDrilldownView('details');
+              } else {
+                setStudentDrilldownView('stats');
+              }
+            }}
+            style={{
+              padding: '10px 20px',
+              borderRadius: '999px',
+              background: '#0d9488',
+              color: '#ffffff',
+              border: 'none',
+              fontWeight: '800',
+              fontSize: '13px',
+              cursor: 'pointer',
+              boxShadow: '0 4px 10px rgba(13, 148, 136, 0.2)'
+            }}
+          >
+            {studentDrilldownView === 'stats' ? 'Go To Details ➔' : '📊 View Summary Table'}
+          </button>
+        </div>
+
+        {/* 4 PASTEL TILES (TOTAL CLASSES, PRESENT, ABSENT, CLICKABLE MINUS DEDUCTION) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '18px' }}>
+          <div style={{ padding: '18px 20px', borderRadius: '14px', background: '#eef2ff', border: '1px solid #c7d2fe' }}>
+            <div style={{ fontSize: '11px', fontWeight: '800', color: '#4f46e5', textTransform: 'uppercase' }}>TOTAL CLASSES</div>
+            <div style={{ fontSize: '28px', fontWeight: '900', color: '#3730a3', marginTop: '4px' }}>{totalClassesHeld}</div>
+          </div>
+
+          <div style={{ padding: '18px 20px', borderRadius: '14px', background: '#ecfdf5', border: '1px solid #a7f3d0' }}>
+            <div style={{ fontSize: '11px', fontWeight: '800', color: '#10b981', textTransform: 'uppercase' }}>PRESENT</div>
+            <div style={{ fontSize: '28px', fontWeight: '900', color: '#047857', marginTop: '4px' }}>{totalPresentWithOfficial}</div>
+          </div>
+
+          <div style={{ padding: '18px 20px', borderRadius: '14px', background: '#fffbeb', border: '1px solid #fde68a' }}>
+            <div style={{ fontSize: '11px', fontWeight: '800', color: '#d97706', textTransform: 'uppercase' }}>ABSENT</div>
+            <div style={{ fontSize: '28px', fontWeight: '900', color: '#b45309', marginTop: '4px' }}>{totalAbsent}</div>
+          </div>
+
+          <div
+            onClick={() => {
+              setShowMinusDetailsBanner(prev => !prev);
+              setStudentDrilldownView('details');
+            }}
+            title="Click to see Minus Deduction reasons, dates, and teachers"
+            style={{
+              padding: '18px 20px',
+              borderRadius: '14px',
+              background: '#fff1f2',
+              border: '1.5px solid #fecdd3',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#e11d48', textTransform: 'uppercase' }}>MINUS DEDUCTION</span>
+              <span style={{ fontSize: '10px', fontWeight: '800', color: '#be123c', textDecoration: 'underline' }}>Click for why/when</span>
+            </div>
+            <div style={{ fontSize: '28px', fontWeight: '900', color: '#be123c', marginTop: '4px' }}>
+              {minusCount > 0 ? `−${minusCount}` : '0'}
+            </div>
+          </div>
+        </div>
+
+        {/* RED PERCENTAGES BAR (Overall Percentage, Medical Percentage, Official Percentage) */}
+        <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', flexWrap: 'wrap', gap: '16px', padding: '12px 16px', marginBottom: '20px', color: '#dc2626', fontWeight: '700', fontSize: '15px' }}>
+          <span>Overall Percentage: {overallPct}%</span>
+          <span>Medical Percentage: {medicalPct}%</span>
+          <span>Official Percentage: {officialPct}%</span>
+        </div>
+
+        {/* MINUS DEDUCTION LOG CARDS (Shown when Minus Tile is clicked or inside Details View, matching Pic 6 top card!) */}
+        {(showMinusDetailsBanner || studentDrilldownView === 'details') && (
+          <div style={{ marginBottom: '22px', padding: '16px 20px', borderRadius: '14px', background: '#ffffff', border: '1px solid #e2e8f0', boxShadow: '0 2px 8px rgba(15,23,42,0.04)' }}>
+            <div style={{ fontSize: '12px', fontWeight: '800', color: '#be123c', textTransform: 'uppercase', marginBottom: '10px' }}>
+              ⚖️ Minus Deduction History ({minusLogs.length} Record{minusLogs.length === 1 ? '' : 's'})
+            </div>
+            {minusLogs.length === 0 ? (
+              <div style={{ fontSize: '13px', color: '#047857', fontWeight: '700' }}>
+                ✅ Zero minus deductions recorded for {st.firstName}.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                {minusLogs.map((mLog, mIdx) => (
+                  <div
+                    key={mLog.id || mIdx}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      background: '#fff1f2',
+                      border: '1px solid #fecdd3',
+                      padding: '10px 16px',
+                      borderRadius: '12px'
+                    }}
+                  >
+                    <span style={{ background: '#ffe4e6', color: '#be123c', padding: '4px 10px', borderRadius: '999px', fontWeight: '900', fontSize: '13px' }}>
+                      − {mLog.count || 1}
+                    </span>
+                    <div>
+                      <div style={{ fontWeight: '800', fontSize: '13px', color: '#0f172a', fontStyle: 'italic' }}>
+                        &ldquo;{mLog.reason || 'Disciplinary Minus'}&rdquo;
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600', marginTop: '2px' }}>
+                        By: <strong>{mLog.teacherName || mLog.recordedBy || 'ADMIN USER'}</strong>
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '700', marginLeft: '6px' }}>
+                      {mLog.date || ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* VIEW 1: SUBJECT SUMMARY TABLE (Matches Pics 4 & 5 — each subject row is clickable!) */}
+        {studentDrilldownView === 'stats' ? (
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: '14px', overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '14px 18px' }}>SUBJECT</th>
+                  <th style={{ padding: '14px 18px' }}>ATTENDANCE %</th>
+                  <th style={{ padding: '14px 18px' }}>TOTAL ATTENDANCE</th>
+                  <th style={{ padding: '14px 18px' }}>NOT PRESENT</th>
+                </tr>
+              </thead>
+              <tbody>
+                {subjectEntries.map(item => (
+                  <tr
+                    key={item.subKey}
+                    onClick={() => {
+                      setFocusedSubjectKey(item.subKey);
+                      setStudentDrilldownView('details');
+                    }}
+                    title="Click to open monthly calendar breakdown for this subject"
+                    style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: '#ffffff', transition: 'background 0.15s' }}
+                  >
+                    <td style={{ padding: '14px 18px', fontWeight: '700', color: '#1e293b' }}>
+                      {item.displayTitle}
+                    </td>
+                    <td style={{ padding: '14px 18px', fontWeight: '800', color: Number(item.pct) < 85 ? '#dc2626' : '#0f172a' }}>
+                      {item.pct}%
+                    </td>
+                    <td style={{ padding: '14px 18px', fontWeight: '600', color: '#334155' }}>
+                      {item.total}
+                    </td>
+                    <td style={{ padding: '14px 18px', fontWeight: '600', color: '#334155' }}>
+                      {item.notPresent}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          /* VIEW 2: SUBJECT MONTHLY DATE-SQUARE CALENDAR CARDS (Matches Pic 6!) */
+          <div>
+            {focusedSubjectKey !== 'ALL' && (
+              <div style={{ marginBottom: '14px' }}>
+                <button
+                  type="button"
+                  onClick={() => setFocusedSubjectKey('ALL')}
+                  style={styles.buttonSecondary}
+                >
+                  📚 Show All Subjects ({subjectEntries.length})
+                </button>
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: '20px' }}>
+              {subjectEntries
+                .filter(item => focusedSubjectKey === 'ALL' || item.subKey === focusedSubjectKey)
+                .map(item => {
+                  const monthGroups = buildSubjectMonthCalendarGroups(item);
+                  return (
+                    <div
+                      key={item.subKey}
+                      style={{
+                        background: '#ffffff',
+                        borderRadius: '16px',
+                        border: '1px solid #e2e8f0',
+                        overflow: 'hidden',
+                        boxShadow: '0 4px 12px rgba(15,23,42,0.05)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between'
+                      }}
+                    >
+                      {/* RED / CORAL SUBJECT HEADER BAR (Matches Pic 6) */}
+                      <div>
+                        <div
+                          style={{
+                            background: 'linear-gradient(135deg, #f43f5e 0%, #e11d48 100%)',
+                            color: '#ffffff',
+                            padding: '14px 18px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                          }}
+                        >
+                          <div style={{ fontWeight: '800', fontSize: '15px', letterSpacing: '0.3px' }}>
+                            📖 {item.displayTitle}
+                          </div>
+                          <span
+                            style={{
+                              background: 'rgba(255,255,255,0.22)',
+                              color: '#ffffff',
+                              padding: '4px 10px',
+                              borderRadius: '999px',
+                              fontSize: '12px',
+                              fontWeight: '800'
+                            }}
+                          >
+                            {Number(item.pct).toFixed(1)}%
+                          </span>
+                        </div>
+
+                        {/* MONTH-BY-MONTH GREEN / RED DATE SQUARES */}
+                        <div style={{ padding: '18px' }}>
+                          {monthGroups.length === 0 ? (
+                            <div style={{ fontSize: '12px', color: '#94a3b8', padding: '12px 0' }}>
+                              No individual date logs stored for this subject.
+                            </div>
+                          ) : (
+                            monthGroups.map(([monthTitle, daysArr]) => (
+                              <div key={monthTitle} style={{ marginBottom: '16px' }}>
+                                <div style={{ fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <span>📅</span> {monthTitle}
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                  {daysArr.map((dItem, dIdx) => (
+                                    <span
+                                      key={`${dItem.dateStr}_${dIdx}`}
+                                      title={`${dItem.dateStr}: ${dItem.isPresent ? 'Present' : 'Absent'}`}
+                                      style={{
+                                        width: '34px',
+                                        height: '34px',
+                                        borderRadius: '8px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontWeight: '800',
+                                        fontSize: '12px',
+                                        background: dItem.isPresent ? '#10b981' : '#f43f5e',
+                                        color: '#ffffff',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.08)'
+                                      }}
+                                    >
+                                      {dItem.dayNum}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 4 BOTTOM STAT BOXES (Total Days, Present, Absent, Percentage — Matches Pic 6) */}
+                      <div
+                        style={{
+                          padding: '14px 18px 18px',
+                          borderTop: '1px solid #f1f5f9',
+                          display: 'grid',
+                          gridTemplateColumns: '1fr 1fr',
+                          gap: '10px'
+                        }}
+                      >
+                        <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: '10px' }}>
+                          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700' }}>📅 Total Days</div>
+                          <div style={{ fontSize: '18px', fontWeight: '900', color: '#0f172a', marginTop: '2px' }}>{item.total}</div>
+                        </div>
+                        <div style={{ background: '#ecfdf5', padding: '10px 14px', borderRadius: '10px' }}>
+                          <div style={{ fontSize: '11px', color: '#059669', fontWeight: '700' }}>✓ Present</div>
+                          <div style={{ fontSize: '18px', fontWeight: '900', color: '#065f46', marginTop: '2px' }}>{item.present}</div>
+                        </div>
+                        <div style={{ background: '#fff1f2', padding: '10px 14px', borderRadius: '10px' }}>
+                          <div style={{ fontSize: '11px', color: '#e11d48', fontWeight: '700' }}>✕ Absent</div>
+                          <div style={{ fontSize: '18px', fontWeight: '900', color: '#9f1239', marginTop: '2px' }}>{item.notPresent}</div>
+                        </div>
+                        <div style={{ background: '#fff1f2', padding: '10px 14px', borderRadius: '10px' }}>
+                          <div style={{ fontSize: '11px', color: '#e11d48', fontWeight: '700' }}>📈 Percentage</div>
+                          <div style={{ fontSize: '18px', fontWeight: '900', color: '#be123c', marginTop: '2px' }}>{item.pct}%</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ============================================================================
+  // MAIN MASTER REPORTS HUB VIEW
+  // ============================================================================
   return (
     <div style={{ background: '#ffffff', padding: '24px', borderRadius: '14px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '18px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid #f1f5f9', paddingBottom: '14px' }}>
         <div>
           <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '800', color: '#0f172a' }}>
-            {repScope === 'fn_an_monthly' ? `FN / AN Monthly Day Summary (${repMonth})` : repScope === 'monthly' ? `Monthly Subject Report (${repMonth})` : repScope === 'daily' ? `Daily Period Attendance Report (${repDate})` : 'Total Semester Attendance Report'}
+            {repScope === 'fn_an_monthly'
+              ? `FN / AN Monthly Day Summary (${repMonth})`
+              : repScope === 'monthly'
+              ? `Monthly Subject Report (${repMonth})`
+              : `Total Semester Attendance Summary (${totalFilterMonth === 'ALL' ? 'Whole Semester' : totalFilterMonth})`}
           </h2>
           <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
-            {repScope === 'fn_an_monthly' ? 'Forenoon (Periods 1–6) & Afternoon (Periods 7–9) working day summary with 5-day absence tracking & 100% full-attendance recognition.' : 'Complete period attendance matrix with live minus calculations and per-subject breakdown.'}
+            Click on any student&apos;s name to open their full Subject-Wise Attendance Statistics, Monthly Calendar &amp; Minus Deduction breakdown.
           </p>
         </div>
 
@@ -539,39 +1183,47 @@ export default function PeriodAttendanceReportsHub({
           <button
             type="button"
             onClick={() => setShowReportFilters(prev => !prev)}
-            style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', background: showReportFilters ? '#4f46e5' : '#ffffff', color: showReportFilters ? '#ffffff' : '#334155', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
+            style={{
+              padding: '8px 14px',
+              borderRadius: '8px',
+              border: '1px solid #cbd5e1',
+              background: showReportFilters ? '#4f46e5' : '#ffffff',
+              color: showReportFilters ? '#ffffff' : '#334155',
+              fontWeight: '700',
+              fontSize: '12px',
+              cursor: 'pointer'
+            }}
           >
             🎛️ {showReportFilters ? 'Hide Filters' : 'Filter Options'}
           </button>
-          <button
-            type="button"
-            onClick={handleExportReportMatrixExcel}
-            style={styles.buttonPrimary}
-          >
+          <button type="button" onClick={handleExportReportMatrixExcel} style={styles.buttonPrimary}>
             ⬇️ Export Excel
           </button>
         </div>
       </div>
 
-      {/* SCOPE SELECTOR TABS */}
+      {/* SCOPE SELECTOR TABS (Deleted "📅 Specific Date (All Periods)" for Admin!) */}
       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', background: '#f8fafc', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
           {[
-            ...(userRole === 'admin' ? [
-              { id: 'fn_an_monthly', label: '🌤️ FN / AN Monthly Days (All Classes)' },
-              { id: 'total', label: '📈 Total Semester Attendance' },
-              { id: 'monthly', label: '🗓️ Subject Monthly' },
-              { id: 'daily', label: '📅 Specific Date (All Periods)' }
-            ] : isClassTeacher ? [
-              { id: 'fn_an_monthly', label: `🌤️ Class ${myCtClasses.join(', ')} Monthly Day Register (FN & AN)` },
-              { id: 'total', label: '📈 My Subject Summary (Total)' },
-              { id: 'monthly', label: '🗓️ My Subject Monthly' },
-              { id: 'daily', label: '📅 My Recorded Periods (Daily)' }
-            ] : [
-              { id: 'total', label: '📈 My Subject Summary (Total)' },
-              { id: 'monthly', label: '🗓️ My Subject Monthly' },
-              { id: 'daily', label: '📅 My Recorded Periods (Daily)' }
-            ])
+            ...(userRole === 'admin'
+              ? [
+                  { id: 'total', label: '📈 Total Semester Attendance' },
+                  { id: 'fn_an_monthly', label: '🌤️ FN / AN Monthly Days (All Classes)' },
+                  { id: 'monthly', label: '🗓️ Subject Monthly' }
+                ]
+              : isClassTeacher
+              ? [
+                  { id: 'fn_an_monthly', label: `🌤️ Class ${myCtClasses.join(', ')} Monthly Day Register (FN & AN)` },
+                  { id: 'total', label: '📈 My Subject Summary (Total)' },
+                  { id: 'monthly', label: '🗓️ My Subject Monthly' },
+                  { id: 'daily', label: '📅 My Recorded Periods (Daily)' }
+                ]
+              : [
+                  { id: 'total', label: '📈 My Subject Summary (Total)' },
+                  { id: 'monthly', label: '🗓️ My Subject Monthly' },
+                  { id: 'daily', label: '📅 My Recorded Periods (Daily)' }
+                ])
           ].map(tab => (
             <button
               key={tab.id}
@@ -593,109 +1245,155 @@ export default function PeriodAttendanceReportsHub({
           ))}
         </div>
 
-        {(repScope === 'monthly' || repScope === 'fn_an_monthly') && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <select
-              value={repClass}
-              onChange={e => setRepClass(e.target.value)}
-              style={{ ...styles.input, width: 'auto', padding: '7px 12px', fontSize: '12px', fontWeight: '700' }}
-            >
-              <option value="ALL">All Classes ({availableClassesForDropdown.length})</option>
-              {availableClassesForDropdown.map(c => (
-                <option key={c} value={c}>Class {c}</option>
-              ))}
-            </select>
+        {/* CLASS FILTER + MONTH FILTER RIGHT ON THE BAR */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <select
+            value={repClass}
+            onChange={e => setRepClass(e.target.value)}
+            style={{ ...styles.input, width: 'auto', padding: '7px 12px', fontSize: '12px', fontWeight: '700' }}
+          >
+            <option value="ALL">All Classes ({availableClassesForDropdown.length})</option>
+            {availableClassesForDropdown.map(c => (
+              <option key={c} value={c}>Class {c}</option>
+            ))}
+          </select>
+
+          {repScope === 'total' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <select
+                value={totalFilterMonth === 'ALL' ? 'ALL' : 'MONTH'}
+                onChange={e => {
+                  if (e.target.value === 'ALL') setTotalFilterMonth('ALL');
+                  else setTotalFilterMonth(repMonth);
+                }}
+                style={{ ...styles.input, width: 'auto', padding: '7px 12px', fontSize: '12px', fontWeight: '700' }}
+              >
+                <option value="ALL">📚 Whole Semester</option>
+                <option value="MONTH">🗓️ Filter by Month</option>
+              </select>
+              {totalFilterMonth !== 'ALL' && (
+                <input
+                  type="month"
+                  value={totalFilterMonth}
+                  onChange={e => setTotalFilterMonth(e.target.value)}
+                  style={{ ...styles.input, width: 'auto', padding: '7px 12px', fontSize: '12px', fontWeight: '700' }}
+                />
+              )}
+            </div>
+          )}
+
+          {(repScope === 'monthly' || repScope === 'fn_an_monthly') && (
             <input
               type="month"
               value={repMonth}
               onChange={e => setRepMonth(e.target.value)}
               style={{ ...styles.input, width: 'auto', padding: '7px 12px', fontSize: '12px', fontWeight: '700' }}
             />
-          </div>
-        )}
+          )}
 
-        {repScope === 'daily' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <input
-              type="date"
-              value={repDate}
-              onChange={e => setRepDate(e.target.value)}
-              style={{ ...styles.input, width: 'auto', padding: '7px 12px', fontSize: '12px', fontWeight: '700' }}
-            />
-          </div>
-        )}
-
-        {(repScope === 'total' || repScope === 'monthly') && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <select
-              value={repMinusMode}
-              onChange={e => setRepMinusMode(e.target.value)}
-              style={{ ...styles.input, width: 'auto', padding: '7px 12px', fontSize: '12px', fontWeight: '700' }}
-            >
-              <option value="both">Show Both (Gross % &amp; Net %)</option>
-              <option value="with_minus">Minus Affected Only (Net %)</option>
-              <option value="without_minus">Without Minus Only (Gross %)</option>
-            </select>
-          </div>
-        )}
+          <input
+            type="text"
+            value={repSearch}
+            onChange={e => setRepSearch(e.target.value)}
+            placeholder="🔍 Search student..."
+            style={{ ...styles.input, width: '190px', padding: '7px 12px', fontSize: '12px' }}
+          />
+        </div>
       </div>
 
-      {/* ADVANCED FILTERS PANEL */}
-      {showReportFilters && (
-        <div className="erp-slide-panel" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: '14px', alignItems: 'end', background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-          <div>
-            <label style={styles.label}>Select Class</label>
-            <select value={repClass} onChange={e => setRepClass(e.target.value)} style={styles.input}>
-              <option value="ALL">{userRole === 'admin' ? 'All Classes' : `All My Classes (${availableClassesForDropdown.length})`}</option>
-              {availableClassesForDropdown.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-
-          {(repScope === 'monthly' || repScope === 'fn_an_monthly') && (
-            <div>
-              <label style={styles.label}>Select Month</label>
-              <input type="month" value={repMonth} onChange={e => setRepMonth(e.target.value)} style={styles.input} />
-            </div>
-          )}
-
-          {repScope === 'daily' && (
-            <div>
-              <label style={styles.label}>Select Specific Date</label>
-              <input type="date" value={repDate} onChange={e => setRepDate(e.target.value)} style={styles.input} />
-            </div>
-          )}
-
-          {userRole === 'admin' && repScope !== 'fn_an_monthly' && (
-            <div>
-              <label style={styles.label}>Filter by Teacher</label>
-              <select value={repTeacher} onChange={e => { setRepTeacher(e.target.value); setRepSubject('ALL'); }} style={styles.input}>
-                <option value="ALL">All Teachers</option>
-                {localTeachers.filter(t => !t.isEventLeader).map(t => (
-                  <option key={t.username} value={t.username}>{t.fullName}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {repScope !== 'fn_an_monthly' && (
-            <div>
-              <label style={styles.label}>{userRole === 'admin' ? 'Filter by Subject' : 'My Subjects'}</label>
-              <select value={repSubject} onChange={e => setRepSubject(e.target.value)} style={styles.input}>
-                <option value="ALL">{userRole === 'admin' ? `All Subjects (${subjectColsSet.size})` : `All My Subjects (${subjectColsSet.size})`}</option>
-                {Array.from(subjectColsSet).map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-          )}
-
-          <div>
-            <label style={styles.label}>Search Student</label>
-            <input type="text" value={repSearch} onChange={e => setRepSearch(e.target.value)} placeholder="Name or Ad.No..." style={styles.input} />
-          </div>
+      {/* =========================================================
+          VIEW 1: TOTAL SEMESTER ATTENDANCE SUMMARY (Clean Totals Only + Clickable Student Name!)
+         ========================================================= */}
+      {repScope === 'total' ? (
+        <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', minWidth: '940px' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
+                <th style={{ padding: '14px 12px' }}>#</th>
+                <th style={{ padding: '14px 12px' }}>STUDENT NAME (CLICK FOR DETAILS)</th>
+                <th style={{ padding: '14px 12px' }}>AD.NO</th>
+                <th style={{ padding: '14px 12px' }}>CLASS</th>
+                <th style={{ padding: '14px 12px', textAlign: 'center' }}>TOTAL TAKEN</th>
+                <th style={{ padding: '14px 12px', textAlign: 'center', color: '#047857' }}>NORMAL PRESENT</th>
+                <th style={{ padding: '14px 12px', textAlign: 'center', color: '#e11d48' }}>TOTAL ABSENCE</th>
+                <th style={{ padding: '14px 12px', textAlign: 'center', color: '#0d9488' }}>OFFICIAL</th>
+                <th style={{ padding: '14px 12px', textAlign: 'center', color: '#d97706' }}>MEDICAL</th>
+                <th style={{ padding: '14px 12px', textAlign: 'center', background: '#ecfdf5', color: '#065f46' }}>GRAND TOTAL (PRES + OFF)</th>
+                <th style={{ padding: '14px 12px', textAlign: 'center', color: '#be123c' }}>MINUS</th>
+                <th style={{ padding: '14px 12px', textAlign: 'center', background: '#eef2ff', color: '#4f46e5' }}>NET TOTAL (AFTER MINUS)</th>
+                <th style={{ padding: '14px 12px', textAlign: 'center' }}>NET %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredReportStudents.map((st, idx) => {
+                const m = computeStudentSummaryMetrics(st, totalFilterMonth);
+                return (
+                  <tr key={st.regNo || idx} style={{ borderBottom: '1px solid #f1f5f9', background: '#ffffff' }}>
+                    <td style={{ padding: '13px 12px', color: '#64748b' }}>{idx + 1}</td>
+                    <td style={{ padding: '13px 12px' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedProfileStudent(st);
+                          setStudentDrilldownView('stats');
+                          setFocusedSubjectKey('ALL');
+                          setShowMinusDetailsBanner(false);
+                        }}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          padding: 0,
+                          fontWeight: '800',
+                          fontSize: '13px',
+                          color: '#4f46e5',
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                          textAlign: 'left'
+                        }}
+                      >
+                        {st.firstName} ↗
+                      </button>
+                    </td>
+                    <td style={{ padding: '13px 12px', fontWeight: '700', color: '#475569' }}>#{st.adNo}</td>
+                    <td style={{ padding: '13px 12px', fontWeight: '700', color: '#334155' }}>{(st.classes || []).join(', ')}</td>
+                    <td style={{ padding: '13px 12px', textAlign: 'center', fontWeight: '800' }}>{m.totalTaken}</td>
+                    <td style={{ padding: '13px 12px', textAlign: 'center', fontWeight: '700', color: '#047857' }}>{m.normalPresent}</td>
+                    <td style={{ padding: '13px 12px', textAlign: 'center', fontWeight: '700', color: '#e11d48' }}>{m.totalAbsence}</td>
+                    <td style={{ padding: '13px 12px', textAlign: 'center', fontWeight: '700', color: '#0d9488' }}>{m.officialCount}</td>
+                    <td style={{ padding: '13px 12px', textAlign: 'center', fontWeight: '700', color: '#d97706' }}>{m.medicalCount}</td>
+                    <td style={{ padding: '13px 12px', textAlign: 'center', fontWeight: '900', background: '#f0fdf4', color: '#065f46' }}>
+                      {m.grandTotalPres}
+                    </td>
+                    <td style={{ padding: '13px 12px', textAlign: 'center', fontWeight: '800', color: m.minusCount > 0 ? '#e11d48' : '#94a3b8' }}>
+                      {m.minusCount > 0 ? `-${m.minusCount}` : '0'}
+                    </td>
+                    <td style={{ padding: '13px 12px', textAlign: 'center', fontWeight: '900', background: '#f5f3ff', color: '#4f46e5' }}>
+                      {m.netAfterMinus}
+                    </td>
+                    <td style={{ padding: '13px 12px', textAlign: 'center' }}>
+                      <span
+                        style={{
+                          background: Number(m.netPct) < 85 ? '#fff1f2' : '#dcfce7',
+                          color: Number(m.netPct) < 85 ? '#e11d48' : '#15803d',
+                          padding: '4px 10px',
+                          borderRadius: '999px',
+                          fontWeight: '800',
+                          fontSize: '12px'
+                        }}
+                      >
+                        {m.totalTaken > 0 ? `${m.netPct}%` : '-'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-      )}
-
-      {/* 🌟 VIEW A-1: FORENOON (P1-P6) + AFTERNOON (P7-P9) 2-SESSION MONTHLY DAY REPORT */}
-      {repScope === 'fn_an_monthly' ? (
+      ) : repScope === 'fn_an_monthly' ? (
+        /* =========================================================
+           VIEW 2: FN / AN MONTHLY DAYS
+           ========================================================= */
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
             <div
@@ -726,14 +1424,17 @@ export default function PeriodAttendanceReportsHub({
             </div>
           </div>
 
-          {/* 🌟 SUB-VIEW SWITCHER: MONTHLY DAY SUMMARY vs FULL MONTH REGISTER GRID */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', background: '#f8fafc', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button
                 type="button"
                 onClick={() => setFnAnViewMode('summary')}
                 style={{
-                  padding: '7px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer',
+                  padding: '7px 14px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: '800',
+                  cursor: 'pointer',
                   border: fnAnViewMode === 'summary' ? '2px solid #4f46e5' : '1px solid #cbd5e1',
                   background: fnAnViewMode === 'summary' ? '#eef2ff' : '#ffffff',
                   color: fnAnViewMode === 'summary' ? '#4f46e5' : '#475569'
@@ -745,7 +1446,11 @@ export default function PeriodAttendanceReportsHub({
                 type="button"
                 onClick={() => setFnAnViewMode('register_grid')}
                 style={{
-                  padding: '7px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer',
+                  padding: '7px 14px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: '800',
+                  cursor: 'pointer',
                   border: fnAnViewMode === 'register_grid' ? '2px solid #4f46e5' : '1px solid #cbd5e1',
                   background: fnAnViewMode === 'register_grid' ? '#eef2ff' : '#ffffff',
                   color: fnAnViewMode === 'register_grid' ? '#4f46e5' : '#475569'
@@ -754,45 +1459,6 @@ export default function PeriodAttendanceReportsHub({
                 📋 Full Month Register Grid (All Working Days • Friday Off)
               </button>
             </div>
-            <div style={{ fontSize: '12px', fontWeight: '800', color: '#0f766e' }}>
-              {isClassTeacher ? `🏫 Class ${repClass} Register` : `Class: ${repClass}`}
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              {[
-                { id: 'ALL', label: `All Students (${fnAnRows.length})` },
-                { id: 'PRESENT_ALL_DAYS', label: `🏆 100% Present All Working Days (${presentAllDaysCount})` },
-                { id: 'ABSENT_GT_5', label: `🚨 Absent ≥ 5 Days (${absentGt5DaysCount})` }
-              ].map(fBtn => (
-                <button
-                  key={fBtn.id}
-                  type="button"
-                  onClick={() => setFnAnFilterMode(fBtn.id)}
-                  style={{
-                    padding: '7px 14px',
-                    borderRadius: '8px',
-                    fontSize: '12px',
-                    fontWeight: '700',
-                    cursor: 'pointer',
-                    border: fnAnFilterMode === fBtn.id ? '1px solid #4f46e5' : '1px solid #cbd5e1',
-                    background: fnAnFilterMode === fBtn.id ? '#4f46e5' : '#ffffff',
-                    color: fnAnFilterMode === fBtn.id ? '#ffffff' : '#334155'
-                  }}
-                >
-                  {fBtn.label}
-                </button>
-              ))}
-            </div>
-
-            <input
-              type="text"
-              value={repSearch}
-              onChange={e => setRepSearch(e.target.value)}
-              placeholder="🔍 Search student..."
-              style={{ ...styles.input, maxWidth: '240px', padding: '7px 12px', fontSize: '12px' }}
-            />
           </div>
 
           {loadingFnAn ? (
@@ -817,84 +1483,86 @@ export default function PeriodAttendanceReportsHub({
                   </tr>
                 </thead>
                 <tbody>
-                  {displayedFnAnRows.length === 0 ? (
-                    <tr>
-                      <td colSpan="10" style={{ padding: '28px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
-                        No students match the selected filter for {repMonth}.
+                  {displayedFnAnRows.map((r, idx) => (
+                    <tr key={r.student.regNo} style={{ borderBottom: '1px solid #f1f5f9', background: r.isAbsentMoreThan5Days ? '#fff1f2' : '#ffffff' }}>
+                      <td style={{ padding: '12px 14px', color: '#64748b' }}>{idx + 1}</td>
+                      <td style={{ padding: '12px 14px', fontWeight: '700', color: '#0f172a' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedProfileStudent(r.student);
+                            setStudentDrilldownView('stats');
+                          }}
+                          style={{ background: 'transparent', border: 'none', padding: 0, fontWeight: '800', color: '#4f46e5', cursor: 'pointer', textDecoration: 'underline' }}
+                        >
+                          {r.student.firstName} (#{r.student.adNo}) ↗
+                        </button>
                       </td>
-                    </tr>
-                  ) : (
-                    displayedFnAnRows.map((r, idx) => (
-                      <tr key={r.student.regNo} style={{ borderBottom: '1px solid #f1f5f9', background: r.isAbsentMoreThan5Days ? '#fff1f2' : '#ffffff' }}>
-                        <td style={{ padding: '12px 14px', color: '#64748b' }}>{idx + 1}</td>
-                        <td style={{ padding: '12px 14px', fontWeight: '700', color: '#0f172a' }}>
-                          {r.student.firstName} <span style={{ color: '#4f46e5' }}>(#{r.student.adNo})</span>
-                        </td>
-                        <td style={{ padding: '12px 14px', fontWeight: '700', color: '#334155' }}>
-                          {(r.student.classes || []).join(', ')}
-                        </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: '700' }}>
-                          {r.workingDaysHeld}d
-                        </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'center', color: '#047857', fontWeight: '700' }}>
-                          {r.fnPresentCount}/{r.fnTotalCount}
-                        </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'center', color: '#0284c7', fontWeight: '700' }}>
-                          {r.anPresentCount}/{r.anTotalCount}
-                        </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                          <span style={{ background: '#dcfce7', color: '#15803d', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '12px' }}>
-                            {r.totalDaysPresent} Days ({r.dayAttPct}%)
-                          </span>
-                        </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                          <span style={{
-                            background: r.totalDaysAbsent >= 5 ? '#ffe4e6' : r.totalDaysAbsent > 0 ? '#fef3c7' : '#f1f5f9',
-                            color: r.totalDaysAbsent >= 5 ? '#e11d48' : r.totalDaysAbsent > 0 ? '#b45309' : '#64748b',
-                            padding: '3px 10px',
-                            borderRadius: '999px',
-                            fontWeight: '800',
-                            fontSize: '12px'
-                          }}>
-                            {r.totalDaysAbsent} Days
-                          </span>
-                        </td>
-                        <td style={{ padding: '12px 14px', fontSize: '11px', maxWidth: '280px' }}>
-                          {r.absentDatesDetails.length > 0 && (
-                            <div style={{ color: '#e11d48', fontWeight: '600', marginBottom: '2px' }}>
-                              📅 {r.absentDatesDetails.slice(0, 6).join(', ')}{r.absentDatesDetails.length > 6 ? '...' : ''}
-                            </div>
-                          )}
-                          {r.leaveReasonsList.length > 0 ? (
-                            <div style={{ color: '#475569', fontWeight: '600' }}>
-                              🪪 {r.leaveReasonsList.slice(0, 2).join(' • ')}
-                            </div>
-                          ) : r.totalDaysAbsent > 0 ? (
-                            <span style={{ color: '#94a3b8' }}>No Out-Pass recorded</span>
-                          ) : (
-                            <span style={{ color: '#047857', fontWeight: '700' }}>✓ Present All Working Days</span>
-                          )}
-                        </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                          <button
-                            type="button"
-                            onClick={() => openDirectWhatsApp(
+                      <td style={{ padding: '12px 14px', fontWeight: '700', color: '#334155' }}>
+                        {(r.student.classes || []).join(', ')}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: '700' }}>
+                        {r.workingDaysHeld}d
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center', color: '#047857', fontWeight: '700' }}>
+                        {r.fnPresentCount}/{r.fnTotalCount}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center', color: '#0284c7', fontWeight: '700' }}>
+                        {r.anPresentCount}/{r.anTotalCount}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                        <span style={{ background: '#dcfce7', color: '#15803d', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '12px' }}>
+                          {r.totalDaysPresent} Days ({r.dayAttPct}%)
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                        <span style={{
+                          background: r.totalDaysAbsent >= 5 ? '#ffe4e6' : r.totalDaysAbsent > 0 ? '#fef3c7' : '#f1f5f9',
+                          color: r.totalDaysAbsent >= 5 ? '#e11d48' : r.totalDaysAbsent > 0 ? '#b45309' : '#64748b',
+                          padding: '3px 10px',
+                          borderRadius: '999px',
+                          fontWeight: '800',
+                          fontSize: '12px'
+                        }}>
+                          {r.totalDaysAbsent} Days
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 14px', fontSize: '11px', maxWidth: '280px' }}>
+                        {r.absentDatesDetails.length > 0 && (
+                          <div style={{ color: '#e11d48', fontWeight: '600', marginBottom: '2px' }}>
+                            📅 {r.absentDatesDetails.slice(0, 6).join(', ')}
+                          </div>
+                        )}
+                        {r.leaveReasonsList.length > 0 ? (
+                          <div style={{ color: '#475569', fontWeight: '600' }}>
+                            🪪 {r.leaveReasonsList.slice(0, 2).join(' • ')}
+                          </div>
+                        ) : r.totalDaysAbsent > 0 ? (
+                          <span style={{ color: '#94a3b8' }}>No Out-Pass recorded</span>
+                        ) : (
+                          <span style={{ color: '#047857', fontWeight: '700' }}>✓ Present All Working Days</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openDirectWhatsApp(
                               r.student.parentWhatsapp || r.student.parentMobile,
                               `Assalamu Alaikum, monthly attendance update for ${r.student.firstName} (#${r.student.adNo}) for ${repMonth}: Present ${r.totalDaysPresent} days, Absent ${r.totalDaysAbsent} days out of ${r.workingDaysHeld} working days.`
-                            )}
-                            style={{ padding: '5px 10px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
-                          >
-                            💬 Parent WA
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                            )
+                          }
+                          style={{ padding: '5px 10px', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
+                        >
+                          💬 Parent WA
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           ) : (
-            /* 🌟 FULL MONTH REGISTER GRID (ALL WORKING DAYS • FRIDAY OFF) */
             <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px', maxHeight: '560px' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'center', minWidth: '1050px' }}>
                 <thead style={{ position: 'sticky', top: 0, background: '#0f172a', color: '#ffffff', zIndex: 10 }}>
@@ -960,14 +1628,6 @@ export default function PeriodAttendanceReportsHub({
                             const val = (s.attendanceMap || {})[reg] || (s.attendanceMap || {})[st.id] || (s.attendanceMap || {})[ad];
                             return val === 'P' || val === 'O';
                           });
-                          const isFnMed = fnSess.some(s => {
-                            const val = (s.attendanceMap || {})[reg] || (s.attendanceMap || {})[st.id] || (s.attendanceMap || {})[ad];
-                            return val === 'M';
-                          });
-                          const isAnMed = anSess.some(s => {
-                            const val = (s.attendanceMap || {})[reg] || (s.attendanceMap || {})[st.id] || (s.attendanceMap || {})[ad];
-                            return val === 'M';
-                          });
 
                           let badgeText = 'A';
                           let bg = '#fee2e2';
@@ -977,16 +1637,10 @@ export default function PeriodAttendanceReportsHub({
                             if (isFnPres && isAnPres) { badgeText = 'P'; bg = '#dcfce7'; textCol = '#15803d'; }
                             else if (isFnPres) { badgeText = 'FN'; bg = '#fef3c7'; textCol = '#d97706'; }
                             else if (isAnPres) { badgeText = 'AN'; bg = '#e0f2fe'; textCol = '#0284c7'; }
-                            else if (isFnMed || isAnMed) { badgeText = 'ML'; bg = '#fef3c7'; textCol = '#b45309'; }
-                            else { badgeText = 'A'; bg = '#fee2e2'; textCol = '#dc2626'; }
-                          } else if (fnSess.length > 0) {
-                            badgeText = isFnPres ? 'FN' : isFnMed ? 'ML' : 'A';
-                            bg = isFnPres ? '#fef3c7' : isFnMed ? '#fef3c7' : '#fee2e2';
-                            textCol = isFnPres ? '#d97706' : isFnMed ? '#b45309' : '#dc2626';
-                          } else if (anSess.length > 0) {
-                            badgeText = isAnPres ? 'AN' : isAnMed ? 'ML' : 'A';
-                            bg = isAnPres ? '#e0f2fe' : isAnMed ? '#fef3c7' : '#fee2e2';
-                            textCol = isAnPres ? '#0284c7' : isAnMed ? '#b45309' : '#dc2626';
+                          } else if (fnSess.length > 0 && isFnPres) {
+                            badgeText = 'FN'; bg = '#fef3c7'; textCol = '#d97706';
+                          } else if (anSess.length > 0 && isAnPres) {
+                            badgeText = 'AN'; bg = '#e0f2fe'; textCol = '#0284c7';
                           }
 
                           return (
@@ -1007,214 +1661,123 @@ export default function PeriodAttendanceReportsHub({
           )}
         </div>
       ) : (
-        /* VIEW A-2: STANDARD PERIOD & SUBJECT MATRIX */
-        <>
-          {repScope === 'daily' && (() => {
-            const currentUname = String(loggedInUser?.username || activeTeacherObj?.username || '').toLowerCase().trim();
-            const currentFullName = String(loggedInUser?.fullName || activeTeacherObj?.fullName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-            const teacherEnvs = Array.isArray(activeTeacherObj?.enrollments) ? activeTeacherObj.enrollments : (loggedInUser?.enrollments || []);
-
-            const filteredDailySessions = dailySessionsCache.filter(sess => {
-              const sessUname = String(sess.teacherUsername || '').toLowerCase().trim();
-              const sessTeacherName = String(sess.teacherName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
-              const isMySession = Boolean(
-                (currentUname && sessUname && (currentUname === sessUname || sessUname === currentUname.replace('@', '') || currentUname.replace('@', '') === sessUname)) ||
-                (currentFullName && sessTeacherName && (currentFullName === sessTeacherName || currentFullName.includes(sessTeacherName) || sessTeacherName.includes(currentFullName)))
-              );
-
-              if (userRole === 'admin') {
-                if (repTeacher === 'ALL') return true;
-                const filterUname = String(repTeacher).toLowerCase().trim();
-                return sessUname === filterUname;
-              }
-
-              // 🌟 Non-admin teachers must ONLY see their own recorded period sessions under "My Recorded Periods"
-              return isMySession;
-            });
-
-            return (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div style={{ fontWeight: '800', fontSize: '14px', color: '#0f172a' }}>
-                  📅 Recorded Period Sessions on {repDate} ({filteredDailySessions.length} Sessions Found)
-                </div>
-                {loadingReport ? (
-                  <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>Loading sessions for {repDate}...</div>
-                ) : filteredDailySessions.length === 0 ? (
-                  <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>
-                    No period sessions recorded for {repDate} yet.
-                  </div>
-                ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
-                    {filteredDailySessions.map((sess, sIdx) => {
-                      const mapVals = Object.values(sess.attendanceMap || {});
-                      const presC = mapVals.filter(v => v === 'P' || v === 'O').length;
-                      const medC = mapVals.filter(v => v === 'M').length;
-                      const absC = mapVals.filter(v => v === 'A').length;
-                      const isReh = Boolean(sess.isRehearsal || String(sess.subject || '').startsWith('REHEARSAL'));
-                      const uniqueKey = sess.sessionDocId || sess.id || `${sess.date}_${sess.session}_${sess.subject}_${sIdx}`;
-
-                      return (
-                        <div key={uniqueKey} style={{ padding: '14px 16px', borderRadius: '12px', border: isReh ? '1px solid #fde68a' : '1px solid #e2e8f0', background: isReh ? '#fffbeb' : '#ffffff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
-                          <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <span style={{ background: isReh ? '#d97706' : '#4f46e5', color: '#ffffff', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
-                                {isReh ? `🎭 Rehearsal • Period ${sess.session}` : `Period ${sess.session}`}
-                              </span>
-                            </div>
-                            <div style={{ fontWeight: '800', fontSize: '14px', color: '#0f172a', marginTop: '5px' }}>
-                              {sess.subject && sess.classAlias && sess.subject !== sess.classAlias
-                                ? `${sess.subject} • ${sess.classAlias}`
-                                : (sess.subject || sess.classAlias || 'Period Session')}
-                            </div>
-                            <div style={{ fontSize: '12px', color: '#475569', fontWeight: '600', marginTop: '2px' }}>
-                              👨‍🏫 {sess.teacherName} • Pres: <strong style={{ color: '#059669' }}>{presC}</strong> {medC > 0 && <span>• Med: <strong style={{ color: '#d97706' }}>{medC}</strong> </span>}/ Abs: <strong style={{ color: '#e11d48' }}>{absC}</strong>
-                            </div>
-                          </div>
-                          {(() => {
-                            const sUname = String(sess.teacherUsername || '').toLowerCase().trim();
-                            const sTeacherName = String(sess.teacherName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-                            const isMySess = Boolean(
-                              (currentUname && sUname && (currentUname === sUname || sUname === currentUname.replace('@', '') || currentUname.replace('@', '') === sUname)) ||
-                              (currentFullName && sTeacherName && (currentFullName === sTeacherName || currentFullName.includes(sTeacherName) || sTeacherName.includes(currentFullName)))
-                            );
-                            const canEdit = userRole === 'admin' || isMySess;
-                            if (!canEdit) return null;
-                            return (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (userRole === 'admin' && sess.teacherUsername) {
-                                    setSelectedTeacherUsername(sess.teacherUsername);
-                                  }
-                                  const tObj = localTeachers.find(t => t.username === sess.teacherUsername) || activeTeacherObj;
-                                  const matchEnv = (tObj?.enrollments || []).find(
-                                    e => (sess.enrollmentId && e.id === sess.enrollmentId) || (e.alias || e.subject) === sess.classAlias || normalizeSubKey(e.subject) === sess.subject
-                                  );
-                                  if (matchEnv) setAttEnrollmentId(matchEnv.id);
-                                  setAttDate(repDate);
-                                  setAttSession(String(sess.session));
-                                  setActiveTab('mark_sheet');
-                                }}
-                                style={styles.buttonSecondary}
-                              >
-                                ✏️ Edit
-                              </button>
-                            );
-                          })()}
-                        </div>
-                      );
-                    })}
-                  </div>
+        /* =========================================================
+           VIEW 3: MONTHLY SUBJECT MATRIX
+           ========================================================= */
+        <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', minWidth: '880px' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
+                <th style={{ padding: '14px 12px' }}>#</th>
+                <th style={{ padding: '14px 12px' }}>STUDENT NAME</th>
+                <th style={{ padding: '14px 12px' }}>ADMISSION NO</th>
+                {(repMinusMode === 'both' || repMinusMode === 'without_minus') && (
+                  <th style={{ padding: '14px 12px', textAlign: 'center' }}>GROSS % (NO MINUS)</th>
                 )}
-              </div>
-            );
-          })()}
+                {(repMinusMode === 'both' || repMinusMode === 'with_minus') && (
+                  <>
+                    <th style={{ padding: '14px 12px', textAlign: 'center' }}>MINUS</th>
+                    <th style={{ padding: '14px 12px', textAlign: 'center' }}>OVERALL % (NET)</th>
+                  </>
+                )}
+                {subjectColumns.map(subKey => (
+                  <th key={subKey} style={{ padding: '14px 12px', textAlign: 'center' }}>
+                    {subKey}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredReportStudents.map((st, idx) => {
+                const stat = getStudentAttStat(st);
+                const sw = stat.subjectWise || {};
+                let totP = Number(stat.totalPeriods) || 0;
+                let presP = Number(stat.presentCount) || 0;
+                let minusC = Number(stat.minusCount) || 0;
 
-          <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', minWidth: '880px' }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '14px 12px' }}>#</th>
-                  <th style={{ padding: '14px 12px' }}>STUDENT NAME</th>
-                  <th style={{ padding: '14px 12px' }}>ADMISSION NO</th>
-                  {(repMinusMode === 'both' || repMinusMode === 'without_minus') && (
-                    <th style={{ padding: '14px 12px', textAlign: 'center' }}>GROSS % (NO MINUS)</th>
-                  )}
-                  {(repMinusMode === 'both' || repMinusMode === 'with_minus') && (
-                    <>
-                      <th style={{ padding: '14px 12px', textAlign: 'center' }}>MINUS</th>
-                      <th style={{ padding: '14px 12px', textAlign: 'center' }}>OVERALL % (NET)</th>
-                    </>
-                  )}
-                  {subjectColumns.map(subKey => (
-                    <th key={subKey} style={{ padding: '14px 12px', textAlign: 'center' }}>
-                      {subKey}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredReportStudents.map((st, idx) => {
-                  const stat = getStudentAttStat(st);
-                  const sw = stat.subjectWise || {};
-                  let totP = Number(stat.totalPeriods) || 0;
-                  let presP = Number(stat.presentCount) || 0;
-                  let minusC = Number(stat.minusCount) || 0;
+                if (repScope === 'monthly') {
+                  let monthAbs = 0;
+                  Object.values(sw).forEach(sObj => {
+                    monthAbs += (sObj.absentDates || []).filter(d => String(d).startsWith(repMonth)).length;
+                  });
+                  minusC = (stat.minusLogs || [])
+                    .filter(l => String(l.date || '').startsWith(repMonth))
+                    .reduce((s, l) => s + (Number(l.count) || 0), 0);
+                  presP = Math.max(0, totP - monthAbs);
+                }
 
-                  if (repScope === 'monthly') {
-                    let monthAbs = 0;
-                    Object.values(sw).forEach(sObj => {
-                      monthAbs += (sObj.absentDates || []).filter(d => String(d).startsWith(repMonth)).length;
-                    });
-                    minusC = (stat.minusLogs || [])
-                      .filter(l => String(l.date || '').startsWith(repMonth))
-                      .reduce((s, l) => s + (Number(l.count) || 0), 0);
-                    presP = Math.max(0, totP - monthAbs);
-                  }
+                const grossPct = totP > 0 ? ((presP / totP) * 100).toFixed(2) : '100.00';
+                const netPres = Math.max(0, presP - minusC);
+                const netPct = totP > 0 ? ((netPres / totP) * 100).toFixed(2) : '100.00';
 
-                  const grossPct = totP > 0 ? ((presP / totP) * 100).toFixed(2) : '100.00';
-                  const netPres = Math.max(0, presP - minusC);
-                  const netPct = totP > 0 ? ((netPres / totP) * 100).toFixed(2) : '100.00';
+                return (
+                  <tr key={st.regNo} style={{ borderBottom: '1px solid #f1f5f9', background: '#ffffff' }}>
+                    <td style={{ padding: '13px 12px', color: '#64748b' }}>{idx + 1}</td>
+                    <td style={{ padding: '13px 12px', fontWeight: '700', color: '#0f172a' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedProfileStudent(st);
+                          setStudentDrilldownView('stats');
+                        }}
+                        style={{ background: 'transparent', border: 'none', padding: 0, fontWeight: '800', color: '#4f46e5', cursor: 'pointer', textDecoration: 'underline' }}
+                      >
+                        {st.firstName} ↗
+                      </button>
+                    </td>
+                    <td style={{ padding: '13px 12px', fontWeight: '600', color: '#475569' }}>{st.adNo}</td>
 
-                  return (
-                    <tr key={st.regNo} style={{ borderBottom: '1px solid #f1f5f9', background: '#ffffff' }}>
-                      <td style={{ padding: '13px 12px', color: '#64748b' }}>{idx + 1}</td>
-                      <td style={{ padding: '13px 12px', fontWeight: '700', color: '#0f172a' }}>{st.firstName}</td>
-                      <td style={{ padding: '13px 12px', fontWeight: '600', color: '#475569' }}>{st.adNo}</td>
+                    {(repMinusMode === 'both' || repMinusMode === 'without_minus') && (
+                      <td style={{ padding: '13px 12px', textAlign: 'center' }}>
+                        <span style={{ background: '#ecfdf5', color: '#047857', padding: '4px 10px', borderRadius: '999px', fontWeight: '700', fontSize: '12px' }}>
+                          {totP > 0 ? `${grossPct}%` : '-'}
+                        </span>
+                      </td>
+                    )}
 
-                      {(repMinusMode === 'both' || repMinusMode === 'without_minus') && (
+                    {(repMinusMode === 'both' || repMinusMode === 'with_minus') && (
+                      <>
+                        <td style={{ padding: '13px 12px', textAlign: 'center', fontWeight: '700', color: minusC > 0 ? '#e11d48' : '#94a3b8' }}>
+                          {minusC > 0 ? `-${minusC}` : '0'}
+                        </td>
                         <td style={{ padding: '13px 12px', textAlign: 'center' }}>
-                          <span style={{ background: '#ecfdf5', color: '#047857', padding: '4px 10px', borderRadius: '999px', fontWeight: '700', fontSize: '12px' }}>
-                            {totP > 0 ? `${grossPct}%` : '-'}
+                          <span style={{
+                            background: Number(netPct) < 85 ? '#fff1f2' : '#eef2ff',
+                            color: Number(netPct) < 85 ? '#e11d48' : '#4f46e5',
+                            padding: '4px 10px',
+                            borderRadius: '999px',
+                            fontWeight: '800',
+                            fontSize: '12px'
+                          }}>
+                            {totP > 0 ? `${netPct}%` : '-'}
                           </span>
                         </td>
-                      )}
+                      </>
+                    )}
 
-                      {(repMinusMode === 'both' || repMinusMode === 'with_minus') && (
-                        <>
-                          <td style={{ padding: '13px 12px', textAlign: 'center', fontWeight: '700', color: minusC > 0 ? '#e11d48' : '#94a3b8' }}>
-                            {minusC > 0 ? `-${minusC}` : '0'}
-                          </td>
-                          <td style={{ padding: '13px 12px', textAlign: 'center' }}>
-                            <span style={{
-                              background: Number(netPct) < 85 ? '#fff1f2' : '#eef2ff',
-                              color: Number(netPct) < 85 ? '#e11d48' : '#4f46e5',
-                              padding: '4px 10px',
-                              borderRadius: '999px',
-                              fontWeight: '800',
-                              fontSize: '12px'
-                            }}>
-                              {totP > 0 ? `${netPct}%` : '-'}
-                            </span>
-                          </td>
-                        </>
-                      )}
-
-                      {subjectColumns.map(subKey => {
-                        const sObj = sw[subKey];
-                        if (!sObj || !sObj.total) {
-                          return <td key={subKey} style={{ padding: '13px 12px', textAlign: 'center', color: '#94a3b8' }}>-</td>;
-                        }
-                        let sPres = sObj.present || 0;
-                        if (repScope === 'monthly') {
-                          const mAbs = (sObj.absentDates || []).filter(d => String(d).startsWith(repMonth)).length;
-                          sPres = Math.max(0, sObj.total - mAbs);
-                        }
-                        const sPct = ((sPres / sObj.total) * 100).toFixed(2);
-                        return (
-                          <td key={subKey} style={{ padding: '13px 12px', textAlign: 'center', fontWeight: '600', color: Number(sPct) < 85 ? '#e11d48' : '#334155' }}>
-                            {sPct}%
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
+                    {subjectColumns.map(subKey => {
+                      const sObj = sw[subKey];
+                      if (!sObj || !sObj.total) {
+                        return <td key={subKey} style={{ padding: '13px 12px', textAlign: 'center', color: '#94a3b8' }}>-</td>;
+                      }
+                      let sPres = sObj.present || 0;
+                      if (repScope === 'monthly') {
+                        const mAbs = (sObj.absentDates || []).filter(d => String(d).startsWith(repMonth)).length;
+                        sPres = Math.max(0, sObj.total - mAbs);
+                      }
+                      const sPct = ((sPres / sObj.total) * 100).toFixed(2);
+                      return (
+                        <td key={subKey} style={{ padding: '13px 12px', textAlign: 'center', fontWeight: '600', color: Number(sPct) < 85 ? '#e11d48' : '#334155' }}>
+                          {sPct}%
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

@@ -85,7 +85,9 @@ export default function PeriodAttendanceManager({
   useEffect(() => { setLocalStudents(preloadedStudents); }, [preloadedStudents]);
   useEffect(() => { setLocalTeachers(preloadedTeachers); }, [preloadedTeachers]);
 
-  const [activeTab, setActiveTab] = useState(isEventLeaderUser ? 'rehearsal_leader' : 'cards');
+  const [activeTab, setActiveTab] = useState(
+  isEventLeaderUser ? 'rehearsal_leader' : userRole === 'admin' ? 'admin_day_register' : 'cards'
+);
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
 
@@ -217,6 +219,63 @@ const [tsrSessionsCache, setTsrSessionsCache] = useState([]);
 const [tsrLoading, setTsrLoading] = useState(false);
 const [tsrSearch, setTsrSearch] = useState('');
 const [tsrQuickStatusFilter, setTsrQuickStatusFilter] = useState('ALL'); // 'ALL' | 'PRESENT_100' | 'BELOW_85'
+// --- 6. ADMIN SPECIFIC DAY PERIOD REGISTER (1-9) & 8 CLASS TILES STATE ---
+const getCurrentBellPeriod = () => {
+  const now = new Date();
+  const mins = now.getHours() * 60 + now.getMinutes();
+  const schedule = [
+    { p: 1, start: 465, end: 510 }, // 07:45 - 08:30
+    { p: 2, start: 510, end: 555 }, // 08:30 - 09:15
+    { p: 3, start: 580, end: 625 }, // 09:40 - 10:25
+    { p: 4, start: 625, end: 670 }, // 10:25 - 11:10
+    { p: 5, start: 680, end: 725 }, // 11:20 - 12:05
+    { p: 6, start: 725, end: 770 }, // 12:05 - 12:50
+    { p: 7, start: 840, end: 880 }, // 14:00 - 14:40
+    { p: 8, start: 880, end: 920 }, // 14:40 - 15:20
+    { p: 9, start: 930, end: 975 }  // 15:30 - 16:15
+  ];
+  for (const slot of schedule) {
+    if (mins >= slot.start && mins <= slot.end) return slot.p;
+  }
+  for (let i = schedule.length - 1; i >= 0; i--) {
+    if (mins > schedule[i].end) return schedule[i].p;
+  }
+  return 1;
+};
+
+const [adminRegDate, setAdminRegDate] = useState(() => new Date().toISOString().split('T')[0]);
+const [adminRegClass, setAdminRegClass] = useState('QLA3');
+const [adminTilePeriod, setAdminTilePeriod] = useState(() => getCurrentBellPeriod());
+const [adminRegDaySessions, setAdminRegDaySessions] = useState([]);
+const [adminRegLoading, setAdminRegLoading] = useState(false);
+const [adminTileDrilldown, setAdminTileDrilldown] = useState(null); // { className, statusType: 'PRESENT' | 'ABSENT' | 'NOT_TAKEN', students: [] }
+
+useEffect(() => {
+  async function loadAdminRegDaySessions() {
+    if (activeTab !== 'admin_day_register' || !adminRegDate) return;
+    setAdminRegLoading(true);
+    try {
+      const idxSnap = await getDoc(doc(db, 'systemCache', `daySessionsIndex_${adminRegDate}`));
+      const idxList = idxSnap.exists() ? (idxSnap.data().sessions || []) : [];
+      const loaded = [];
+      for (const item of idxList) {
+        if (item.attendanceMap) {
+          loaded.push(item);
+        } else if (item.sessionDocId) {
+          const sSnap = await getDoc(doc(db, 'systemCache', item.sessionDocId));
+          if (sSnap.exists()) loaded.push({ id: sSnap.id, ...sSnap.data() });
+        }
+      }
+      setAdminRegDaySessions(loaded);
+    } catch (err) {
+      console.warn('Error loading admin day register sessions:', err);
+      setAdminRegDaySessions([]);
+    } finally {
+      setAdminRegLoading(false);
+    }
+  }
+  loadAdminRegDaySessions();
+}, [activeTab, adminRegDate]);
 
   const isoToLocalYMD = (isoStr) => {
     if (!isoStr) return '';
@@ -2073,22 +2132,24 @@ const [tsrQuickStatusFilter, setTsrQuickStatusFilter] = useState('ALL'); // 'ALL
         </div>
       )}
 
-      {/* 🌟 MINIMALIST SHUHOOD SUB-NAVIGATION BAR */}
+    {/* 🌟 MINIMALIST SHUHOOD SUB-NAVIGATION BAR */}
       {!isEventLeaderUser && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff', padding: '10px 14px', borderRadius: '12px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '8px' }}>
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-           {[
-              { id: 'cards', match: ['cards', 'mark_sheet'], label: `Subject Cards (${attendanceEnrollments.length})` },
-              ...(userRole !== 'admin' ? [
-                { id: 'teacher_subject_report', match: ['teacher_subject_report'], label: '📊 My Subject Reports' }
-              ] : []),
-              ...(userRole === 'admin' ? [
-                { id: 'reports_hub', match: ['reports_hub'], label: 'Master Reports Hub' },
-                { id: 'clearance', match: ['clearance'], label: 'Clearance' },
-                { id: 'manage_leaders', match: ['manage_leaders', 'rehearsal_leader'], label: `Event Leaders (${eventLeadersList.length})` },
-                { id: 'import_old', match: ['import_old'], label: 'Import Shuhood' }
-              ] : [])
-            ].map(tab => {
+            {(userRole === 'admin'
+              ? [
+                  { id: 'admin_day_register', match: ['admin_day_register'], label: '📋 Specific Day Period Register (1–9) 📊' },
+                  { id: 'reports_hub', match: ['reports_hub'], label: 'Master Reports Hub' },
+                  { id: 'clearance', match: ['clearance'], label: 'Clearance' },
+                  { id: 'manage_leaders', match: ['manage_leaders', 'rehearsal_leader'], label: `Event Leaders (${eventLeadersList.length})` },
+                  { id: 'import_old', match: ['import_old'], label: 'Import Shuhood' },
+                  { id: 'cards', match: ['cards', 'mark_sheet'], label: `Subject Cards (${attendanceEnrollments.length})` }
+                ]
+              : [
+                  { id: 'cards', match: ['cards', 'mark_sheet'], label: `Subject Cards (${attendanceEnrollments.length})` },
+                  { id: 'teacher_subject_report', match: ['teacher_subject_report'], label: '📊 My Subject Reports' }
+                ]
+            ).map(tab => {
               const isAct = tab.match.includes(activeTab);
               return (
                 <button
@@ -2128,6 +2189,420 @@ const [tsrQuickStatusFilter, setTsrQuickStatusFilter] = useState('ALL'); // 'ALL
           {statusMsg}
         </div>
       )}
+
+      {/* 🌟 ADMIN DEFAULT DASHBOARD: SPECIFIC DAY PERIOD REGISTER (1-9) & 8 CLASS TILES */}
+      {activeTab === 'admin_day_register' && userRole === 'admin' && (() => {
+        const ORDERED_8_CLASSES = ['QLA3', 'HFC3', 'FC2', 'AL2', 'QH2', 'FC1', 'QH1', 'AL1'];
+
+        // Helper to evaluate a student's status in a specific period (1..9) on adminRegDate
+        const getStudentPeriodStatusOnDate = (st, pNum) => {
+          const reg = String(st.regNo || '').trim();
+          const sId = String(st.id || '').trim();
+          const ad = String(st.adNo || '').trim().toUpperCase();
+          const sessionsForP = adminRegDaySessions.filter(s => Number(s.session) === Number(pNum) && !s.isRehearsal);
+
+          let found = null;
+          for (const sess of sessionsForP) {
+            const map = sess.attendanceMap || {};
+            const val = map[reg] || map[sId] || map[ad] || map[st.adNo];
+            if (val) {
+              if (val === 'P' || val === 'O') {
+                return { state: 'PRESENT', code: val, subject: sess.classAlias || sess.subject, teacher: sess.teacherName };
+              }
+              found = { state: 'ABSENT', code: val, subject: sess.classAlias || sess.subject, teacher: sess.teacherName };
+            }
+          }
+          return found || { state: 'NOT_TAKEN', code: '-', subject: '', teacher: '' };
+        };
+
+        // Compute the 8 Class Tiles (QLA3 -> AL1) for `adminTilePeriod`
+        const classTilesData = ORDERED_8_CLASSES.map(clsName => {
+          const clsStudents = localStudents.filter(s => (Array.isArray(s.classes) ? s.classes : [s.class]).includes(clsName));
+          const presentList = [];
+          const absentList = [];
+          const notTakenList = [];
+
+          clsStudents.forEach(st => {
+            const res = getStudentPeriodStatusOnDate(st, adminTilePeriod);
+            if (res.state === 'PRESENT') presentList.push({ ...st, periodMeta: res });
+            else if (res.state === 'ABSENT') absentList.push({ ...st, periodMeta: res });
+            else notTakenList.push({ ...st, periodMeta: res });
+          });
+
+          return {
+            className: clsName,
+            strength: clsStudents.length,
+            presentList,
+            absentList,
+            notTakenList
+          };
+        });
+
+        const displayedRegisterStudents = localStudents.filter(s =>
+          adminRegClass === 'ALL' ? true : (Array.isArray(s.classes) ? s.classes : [s.class]).includes(adminRegClass)
+        );
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            {/* TOP HEADER & PERIOD / DATE CONTROLS */}
+            <div style={styles.card}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '14px' }}>
+                <div>
+                  <span style={{ background: '#ecfdf5', color: '#047857', padding: '3px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '800' }}>
+                    🏫 LIVE CAMPUS 8-CLASS PERIOD MONITOR &amp; REGISTER
+                  </span>
+                  <h3 style={{ margin: '5px 0 0', fontSize: '19px', fontWeight: '800', color: '#0f172a' }}>
+                    📋 Specific Day Period Register (1–9) — {adminRegDate}
+                  </h3>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', padding: '6px 12px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                    <span style={{ fontSize: '12px', fontWeight: '800', color: '#334155' }}>🕒 Tile Period:</span>
+                    <select
+                      value={adminTilePeriod}
+                      onChange={e => {
+                        setAdminTilePeriod(Number(e.target.value));
+                        setAdminTileDrilldown(null);
+                      }}
+                      style={{ border: 'none', background: 'transparent', fontWeight: '800', fontSize: '13px', color: '#4f46e5', cursor: 'pointer', outline: 'none' }}
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(p => (
+                        <option key={p} value={p}>
+                          Period {p} {p === getCurrentBellPeriod() ? '(Current Bell)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: '800', color: '#334155' }}>📅 Date:</span>
+                    <input
+                      type="date"
+                      value={adminRegDate}
+                      onChange={e => {
+                        setAdminRegDate(e.target.value);
+                        setAdminTileDrilldown(null);
+                      }}
+                      style={{ ...styles.input, width: '155px', padding: '7px 10px', fontSize: '13px', fontWeight: '700' }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 🌟 8 CLASS TILES (QLA3 TO AL1) WITH CLICKABLE PRESENT / ABSENT / NOT RECORDED NUMBERS */}
+              <div style={{ marginBottom: '8px', fontSize: '12px', fontWeight: '700', color: '#64748b' }}>
+                💡 Showing live status for <strong>Period {adminTilePeriod}</strong> on <strong>{adminRegDate}</strong>. Click any <strong>Present</strong>, <strong>Absent</strong>, or <strong>Not Taken</strong> number inside a class tile to inspect those students:
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '12px' }}>
+                {classTilesData.map(tile => {
+                  const isSelectedCls = adminRegClass === tile.className;
+                  return (
+                    <div
+                      key={tile.className}
+                      onClick={() => setAdminRegClass(tile.className)}
+                      style={{
+                        background: isSelectedCls ? '#f8fafc' : '#ffffff',
+                        borderRadius: '12px',
+                        border: isSelectedCls ? '2px solid #4f46e5' : '1px solid #e2e8f0',
+                        padding: '14px',
+                        cursor: 'pointer',
+                        boxShadow: '0 1px 3px rgba(15,23,42,0.03)',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <span style={{ fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>
+                          Class {tile.className}
+                        </span>
+                        <span style={{ background: '#eef2ff', color: '#4f46e5', padding: '3px 9px', borderRadius: '999px', fontSize: '11px', fontWeight: '800' }}>
+                          Strength: {tile.strength}
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', textAlign: 'center' }}>
+                        {/* Clickable Present Box */}
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAdminRegClass(tile.className);
+                            setAdminTileDrilldown({
+                              className: tile.className,
+                              statusType: 'PRESENT',
+                              label: `🟢 Present in Period ${adminTilePeriod}`,
+                              students: tile.presentList
+                            });
+                          }}
+                          style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px', padding: '8px 4px', cursor: 'pointer' }}
+                          title="Click to view Present students"
+                        >
+                          <div style={{ fontSize: '18px', fontWeight: '900', color: '#047857' }}>{tile.presentList.length}</div>
+                          <div style={{ fontSize: '10px', fontWeight: '800', color: '#065f46' }}>Present</div>
+                        </div>
+
+                        {/* Clickable Absent Box */}
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAdminRegClass(tile.className);
+                            setAdminTileDrilldown({
+                              className: tile.className,
+                              statusType: 'ABSENT',
+                              label: `🔴 Absent in Period ${adminTilePeriod}`,
+                              students: tile.absentList
+                            });
+                          }}
+                          style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '8px', padding: '8px 4px', cursor: 'pointer' }}
+                          title="Click to view Absent students"
+                        >
+                          <div style={{ fontSize: '18px', fontWeight: '900', color: '#e11d48' }}>{tile.absentList.length}</div>
+                          <div style={{ fontSize: '10px', fontWeight: '800', color: '#be123c' }}>Absent</div>
+                        </div>
+
+                        {/* Clickable Not Recorded Box */}
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAdminRegClass(tile.className);
+                            setAdminTileDrilldown({
+                              className: tile.className,
+                              statusType: 'NOT_TAKEN',
+                              label: `⚪ Not Recorded in Period ${adminTilePeriod}`,
+                              students: tile.notTakenList
+                            });
+                          }}
+                          style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '8px 4px', cursor: 'pointer' }}
+                          title="Click to view students whose attendance is not recorded yet"
+                        >
+                          <div style={{ fontSize: '18px', fontWeight: '900', color: '#475569' }}>{tile.notTakenList.length}</div>
+                          <div style={{ fontSize: '10px', fontWeight: '800', color: '#64748b' }}>Not Taken</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* DRILLDOWN DRAWER WHEN CLICKING PRESENT / ABSENT / NOT TAKEN ON ANY CLASS TILE */}
+              {adminTileDrilldown && (
+                <div style={{ marginTop: '16px', background: '#f8fafc', border: '1.5px solid #4f46e5', borderRadius: '12px', padding: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                    <div>
+                      <span style={{ fontWeight: '900', fontSize: '15px', color: '#0f172a' }}>
+                        Class {adminTileDrilldown.className} — {adminTileDrilldown.label} ({adminTileDrilldown.students.length} Students)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAdminTileDrilldown(null)}
+                      style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '5px 12px', borderRadius: '6px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}
+                    >
+                      ✕ Close Details
+                    </button>
+                  </div>
+
+                  {adminTileDrilldown.students.length === 0 ? (
+                    <div style={{ padding: '16px', textAlign: 'center', color: '#64748b', fontWeight: '600', fontSize: '13px' }}>
+                      No students in this category for Period {adminTilePeriod}.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: '8px', maxHeight: '260px', overflowY: 'auto' }}>
+                      {adminTileDrilldown.students.map((st, i) => (
+                        <div
+                          key={st.regNo || i}
+                          style={{
+                            background: '#ffffff',
+                            padding: '9px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid #e2e8f0',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            fontSize: '12px'
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: '800', color: '#0f172a' }}>#{st.rollNo || i + 1} • {st.firstName}</div>
+                            <div style={{ fontSize: '11px', color: '#64748b' }}>
+                              Ad.No: #{st.adNo} {st.periodMeta?.subject ? `• ${st.periodMeta.subject}` : ''}
+                            </div>
+                          </div>
+                          <span style={{
+                            padding: '2px 8px',
+                            borderRadius: '6px',
+                            fontWeight: '800',
+                            fontSize: '10px',
+                            background: adminTileDrilldown.statusType === 'PRESENT' ? '#dcfce7' : adminTileDrilldown.statusType === 'ABSENT' ? '#ffe4e6' : '#f1f5f9',
+                            color: adminTileDrilldown.statusType === 'PRESENT' ? '#15803d' : adminTileDrilldown.statusType === 'ABSENT' ? '#be123c' : '#475569'
+                          }}>
+                            {st.periodMeta?.code === 'O' ? 'Official' : st.periodMeta?.code === 'M' ? 'Medical' : st.periodMeta?.code === 'L' ? 'Leave' : adminTileDrilldown.statusType}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* BOTTOM CARD: SPECIFIC DAY PERIOD REGISTER TABLE (1-9) WITH CLASS FILTER */}
+            <div style={styles.card}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', background: '#f8fafc', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>Filter Class:</span>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {['ALL', ...ORDERED_8_CLASSES].map(cls => (
+                      <button
+                        key={cls}
+                        type="button"
+                        onClick={() => setAdminRegClass(cls)}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '8px',
+                          fontWeight: '800',
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                          border: adminRegClass === cls ? '1.5px solid #4f46e5' : '1px solid #cbd5e1',
+                          background: adminRegClass === cls ? '#4f46e5' : '#ffffff',
+                          color: adminRegClass === cls ? '#ffffff' : '#334155'
+                        }}
+                      >
+                        {cls === 'ALL' ? `All Classes (${localStudents.length})` : cls}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', fontSize: '11px', fontWeight: '700' }}>
+                  <span style={{ background: '#10b981', color: '#ffffff', padding: '4px 9px', borderRadius: '6px' }}>Green = Present</span>
+                  <span style={{ background: '#e11d48', color: '#ffffff', padding: '4px 9px', borderRadius: '6px' }}>Red = Absent</span>
+                  <span style={{ background: '#e2e8f0', color: '#64748b', padding: '4px 9px', borderRadius: '6px' }}>Gray = Not Taken</span>
+                </div>
+              </div>
+
+              {adminRegLoading ? (
+                <div style={{ padding: '32px', textAlign: 'center', color: '#64748b', fontWeight: '700' }}>
+                  ⏳ Loading 9-Period Register for {adminRegDate}...
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left', minWidth: '820px' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '10px', fontWeight: '800', textTransform: 'uppercase' }}>
+                        <th style={{ padding: '10px 12px', width: '40px' }}>#</th>
+                        <th style={{ padding: '10px 12px' }}>Student Name</th>
+                        <th style={{ padding: '10px 12px' }}>Ad.No</th>
+                        <th style={{ padding: '10px 12px' }}>Class</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'center' }}>🌅 Forenoon (P1–P6)</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'center' }}>🌇 Afternoon (P7–P9)</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'center' }}>Day Result</th>
+                        <th style={{ padding: '10px 12px' }}>9-Period Status (Periods 1 to 9)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayedRegisterStudents.map((st, idx) => {
+                        const ninePeriods = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(pNum => ({
+                          period: pNum,
+                          ...getStudentPeriodStatusOnDate(st, pNum)
+                        }));
+
+                        const fnTaken = ninePeriods.slice(0, 6).filter(p => p.state !== 'NOT_TAKEN');
+                        const anTaken = ninePeriods.slice(6, 9).filter(p => p.state !== 'NOT_TAKEN');
+
+                        const isFnPres = fnTaken.length > 0 ? fnTaken.some(p => p.state === 'PRESENT') : null;
+                        const isAnPres = anTaken.length > 0 ? anTaken.some(p => p.state === 'PRESENT') : null;
+
+                        const isFullPres = isFnPres === true && isAnPres === true;
+                        const isHalfPres = (isFnPres === true && isAnPres !== true) || (isFnPres !== true && isAnPres === true);
+
+                        return (
+                          <tr key={st.regNo || idx} style={{ borderBottom: '1px solid #f1f5f9', background: isFnPres === false && isAnPres === false ? '#fff1f2' : '#ffffff' }}>
+                            <td style={{ padding: '10px 12px', color: '#64748b', fontWeight: '700' }}>{st.rollNo || idx + 1}</td>
+                            <td style={{ padding: '10px 12px', fontWeight: '700', color: '#0f172a' }}>{st.firstName}</td>
+                            <td style={{ padding: '10px 12px', color: '#475569', fontWeight: '600' }}>#{st.adNo}</td>
+                            <td style={{ padding: '10px 12px', fontWeight: '700', color: '#4f46e5' }}>{(st.classes || []).join(', ')}</td>
+
+                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                              {isFnPres === null ? (
+                                <span style={{ color: '#94a3b8' }}>— Not Taken —</span>
+                              ) : isFnPres ? (
+                                <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
+                                  🟢 FN PRESENT (0.5d)
+                                </span>
+                              ) : (
+                                <span style={{ background: '#fff1f2', color: '#be123c', border: '1px solid #fecdd3', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
+                                  🔴 FN ABSENT (0.0d)
+                                </span>
+                              )}
+                            </td>
+
+                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                              {isAnPres === null ? (
+                                <span style={{ color: '#94a3b8' }}>— Not Taken —</span>
+                              ) : isAnPres ? (
+                                <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
+                                  🟢 AN PRESENT (0.5d)
+                                </span>
+                              ) : (
+                                <span style={{ background: '#fff1f2', color: '#be123c', border: '1px solid #fecdd3', padding: '3px 10px', borderRadius: '999px', fontWeight: '800', fontSize: '11px' }}>
+                                  🔴 AN ABSENT (0.0d)
+                                </span>
+                              )}
+                            </td>
+
+                            <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '800' }}>
+                              {isFnPres === null && isAnPres === null ? (
+                                <span style={{ color: '#94a3b8' }}>—</span>
+                              ) : isFullPres ? (
+                                <span style={{ color: '#047857', background: '#dcfce7', padding: '3px 8px', borderRadius: '6px' }}>1.0d Full</span>
+                              ) : isHalfPres ? (
+                                <span style={{ color: '#d97706', background: '#fef3c7', padding: '3px 8px', borderRadius: '6px' }}>0.5d Half</span>
+                              ) : (
+                                <span style={{ color: '#e11d48', background: '#fee2e2', padding: '3px 8px', borderRadius: '6px' }}>0.0d Absent</span>
+                              )}
+                            </td>
+
+                            <td style={{ padding: '10px 12px' }}>
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                {ninePeriods.map(pObj => {
+                                  const isPres = pObj.state === 'PRESENT';
+                                  const isAbs = pObj.state === 'ABSENT';
+                                  return (
+                                    <span
+                                      key={pObj.period}
+                                      title={`Period ${pObj.period}: ${isPres ? 'Present' : isAbs ? 'Absent' : 'Not Taken'}${pObj.subject ? ` (${pObj.subject})` : ''}`}
+                                      style={{
+                                        width: '26px',
+                                        height: '26px',
+                                        borderRadius: '7px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '12px',
+                                        fontWeight: '800',
+                                        background: isPres ? '#10b981' : isAbs ? '#e11d48' : '#f1f5f9',
+                                        color: isPres || isAbs ? '#ffffff' : '#64748b',
+                                        border: isPres ? '1px solid #059669' : isAbs ? '1px solid #be123c' : '1px solid #cbd5e1'
+                                      }}
+                                    >
+                                      {pObj.period}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* VIEW 1: SUBJECT ATTENDANCE CARDS */}
       {activeTab === 'cards' && !isEventLeaderUser && (
