@@ -744,22 +744,74 @@ export default function PeriodAttendanceReportsHub({
     const officialPct =
       totalClassesHeld > 0 ? Math.round((totalOfficial / totalClassesHeld) * 100) : 0;
 
-    const subjectEntries = Object.entries(sw)
-      .filter(([k]) => k.toUpperCase() !== 'HIFZ')
-      .map(([subKey, sObj]) => {
-        const sTot = Number(sObj.total) || 0;
-        const sPres = Number(sObj.present) || 0;
-        const sNotPres = Math.max(0, sTot - sPres);
-        const sPct = sTot > 0 ? ((sPres / sTot) * 100).toFixed(2) : '100.00';
-        const displayTitle = sKeyIncludesClass(subKey, stCls) ? subKey : `${subKey} ${stCls}`;
+   // Helper to strip duplicate class suffixes & normalize subject names so "Adab", "ADAB", and "ADAB QLA3" merge into one row!
+    const getCanonicalSubKey = (rawKey, clsName) => {
+      let clean = String(rawKey || '').trim().toUpperCase().replace(/\s+/g, ' ');
+      const upCls = String(clsName || '').trim().toUpperCase();
+      if (upCls && clean.endsWith(` ${upCls}`)) {
+        clean = clean.slice(0, clean.length - upCls.length).trim();
+      }
+      DEFAULT_CLASSES.forEach(c => {
+        const uc = c.toUpperCase();
+        if (clean.endsWith(` ${uc}`)) {
+          clean = clean.slice(0, clean.length - uc.length).trim();
+        }
+      });
+      if (clean === 'AQEEDA' || clean === 'AQEEDAH') clean = 'AQIDAH';
+      if (clean === 'BALAGA') clean = 'BALAGHA';
+      if (clean === 'HADEES') clean = 'HADITH';
+      if (clean === 'THAMADHUN') clean = 'THAMADUN';
+      return clean;
+    };
+
+    const mergedSubMap = {};
+    Object.entries(sw).forEach(([rawKey, sObj]) => {
+      if (!sObj || String(rawKey).toUpperCase() === 'HIFZ') return;
+      const canonKey = getCanonicalSubKey(rawKey, stCls);
+      if (!canonKey) return;
+
+      const sTot = Number(sObj.total) || 0;
+      const sPres = Number(sObj.present) || 0;
+      const sOff = Number(sObj.official) || 0;
+      const sMed = Number(sObj.medical) || 0;
+      const absDates = Array.isArray(sObj.absentDates) ? sObj.absentDates : [];
+
+      if (!mergedSubMap[canonKey]) {
+        mergedSubMap[canonKey] = {
+          subKey: canonKey,
+          rawKeys: [rawKey],
+          displayTitle: stCls ? `${canonKey} ${stCls}` : canonKey,
+          total: 0,
+          present: 0,
+          official: 0,
+          medical: 0,
+          absentDatesSet: new Set()
+        };
+      } else if (!mergedSubMap[canonKey].rawKeys.includes(rawKey)) {
+        mergedSubMap[canonKey].rawKeys.push(rawKey);
+      }
+
+      mergedSubMap[canonKey].total += sTot;
+      mergedSubMap[canonKey].present += sPres;
+      mergedSubMap[canonKey].official += sOff;
+      mergedSubMap[canonKey].medical += sMed;
+      absDates.forEach(d => mergedSubMap[canonKey].absentDatesSet.add(String(d).slice(0, 10)));
+    });
+
+    const subjectEntries = Object.values(mergedSubMap)
+      .filter(item => item.total > 0)
+      .map(item => {
+        const sNotPres = Math.max(0, item.total - item.present);
+        const sPct = item.total > 0 ? ((item.present / item.total) * 100).toFixed(2) : '100.00';
         return {
-          subKey,
-          displayTitle,
-          total: sTot,
-          present: sPres,
+          subKey: item.subKey,
+          rawKeys: item.rawKeys,
+          displayTitle: item.displayTitle,
+          total: item.total,
+          present: item.present,
           notPresent: sNotPres,
           pct: sPct,
-          absentDates: Array.isArray(sObj.absentDates) ? sObj.absentDates : []
+          absentDates: Array.from(item.absentDatesSet).sort()
         };
       })
       .sort((a, b) => a.displayTitle.localeCompare(b.displayTitle));
@@ -771,13 +823,13 @@ export default function PeriodAttendanceReportsHub({
 
     // Build month-by-month green/red day squares for a subject (Pic 6)
     const buildSubjectMonthCalendarGroups = subEntry => {
-      const subNorm = normalizeSubKey(subEntry.subKey);
-      const matchingSess = allPeriodSessionsCache.filter(sess => {
-        if (!sess.date || sess.isRehearsal) return false;
-        const sNorm = normalizeSubKey(sess.subject || sess.classAlias || '');
-        if (sNorm !== subNorm && !String(sess.classAlias || '').toUpperCase().includes(subNorm)) {
-          return false;
-        }
+      const subNorm = getCanonicalSubKey(subEntry.subKey, stCls);
+    const matchingSess = allPeriodSessionsCache.filter(sess => {
+      if (!sess.date || sess.isRehearsal) return false;
+      const sessCanon = getCanonicalSubKey(sess.subject || sess.classAlias || '', stCls);
+      if (sessCanon !== subNorm && !String(sess.classAlias || '').toUpperCase().includes(subNorm)) {
+        return false;
+      }
         const map = sess.attendanceMap || {};
         return Boolean(map[reg] || map[sId] || map[ad] || map[st.adNo]);
       });
@@ -885,7 +937,7 @@ export default function PeriodAttendanceReportsHub({
         </div>
 
         {/* 4 PASTEL TILES (TOTAL CLASSES, PRESENT, ABSENT, CLICKABLE MINUS DEDUCTION) */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '18px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: '14px', marginBottom: '18px' }}>
           <div style={{ padding: '18px 20px', borderRadius: '14px', background: '#eef2ff', border: '1px solid #c7d2fe' }}>
             <div style={{ fontSize: '11px', fontWeight: '800', color: '#4f46e5', textTransform: 'uppercase' }}>TOTAL CLASSES</div>
             <div style={{ fontSize: '28px', fontWeight: '900', color: '#3730a3', marginTop: '4px' }}>{totalClassesHeld}</div>
@@ -1034,7 +1086,7 @@ export default function PeriodAttendanceReportsHub({
               </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: '20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
               {subjectEntries
                 .filter(item => focusedSubjectKey === 'ALL' || item.subKey === focusedSubjectKey)
                 .map(item => {

@@ -169,22 +169,34 @@ export default function AbsenceClearanceManager({
   // ==========================================
   // LOAD CLEARANCE HISTORY (Index-Free & Automatic on Mount)
   // ==========================================
-  const loadClearanceHistory = async () => {
+const loadClearanceHistory = async () => {
     setLoadingHistory(true);
     try {
       const list = [];
-      const seenIds = new Set();
+      const seenKeys = new Set();
+
+      const studentByKey = {};
+      localStudents.forEach(st => {
+        const reg = String(st.regNo || '').trim().toUpperCase();
+        const ad = String(st.adNo || '').trim().toUpperCase();
+        const id = String(st.id || '').trim().toUpperCase();
+        if (reg) studentByKey[reg] = st;
+        if (ad) studentByKey[ad] = st;
+        if (id) studentByKey[id] = st;
+      });
 
       const normalizeCertDoc = (id, data) => {
         const isMed =
           data.reason === 'medical' ||
           data.clearanceType === 'MEDICAL_LEAVE' ||
           String(data.clearanceTypeLabel || '').toLowerCase().includes('medical');
-        const stMatch = localStudents.find(
-          s =>
-            String(s.adNo || '').toUpperCase() === String(data.studentAdNo || data.adNo || '').toUpperCase() ||
-            String(s.regNo || '').toUpperCase() === String(data.studentRegNo || data.regNo || '').toUpperCase()
-        );
+        const stMatch =
+          studentByKey[String(data.studentAdNo || data.adNo || '').trim().toUpperCase()] ||
+          studentByKey[String(data.studentRegNo || data.regNo || '').trim().toUpperCase()];
+
+        const sessionsArr = Array.isArray(data.clearedSessions) ? data.clearedSessions : [];
+        const legacySubs = Array.isArray(data.clearedLegacySubjects) ? data.clearedLegacySubjects : [];
+
         return {
           id,
           certNumber: data.certNumber || id,
@@ -196,18 +208,20 @@ export default function AbsenceClearanceManager({
               ? data.studentClasses
               : Array.isArray(data.classes) && data.classes.length > 0
               ? data.classes
-              : stMatch?.classes || [],
+              : stMatch?.classes || [stMatch?.class].filter(Boolean) || [],
           department: data.department || stMatch?.department || 'GENERAL',
           clearanceType: isMed ? 'MEDICAL_LEAVE' : 'OFFICIAL_PRESENT',
-          clearanceTypeLabel: isMed ? '🏥 Medical Leave' : '🏛️ Official Leave (Present)',
+          clearanceTypeLabel: isMed ? '🏥 Medical Leave' : '🏛️ Official (Present)',
           reason: data.reason || (isMed ? 'medical' : 'official'),
-          remarks: data.remarks || '',
-          dates: Array.isArray(data.dates) ? data.dates : [],
+          remarks: data.remarks || (isMed ? 'Approved Medical Leave Application' : 'Approved Official Clearance Application'),
+          dates:
+            Array.isArray(data.dates) && data.dates.length > 0
+              ? data.dates
+              : [String(data.issuedAt || '').split('T')[0]].filter(Boolean),
           totalPeriodsCleared:
-            Number(data.totalPeriodsCleared) ||
-            (Array.isArray(data.clearedSessions) ? data.clearedSessions.length : 1),
-          clearedSessions: Array.isArray(data.clearedSessions) ? data.clearedSessions : [],
-          clearedLegacySubjects: Array.isArray(data.clearedLegacySubjects) ? data.clearedLegacySubjects : [],
+            Number(data.totalPeriodsCleared) || sessionsArr.length || legacySubs.length || 1,
+          clearedSessions: sessionsArr,
+          clearedLegacySubjects: legacySubs,
           issuedByUsername: data.issuedByUsername || data.clearedBy || 'admin',
           issuedByName: data.issuedByName || data.clearedBy || 'Central Admin',
           issuedByRole: data.issuedByRole || data.clearedByRole || 'admin',
@@ -219,10 +233,12 @@ export default function AbsenceClearanceManager({
           verifiedBy: data.verifiedBy || null,
           verifiedByName: data.verifiedByName || null,
           verifiedAt: data.verifiedAt || null,
-          verificationNotes: data.verificationNotes || ''
+          verificationNotes: data.verificationNotes || '',
+          sourceType: 'CERTIFICATE'
         };
       };
 
+      // Fast parallel fetch of clearance_history & clearance_certificates only (no heavy systemCache scan!)
       const [histSnap, certSnap] = await Promise.all([
         getDocs(collection(db, 'clearance_history')).catch(() => null),
         getDocs(collection(db, 'clearance_certificates')).catch(() => null)
@@ -231,10 +247,9 @@ export default function AbsenceClearanceManager({
       if (histSnap) {
         histSnap.forEach(d => {
           const rec = normalizeCertDoc(d.id, d.data() || {});
-          const dedupKey = rec.certNumber || d.id;
-          if (!seenIds.has(dedupKey) && !seenIds.has(d.id)) {
-            seenIds.add(dedupKey);
-            seenIds.add(d.id);
+          const key = rec.certNumber || d.id;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
             list.push(rec);
           }
         });
@@ -243,23 +258,21 @@ export default function AbsenceClearanceManager({
       if (certSnap) {
         certSnap.forEach(d => {
           const rec = normalizeCertDoc(d.id, d.data() || {});
-          const dedupKey = rec.certNumber || d.id;
-          if (!seenIds.has(dedupKey) && !seenIds.has(d.id)) {
-            seenIds.add(dedupKey);
-            seenIds.add(d.id);
+          const key = rec.certNumber || d.id;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
             list.push(rec);
           }
         });
       }
 
-      // Also scan localStudents periodAttendance.clearanceCertificates
+      // Also check student.periodAttendance.clearanceCertificates in memory (instant 0ms)
       localStudents.forEach(st => {
         const stat = getStudentAttStat(st);
-        const certs = stat.clearanceCertificates || [];
-        certs.forEach(c => {
+        (stat.clearanceCertificates || []).forEach(c => {
           const cId = c.id || c.certNumber;
-          if (cId && !seenIds.has(cId)) {
-            seenIds.add(cId);
+          if (cId && !seenKeys.has(cId)) {
+            seenKeys.add(cId);
             list.push(
               normalizeCertDoc(cId, {
                 ...c,
@@ -1492,7 +1505,10 @@ export default function AbsenceClearanceManager({
           {[
             { id: 'issue', label: '🎟️ Issue New Clearance' },
             { id: 'history', label: `📋 Clearance History & Verification (${historyKpis.total})` },
-            { id: 'inspect', label: '🔍 Inspect Student Sessions' }
+            { id: 'inspect', label: '🔍 Inspect Student Sessions' },
+            ...(userRole === 'admin'
+              ? [{ id: 'delete_attendance', label: '🗑️ Delete Attendance' }]
+              : [])
           ].map(tab => (
             <button
               key={tab.id}
@@ -1948,16 +1964,6 @@ export default function AbsenceClearanceManager({
                 <option value="OFFICIAL_PRESENT">🏛️ Official Leave Only</option>
               </select>
 
-              <select
-                value={historyVerifyFilter}
-                onChange={e => setHistoryVerifyFilter(e.target.value)}
-                style={{ ...styles.input, width: 'auto', padding: '7px 12px', fontSize: '12px', fontWeight: '700' }}
-              >
-                <option value="ALL">All Statuses</option>
-                <option value="PENDING">⏳ Pending Verification</option>
-                <option value="VERIFIED">✅ Verified Only</option>
-              </select>
-
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <input
                   type="date"
@@ -2330,7 +2336,7 @@ export default function AbsenceClearanceManager({
       {/* ============================================================
           HIGH-SECURITY SCOPED ATTENDANCE DELETE CARD (Period + Night + Extra Only)
          ============================================================ */}
-      {userRole === 'admin' && (
+      {clearanceSubTab === 'delete_attendance' && userRole === 'admin' && (
         <div style={{ ...styles.card, border: '1.5px solid #fecdd3', background: '#ffffff' }}>
           <h3 style={{ margin: '0 0 4px 0', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
             Complete / Scoped Attendance Delete

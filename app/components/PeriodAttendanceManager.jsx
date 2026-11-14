@@ -662,7 +662,7 @@ useEffect(() => {
           const sMap = {};
           const autoAbs = [];
 
-          enrolledSts.forEach(st => {
+         enrolledSts.forEach(st => {
             const sReg = String(st.regNo || '').trim();
             const sAd = String(st.adNo || '').trim();
             const sId = String(st.id || '').trim();
@@ -671,8 +671,8 @@ useEffect(() => {
 
             const isReh = rehPresentForThisPeriod.some(r => {
               const str = String(r || '').trim().toUpperCase();
-              return (sReg && str === sReg.toUpperCase()) || 
-                     (sAd && str === sAd.toUpperCase()) || 
+              return (sReg && str === sReg.toUpperCase()) ||
+                     (sAd && str === sAd.toUpperCase()) ||
                      (sId && str === sId.toUpperCase());
             });
             const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
@@ -680,20 +680,13 @@ useEffect(() => {
 
             if (isReh) {
               sMap[regKey] = 'P';
-            } else if (recAbs && recAbs.isOfficial) {
+            } else if ((recAbs && recAbs.isOfficial) || (op && op.isCurrentlyOutside && op.isOfficial)) {
               sMap[regKey] = 'O';
-            } else if (op && op.isCurrentlyOutside && op.isOfficial) {
-              sMap[regKey] = 'O';
-            } else if (recAbs && recAbs.isMedical) {
+              autoAbs.push(regKey);
+            } else if ((recAbs && recAbs.isMedical) || (op && op.isCurrentlyOutside && op.isMedical)) {
               sMap[regKey] = 'M';
               autoAbs.push(regKey);
-            } else if (op && op.isCurrentlyOutside && op.isMedical) {
-              sMap[regKey] = 'M';
-              autoAbs.push(regKey);
-            } else if (op && op.isCurrentlyOutside) {
-              sMap[regKey] = 'L';
-              autoAbs.push(regKey);
-            } else if (recAbs && recAbs.isPermittedLeave) {
+            } else if ((op && op.isCurrentlyOutside) || (recAbs && recAbs.isPermittedLeave)) {
               sMap[regKey] = 'L';
               autoAbs.push(regKey);
             } else if (recAbs) {
@@ -789,7 +782,6 @@ useEffect(() => {
   const absentStudentsByClassGroups = React.useMemo(() => {
     const rehPresentHere = rehearsalPresentMapForDate[String(attSession)] || [];
 
-    // Group ALL enrolled class students by class name
     const groups = {};
     classStudents.forEach(st => {
       const clsName = String((st.classes || [])[0] || st.class || 'GENERAL').trim().toUpperCase();
@@ -805,19 +797,19 @@ useEffect(() => {
 
       const isReh = rehPresentHere.some(r => {
         const str = String(r || '').trim().toUpperCase();
-        return (sReg && str === sReg.toUpperCase()) || 
-               (sAd && str === sAd.toUpperCase()) || 
+        return (sReg && str === sReg.toUpperCase()) ||
+               (sAd && str === sAd.toUpperCase()) ||
                (sId && str === sId.toUpperCase());
       });
+
       const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
       const recAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
-      const isAutoOfficial = isReh || (op && op.isOfficial) || (recAbs && recAbs.isOfficial);
+      const hasPermittedReason = Boolean((op && op.isCurrentlyOutside) || recAbs);
 
-      // Current effective status
       const assignedStatus = sessionStatusMap[regKey] || (absentRegNos.includes(regKey) ? 'A' : 'P');
-      
-      // Strictly unexcused absentees ('A' only - exclude 'P', 'M', 'O', 'L')
-      if (!isAutoOfficial && assignedStatus === 'A') {
+
+      // Strictly include ONLY unexcused 'A' students (exclude 'P', 'L', 'M', 'O' and any student with a permitted outpass/leave reason)
+      if (!isReh && assignedStatus === 'A' && !hasPermittedReason) {
         groups[clsName].students.push(st);
       }
     });
@@ -940,31 +932,23 @@ useEffect(() => {
                  (sAd && str === sAd.toUpperCase()) || 
                  (sId && str === sId.toUpperCase());
         });
-        const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
-        const recAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
 
-        // Determine final session status with priority to explicit sessionStatusMap overrides
         const explicitlyChosenStatus = sessionStatusMap[reg] || sessionStatusMap[sReg] || sessionStatusMap[sAd] || sessionStatusMap[sId];
 
         if (isRehearsalPresent) {
-          newAttendanceMap[reg] = 'P'; // 🌟 Converted to ACTUAL PRESENT per user logic!
-        } else if (recAbs && recAbs.isOfficial) {
-          newAttendanceMap[reg] = 'O'; // 🌟 Official Duty from recorded absence / leave!
-        } else if (op && op.isCurrentlyOutside && op.isOfficial) {
-          newAttendanceMap[reg] = 'O'; // 🌟 Official Gate Outpass
-        } else if (explicitlyChosenStatus && explicitlyChosenStatus !== 'P') {
-          // If teacher explicitly cycled to 'L', 'M', or 'A', preserve that choice!
-          newAttendanceMap[reg] = explicitlyChosenStatus;
-        } else if (recAbs && recAbs.isMedical) {
-          newAttendanceMap[reg] = 'M'; // 🌟 Medical leave from recorded absence (e.g. sick in room / hospital)!
-        } else if (op && op.isCurrentlyOutside) {
-          newAttendanceMap[reg] = 'L'; // 🌟 Permitted leave from Gate Outpass ('L')
-        } else if (recAbs && isMarkedAbsentByRegularTeacher) {
-          newAttendanceMap[reg] = recAbs.status === 'SICK_ROOM' ? 'M' : 'A';
-        } else if (!isMarkedAbsentByRegularTeacher) {
           newAttendanceMap[reg] = 'P';
+        } else if (
+          explicitlyChosenStatus === 'A' ||
+          explicitlyChosenStatus === 'L' ||
+          explicitlyChosenStatus === 'M' ||
+          explicitlyChosenStatus === 'O' ||
+          isMarkedAbsentByRegularTeacher
+        ) {
+          // Store L, M, O, and A strictly as normal Absent ('A') in the database!
+          // Official ('O') and Medical ('M') are only converted when formally approved in the Clearance Desk.
+          newAttendanceMap[reg] = 'A';
         } else {
-          newAttendanceMap[reg] = explicitlyChosenStatus || 'A';
+          newAttendanceMap[reg] = 'P';
         }
       });
 
@@ -2832,6 +2816,7 @@ useEffect(() => {
                 {(() => {
                   let medCount = 0;
                   let offCount = 0;
+                  let leaveCount = 0;
                   let unexcusedCount = 0;
                   let presentCount = 0;
 
@@ -2839,41 +2824,35 @@ useEffect(() => {
                     const sReg = String(st.regNo || '').trim();
                     const sAd = String(st.adNo || '').trim();
                     const sId = String(st.id || '').trim();
+                    const regKey = sReg || sId;
                     const rehPresentHere = (rehearsalPresentMapForDate[String(attSession)] || []).some(r => {
                       const str = String(r || '').trim().toUpperCase();
-                      return (sReg && str === sReg.toUpperCase()) || 
-                             (sAd && str === sAd.toUpperCase()) || 
+                      return (sReg && str === sReg.toUpperCase()) ||
+                             (sAd && str === sAd.toUpperCase()) ||
                              (sId && str === sId.toUpperCase());
                     });
-                    const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
-                    const recAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
-                    const isOfficialPass = Boolean((op && op.isOfficial) || (recAbs && recAbs.isOfficial));
-                    const isAbsent = !rehPresentHere && !isOfficialPass && absentRegNos.some(r => {
-                      const str = String(r).trim().toUpperCase();
-                      return (sReg && str === sReg.toUpperCase()) || (sAd && str === sAd.toUpperCase()) || (sId && str === sId.toUpperCase());
-                    });
+                    const curCode = rehPresentHere ? 'P' : (sessionStatusMap[regKey] || (absentRegNos.includes(regKey) ? 'A' : 'P'));
 
-                    if (isOfficialPass) {
-                      offCount++;
-                    } else if (recAbs?.isMedical && isAbsent) {
-                      medCount++;
-                    } else if (isAbsent) {
-                      unexcusedCount++;
-                    } else {
-                      presentCount++;
-                    }
+                    if (curCode === 'P') presentCount++;
+                    else if (curCode === 'O') offCount++;
+                    else if (curCode === 'M') medCount++;
+                    else if (curCode === 'L') leaveCount++;
+                    else unexcusedCount++;
                   });
 
                   return (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                       <span style={{ color: '#0f172a' }}>Total: {classStudents.length}</span>
                       <span style={{ color: '#047857' }}>Present: {presentCount}</span>
-                      <span style={{ color: '#e11d48' }}>Absent: {unexcusedCount}</span>
+                      <span style={{ color: '#e11d48' }}>Unexcused Absent (A): {unexcusedCount}</span>
+                      <span style={{ background: '#eef2ff', border: '1px solid #c7d2fe', color: '#4338ca', padding: '2px 8px', borderRadius: '6px', fontSize: '12px' }}>
+                        🟣 Leave (Info): {leaveCount}
+                      </span>
                       <span style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#d97706', padding: '2px 8px', borderRadius: '6px', fontSize: '12px' }}>
-                        🤒 Medical: {medCount}
+                        🤒 Sick (Info): {medCount}
                       </span>
                       <span style={{ background: '#f0fdfa', border: '1px solid #99f6e4', color: '#0d9488', padding: '2px 8px', borderRadius: '6px', fontSize: '12px' }}>
-                        🏛️ Official: {offCount}
+                        🏛️ Official (Info): {offCount}
                       </span>
                     </div>
                   );
@@ -2918,23 +2897,20 @@ useEffect(() => {
                   });
                   const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
                   const recAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
-                  const isAutoOfficial = Boolean((op && op.isOfficial) || (recAbs && recAbs.isOfficial));
 
                   const currentStatus = rehPresentHere
                     ? 'P'
-                    : isAutoOfficial
-                    ? 'O'
                     : (sessionStatusMap[sReg] || sessionStatusMap[sId] || (absentRegNos.some(r => {
-                        const str = String(r).trim().toUpperCase();
-                        return (sReg && str === sReg.toUpperCase()) || (sAd && str === sAd.toUpperCase()) || (sId && str === sId.toUpperCase());
-                      }) ? 'A' : 'P'));
+                      const str = String(r).trim().toUpperCase();
+                      return (sReg && str === sReg.toUpperCase()) || (sAd && str === sAd.toUpperCase()) || (sId && str === sId.toUpperCase());
+                    }) ? 'A' : 'P'));
 
                   const setDirectPeriodStatus = (nextCode) => {
                     if (rehPresentHere) return;
                     setSessionStatusMap(prev => ({ ...prev, [regKey]: nextCode }));
                     setAbsentRegNos(prev => {
                       const filtered = prev.filter(r => String(r).trim() !== regKey);
-                      if (nextCode === 'A' || nextCode === 'L' || nextCode === 'M') {
+                      if (nextCode === 'A' || nextCode === 'L' || nextCode === 'M' || nextCode === 'O') {
                         return [...filtered, regKey];
                       }
                       return filtered;
