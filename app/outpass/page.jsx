@@ -836,8 +836,46 @@ export default function OutPassPortal({
     );
 
     const scanTimeISO = new Date().toISOString();
+      if (matchingPass && matchingPass.status === "APPROVED") {
+      // 🌟 STRICT EARLY-EXIT BLOCK: Student cannot exit before permittedFrom date & time!
+      const isBeforePermittedStartTime =
+        matchingPass.permittedFrom &&
+        new Date(scanTimeISO) < new Date(matchingPass.permittedFrom);
 
-    if (matchingPass && matchingPass.status === "APPROVED") {
+      if (isBeforePermittedStartTime) {
+        playBeep(true);
+        const formattedStart = formatDateTime12Hour(matchingPass.permittedFrom);
+
+        try {
+          await addDoc(collection(db, "outpass_unapproved_logs"), {
+            scannedId: code,
+            adNo: matchingPass.adNo,
+            studentName: matchingPass.studentName,
+            studentClass: matchingPass.studentClass,
+            department: matchingPass.department || "—",
+            photoUrl: matchingPass.studentPhotoUrl || studentObj?.photoUrl || null,
+            timestamp: scanTimeISO,
+            reason: `⛔ BLOCKED EARLY EXIT: Student attempted to leave at ${formatDateTime12Hour(scanTimeISO)}, before permitted departure time (${formattedStart}).`,
+            kioskUser: "Security Gate Kiosk",
+          });
+        } catch (e) {}
+
+        setGateScanResult({
+          allowed: false,
+          actionType: "BLOCKED_EARLY",
+          student: studentObj || {
+            name: matchingPass.studentName,
+            adNo: matchingPass.adNo,
+            studentClass: matchingPass.studentClass,
+            department: matchingPass.department || "GENERAL",
+            photoUrl: matchingPass.studentPhotoUrl,
+          },
+          pass: matchingPass,
+          message: `⛔ RED SIGNAL — EXIT BLOCKED (TOO EARLY): Out-Pass starts only at ${formattedStart}! Student is NOT permitted to leave before ${formattedStart}.`,
+          timestamp: scanTimeISO,
+        });
+        return;
+      }
       const isPastReturnDeadline =
         !matchingPass.isOpenReturn &&
         matchingPass.permittedTo &&

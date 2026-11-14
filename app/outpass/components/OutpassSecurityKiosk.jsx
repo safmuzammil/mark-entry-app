@@ -31,6 +31,13 @@ export default function OutpassSecurityKiosk({
 
   const safePasses = Array.isArray(passes) ? passes : [];
   const isPassExpiredBeforeExit = (p) => {
+    const isPassBeforeStartTime = (p) => {
+  return (
+    p.status === "APPROVED" &&
+    p.permittedFrom &&
+    new Date() < new Date(p.permittedFrom)
+  );
+};
     return p.status === "APPROVED" && !p.isOpenReturn && p.permittedTo && new Date() > new Date(p.permittedTo);
   };
   const expiredExitCount = safePasses.filter(isPassExpiredBeforeExit).length;
@@ -337,6 +344,19 @@ export default function OutpassSecurityKiosk({
                     {gateScanResult.pass.purpose})
                   </div>
                   <div>
+                 🚶‍♂️ <strong>Permitted From:</strong>{" "}
+                 <strong
+                   style={{
+                     color:
+                       gateScanResult.actionType === "BLOCKED_EARLY"
+                         ? "#dc2626"
+                         : "#0f766e",
+                   }}
+                 >
+                   {formatDateTime12Hour(gateScanResult.pass.permittedFrom)}
+                 </strong>
+               </div>
+                  <div>
                     ⏳ <strong>Return Deadline:</strong>{" "}
                     {formatDateTime12Hour(
                       gateScanResult.pass.permittedTo,
@@ -443,7 +463,7 @@ export default function OutpassSecurityKiosk({
                   )}
 
                   {/* ↩️ 1-TAP UNDO GATE VERIFICATION (FOR ACCIDENTAL SCAN) */}
-                  {gateScanResult.pass && handleUndoGateVerification && (
+                 {gateScanResult.pass && gateScanResult.allowed && handleUndoGateVerification && (
                     <div style={{ marginTop: 10 }}>
                       <button
                         type="button"
@@ -619,8 +639,9 @@ export default function OutpassSecurityKiosk({
               </div>
             </div>
           ) : (
-            activeGatePasses.map((p) => {
+           activeGatePasses.map((p) => {
               const isExpiredExit = isPassExpiredBeforeExit(p);
+              const isTooEarlyExit = !isExpiredExit && isPassBeforeStartTime(p);
               return (
               <div
                 key={p.id}
@@ -633,10 +654,16 @@ export default function OutpassSecurityKiosk({
                   flexWrap: "wrap",
                   borderLeft: isExpiredExit
                     ? "5px solid #dc2626"
+                    : isTooEarlyExit
+                    ? "5px solid #f59e0b"
                     : p.status === "APPROVED"
                     ? "5px solid #0284c7"
                     : "5px solid #f59e0b",
-                  background: isExpiredExit ? "#fff5f5" : "#ffffff",
+                  background: isExpiredExit
+                    ? "#fff5f5"
+                    : isTooEarlyExit
+                    ? "#fffbeb"
+                    : "#ffffff",
                 }}
               >
                 <div
@@ -683,6 +710,22 @@ export default function OutpassSecurityKiosk({
                           ⛔ RETURN TIME EXPIRED (BLOCKED)
                         </span>
                       )}
+                      {isTooEarlyExit && (
+                        <span
+                          style={{
+                            background: "#fef3c7",
+                            color: "#b45309",
+                            border: "1px solid #fde68a",
+                            padding: "2px 8px",
+                            borderRadius: 6,
+                            fontSize: 10,
+                            fontWeight: 900,
+                            marginLeft: 6,
+                          }}
+                        >
+                          ⏳ NOT STARTED YET (WAIT UNTIL {formatDateTime12Hour(p.permittedFrom)})
+                        </span>
+                      )}
                     </div>
                     <div
                       style={{ fontSize: 12, color: "#475569", marginTop: 2 }}
@@ -699,12 +742,14 @@ export default function OutpassSecurityKiosk({
                     <div
                       style={{
                         fontSize: 11,
-                        color: "#0f766e",
+                        color: isTooEarlyExit ? "#b45309" : "#0f766e",
                         fontWeight: 700,
                         marginTop: 2,
                       }}
                     >
-                      ⏳ Return By:{" "}
+                      🚶‍♂️ Permitted From:{" "}
+                      <strong>{formatDateTime12Hour(p.permittedFrom)}</strong>{" "}
+                      • ⏳ Return By:{" "}
                       {formatDateTime12Hour(p.permittedTo, p.isOpenReturn)}
                     </div>
                   </div>
@@ -735,6 +780,8 @@ export default function OutpassSecurityKiosk({
                       ...styles.markReturnedBtn,
                       background: isExpiredExit
                         ? "#dc2626"
+                        : isTooEarlyExit
+                        ? "#d97706"
                         : p.status === "APPROVED"
                         ? "#0284c7"
                         : "#059669",
@@ -743,6 +790,8 @@ export default function OutpassSecurityKiosk({
                   >
                     {isExpiredExit
                       ? "⛔ Block & Verify Inside"
+                      : isTooEarlyExit
+                      ? "⏳ Too Early (Blocked)"
                       : p.status === "APPROVED"
                       ? "🚪 Record Gate Exit"
                       : "🏁 Record Gate Return"}
