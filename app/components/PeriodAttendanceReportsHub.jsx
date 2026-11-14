@@ -1206,25 +1206,22 @@ export default function PeriodAttendanceReportsHub({
       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', background: '#f8fafc', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
           {[
-            ...(userRole === 'admin'
-              ? [
-                  { id: 'total', label: '📈 Total Semester Attendance' },
-                  { id: 'fn_an_monthly', label: '🌤️ FN / AN Monthly Days (All Classes)' },
-                  { id: 'monthly', label: '🗓️ Subject Monthly' }
-                ]
-              : isClassTeacher
-              ? [
-                  { id: 'fn_an_monthly', label: `🌤️ Class ${myCtClasses.join(', ')} Monthly Day Register (FN & AN)` },
-                  { id: 'total', label: '📈 My Subject Summary (Total)' },
-                  { id: 'monthly', label: '🗓️ My Subject Monthly' },
-                  { id: 'daily', label: '📅 My Recorded Periods (Daily)' }
-                ]
-              : [
-                  { id: 'total', label: '📈 My Subject Summary (Total)' },
-                  { id: 'monthly', label: '🗓️ My Subject Monthly' },
-                  { id: 'daily', label: '📅 My Recorded Periods (Daily)' }
-                ])
-          ].map(tab => (
+         ...(userRole === 'admin'
+           ? [
+               { id: 'total', label: '📈 Total Semester Attendance' },
+               { id: 'fn_an_monthly', label: '🌤️ FN / AN Monthly Days (All Classes)' }
+             ]
+           : isClassTeacher
+           ? [
+               { id: 'fn_an_monthly', label: `🌤️ Class ${myCtClasses.join(', ')} Monthly Day Register (FN & AN)` },
+               { id: 'total', label: '📈 My Subject Summary (Total)' },
+               { id: 'daily', label: '📅 My Recorded Periods (Daily)' }
+             ]
+           : [
+               { id: 'total', label: '📈 My Subject Summary (Total)' },
+               { id: 'daily', label: '📅 My Recorded Periods (Daily)' }
+             ])
+       ].map(tab => (
             <button
               key={tab.id}
               type="button"
