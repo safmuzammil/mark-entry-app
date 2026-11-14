@@ -715,8 +715,8 @@ export default function PeriodAttendanceReportsHub({
     XLSX.writeFile(wb, `Attendance_Report_${repScope.toUpperCase()}_${repClass}.xlsx`);
   };
 
-  // ============================================================================
-  // 🌟 STUDENT DRILLDOWN VIEW (MATCHES SCREENSHOTS 4, 5 & 6)
+ // ============================================================================
+  // 🌟 STUDENT DRILLDOWN VIEW (MATCHES SCREENSHOTS 4, 5 & 6 — DEDUPLICATED BY DATE)
   // ============================================================================
   if (selectedProfileStudent) {
     const st = selectedProfileStudent;
@@ -726,12 +726,196 @@ export default function PeriodAttendanceReportsHub({
     const sId = String(st.id || '').trim();
     const ad = String(st.adNo || '').trim().toUpperCase();
     const stCls = (st.classes || [st.class] || [])[0] || '';
+    const stDept = String(st.department || '').trim().toUpperCase();
 
-    const totalClassesHeld = Number(stat.totalPeriods) || 0;
-    const totalPresentWithOfficial = Number(stat.presentCount) || 0;
+    // Helper: Canonical Subject Key (Merges TKS & SPECIALIZATION across all 6 departments, and strips class suffixes)
+    const getCanonicalSubKey = (rawKey, clsName) => {
+      let clean = String(rawKey || '').trim().toUpperCase().replace(/\s+/g, ' ');
+      if (!clean || clean === 'HIFZ' || clean.includes('REHEARSAL')) return '';
+
+      // Strip class names anywhere at the end (e.g. "QLA3", "HFC3", "F3", etc.)
+      const upCls = String(clsName || '').trim().toUpperCase();
+      if (upCls && clean.endsWith(` ${upCls}`)) {
+        clean = clean.slice(0, clean.length - upCls.length).trim();
+      }
+      [...DEFAULT_CLASSES, 'F1', 'F2', 'F3', 'Q1', 'Q2', 'Q3', 'A1', 'A2', 'A3'].forEach(c => {
+        const uc = c.toUpperCase();
+        if (clean.endsWith(` ${uc}`)) {
+          clean = clean.slice(0, clean.length - uc.length).trim();
+        }
+      });
+
+      // 🌟 Merge TKS / THAKHASUS / SPECIALIZATION into a single subject per student
+      if (
+        clean.startsWith('TKS') ||
+        clean.includes('THAKHASUS') ||
+        clean.includes('SPECIALIZATION') ||
+        clean.includes('SPECIALISATION')
+      ) {
+        let deptTag = '';
+        if (clean.includes('QURAN') || clean.includes("QUR'AN")) deptTag = 'QURAN';
+        else if (clean.includes('HANAFI')) deptTag = 'FIQH HANAFI';
+        else if (clean.includes('SHAFI')) deptTag = 'FIQH SHAFI';
+        else if (clean.includes('FIQH')) deptTag = stDept.includes('HANAFI') ? 'FIQH HANAFI' : 'FIQH';
+        else if (clean.includes('HADITH') || clean.includes('HADEES')) deptTag = 'HADITH';
+        else if (clean.includes('AQIDAH') || clean.includes('AQEEDA')) deptTag = 'AQIDAH';
+        else if (clean.includes('ADAB')) deptTag = 'ADAB';
+        else if (stDept && stDept !== 'GENERAL') deptTag = stDept;
+
+        return deptTag ? `SPECIALIZATION (${deptTag})` : 'SPECIALIZATION';
+      }
+
+      if (clean === 'AQEEDA' || clean === 'AQEEDAH') return 'AQIDAH';
+      if (clean === 'BALAGA') return 'BALAGHA';
+      if (clean === 'HADEES') return 'HADITH';
+      if (clean === 'THAMADHUN') return 'THAMADUN';
+      if (clean.includes('DIRASATH') || clean.includes('ADYAN') || clean === 'MANTHIQ' || clean === 'MANTIQ') return 'LOGIC';
+      if (clean === 'SS' || clean.startsWith('SS ')) return 'SOCIAL SCIENCE';
+      if (clean.includes('U:FIQH') || clean.includes('U :FIQH') || clean.includes('USUL')) return 'U :FIQH';
+      return clean;
+    };
+
+    // 1. Collect all real session dates for this student from `allPeriodSessionsCache`
+    // Deduplicate strictly by (canonicalSubject + YYYY-MM-DD) because each subject is taken ONCE per day!
+    const sessionsBySubAndDate = {}; // canonKey -> Map(dateStr -> isPresent)
+    allPeriodSessionsCache.forEach(sess => {
+      if (!sess.date || sess.isRehearsal) return;
+      const dStr = String(sess.date).trim().slice(0, 10);
+      if (!dStr) return;
+
+      const canonKey = getCanonicalSubKey(sess.subject || sess.classAlias || '', stCls);
+      if (!canonKey) return; // skips HIFZ and REHEARSAL automatically
+
+      const map = sess.attendanceMap || {};
+      const val = map[reg] || map[sId] || map[ad] || map[st.adNo];
+      if (!val) return;
+
+      if (!sessionsBySubAndDate[canonKey]) {
+        sessionsBySubAndDate[canonKey] = new Map();
+      }
+      const isPres = val === 'P' || val === 'O';
+      // If duplicate session exists on the same date for the same subject, keep 1 entry per day
+      if (!sessionsBySubAndDate[canonKey].has(dStr)) {
+        sessionsBySubAndDate[canonKey].set(dStr, isPres);
+      } else if (isPres) {
+        sessionsBySubAndDate[canonKey].set(dStr, true);
+      }
+    });
+
+    // 2. Merge `student.periodAttendance.subjectWise` keys and deduplicate same-date entries
+    const mergedSubMap = {};
+    Object.entries(sw).forEach(([rawKey, sObj]) => {
+      if (!sObj) return;
+      const canonKey = getCanonicalSubKey(rawKey, stCls);
+      if (!canonKey) return; // Excludes REHEARSAL and HIFZ
+
+      if (!mergedSubMap[canonKey]) {
+        mergedSubMap[canonKey] = {
+          subKey: canonKey,
+          rawKeys: [rawKey],
+          displayTitle: stCls ? `${canonKey} ${stCls}` : canonKey,
+          maxRawTotal: 0,
+          maxRawPresent: 0,
+          sumRawTotal: 0,
+          sumRawPresent: 0,
+          uniqueAbsentDates: new Set()
+        };
+      } else if (!mergedSubMap[canonKey].rawKeys.includes(rawKey)) {
+        mergedSubMap[canonKey].rawKeys.push(rawKey);
+      }
+
+      const grp = mergedSubMap[canonKey];
+      const sTot = Number(sObj.total) || 0;
+      const sPres = Number(sObj.present) || 0;
+      grp.maxRawTotal = Math.max(grp.maxRawTotal, sTot);
+      grp.maxRawPresent = Math.max(grp.maxRawPresent, sPres);
+      grp.sumRawTotal += sTot;
+      grp.sumRawPresent += sPres;
+
+      (Array.isArray(sObj.absentDates) ? sObj.absentDates : []).forEach(d => {
+        const cleanD = String(d || '').trim().slice(0, 10);
+        if (cleanD) grp.uniqueAbsentDates.add(cleanD);
+      });
+    });
+
+    // Also ensure any subject found in sessionsBySubAndDate is in mergedSubMap
+    Object.keys(sessionsBySubAndDate).forEach(canonKey => {
+      if (!mergedSubMap[canonKey]) {
+        mergedSubMap[canonKey] = {
+          subKey: canonKey,
+          rawKeys: [canonKey],
+          displayTitle: stCls ? `${canonKey} ${stCls}` : canonKey,
+          maxRawTotal: 0,
+          maxRawPresent: 0,
+          sumRawTotal: 0,
+          sumRawPresent: 0,
+          uniqueAbsentDates: new Set()
+        };
+      }
+    });
+
+    // 3. Finalize each subject's deduplicated daily calendar & exact counts
+    const subjectEntries = Object.values(mergedSubMap)
+      .map(grp => {
+        const dateMap = new Map(); // dateStr -> boolean (true = Present, false = Absent)
+
+        // First populate from actual session documents (already 1 per day)
+        const sessMap = sessionsBySubAndDate[grp.subKey];
+        if (sessMap && sessMap.size > 0) {
+          sessMap.forEach((isPres, dStr) => {
+            dateMap.set(dStr, isPres);
+          });
+        }
+
+        // Ensure all uniqueAbsentDates from student profile are marked false (1 per day)
+        grp.uniqueAbsentDates.forEach(dStr => {
+          if (!dateMap.has(dStr)) {
+            dateMap.set(dStr, false);
+          }
+        });
+
+        let finalTotal = dateMap.size;
+        let finalNotPresent = Array.from(dateMap.values()).filter(v => v === false).length;
+        let finalPresent = finalTotal - finalNotPresent;
+
+        // If no session docs were cached yet for this subject, use deduplicated profile counts
+        // (When TKS QURAN [20] and SPECIALIZATION QURAN [21] were duplicate imports of the same subject,
+        // use maxRawTotal instead of doubling them to 41!)
+        const isMergedTksDuplicate = grp.rawKeys.length > 1 && grp.subKey.startsWith('SPECIALIZATION');
+        const profileTotal = isMergedTksDuplicate ? grp.maxRawTotal : grp.sumRawTotal;
+
+        if (finalTotal === 0 && profileTotal > 0) {
+          finalTotal = profileTotal;
+          finalNotPresent = grp.uniqueAbsentDates.size;
+          finalPresent = Math.max(0, finalTotal - finalNotPresent);
+        }
+
+        const sPct = finalTotal > 0 ? ((finalPresent / finalTotal) * 100).toFixed(2) : '100.00';
+
+        // Sort unique dates chronologically for the Monthly Calendar Cards
+        const sortedDailyLogs = Array.from(dateMap.entries())
+          .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+          .map(([dateStr, isPresent]) => ({ dateStr, isPresent }));
+
+        return {
+          subKey: grp.subKey,
+          displayTitle: grp.displayTitle,
+          total: finalTotal,
+          present: finalPresent,
+          notPresent: finalNotPresent,
+          pct: sPct,
+          dailyLogs: sortedDailyLogs
+        };
+      })
+      .filter(item => item.total > 0)
+      .sort((a, b) => a.displayTitle.localeCompare(b.displayTitle));
+
+    // Recalculate top tiles from deduplicated academic subjects (excludes Rehearsal & duplicate TKS!)
+    const totalClassesHeld = subjectEntries.reduce((acc, item) => acc + item.total, 0) || (Number(stat.totalPeriods) || 0);
+    const totalPresentWithOfficial = subjectEntries.reduce((acc, item) => acc + item.present, 0) || (Number(stat.presentCount) || 0);
+    const totalAbsent = Math.max(0, totalClassesHeld - totalPresentWithOfficial);
     const totalOfficial = Number(stat.officialCount) || 0;
     const totalMedical = Number(stat.medicalCount) || 0;
-    const totalAbsent = Math.max(0, totalClassesHeld - totalPresentWithOfficial);
     const minusCount = Number(stat.minusCount) || 0;
     const minusLogs = Array.isArray(stat.minusLogs) ? stat.minusLogs : [];
 
@@ -744,143 +928,25 @@ export default function PeriodAttendanceReportsHub({
     const officialPct =
       totalClassesHeld > 0 ? Math.round((totalOfficial / totalClassesHeld) * 100) : 0;
 
-   // Helper to strip duplicate class suffixes & normalize subject names so "Adab", "ADAB", and "ADAB QLA3" merge into one row!
-    const getCanonicalSubKey = (rawKey, clsName) => {
-      let clean = String(rawKey || '').trim().toUpperCase().replace(/\s+/g, ' ');
-      const upCls = String(clsName || '').trim().toUpperCase();
-      if (upCls && clean.endsWith(` ${upCls}`)) {
-        clean = clean.slice(0, clean.length - upCls.length).trim();
-      }
-      DEFAULT_CLASSES.forEach(c => {
-        const uc = c.toUpperCase();
-        if (clean.endsWith(` ${uc}`)) {
-          clean = clean.slice(0, clean.length - uc.length).trim();
-        }
-      });
-      if (clean === 'AQEEDA' || clean === 'AQEEDAH') clean = 'AQIDAH';
-      if (clean === 'BALAGA') clean = 'BALAGHA';
-      if (clean === 'HADEES') clean = 'HADITH';
-      if (clean === 'THAMADHUN') clean = 'THAMADUN';
-      return clean;
-    };
-
-    const mergedSubMap = {};
-    Object.entries(sw).forEach(([rawKey, sObj]) => {
-      if (!sObj || String(rawKey).toUpperCase() === 'HIFZ') return;
-      const canonKey = getCanonicalSubKey(rawKey, stCls);
-      if (!canonKey) return;
-
-      const sTot = Number(sObj.total) || 0;
-      const sPres = Number(sObj.present) || 0;
-      const sOff = Number(sObj.official) || 0;
-      const sMed = Number(sObj.medical) || 0;
-      const absDates = Array.isArray(sObj.absentDates) ? sObj.absentDates : [];
-
-      if (!mergedSubMap[canonKey]) {
-        mergedSubMap[canonKey] = {
-          subKey: canonKey,
-          rawKeys: [rawKey],
-          displayTitle: stCls ? `${canonKey} ${stCls}` : canonKey,
-          total: 0,
-          present: 0,
-          official: 0,
-          medical: 0,
-          absentDatesSet: new Set()
-        };
-      } else if (!mergedSubMap[canonKey].rawKeys.includes(rawKey)) {
-        mergedSubMap[canonKey].rawKeys.push(rawKey);
-      }
-
-      mergedSubMap[canonKey].total += sTot;
-      mergedSubMap[canonKey].present += sPres;
-      mergedSubMap[canonKey].official += sOff;
-      mergedSubMap[canonKey].medical += sMed;
-      absDates.forEach(d => mergedSubMap[canonKey].absentDatesSet.add(String(d).slice(0, 10)));
-    });
-
-    const subjectEntries = Object.values(mergedSubMap)
-      .filter(item => item.total > 0)
-      .map(item => {
-        const sNotPres = Math.max(0, item.total - item.present);
-        const sPct = item.total > 0 ? ((item.present / item.total) * 100).toFixed(2) : '100.00';
-        return {
-          subKey: item.subKey,
-          rawKeys: item.rawKeys,
-          displayTitle: item.displayTitle,
-          total: item.total,
-          present: item.present,
-          notPresent: sNotPres,
-          pct: sPct,
-          absentDates: Array.from(item.absentDatesSet).sort()
-        };
-      })
-      .sort((a, b) => a.displayTitle.localeCompare(b.displayTitle));
-
-    function sKeyIncludesClass(k, c) {
-      if (!c) return true;
-      return String(k).toUpperCase().includes(String(c).toUpperCase());
-    }
-
-    // Build month-by-month green/red day squares for a subject (Pic 6)
+    // Build month-by-month green/red day squares for a subject (Strictly 1 square per unique date!)
     const buildSubjectMonthCalendarGroups = subEntry => {
-      const subNorm = getCanonicalSubKey(subEntry.subKey, stCls);
-    const matchingSess = allPeriodSessionsCache.filter(sess => {
-      if (!sess.date || sess.isRehearsal) return false;
-      const sessCanon = getCanonicalSubKey(sess.subject || sess.classAlias || '', stCls);
-      if (sessCanon !== subNorm && !String(sess.classAlias || '').toUpperCase().includes(subNorm)) {
-        return false;
-      }
-        const map = sess.attendanceMap || {};
-        return Boolean(map[reg] || map[sId] || map[ad] || map[st.adNo]);
-      });
-
-      // Map date -> Present or Absent
-      const dateStatusList = [];
-      if (matchingSess.length > 0) {
-        matchingSess
-          .sort((a, b) => String(a.date).localeCompare(String(b.date)))
-          .forEach(sess => {
-            const map = sess.attendanceMap || {};
-            const val = map[reg] || map[sId] || map[ad] || map[st.adNo];
-            const isPres = val === 'P' || val === 'O';
-            dateStatusList.push({
-              dateStr: sess.date,
-              isPresent: isPres
-            });
-          });
-      } else {
-        // Fallback when sessions were imported via Shuhood: use absentDates + synthetic present dates
-        const absSet = new Set(subEntry.absentDates.map(d => String(d).slice(0, 10)));
-        subEntry.absentDates.forEach(dStr => {
-          dateStatusList.push({ dateStr: String(dStr).slice(0, 10), isPresent: false });
-        });
-        // Also scan any general session dates where this student was present
-        allPeriodSessionsCache.forEach(sess => {
-          if (!sess.date) return;
-          const map = sess.attendanceMap || {};
-          const val = map[reg] || map[sId] || map[ad];
-          if ((val === 'P' || val === 'O') && !absSet.has(sess.date) && dateStatusList.length < subEntry.total) {
-            dateStatusList.push({ dateStr: sess.date, isPresent: true });
-          }
-        });
-      }
-
-      // Group by Month Title (e.g. "OCTOBER 2026", "NOVEMBER 2026")
       const monthGroups = {};
-      dateStatusList.forEach(item => {
+      (subEntry.dailyLogs || []).forEach(item => {
         const dObj = new Date(`${item.dateStr}T00:00:00`);
         const mLabel = !isNaN(dObj.getTime())
           ? dObj.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase()
           : item.dateStr.slice(0, 7);
         const dayNum = !isNaN(dObj.getTime()) ? dObj.getDate() : item.dateStr.slice(8, 10);
         if (!monthGroups[mLabel]) monthGroups[mLabel] = [];
-        monthGroups[mLabel].push({
-          dayNum,
-          dateStr: item.dateStr,
-          isPresent: item.isPresent
-        });
+        // Guarantee no duplicate day square inside the same month
+        if (!monthGroups[mLabel].some(x => x.dayNum === dayNum)) {
+          monthGroups[mLabel].push({
+            dayNum,
+            dateStr: item.dateStr,
+            isPresent: item.isPresent
+          });
+        }
       });
-
       return Object.entries(monthGroups);
     };
 

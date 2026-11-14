@@ -143,6 +143,7 @@ export default function NightAttendanceManager({
   const [extraRepDate, setExtraRepDate] = useState('');
   const [extraSearchFilter, setExtraSearchFilter] = useState('');
   const [extraSubmittedState, setExtraSubmittedState] = useState(false);
+  const [editingExtraDocId, setEditingExtraDocId] = useState(null);
   const [classSubmittedSuccess, setClassSubmittedSuccess] = useState(null);
 
   // 🌟 EXTRA ATTENDANCE HELPERS
@@ -248,7 +249,7 @@ export default function NightAttendanceManager({
 
       const presentCount = targetStudents.length - absentAdNos.length - permittedAdNos.length - officialAdNos.length - sickAdNos.length;
       const reasonSlug = effectiveReason.toLowerCase().replace(/[^a-z0-9]/g, '_');
-      const docId = `extra_${extraDate}_${extraClass}_${reasonSlug}_${Date.now()}`;
+      const docId = editingExtraDocId || `extra_${extraDate}_${extraClass}_${reasonSlug}_${Date.now()}`;
 
       const payload = {
         id: docId,
@@ -271,25 +272,26 @@ export default function NightAttendanceManager({
         absentList: targetStudents
           .filter(s => absentAdNos.includes(String(s.adNo || '').trim()))
           .map(s => ({ name: s.firstName || s.name, adNo: s.adNo, rollNo: s.rollNo || '' })),
-        createdAt: new Date().toISOString()
+        createdAt: editingExtraDocId && lastSavedExtraPayload?.createdAt ? lastSavedExtraPayload.createdAt : new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       };
 
       try {
-        await setDoc(doc(db, 'night_extra_attendance', docId), payload);
+        await setDoc(doc(db, 'night_extra_attendance', docId), payload, { merge: true });
       } catch (permErr) {
         if (permErr.code === 'permission-denied' || String(permErr.message || '').includes('permission')) {
-          console.warn('Saving to systemCache fallback:', permErr);
           await setDoc(doc(db, 'systemCache', `extraAtt_${docId}`), {
             ...payload,
             _storedIn: 'systemCache'
-          });
+          }, { merge: true });
         } else {
           throw permErr;
         }
       }
 
       setLastSavedExtraPayload(payload);
-      setRecordedExtraList(prev => [payload, ...prev]);
+      setEditingExtraDocId(docId);
+      setRecordedExtraList(prev => [payload, ...prev.filter(item => item.id !== docId)]);
       setExtraSubmittedState(true);
       if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
       alert(`✅ Extra Attendance saved for Class ${extraClass} (${extraDate} • ${effectiveReason})!`);
@@ -666,7 +668,7 @@ export default function NightAttendanceManager({
     ) {
       loadRecent30DaysForAnalytics();
     }
-    if ((viewMode === 'extra_reports' || viewMode === 'attendance_reports') && recordedExtraList.length === 0) {
+    if ((viewMode === 'extra_attendance' || viewMode === 'extra_reports' || viewMode === 'attendance_reports') && recordedExtraList.length === 0) {
       loadExtraAttendanceRecords();
     }
   }, [viewMode, nightRepScope]);
@@ -1356,8 +1358,8 @@ export default function NightAttendanceManager({
                 </span>
               )}
               {savedCurrentClassMeta && (
-                <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: '700' }}>
-                  ✓ Saved by {savedCurrentClassMeta.takenBy}
+                <span style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: '800' }}>
+                  ✏️ Editing Saved Roll-Call (Saved by {savedCurrentClassMeta.takenBy} — Modify &amp; Click Save to Update)
                 </span>
               )}
             </div>
@@ -2462,6 +2464,71 @@ export default function NightAttendanceManager({
             </div>
           </div>
 
+          {/* EXISTING SAVED EXTRA SESSIONS FOR THIS CLASS & DATE (1-CLICK EDIT) */}
+          {(() => {
+            const matchingSavedExtras = recordedExtraList.filter(
+              item => item.className === extraClass && item.date === extraDate
+            );
+            if (matchingSavedExtras.length === 0 && !editingExtraDocId) return null;
+
+            return (
+              <div style={{ marginBottom: '14px', padding: '10px 14px', background: editingExtraDocId ? '#fef3c7' : '#ecfdf5', borderRadius: '10px', border: `1px solid ${editingExtraDocId ? '#fde68a' : '#a7f3d0'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '12px', fontWeight: '800', color: editingExtraDocId ? '#92400e' : '#065f46' }}>
+                  <span>{editingExtraDocId ? '✏️ Editing Existing Extra Session:' : `✓ Recorded on ${extraDate} for Class ${extraClass}:`}</span>
+                  {matchingSavedExtras.map(sess => (
+                    <button
+                      key={sess.id}
+                      type="button"
+                      onClick={() => {
+                        setEditingExtraDocId(sess.id);
+                        setExtraDate(sess.date);
+                        setExtraClass(sess.className);
+                        const presetReasons = ['Special Study Camp', 'Event Rehearsal Practice', 'Special Assembly', 'Madrasa Night Program', 'Emergency Roll-Call', 'Hostel Gate Check'];
+                        if (presetReasons.includes(sess.reason)) {
+                          setExtraReason(sess.reason);
+                        } else {
+                          setExtraReason('CUSTOM');
+                          setCustomExtraReason(sess.reason || '');
+                        }
+                        setIncludeUrdu(sess.includeUrdu !== false);
+                        setExtraStatusMap(sess.statusMap || {});
+                        setLastSavedExtraPayload(sess);
+                        setExtraSubmittedState(false);
+                      }}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        background: editingExtraDocId === sess.id ? '#d97706' : '#10b981',
+                        color: '#ffffff',
+                        border: 'none',
+                        fontWeight: '800',
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ✏️ Edit &ldquo;{sess.reason}&rdquo; ({sess.presentCount}/{sess.totalStrength} Pres)
+                    </button>
+                  ))}
+                </div>
+
+                {editingExtraDocId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingExtraDocId(null);
+                      setExtraStatusMap({});
+                      setLastSavedExtraPayload(null);
+                      setExtraSubmittedState(false);
+                    }}
+                    style={{ background: '#ffffff', color: '#334155', border: '1px solid #cbd5e1', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}
+                  >
+                    ➕ Switch to New Session
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+
           {/* REASON SELECTOR & URDU TOGGLE */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '16px', background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
             <div>
@@ -3079,6 +3146,19 @@ export default function NightAttendanceManager({
                         <button
                           type="button"
                           onClick={() => {
+                            setSelectedDate(sess.date);
+                            setSelectedClass(sess.className);
+                            setClassSubmittedSuccess(null);
+                            setViewMode('take_attendance');
+                          }}
+                          style={{ ...styles.buttonSecondary, padding: '8px 14px', fontSize: '12px', fontWeight: '800' }}
+                        >
+                          ✏️ Edit Attendance
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
                             const txt = [
                               `*🌙 NIGHT ATTENDANCE REPORT — CLASS ${sess.className}*`,
                               `📅 Date: ${sess.date} | Recorded By: ${sess.takenBy || 'Faculty'}`,
@@ -3168,6 +3248,30 @@ export default function NightAttendanceManager({
                         </div>
 
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingExtraDocId(sess.id);
+                              setExtraDate(sess.date);
+                              setExtraClass(sess.className);
+                              const presetReasons = ['Special Study Camp', 'Event Rehearsal Practice', 'Special Assembly', 'Madrasa Night Program', 'Emergency Roll-Call', 'Hostel Gate Check'];
+                              if (presetReasons.includes(sess.reason)) {
+                                setExtraReason(sess.reason);
+                              } else {
+                                setExtraReason('CUSTOM');
+                                setCustomExtraReason(sess.reason || '');
+                              }
+                              setIncludeUrdu(sess.includeUrdu !== false);
+                              setExtraStatusMap(sess.statusMap || {});
+                              setLastSavedExtraPayload(sess);
+                              setExtraSubmittedState(false);
+                              setViewMode('extra_attendance');
+                            }}
+                            style={{ ...styles.buttonSecondary, padding: '8px 14px', fontSize: '12px', fontWeight: '800' }}
+                          >
+                            ✏️ Edit Session
+                          </button>
+
                           <button
                             type="button"
                             onClick={() => handleSendExtraToClassTeacher(sess)}
