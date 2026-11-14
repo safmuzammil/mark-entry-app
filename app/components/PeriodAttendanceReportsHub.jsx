@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { db } from '../../lib/firebase';
-import { doc, getDoc, getDocs, collection } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection, onSnapshot } from 'firebase/firestore';
 import { DEFAULT_CLASSES, styles } from './erpConstants';
 import { openDirectWhatsApp } from './ErpExtensions';
 
@@ -132,7 +132,21 @@ export default function PeriodAttendanceReportsHub({
     fetchDailySessionsForReport();
   }, [activeTab, repScope, repDate]);
 
-  // Load Month Period Sessions & Out-Passes when `repScope === 'fn_an_monthly'`
+  // 🌟 Real-time listener for recorded absences so any new absence updates the report immediately
+  useEffect(() => {
+    if (activeTab !== 'reports_hub') return;
+    const unsub = onSnapshot(doc(db, 'systemCache', 'recordedStudentAbsences'), snap => {
+      if (snap.exists()) {
+        const data = snap.data() || {};
+        const raw = data.absences;
+        const list = Array.isArray(raw) ? raw : (raw && typeof raw === 'object' ? Object.values(raw) : []);
+        setFnAnRecordedAbsences(list.filter(r => r && !r.isCancelled));
+      }
+    }, err => console.warn('Realtime recordedStudentAbsences listener error:', err));
+    return () => unsub();
+  }, [activeTab]);
+
+    // Load Month Period Sessions & Out-Passes when `repScope === 'fn_an_monthly'`
   useEffect(() => {
     async function fetchFnAnMonthData() {
       if (activeTab !== 'reports_hub' || repScope !== 'fn_an_monthly' || !repMonth) return;
@@ -1510,32 +1524,23 @@ export default function PeriodAttendanceReportsHub({
            VIEW 2: FN / AN MONTHLY DAYS
            ========================================================= */
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+          <div style={{ marginBottom: '14px' }}>
             <div
-              onClick={() => setFnAnFilterMode('ALL')}
-              style={{ padding: '16px', borderRadius: '12px', background: '#f8fafc', border: fnAnFilterMode === 'ALL' ? '2px solid #4f46e5' : '1px solid #e2e8f0', textAlign: 'center', cursor: 'pointer' }}
+              style={{
+                maxWidth: '280px',
+                padding: '16px 20px',
+                borderRadius: '12px',
+                background: '#f8fafc',
+                border: '1.5px solid #e2e8f0',
+                textAlign: 'center'
+              }}
             >
-              <span style={{ fontSize: '11px', fontWeight: '800', color: '#475569' }}>TOTAL CLASS STUDENTS</span>
-              <div style={{ fontSize: '26px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>{fnAnRows.length}</div>
-              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Click to show all</div>
-            </div>
-
-            <div
-              onClick={() => setFnAnFilterMode('PRESENT_ALL_DAYS')}
-              style={{ padding: '16px', borderRadius: '12px', background: '#ecfdf5', border: fnAnFilterMode === 'PRESENT_ALL_DAYS' ? '2px solid #059669' : '1px solid #a7f3d0', textAlign: 'center', cursor: 'pointer' }}
-            >
-              <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857' }}>🏆 100% PRESENT (ALL WORKING DAYS)</span>
-              <div style={{ fontSize: '26px', fontWeight: '900', color: '#065f46', marginTop: '4px' }}>{presentAllDaysCount}</div>
-              <div style={{ fontSize: '11px', color: '#047857', marginTop: '2px' }}>Zero FN or AN absences in {repMonth}</div>
-            </div>
-
-            <div
-              onClick={() => setFnAnFilterMode('ABSENT_GT_5')}
-              style={{ padding: '16px', borderRadius: '12px', background: '#fff1f2', border: fnAnFilterMode === 'ABSENT_GT_5' ? '2px solid #e11d48' : '1px solid #fecdd3', textAlign: 'center', cursor: 'pointer' }}
-            >
-              <span style={{ fontSize: '11px', fontWeight: '800', color: '#be123c' }}>🚨 ABSENT &ge; 5 DAYS IN MONTH</span>
-              <div style={{ fontSize: '26px', fontWeight: '900', color: '#e11d48', marginTop: '4px' }}>{absentGt5DaysCount}</div>
-              <div style={{ fontSize: '11px', color: '#be123c', marginTop: '2px' }}>Click to filter &amp; view reasons</div>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Class Strength
+              </span>
+              <div style={{ fontSize: '28px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>
+                {fnAnRows.length}
+              </div>
             </div>
           </div>
 

@@ -40,6 +40,27 @@ const QUICK_PURPOSES = [
   "Home Leave",
 ];
 
+
+const get24HTime = (h, m, ampm) => {
+  let hr = parseInt(h || '12', 10);
+  if (ampm === 'PM' && hr < 12) hr += 12;
+  if (ampm === 'AM' && hr === 12) hr = 0;
+  return `${String(hr).padStart(2, '0')}:${String(m || '00').padStart(2, '0')}`;
+};
+
+const setFrom24HTime = (timeStr, setH, setM, setAmpm) => {
+  if (!timeStr) return;
+  const [hhStr, mmStr] = timeStr.split(':');
+  const hh = parseInt(hhStr, 10);
+  const mm = parseInt(mmStr, 10);
+  const ampm = hh >= 12 ? 'PM' : 'AM';
+  let h12 = hh % 12;
+  if (h12 === 0) h12 = 12;
+  setH(String(h12).padStart(2, '0'));
+  setM(String(mm).padStart(2, '0'));
+  setAmpm(ampm);
+};
+
 export default function OutpassTeacherDesk({
   activeLeaveSubTab = "outpass",
   setActiveLeaveSubTab,
@@ -1415,77 +1436,7 @@ export default function OutpassTeacherDesk({
         </div>
 
         <div style={styles.slipBody}>
-          {/* Authority Badges */}
-          <div
-            style={{
-              background: "#f8fafc",
-              border: "1px solid #e2e8f0",
-              padding: "9px 12px",
-              borderRadius: 10,
-              marginBottom: 12,
-              fontSize: 11,
-              color: "#334155",
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 6,
-              alignItems: "center",
-            }}
-          >
-            <strong>🔑 Authority:</strong>
-            <span style={styles.adNoBadge}>🕌 Friday (All)</span>
-            <span style={styles.adNoBadge}>🌇 Evening (Mentees)</span>
-            {(myPrivileges.classTeacherOf || []).length > 0 && (
-              <span style={styles.insideStatusBadge}>
-                🏫 CT: {myPrivileges.classTeacherOf.join(", ")}
-              </span>
-            )}
-            {myPrivileges.isNiicsCoordinator && (
-              <span
-                style={{
-                  ...styles.adNoBadge,
-                  background: "#fef3c7",
-                  color: "#92400e",
-                }}
-              >
-                🎓 NIICS Coordinator
-              </span>
-            )}
-            {(hasPrincipalPower || myPrivileges.canApproveWeekend) && (
-              <span
-                style={{
-                  ...styles.adNoBadge,
-                  background: "#f3e8ff",
-                  color: "#6d28d9",
-                }}
-              >
-                🗓️ Thu–Sat Weekend
-              </span>
-            )}
-            {(hasPrincipalPower ||
-              myPrivileges.canApproveOutreach ||
-              myPrivileges.isOutreachCoordinator) && (
-              <span
-                style={{
-                  ...styles.adNoBadge,
-                  background: "#ffedd5",
-                  color: "#c2410c",
-                }}
-              >
-                🌍 Outreach
-              </span>
-            )}
-            {hasPrincipalPower && (
-              <span
-                style={{
-                  ...styles.adNoBadge,
-                  background: "#fef08a",
-                  color: "#854d0e",
-                }}
-              >
-                👑 Principal Override
-              </span>
-            )}
-          </div>
+          
 
           <label
             style={{
@@ -1844,7 +1795,7 @@ export default function OutpassTeacherDesk({
           </div>
 
           <form onSubmit={handleIssuePass}>
-            {/* 2. LEAVE CATEGORY */}
+            {/* 2. LEAVE CATEGORY (Dropdown Only, No Chips) */}
             <div style={{ marginBottom: 16 }}>
               <div
                 style={{
@@ -1865,18 +1816,28 @@ export default function OutpassTeacherDesk({
                   <span
                     style={{ fontSize: 11, fontWeight: 700, color: "#16a34a" }}
                   >
-                    ✓ Selected: {formatCategoryLabel(leaveCategory)}
+                    ✓ Selected: {leaveCategory}
                   </span>
                 )}
               </div>
 
               <select
                 value={leaveCategory || ""}
-                onChange={(e) => handleSelectCategoryOption(e.target.value)}
+                onChange={(e) => {
+                  const cat = e.target.value;
+                  setLeaveCategory(cat);
+                  if (cat === "Medical" || cat === "Medical Thursday") {
+                    setIsOpenReturn(true);
+                  } else if (cat === "Evening") {
+                    applyUntilEvening();
+                  } else if (cat === "Monthly") {
+                    applyDaysDuration(3, "3d");
+                  }
+                }}
                 style={{
                   ...styles.textInput,
                   width: "100%",
-                  fontSize: "16px",
+                  fontSize: "15px",
                   minHeight: "44px",
                   padding: "8px 12px",
                   fontWeight: 700,
@@ -1889,100 +1850,14 @@ export default function OutpassTeacherDesk({
                 }}
               >
                 <option value="">-- Select Leave Category --</option>
-                <option value="Custom">✍️ Custom Leave Category...</option>
-                {LEAVE_CATEGORIES.filter((c) => c !== "Custom").map((cat) => (
-                  <option key={cat} value={cat}>
-                    {formatCategoryLabel(cat)}
-                  </option>
-                ))}
+                <option value="Evening">Evening</option>
+                <option value="Medical">Medical</option>
+                <option value="Monthly">Monthly</option>
+                <option value="General">General</option>
+                <option value="Official">Official</option>
+                <option value="Medical Thursday">Medical Thursday</option>
+                <option value="Custom">Custom</option>
               </select>
-
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                  marginBottom: 8,
-                }}
-              >
-                {[
-                  { id: "Monthly_Home", label: "🏠 Monthly Home" },
-                  { id: "Evening", label: "☀️ Evening" },
-                  { id: "Friday", label: "🕌 Friday" },
-                ].map((chip) => {
-                  const active = leaveCategory === chip.id;
-                  return (
-                    <button
-                      type="button"
-                      key={chip.id}
-                      onClick={() => handleSelectCategoryOption(chip.id)}
-                      style={{
-                        padding: "6px 12px",
-                        borderRadius: 8,
-                        fontSize: 12,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        border: active
-                          ? "1.5px solid #4f46e5"
-                          : "1px solid #cbd5e1",
-                        background: active ? "#4f46e5" : "#ffffff",
-                        color: active ? "#ffffff" : "#334155",
-                      }}
-                    >
-                      {chip.label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {leaveCategory === "Monthly_Home" && (
-                <div
-                  style={{
-                    marginTop: 4,
-                    padding: "10px 14px",
-                    background: "#eef2ff",
-                    borderRadius: 8,
-                    border: "1px solid #c7d2fe",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <span
-                    style={{ fontSize: 12, fontWeight: 700, color: "#3730a3" }}
-                  >
-                    🏠 Monthly Leave Duration:
-                  </span>
-                  {[1, 2, 3, 4, 5, 6, 7].map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => {
-                        setSelectedMonthlyDays(d);
-                        applyDaysDuration(d, `${d}d`);
-                      }}
-                      style={{
-                        padding: "5px 12px",
-                        borderRadius: 6,
-                        fontSize: 12,
-                        fontWeight: 800,
-                        cursor: "pointer",
-                        border:
-                          selectedMonthlyDays === d
-                            ? "1.5px solid #4f46e5"
-                            : "1px solid #cbd5e1",
-                        background:
-                          selectedMonthlyDays === d ? "#4f46e5" : "#ffffff",
-                        color:
-                          selectedMonthlyDays === d ? "#ffffff" : "#475569",
-                      }}
-                    >
-                      {d} {d === 1 ? "Day" : "Days"}
-                    </button>
-                  ))}
-                </div>
-              )}
 
               {leaveCategory === "Custom" && (
                 <div style={{ marginTop: 8 }}>
@@ -2001,7 +1876,7 @@ export default function OutpassTeacherDesk({
                     style={{
                       ...styles.textInput,
                       width: "100%",
-                      fontSize: "16px",
+                      fontSize: "15px",
                       minHeight: "44px",
                     }}
                     autoFocus
@@ -2010,7 +1885,7 @@ export default function OutpassTeacherDesk({
               )}
             </div>
 
-            {/* 3. DESTINATION */}
+            {/* 3. DESTINATION (Dropdown Only, No Chips) */}
             <div style={{ marginBottom: 16 }}>
               <div
                 style={{
@@ -2038,14 +1913,13 @@ export default function OutpassTeacherDesk({
 
               <select
                 value={
-                  isCustomDestActive ||
-                  (destination && !QUICK_DESTINATIONS.includes(destination))
-                    ? "CUSTOM"
+                  isCustomDestActive || (destination && !["Chemmad", "Parakkadav", "Mamburam", "Bookplus", "Taluk Hospital"].includes(destination))
+                    ? "Custom"
                     : destination || ""
                 }
                 onChange={(e) => {
                   const val = e.target.value;
-                  if (val === "CUSTOM") {
+                  if (val === "Custom") {
                     setIsCustomDestActive(true);
                   } else if (val) {
                     setDestination(val);
@@ -2058,7 +1932,7 @@ export default function OutpassTeacherDesk({
                 style={{
                   ...styles.textInput,
                   width: "100%",
-                  fontSize: "16px",
+                  fontSize: "15px",
                   minHeight: "44px",
                   padding: "8px 12px",
                   fontWeight: 700,
@@ -2071,54 +1945,16 @@ export default function OutpassTeacherDesk({
                 }}
               >
                 <option value="">-- Select Destination --</option>
-                <option value="CUSTOM">✍️ Custom Destination / Place...</option>
-                {QUICK_DESTINATIONS.map((place) => (
-                  <option key={place} value={place}>
-                    📍 {place}
-                  </option>
-                ))}
+                <option value="Chemmad">Chemmad</option>
+                <option value="Parakkadav">Parakkadav</option>
+                <option value="Mamburam">Mamburam</option>
+                <option value="Bookplus">Bookplus</option>
+                <option value="Taluk Hospital">Taluk Hospital</option>
+                <option value="Custom">Custom</option>
               </select>
 
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                  marginBottom: 8,
-                }}
-              >
-                {["Home", "Chemmad", "Bookplus"].map((place) => {
-                  const active = destination === place && !isCustomDestActive;
-                  return (
-                    <button
-                      type="button"
-                      key={place}
-                      onClick={() => {
-                        setDestination(place);
-                        setIsCustomDestActive(false);
-                      }}
-                      style={{
-                        padding: "6px 12px",
-                        borderRadius: 8,
-                        fontSize: 12,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        border: active
-                          ? "1.5px solid #4f46e5"
-                          : "1px solid #cbd5e1",
-                        background: active ? "#4f46e5" : "#ffffff",
-                        color: active ? "#ffffff" : "#334155",
-                      }}
-                    >
-                      📍 {place}
-                    </button>
-                  );
-                })}
-              </div>
-
               {(isCustomDestActive ||
-                (destination &&
-                  !QUICK_DESTINATIONS.includes(destination))) && (
+                (destination && !["Chemmad", "Parakkadav", "Mamburam", "Bookplus", "Taluk Hospital"].includes(destination))) && (
                 <input
                   type="text"
                   placeholder="Type custom destination..."
@@ -2130,8 +1966,9 @@ export default function OutpassTeacherDesk({
                   style={{
                     ...styles.textInput,
                     width: "100%",
-                    fontSize: "16px",
+                    fontSize: "15px",
                     minHeight: "44px",
+                    marginTop: 6
                   }}
                   autoFocus
                   required
@@ -2139,7 +1976,7 @@ export default function OutpassTeacherDesk({
               )}
             </div>
 
-            {/* 4. PURPOSE / REASON */}
+            {/* 4. PURPOSE / REASON (Dropdown Only, No Chips) */}
             <div style={{ marginBottom: 16 }}>
               <div
                 style={{
@@ -2169,14 +2006,13 @@ export default function OutpassTeacherDesk({
 
               <select
                 value={
-                  isCustomPurposeActive ||
-                  (purpose && !QUICK_PURPOSES.includes(purpose))
-                    ? "CUSTOM"
+                  isCustomPurposeActive || (purpose && !["Official", "Medical", "Monthly Leave", "General"].includes(purpose))
+                    ? "Custom"
                     : purpose || ""
                 }
                 onChange={(e) => {
                   const val = e.target.value;
-                  if (val === "CUSTOM") {
+                  if (val === "Custom") {
                     setIsCustomPurposeActive(true);
                   } else if (val) {
                     setPurpose(val);
@@ -2189,7 +2025,7 @@ export default function OutpassTeacherDesk({
                 style={{
                   ...styles.textInput,
                   width: "100%",
-                  fontSize: "16px",
+                  fontSize: "15px",
                   minHeight: "44px",
                   padding: "8px 12px",
                   fontWeight: 700,
@@ -2202,57 +2038,15 @@ export default function OutpassTeacherDesk({
                 }}
               >
                 <option value="">-- Select Purpose / Reason --</option>
-                <option value="CUSTOM">✍️ Custom Purpose / Reason...</option>
-                {QUICK_PURPOSES.map((rsn) => (
-                  <option key={rsn} value={rsn}>
-                    📝 {rsn}
-                  </option>
-                ))}
+                <option value="Official">Official</option>
+                <option value="Medical">Medical</option>
+                <option value="Monthly Leave">Monthly Leave</option>
+                <option value="General">General</option>
+                <option value="Custom">Custom</option>
               </select>
 
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                  marginBottom: 8,
-                }}
-              >
-                {[
-                  "Monthly 3-Day Home Leave",
-                  "Medical / Hospital Case",
-                  "Personal Purchase",
-                ].map((rsn) => {
-                  const active = purpose === rsn && !isCustomPurposeActive;
-                  return (
-                    <button
-                      type="button"
-                      key={rsn}
-                      onClick={() => {
-                        setPurpose(rsn);
-                        setIsCustomPurposeActive(false);
-                      }}
-                      style={{
-                        padding: "6px 12px",
-                        borderRadius: 8,
-                        fontSize: 12,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        border: active
-                          ? "1.5px solid #4f46e5"
-                          : "1px solid #cbd5e1",
-                        background: active ? "#4f46e5" : "#ffffff",
-                        color: active ? "#ffffff" : "#334155",
-                      }}
-                    >
-                      📝 {rsn}
-                    </button>
-                  );
-                })}
-              </div>
-
               {(isCustomPurposeActive ||
-                (purpose && !QUICK_PURPOSES.includes(purpose))) && (
+                (purpose && !["Official", "Medical", "Monthly Leave", "General"].includes(purpose))) && (
                 <input
                   type="text"
                   placeholder="Type custom reason for leave..."
@@ -2264,8 +2058,9 @@ export default function OutpassTeacherDesk({
                   style={{
                     ...styles.textInput,
                     width: "100%",
-                    fontSize: "16px",
+                    fontSize: "15px",
                     minHeight: "44px",
+                    marginTop: 6
                   }}
                   autoFocus
                   required
@@ -2273,7 +2068,7 @@ export default function OutpassTeacherDesk({
               )}
             </div>
 
-            {/* 5. SCHEDULE & OPTIONAL OPEN RETURN TOGGLE */}
+            {/* 5. SCHEDULE (Single Line Date & Time for Mobile, No Chips) */}
             <div style={{ marginBottom: 18 }}>
               <label style={styles.fieldLabel}>
                 5. Permitted Date &amp; Time Schedule
@@ -2323,42 +2118,92 @@ export default function OutpassTeacherDesk({
                 </button>
               </div>
 
-              <CustomDateTimePicker
-                title="🚶‍♂️ Permitted From (Date & Time)"
-                minDate={getLocalDateString(new Date())}
-                dateValue={fromDate}
-                onDateChange={setFromDate}
-                hourValue={fromHour}
-                onHourChange={setFromHour}
-                minuteValue={fromMinute}
-                onMinuteChange={setFromMinute}
-                ampmValue={fromAmpm}
-                onAmpmChange={setFromAmpm}
-                onSetNow={() => {
-                  const p = dateTo12HourParts(new Date());
-                  setFromDate(p.date);
-                  setFromHour(p.hour);
-                  setFromMinute(p.minute);
-                  setFromAmpm(p.ampm);
-                }}
-                previewLabel="🕒 Permitted From"
-              />
-
-              {!isOpenReturn && (
-                <div style={{ marginTop: 12 }}>
-                  <CustomDateTimePicker
-                    title="⏳ To Date & Time (Return Deadline)"
-                    minDate={fromDate || getLocalDateString(new Date())}
-                    dateValue={toDate}
-                    onDateChange={setToDate}
-                    hourValue={toHour}
-                    onHourChange={setToHour}
-                    minuteValue={toMinute}
-                    onMinuteChange={setToMinute}
-                    ampmValue={toAmpm}
-                    onAmpmChange={setToAmpm}
-                    previewLabel="⏳ Must Return By"
+              {/* Single line Permitted From for mobile */}
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "#334155", display: "block", marginBottom: 6 }}>
+                  🕒 Permitted From (Date &amp; Time)
+                </label>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center", width: "100%", flexWrap: "nowrap" }}>
+                  <input
+                    type="date"
+                    value={fromDate || ""}
+                    onChange={(e) => setFromDate(e.target.value)}
+                    style={{
+                      ...styles.textInput,
+                      flex: 1.2,
+                      minWidth: 0,
+                      fontSize: "14px",
+                      fontWeight: 700,
+                      padding: "8px 10px",
+                      background: "#f8fafc",
+                      borderRadius: "8px",
+                      border: "1.5px solid #cbd5e1",
+                      height: "44px"
+                    }}
                   />
+                  <input
+                    type="time"
+                    value={get24HTime(fromHour, fromMinute, fromAmpm)}
+                    onChange={(e) => setFrom24HTime(e.target.value, setFromHour, setFromMinute, setFromAmpm)}
+                    style={{
+                      ...styles.textInput,
+                      flex: 1,
+                      minWidth: 0,
+                      fontSize: "14px",
+                      fontWeight: 700,
+                      padding: "8px 10px",
+                      background: "#f8fafc",
+                      borderRadius: "8px",
+                      border: "1.5px solid #cbd5e1",
+                      height: "44px"
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Single line Return Deadline for mobile */}
+              {!isOpenReturn && (
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#334155", display: "block", marginBottom: 6 }}>
+                    ⏳ Return Date &amp; Time (Deadline)
+                  </label>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center", width: "100%", flexWrap: "nowrap" }}>
+                    <input
+                      type="date"
+                      min={fromDate || undefined}
+                      value={toDate || ""}
+                      onChange={(e) => setToDate(e.target.value)}
+                      style={{
+                        ...styles.textInput,
+                        flex: 1.2,
+                        minWidth: 0,
+                        fontSize: "14px",
+                        fontWeight: 700,
+                        padding: "8px 10px",
+                        background: "#f8fafc",
+                        borderRadius: "8px",
+                        border: "1.5px solid #cbd5e1",
+                        height: "44px"
+                      }}
+                    />
+                    <input
+                      type="time"
+                      value={get24HTime(toHour, toMinute, toAmpm)}
+                      onChange={(e) => setFrom24HTime(e.target.value, setToHour, setToMinute, setToAmpm)}
+                      style={{
+                        ...styles.textInput,
+                        flex: 1,
+                        minWidth: 0,
+                        fontSize: "14px",
+                        fontWeight: 700,
+                        padding: "8px 10px",
+                        background: "#f8fafc",
+                        borderRadius: "8px",
+                        border: "1.5px solid #cbd5e1",
+                        height: "44px"
+                      }}
+                    />
+                  </div>
                 </div>
               )}
             </div>

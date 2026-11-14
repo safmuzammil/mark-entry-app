@@ -1008,32 +1008,21 @@ export default function NightAttendanceManager({
       return !activeRec && !activePass;
     });
 
-    const activeRecs = classStudents.filter(s => Boolean(getActiveRecordedAbsenceForStudent(s.adNo, selectedDate)));
-    const activePassesList = classStudents.filter(s => Boolean(getActiveOutpassForStudent(s.adNo)));
-    const totalAbsentTonight = unexcusedList.length + activeRecs.length + activePassesList.length;
-    const presentCount = classStudents.length - totalAbsentTonight;
-
     const lines = [
       `*🌙 DHIU DEGREE SECTION — NIGHT ATTENDANCE ABSENTEES*`,
       `*Class:* ${selectedClass} | *Date:* ${selectedDate}`,
       `*Roll-Call Recorded By:* ${recorderName || 'Teacher'}`,
       `*Class Teacher:* ${classTeacherObj?.fullName || 'Unassigned'}`,
-      `*Class Metrics:* Total: ${classStudents.length} | Present: ${presentCount} | Total Absent: ${totalAbsentTonight} (Unexcused: ${unexcusedList.length})`,
+      `*Unexcused Absentees Tonight (${unexcusedList.length}):*`,
       `-----------------------------------------`
     ];
 
     if (unexcusedList.length > 0) {
-      lines.push(`🔴 *UNEXCUSED ABSENTEES TONIGHT (Recorded by Night Attendance Taker):*`);
       unexcusedList.forEach((s, idx) => {
-        lines.push(`${idx + 1}. *${s.firstName}* (#${s.adNo}) - Missing in hostel`);
+        lines.push(`${idx + 1}. *${s.firstName}* (#${s.adNo}) — Missing in hostel`);
       });
     } else {
       lines.push(`✅ *Zero Unexcused Absentees Tonight!*`);
-    }
-
-    if (activeRecs.length > 0) {
-      lines.push(``);
-      lines.push(`ℹ️ _Pre-Recorded Known Absences / Medical / Official: ${activeRecs.length}_`);
     }
 
     lines.push(`-----------------------------------------`);
@@ -1084,7 +1073,7 @@ export default function NightAttendanceManager({
   };
 
   const buildClassAbsenteeReportText = () => {
-    // 1. Students who ought to be in class tonight, but are missing unexcused (without approved pre-record or outpass)
+    // Strictly isolate ONLY unexcused absentees with no reason / missing
     const unexcusedList = classStudents.filter(s => {
       const st = statusMap[s.adNo];
       if (st !== 'ABSENT') return false;
@@ -1093,85 +1082,24 @@ export default function NightAttendanceManager({
       return !activeRec && !activePass;
     });
 
-    // 2. Students on approved leave / pre-recorded absence (known to class teacher)
-    const approvedAbsenceList = classStudents.filter(s => {
-      const activeRec = getActiveRecordedAbsenceForStudent(s.adNo, selectedDate);
-      return Boolean(activeRec);
-    });
-
-    // 3. Students on gate outpass (outside campus)
-    const outpassList = classStudents.filter(s => {
-      const st = statusMap[s.adNo];
-      const activePass = getActiveOutpassForStudent(s.adNo);
-      return (Boolean(activePass) || st === 'OUTPASS') && !approvedAbsenceList.some(a => a.adNo === s.adNo);
-    });
-
-    // 4. Official duty
-    const officialList = classStudents.filter(s => statusMap[s.adNo] === 'OFFICIAL' && !approvedAbsenceList.some(a => a.adNo === s.adNo));
-
-    // 5. Sick in room (without multi-day pre-record)
-    const sickOnlyList = classStudents.filter(s => statusMap[s.adNo] === 'SICK_ROOM' && !approvedAbsenceList.some(a => a.adNo === s.adNo));
-
-    const presentCount = classStudents.length - unexcusedList.length - approvedAbsenceList.length - outpassList.length - officialList.length - sickOnlyList.length;
-
     const lines = [
-      `*🌙 DHIU DEGREE SECTION — NIGHT ATTENDANCE REPORT*`,
+      `*🌙 DHIU DEGREE SECTION — NIGHT ATTENDANCE ABSENTEES*`,
       `*Class:* ${selectedClass} | *Date:* ${selectedDate}`,
-      `*Roll-Call Taken By:* ${recorderName}`,
-      `*Total Class Strength:* ${classStudents.length} | *Present Tonight:* ${presentCount}`,
+      `*Roll-Call Taken By:* ${recorderName || 'Teacher'}`,
+      `*Class Teacher:* ${classTeacherObj?.fullName || 'Unassigned'}`,
+      `*Unexcused Absentees Tonight (${unexcusedList.length}):*`,
       `-----------------------------------------`
     ];
 
     if (unexcusedList.length > 0) {
-      lines.push(`*🔴 UNEXCUSED ABSENTEES TONIGHT (Ought to be in hostel — Class Teacher please verify):*`);
       unexcusedList.forEach((s, i) => {
-        lines.push(`${i + 1}. *${s.firstName}* (#${s.adNo}) — Missing / Unverified tonight`);
+        lines.push(`${i + 1}. *${s.firstName}* (#${s.adNo}) — Missing / Unexcused`);
       });
-      lines.push(`-----------------------------------------`);
     } else {
-      lines.push(`✅ *Zero Unexcused Absentees! (All expected hostel students are present)*`);
-      lines.push(`-----------------------------------------`);
+      lines.push(`✅ *Zero Unexcused Absentees Tonight!*`);
     }
 
-    if (approvedAbsenceList.length > 0) {
-      lines.push(`*🪪 APPROVED LEAVE / KNOWN ABSENCES (${approvedAbsenceList.length}):*`);
-      approvedAbsenceList.forEach((s, i) => {
-        const rec = getActiveRecordedAbsenceForStudent(s.adNo, selectedDate);
-        const durationStr = rec?.hasDuration && rec?.endDate ? ` (Until ${rec.endDate} ${rec.endTime || ''})` : '';
-        const recordedByStr = rec?.recordedBy ? ` [By: ${rec.recordedBy}]` : '';
-        lines.push(`${i + 1}. *${s.firstName}* (#${s.adNo}) — Reason: "${rec?.reason || 'Approved Absence'}"${durationStr}${recordedByStr}`);
-      });
-      lines.push(`-----------------------------------------`);
-    }
-
-    if (outpassList.length > 0) {
-      lines.push(`*🚪 OUTSIDE CAMPUS VIA OUTPASS (${outpassList.length}):*`);
-      outpassList.forEach((s, i) => {
-        const passObj = getActiveOutpassForStudent(s.adNo);
-        const detail = passObj
-          ? `${passObj.leaveCategory || 'Leave'} to ${passObj.destination} — By: ${passObj.teacherName}`
-          : 'Permitted Leave';
-        lines.push(`${i + 1}. *${s.firstName}* (#${s.adNo}) — ${detail}`);
-      });
-      lines.push(`-----------------------------------------`);
-    }
-
-    if (officialList.length > 0) {
-      lines.push(`*🏛️ ON OFFICIAL DUTY (${officialList.length}):*`);
-      officialList.forEach((s, i) => {
-        lines.push(`${i + 1}. *${s.firstName}* (#${s.adNo})`);
-      });
-      lines.push(`-----------------------------------------`);
-    }
-
-    if (sickOnlyList.length > 0) {
-      lines.push(`*🤒 SICK / IN ROOM (${sickOnlyList.length}):*`);
-      sickOnlyList.forEach((s, i) => {
-        lines.push(`${i + 1}. *${s.firstName}* (#${s.adNo})`);
-      });
-      lines.push(`-----------------------------------------`);
-    }
-
+    lines.push(`-----------------------------------------`);
     return lines.join('\n');
   };
 
@@ -2281,34 +2209,131 @@ export default function NightAttendanceManager({
             );
           })() : (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '20px' }}>
-                <div style={{ padding: '16px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b' }}>CLASSES RECORDED</span>
-                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>
-                    {instSummary.classesTakenCount} / {DEFAULT_CLASSES.length}
+              {(() => {
+                // Collect institutional lists for specific date
+                const totalAbsence = (instSummary.totalUnexcusedAbsent || 0) + (instSummary.totalSick || 0) + (instSummary.totalOfficial || 0) + (instSummary.totalOnOutpass || 0);
+
+                const institutionPresentStudents = [];
+                const institutionUnexcusedStudents = [];
+                const institutionExcusedStudents = [];
+
+                students.forEach(st => {
+                  const ad = String(st.adNo || '').trim();
+                  const stCls = (st.classes || [])[0] || '';
+                  const dayDoc = dailyDocData;
+                  const cRec = (dayDoc.classes || {})[stCls];
+                  if (!cRec) return;
+
+                  const curSt = (cRec.statusMap || {})[ad] || 'PRESENT';
+                  const rec = getActiveRecordedAbsenceForStudent(ad, selectedDate);
+                  const pass = getActiveOutpassForStudent(ad);
+
+                  if (rec) {
+                    institutionExcusedStudents.push({
+                      student: st,
+                      className: stCls,
+                      type: rec.isMedical ? 'Medical / Sick in Room' : rec.isOfficial ? 'Official Duty' : 'Approved Leave',
+                      reason: rec.reason || 'Medical / Leave',
+                      permittedBy: rec.recordedBy || cRec.takenBy || 'Class Teacher'
+                    });
+                  } else if (pass) {
+                    institutionExcusedStudents.push({
+                      student: st,
+                      className: stCls,
+                      type: `Outpass (${pass.leaveCategory || 'Leave'})`,
+                      reason: pass.destination ? `To ${pass.destination}` : (pass.purpose || 'Outpass'),
+                      permittedBy: pass.teacherName || 'Faculty'
+                    });
+                  } else if (curSt === 'ABSENT') {
+                    institutionUnexcusedStudents.push({ ...st, className: stCls });
+                  } else if (curSt === 'PRESENT') {
+                    institutionPresentStudents.push({ ...st, className: stCls });
+                  }
+                });
+
+                return (
+                  <div>
+                    {/* 🌟 ONLY 3 KPI TILES AS REQUESTED: TOTAL STRENGTH, TOTAL PRESENT, TOTAL ABSENCE */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '22px' }}>
+                      <div style={{ padding: '16px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                        <span style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Total Strength</span>
+                        <div style={{ fontSize: '28px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>{instSummary.totalStrength}</div>
+                      </div>
+
+                      <div style={{ padding: '16px', borderRadius: '12px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center' }}>
+                        <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857', textTransform: 'uppercase' }}>Total Present</span>
+                        <div style={{ fontSize: '28px', fontWeight: '900', color: '#065f46', marginTop: '4px' }}>{instSummary.totalPresent}</div>
+                      </div>
+
+                      <div style={{ padding: '16px', borderRadius: '12px', background: '#fff1f2', border: '1px solid #fecdd3', textAlign: 'center' }}>
+                        <span style={{ fontSize: '11px', fontWeight: '800', color: '#be123c', textTransform: 'uppercase' }}>Total Absence</span>
+                        <div style={{ fontSize: '28px', fontWeight: '900', color: '#e11d48', marginTop: '4px' }}>{totalAbsence}</div>
+                      </div>
+                    </div>
+
+                    {/* NAMES BREAKDOWN ACCORDION / SECTIONS FOR PRESENT, ABSENT & EXCUSED */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px', marginBottom: '22px' }}>
+                      {/* 1. ABSENT STUDENTS (UNEXCUSED) */}
+                      <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '12px', padding: '16px' }}>
+                        <div style={{ fontSize: '14px', fontWeight: '800', color: '#e11d48', marginBottom: '10px', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>🔴 Absent Students (Unexcused)</span>
+                          <span style={{ background: '#e11d48', color: '#ffffff', padding: '2px 8px', borderRadius: '999px', fontSize: '11px' }}>{institutionUnexcusedStudents.length}</span>
+                        </div>
+                        {institutionUnexcusedStudents.length === 0 ? (
+                          <div style={{ fontSize: '12px', color: '#15803d', fontWeight: '600' }}>✅ Zero Unexcused Absentees!</div>
+                        ) : (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                            {institutionUnexcusedStudents.map((s, idx) => (
+                              <span key={s.adNo || idx} style={{ background: '#ffffff', border: '1px solid #fecdd3', color: '#e11d48', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>
+                                #{s.adNo} {s.firstName} ({s.className})
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 2. EXCUSED ABSENT STUDENTS & APPROVED TEACHER */}
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px' }}>
+                        <div style={{ fontSize: '14px', fontWeight: '800', color: '#4338ca', marginBottom: '10px', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>ℹ️ Excused Absent Students</span>
+                          <span style={{ background: '#4f46e5', color: '#ffffff', padding: '2px 8px', borderRadius: '999px', fontSize: '11px' }}>{institutionExcusedStudents.length}</span>
+                        </div>
+                        {institutionExcusedStudents.length === 0 ? (
+                          <div style={{ fontSize: '12px', color: '#64748b' }}>None recorded.</div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '240px', overflowY: 'auto' }}>
+                            {institutionExcusedStudents.map((item, idx) => (
+                              <div key={idx} style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '6px 10px', fontSize: '11px' }}>
+                                <div style={{ fontWeight: '800', color: '#0f172a' }}>
+                                  #{item.student.adNo} {item.student.firstName} ({item.className}) — <span style={{ color: '#4f46e5' }}>{item.type}</span>
+                                </div>
+                                <div style={{ color: '#475569', marginTop: '2px' }}>
+                                  &ldquo;{item.reason}&rdquo; • <strong>Approved by: Usthad {item.permittedBy}</strong>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 3. PRESENT STUDENTS */}
+                      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '16px' }}>
+                        <div style={{ fontSize: '14px', fontWeight: '800', color: '#15803d', marginBottom: '10px', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>🟢 Present Students</span>
+                          <span style={{ background: '#16a34a', color: '#ffffff', padding: '2px 8px', borderRadius: '999px', fontSize: '11px' }}>{institutionPresentStudents.length}</span>
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', maxHeight: '240px', overflowY: 'auto' }}>
+                          {institutionPresentStudents.map((s, idx) => (
+                            <span key={s.adNo || idx} style={{ background: '#ffffff', border: '1px solid #bbf7d0', color: '#15803d', padding: '3px 7px', borderRadius: '6px', fontSize: '10px', fontWeight: '700' }}>
+                              #{s.adNo} {s.firstName}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div style={{ padding: '16px', borderRadius: '12px', background: '#ecfdf5', border: '1px solid #a7f3d0', textAlign: 'center' }}>
-                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#047857' }}>TOTAL PRESENT</span>
-                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#065f46', marginTop: '4px' }}>{instSummary.totalPresent}</div>
-                </div>
-                <div style={{ padding: '16px', borderRadius: '12px', background: '#fff1f2', border: '1px solid #fecdd3', textAlign: 'center' }}>
-                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#be123c' }}>UNEXCUSED ABSENT</span>
-                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#e11d48', marginTop: '4px' }}>{instSummary.totalUnexcusedAbsent}</div>
-                </div>
-                <div style={{ padding: '16px', borderRadius: '12px', background: '#fffbeb', border: '1.5px solid #fde68a', textAlign: 'center' }}>
-                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#b45309' }}>🤒 MEDICAL ABSENCE</span>
-                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#d97706', marginTop: '4px' }}>{instSummary.totalSick}</div>
-                </div>
-                <div style={{ padding: '16px', borderRadius: '12px', background: '#f0fdfa', border: '1.5px solid #99f6e4', textAlign: 'center' }}>
-                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#0f766e' }}>🏛️ OFFICIAL ABSENT</span>
-                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#0d9488', marginTop: '4px' }}>{instSummary.totalOfficial || 0}</div>
-                </div>
-                <div style={{ padding: '16px', borderRadius: '12px', background: '#eef2ff', border: '1px solid #c7d2fe', textAlign: 'center' }}>
-                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#4338ca' }}>🪪 GATE LEAVE</span>
-                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#4f46e5', marginTop: '4px' }}>{instSummary.totalOnOutpass}</div>
-                </div>
-              </div>
+                );
+              })()}
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: '14px' }}>
                 {instSummary.classSummaries.map(c => (

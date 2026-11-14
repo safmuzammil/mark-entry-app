@@ -30,14 +30,14 @@ export default function OutpassSecurityKiosk({
   const [kioskFilterMode, setKioskFilterMode] = useState("ALL");
 
   const safePasses = Array.isArray(passes) ? passes : [];
+  const isPassBeforeStartTime = (p) => {
+    return (
+      p.status === "APPROVED" &&
+      p.permittedFrom &&
+      new Date() < new Date(p.permittedFrom)
+    );
+  };
   const isPassExpiredBeforeExit = (p) => {
-    const isPassBeforeStartTime = (p) => {
-  return (
-    p.status === "APPROVED" &&
-    p.permittedFrom &&
-    new Date() < new Date(p.permittedFrom)
-  );
-};
     return p.status === "APPROVED" && !p.isOpenReturn && p.permittedTo && new Date() > new Date(p.permittedTo);
   };
   const expiredExitCount = safePasses.filter(isPassExpiredBeforeExit).length;

@@ -646,20 +646,61 @@ useEffect(() => {
           setExistingSessionDoc({ id: snap.id, ...data });
           const attMap = data.attendanceMap || {};
           const rehPresentForThisPeriod = rehearsalPresentMapForDate[String(attSession)] || [];
+          const enrolledSts = getStudentsForEnrollment(env);
           const sMap = {};
-          Object.entries(attMap).forEach(([k, val]) => {
-            sMap[String(k).trim()] = val;
-          });
-          setSessionStatusMap(sMap);
+          const autoAbs = [];
 
-          const abs = Object.keys(attMap).filter(k => {
-            const val = attMap[k];
-            if (val !== 'A' && val !== 'M' && val !== 'L') return false;
-            const strK = String(k).trim().toUpperCase();
-            const isReh = rehPresentForThisPeriod.some(r => String(r).trim().toUpperCase() === strK);
-            return !isReh;
-          }).map(k => String(k).trim());
-          setAbsentRegNos(abs);
+          enrolledSts.forEach(st => {
+            const sReg = String(st.regNo || '').trim();
+            const sAd = String(st.adNo || '').trim();
+            const sId = String(st.id || '').trim();
+            const regKey = sReg || sId;
+            if (!regKey) return;
+
+            const isReh = rehPresentForThisPeriod.some(r => {
+              const str = String(r || '').trim().toUpperCase();
+              return (sReg && str === sReg.toUpperCase()) ||
+                     (sAd && str === sAd.toUpperCase()) ||
+                     (sId && str === sId.toUpperCase());
+            });
+
+            if (isReh) {
+              sMap[regKey] = 'P';
+              return;
+            }
+
+            // Check if student has an active outpass or recorded leave whose permitted time HAS STARTED:
+            const rawOp = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
+            const rawRecAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
+
+            const op = rawOp && isLeaveActiveDuringPeriod(rawOp, attDate, attSession) ? rawOp : null;
+            const recAbs = rawRecAbs && isLeaveActiveDuringPeriod(rawRecAbs, attDate, attSession) ? rawRecAbs : null;
+
+            if (recAbs) {
+              const code = recAbs.isMedical ? 'M' : recAbs.isOfficial ? 'O' : (recAbs.isPermittedLeave ? 'L' : 'A');
+              sMap[regKey] = code;
+              autoAbs.push(regKey);
+            } else if (op) {
+              const code = op.isMedical ? 'M' : op.isOfficial ? 'O' : 'L';
+              sMap[regKey] = code;
+              autoAbs.push(regKey);
+            } else {
+              const savedVal = attMap[regKey] || attMap[sReg] || (sAd && attMap[sAd]) || (sId && attMap[sId]) || 'P';
+              sMap[regKey] = savedVal;
+              if (savedVal !== 'P') autoAbs.push(regKey);
+            }
+          });
+
+          Object.entries(attMap).forEach(([k, val]) => {
+            const trimmedK = String(k).trim();
+            if (!sMap[trimmedK]) {
+              sMap[trimmedK] = val;
+              if (val !== 'P') autoAbs.push(trimmedK);
+            }
+          });
+
+          setSessionStatusMap(sMap);
+          setAbsentRegNos(autoAbs);
         } else {
           setExistingSessionDoc(null);
           const enrolledSts = getStudentsForEnrollment(env);
@@ -732,7 +773,7 @@ useEffect(() => {
       }
     }
     checkExistingSession();
-  }, [attEnrollmentId, attDate, attSession, rehearsalPresentMapForDate, activeOutpassesByReg, recordedAbsencesByReg]);
+  }, [attEnrollmentId, attDate, attSession, localStudents, rehearsalPresentMapForDate, activeOutpassesByReg, recordedAbsencesByReg]);
 
   const toggleAbsent = (regNo) => {
     const sReg = String(regNo || '').trim();
@@ -2937,7 +2978,22 @@ useEffect(() => {
                              (sAd && str === sAd.toUpperCase()) ||
                              (sId && str === sId.toUpperCase());
                     });
-                    const curCode = rehPresentHere ? 'P' : (sessionStatusMap[regKey] || (absentRegNos.includes(regKey) ? 'A' : 'P'));
+                    const rawOp = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
+                    const rawRecAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
+                    const op = rawOp && isLeaveActiveDuringPeriod(rawOp, attDate, attSession) ? rawOp : null;
+                    const recAbs = rawRecAbs && isLeaveActiveDuringPeriod(rawRecAbs, attDate, attSession) ? rawRecAbs : null;
+
+                    const explicitVal = sessionStatusMap[regKey] || sessionStatusMap[sReg] || (sAd && sessionStatusMap[sAd]) || (sId && sessionStatusMap[sId]);
+                    let curCode = rehPresentHere ? 'P' : explicitVal;
+                    if (!rehPresentHere && (!curCode || curCode === 'P')) {
+                      if (recAbs) {
+                        curCode = recAbs.isMedical ? 'M' : recAbs.isOfficial ? 'O' : (recAbs.isPermittedLeave ? 'L' : 'A');
+                      } else if (op) {
+                        curCode = op.isMedical ? 'M' : op.isOfficial ? 'O' : 'L';
+                      } else if (!curCode) {
+                        curCode = absentRegNos.includes(regKey) ? 'A' : 'P';
+                      }
+                    }
 
                     if (curCode === 'P') presentCount++;
                     else if (curCode === 'O') offCount++;
@@ -3023,7 +3079,17 @@ useEffect(() => {
                   const op = rawOp && isLeaveActiveDuringPeriod(rawOp, attDate, attSession) ? rawOp : null;
                   const recAbs = rawRecAbs && isLeaveActiveDuringPeriod(rawRecAbs, attDate, attSession) ? rawRecAbs : null;
 
-                  const curCode = rehPresentHere ? 'P' : (sessionStatusMap[regKey] || (absentRegNos.includes(regKey) ? 'A' : 'P'));
+                  const explicitVal = sessionStatusMap[regKey] || sessionStatusMap[sReg] || (sAd && sessionStatusMap[sAd]) || (sId && sessionStatusMap[sId]);
+                  let curCode = rehPresentHere ? 'P' : explicitVal;
+                  if (!rehPresentHere && (!curCode || curCode === 'P')) {
+                    if (recAbs) {
+                      curCode = recAbs.isMedical ? 'M' : recAbs.isOfficial ? 'O' : (recAbs.isPermittedLeave ? 'L' : 'A');
+                    } else if (op) {
+                      curCode = op.isMedical ? 'M' : op.isOfficial ? 'O' : 'L';
+                    } else if (!curCode) {
+                      curCode = absentRegNos.includes(regKey) ? 'A' : 'P';
+                    }
+                  }
 
                   const isNonPresent = !rehPresentHere && curCode !== 'P';
 
