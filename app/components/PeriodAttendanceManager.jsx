@@ -467,7 +467,9 @@ useEffect(() => {
             startDate: rec.startDate,
             startTime: rec.startTime,
             endDate: rec.endDate,
-            endTime: rec.endTime
+            endTime: rec.endTime,
+            startDateTimeIso: rec.startDateTimeIso || rec.startTimeIso || rec.permittedFrom,
+            endDateTimeIso: rec.endDateTimeIso || rec.permittedTo
           };
 
           const matchedSt = localStudents.find(
@@ -663,7 +665,7 @@ useEffect(() => {
           const enrolledSts = getStudentsForEnrollment(env);
           const rehPresentForThisPeriod = rehearsalPresentMapForDate[String(attSession)] || [];
           const sMap = {};
-        const autoAbs = [];
+          const autoAbs = [];
 
           enrolledSts.forEach(st => {
             const sReg = String(st.regNo || '').trim();
@@ -672,9 +674,53 @@ useEffect(() => {
             const regKey = sReg || sId;
             if (!regKey) return;
 
-            // Default every student to Present ('P').
-            // One click marks them Absent ('A'), and any active Outpass / Sick / Leave banner shows on their card for info!
-            sMap[regKey] = 'P';
+            const isReh = rehPresentForThisPeriod.some(r => {
+              const str = String(r || '').trim().toUpperCase();
+              return (sReg && str === sReg.toUpperCase()) ||
+                     (sAd && str === sAd.toUpperCase()) ||
+                     (sId && str === sId.toUpperCase());
+            });
+
+            if (isReh) {
+              sMap[regKey] = 'P';
+              return;
+            }
+
+            // Check if student has an active outpass or recorded leave whose permitted time HAS STARTED:
+            const rawOp = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
+            const rawRecAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
+
+            const op = rawOp && isLeaveActiveDuringPeriod(rawOp, attDate, attSession) ? rawOp : null;
+            const recAbs = rawRecAbs && isLeaveActiveDuringPeriod(rawRecAbs, attDate, attSession) ? rawRecAbs : null;
+
+            if (recAbs) {
+              if (recAbs.isMedical) {
+                sMap[regKey] = 'M';
+                autoAbs.push(regKey);
+              } else if (recAbs.isOfficial) {
+                sMap[regKey] = 'O';
+                autoAbs.push(regKey);
+              } else if (recAbs.isPermittedLeave) {
+                sMap[regKey] = 'L';
+                autoAbs.push(regKey);
+              } else {
+                sMap[regKey] = 'A';
+                autoAbs.push(regKey);
+              }
+            } else if (op) {
+              if (op.isMedical) {
+                sMap[regKey] = 'M';
+                autoAbs.push(regKey);
+              } else if (op.isOfficial) {
+                sMap[regKey] = 'O';
+                autoAbs.push(regKey);
+              } else {
+                sMap[regKey] = 'L';
+                autoAbs.push(regKey);
+              }
+            } else {
+              sMap[regKey] = 'P';
+            }
           });
 
           setSessionStatusMap(sMap);
@@ -796,35 +842,44 @@ useEffect(() => {
     }
 
     let leaveStartMs = null;
-    if (item.permittedFrom) {
-      const dt = new Date(item.permittedFrom);
-      if (!isNaN(dt.getTime())) leaveStartMs = dt.getTime();
-    } else if (item.startDateTimeIso) {
-      const dt = new Date(item.startDateTimeIso);
+    const rawStart = item.permittedFrom || item.startDateTimeIso || item.startTimeIso;
+    if (rawStart) {
+      const dt = new Date(rawStart);
       if (!isNaN(dt.getTime())) leaveStartMs = dt.getTime();
     } else if (item.startDate) {
-      const dt = new Date(`${item.startDate}T${item.startTime || '00:00'}:00`);
+      const t = item.startTime && /^\d{2}:\d{2}/.test(item.startTime) ? item.startTime : '00:00';
+      const dt = new Date(`${item.startDate}T${t}:00`);
       if (!isNaN(dt.getTime())) leaveStartMs = dt.getTime();
     }
 
     let leaveEndMs = null;
-    if (!item.isOpenReturn && item.permittedTo) {
-      const dt = new Date(item.permittedTo);
+    const rawEnd = item.actualReturnTime || item.permittedTo || item.endDateTimeIso || item.endTimeIso;
+    if (!item.isOpenReturn && rawEnd) {
+      const dt = new Date(rawEnd);
       if (!isNaN(dt.getTime())) leaveEndMs = dt.getTime();
-    } else if (item.endDateTimeIso) {
-      const dt = new Date(item.endDateTimeIso);
-      if (!isNaN(dt.getTime())) leaveEndMs = dt.getTime();
-    } else if (item.endDate) {
-      const dt = new Date(`${item.endDate}T${item.endTime || '23:59'}:59`);
+    } else if (!item.isOpenReturn && item.endDate) {
+      const t = item.endTime && /^\d{2}:\d{2}/.test(item.endTime) ? item.endTime : '23:59';
+      const dt = new Date(`${item.endDate}T${t}:59`);
       if (!isNaN(dt.getTime())) leaveEndMs = dt.getTime();
     }
 
-    // If the leave/outpass starts AFTER this period ends, it has NOT started yet!
-    if (leaveStartMs !== null && leaveStartMs > windowEndMs) return false;
-    // Also if taking attendance on today's date and the leave permittedFrom is still in the future right now:
-    if (dateStr === todayStr && leaveStartMs !== null && leaveStartMs > Math.max(now.getTime(), windowEndMs)) return false;
-    // If the leave/outpass already ended BEFORE this period started, it is no longer active!
-    if (leaveEndMs !== null && leaveEndMs < windowStartMs) return false;
+    // Strict rule: NEVER show as absent before beginning of permitted time starts!
+    if (leaveStartMs !== null) {
+      // If leave starts after this period ends, it has NOT started yet
+      if (leaveStartMs > windowEndMs) return false;
+      // If taking attendance today and leave starts in the future in real-time, it has NOT started yet
+      if (dateStr === todayStr && leaveStartMs > now.getTime()) return false;
+    }
+
+    // If leave already ended before this period started, it is no longer active
+    if (leaveEndMs !== null && !item.isOpenReturn && leaveEndMs < windowStartMs) return false;
+
+    // If student already returned
+    if (item.isReturned) return false;
+    if (item.actualReturnTime) {
+      const retDt = new Date(item.actualReturnTime);
+      if (!isNaN(retDt.getTime()) && retDt.getTime() <= windowStartMs) return false;
+    }
 
     return true;
   };
@@ -1002,9 +1057,7 @@ useEffect(() => {
           explicitlyChosenStatus === 'O' ||
           isMarkedAbsentByRegularTeacher
         ) {
-          // Store L, M, O, and A strictly as normal Absent ('A') in the database!
-          // Official ('O') and Medical ('M') are only converted when formally approved in the Clearance Desk.
-          newAttendanceMap[reg] = 'A';
+          newAttendanceMap[reg] = explicitlyChosenStatus || 'A';
         } else {
           newAttendanceMap[reg] = 'P';
         }
@@ -2916,7 +2969,21 @@ useEffect(() => {
                   );
                 })()}
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <button type="button" onClick={() => { setAbsentRegNos([]); setSessionStatusMap({}); }} style={{ padding: '5px 10px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>All Present</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const pMap = {};
+                      classStudents.forEach(st => {
+                        const k = String(st.regNo || st.id || '').trim();
+                        if (k) pMap[k] = 'P';
+                      });
+                      setAbsentRegNos([]);
+                      setSessionStatusMap(pMap);
+                    }}
+                    style={{ padding: '5px 10px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                  >
+                    All Present
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
@@ -2930,8 +2997,11 @@ useEffect(() => {
                           return (sReg && str === sReg.toUpperCase()) || (sAd && str === sAd.toUpperCase()) || (sId && str === sId.toUpperCase());
                         });
                         return !isReh;
-                      }).map(s => s.regNo);
+                      }).map(s => String(s.regNo || s.id || '').trim());
+                      const aMap = {};
+                      nonRehRegs.forEach(r => { aMap[r] = 'A'; });
                       setAbsentRegNos(nonRehRegs);
+                      setSessionStatusMap(aMap);
                     }}
                     style={{ padding: '5px 10px', background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
                   >
@@ -2940,7 +3010,7 @@ useEffect(() => {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(285px, 1fr))', gap: '12px', maxHeight: '540px', overflowY: 'auto', marginBottom: '20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(285px, 1fr))', gap: '12px', marginBottom: '20px' }}>
                 {classStudents.map((st, idx) => {
                   const sReg = String(st.regNo || '').trim();
                   const sAd = String(st.adNo || '').trim();
@@ -2953,30 +3023,47 @@ useEffect(() => {
                            (sAd && str === sAd.toUpperCase()) ||
                            (sId && str === sId.toUpperCase());
                   });
-                  const op = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
-                  const recAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
-
-                 const rawOp = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
+                  const rawOp = activeOutpassesByReg[sReg] || (sAd && activeOutpassesByReg[sAd]) || (sId && activeOutpassesByReg[sId]);
                   const rawRecAbs = recordedAbsencesByReg[sReg] || (sAd && recordedAbsencesByReg[sAd]) || (sId && recordedAbsencesByReg[sId]);
-                  const isMarkedAbs = !rehPresentHere && (
-                    sessionStatusMap[regKey] === 'A' ||
-                    absentRegNos.some(r => {
-                      const str = String(r).trim().toUpperCase();
-                      return (sReg && str === sReg.toUpperCase()) || (sAd && str === sAd.toUpperCase()) || (sId && str === sId.toUpperCase());
-                    })
-                  );
-                  const currentStatus = isMarkedAbs ? 'A' : 'P';
+                  const op = rawOp && isLeaveActiveDuringPeriod(rawOp, attDate, attSession) ? rawOp : null;
+                  const recAbs = rawRecAbs && isLeaveActiveDuringPeriod(rawRecAbs, attDate, attSession) ? rawRecAbs : null;
+
+                  const curCode = rehPresentHere ? 'P' : (sessionStatusMap[regKey] || (absentRegNos.includes(regKey) ? 'A' : 'P'));
+
+                  const cardBorder = rehPresentHere
+                    ? '#8b5cf6'
+                    : curCode === 'M'
+                    ? '#f59e0b'
+                    : curCode === 'L'
+                    ? '#8b5cf6'
+                    : curCode === 'O'
+                    ? '#0d9488'
+                    : curCode === 'A'
+                    ? '#e11d48'
+                    : '#10b981';
+
+                  const cardBg = rehPresentHere
+                    ? '#f5f3ff'
+                    : curCode === 'M'
+                    ? '#fffbeb'
+                    : curCode === 'L'
+                    ? '#f5f3ff'
+                    : curCode === 'O'
+                    ? '#f0fdfa'
+                    : curCode === 'A'
+                    ? '#fff1f2'
+                    : '#ffffff';
 
                   const togglePresentAbsent = () => {
                     if (rehPresentHere) return;
-                    const nextCode = currentStatus === 'P' ? 'A' : 'P';
+                    const nextCode = curCode === 'P' ? 'A' : 'P';
                     setSessionStatusMap(prev => ({ ...prev, [regKey]: nextCode }));
                     setAbsentRegNos(prev => {
                       const filtered = prev.filter(r => {
                         const str = String(r).trim().toUpperCase();
                         return str !== sReg.toUpperCase() && str !== sAd.toUpperCase() && str !== sId.toUpperCase();
                       });
-                      return nextCode === 'A' ? [...filtered, regKey] : filtered;
+                      return nextCode !== 'P' ? [...filtered, regKey] : filtered;
                     });
                   };
 
@@ -2992,8 +3079,8 @@ useEffect(() => {
                         display: 'flex',
                         flexDirection: 'column',
                         gap: '10px',
-                        background: rehPresentHere ? '#f5f3ff' : currentStatus === 'A' ? '#fff1f2' : '#ffffff',
-                        border: `2px solid ${rehPresentHere ? '#8b5cf6' : currentStatus === 'A' ? '#e11d48' : '#10b981'}`,
+                        background: cardBg,
+                        border: `2px solid ${cardBorder}`,
                         transition: 'all 0.15s ease'
                       }}
                     >
@@ -3007,16 +3094,46 @@ useEffect(() => {
                           </div>
                         </div>
 
-                        <span style={{
-                          background: rehPresentHere ? '#ede9fe' : currentStatus === 'A' ? '#e11d48' : '#10b981',
-                          color: rehPresentHere ? '#6d28d9' : '#ffffff',
-                          padding: '4px 12px',
-                          borderRadius: '999px',
-                          fontSize: '11px',
-                          fontWeight: '800',
-                          whiteSpace: 'nowrap'
-                        }}>
-                          {rehPresentHere ? '🎭 Rehearsal' : currentStatus === 'A' ? '🔴 ABSENT' : '🟢 PRESENT'}
+                        <span
+                          onClick={(e) => {
+                            if (rehPresentHere) return;
+                            e.stopPropagation();
+                            cycleStatus(regKey);
+                          }}
+                          title={rehPresentHere ? '' : 'Tap badge to cycle: Absent ➔ Leave ➔ Sick ➔ Present'}
+                          style={{
+                            background: rehPresentHere
+                              ? '#ede9fe'
+                              : curCode === 'M'
+                              ? '#d97706'
+                              : curCode === 'L'
+                              ? '#8b5cf6'
+                              : curCode === 'O'
+                              ? '#0d9488'
+                              : curCode === 'A'
+                              ? '#e11d48'
+                              : '#10b981',
+                            color: rehPresentHere ? '#6d28d9' : '#ffffff',
+                            padding: '4px 12px',
+                            borderRadius: '999px',
+                            fontSize: '11px',
+                            fontWeight: '800',
+                            whiteSpace: 'nowrap',
+                            cursor: rehPresentHere ? 'default' : 'pointer',
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.06)'
+                          }}
+                        >
+                          {rehPresentHere
+                            ? '🎭 Rehearsal'
+                            : curCode === 'M'
+                            ? '🤒 SICK / MEDICAL'
+                            : curCode === 'L'
+                            ? '🟣 LEAVE'
+                            : curCode === 'O'
+                            ? '🏛️ OFFICIAL'
+                            : curCode === 'A'
+                            ? '🔴 ABSENT'
+                            : '🟢 PRESENT'}
                         </span>
                       </div>
 

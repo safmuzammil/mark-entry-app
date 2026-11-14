@@ -175,7 +175,7 @@ export default function NightAttendanceManager({
 
   const handleExtraQuickTap = (adNo) => {
     setExtraStatusMap(prev => {
-      const p = getActiveOutpassForStudent(adNo);
+      const p = getActiveOutpassForStudent(adNo, extraDate);
       const activeRec = getActiveRecordedAbsenceForStudent(adNo, extraDate);
       const defaultStatus = activeRec ? (activeRec.status || 'ABSENT') : (p ? ((p.purpose === 'OFFICIAL' || p.category === 'OFFICIAL') ? 'OFFICIAL' : 'OUTPASS') : 'PRESENT');
       const cur = prev[adNo] || defaultStatus;
@@ -188,7 +188,7 @@ export default function NightAttendanceManager({
     const newMap = { ...extraStatusMap };
     extraStudentsList.forEach(st => {
       const ad = String(st.adNo || '').trim();
-      const p = getActiveOutpassForStudent(ad);
+      const p = getActiveOutpassForStudent(ad, extraDate);
       const activeRec = getActiveRecordedAbsenceForStudent(ad, extraDate);
       if (activeRec) {
         newMap[ad] = activeRec.status || 'ABSENT';
@@ -220,7 +220,7 @@ export default function NightAttendanceManager({
 
       targetStudents.forEach(st => {
         const ad = String(st.adNo || '').trim();
-        const p = getActiveOutpassForStudent(ad);
+        const p = getActiveOutpassForStudent(ad, extraDate);
         const activeRec = getActiveRecordedAbsenceForStudent(ad, extraDate);
         const activeWaiver = activeCampusWaiversMap[ad.toUpperCase()];
         let stStatus = extraStatusMap[ad];
@@ -521,10 +521,13 @@ export default function NightAttendanceManager({
 
       if (st !== 'OUTSIDE' && st !== 'APPROVED') return false;
 
+      const rawStart = p.permittedFrom || (p.departureDate ? `${p.departureDate}T${p.departureTime || '00:00'}:00` : p.createdAt);
+      const rawEnd = p.actualReturnTime || p.permittedTo || (p.returnDate ? `${p.returnDate}T${p.returnTime || '23:59'}:59` : null);
+
       return isTimestampWithinWindow({
         targetDateStr: targetDate,
-        startIso: p.permittedFrom || p.createdAt,
-        endIso: p.actualReturnTime || p.permittedTo,
+        startIso: rawStart,
+        endIso: rawEnd,
         isOpenReturn: Boolean(p.isOpenReturn)
       });
     });
@@ -559,8 +562,8 @@ export default function NightAttendanceManager({
 
     const withinWindow = isTimestampWithinWindow({
       targetDateStr: targetDate,
-      startIso: rec.startDateTimeIso,
-      endIso: rec.endDateTimeIso,
+      startIso: rec.startDateTimeIso || rec.startTimeIso || rec.permittedFrom,
+      endIso: rec.endDateTimeIso || rec.permittedTo,
       startDateStr: startDate,
       startTimeStr: rec.startTime || '00:00',
       endDateStr: endDate,
@@ -597,7 +600,7 @@ export default function NightAttendanceManager({
 
     classStudents.forEach(st => {
       const ad = String(st.adNo || '').trim();
-      const activePass = getActiveOutpassForStudent(ad);
+      const activePass = getActiveOutpassForStudent(ad, selectedDate);
       const returnedPass = getReturnedOutpassForStudent(ad);
       const isOfficialPass = activePass && (
         String(activePass.leaveCategory || '').toLowerCase().includes('official') ||
