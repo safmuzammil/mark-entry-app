@@ -912,17 +912,12 @@ useEffect(() => {
 
       const op = rawOp && isLeaveActiveDuringPeriod(rawOp, attDate, attSession) ? rawOp : null;
       const recAbs = rawRecAbs && isLeaveActiveDuringPeriod(rawRecAbs, attDate, attSession) ? rawRecAbs : null;
-      const hasPermittedReason = Boolean((op && op.isCurrentlyOutside) || recAbs);
 
-      const isMarkedAbs =
-        sessionStatusMap[regKey] === 'A' ||
-        absentRegNos.some(r => {
-          const str = String(r).trim().toUpperCase();
-          return (sReg && str === sReg.toUpperCase()) || (sAd && str === sAd.toUpperCase()) || (sId && str === sId.toUpperCase());
-        });
+      const curCode = isReh ? 'P' : (sessionStatusMap[regKey] || (absentRegNos.includes(regKey) ? 'A' : 'P'));
+      const hasPermittedReason = Boolean((op && op.isCurrentlyOutside) || recAbs || curCode === 'L' || curCode === 'M' || curCode === 'O');
 
-      // Strictly include ONLY unexcused 'A' students (exclude anyone who has an active permitted reason during this period)
-      if (!isReh && isMarkedAbs && !hasPermittedReason) {
+      // Strictly include ONLY unexcused 'A' students (exclude anyone with medical, official, permitted leave, or outpass)
+      if (!isReh && curCode === 'A' && !hasPermittedReason) {
         groups[clsName].students.push(st);
       }
     });
@@ -3030,27 +3025,17 @@ useEffect(() => {
 
                   const curCode = rehPresentHere ? 'P' : (sessionStatusMap[regKey] || (absentRegNos.includes(regKey) ? 'A' : 'P'));
 
+                  const isNonPresent = !rehPresentHere && curCode !== 'P';
+
                   const cardBorder = rehPresentHere
                     ? '#8b5cf6'
-                    : curCode === 'M'
-                    ? '#f59e0b'
-                    : curCode === 'L'
-                    ? '#8b5cf6'
-                    : curCode === 'O'
-                    ? '#0d9488'
-                    : curCode === 'A'
+                    : isNonPresent
                     ? '#e11d48'
                     : '#10b981';
 
                   const cardBg = rehPresentHere
                     ? '#f5f3ff'
-                    : curCode === 'M'
-                    ? '#fffbeb'
-                    : curCode === 'L'
-                    ? '#f5f3ff'
-                    : curCode === 'O'
-                    ? '#f0fdfa'
-                    : curCode === 'A'
+                    : isNonPresent
                     ? '#fff1f2'
                     : '#ffffff';
 
@@ -3104,13 +3089,7 @@ useEffect(() => {
                           style={{
                             background: rehPresentHere
                               ? '#ede9fe'
-                              : curCode === 'M'
-                              ? '#d97706'
-                              : curCode === 'L'
-                              ? '#8b5cf6'
-                              : curCode === 'O'
-                              ? '#0d9488'
-                              : curCode === 'A'
+                              : isNonPresent
                               ? '#e11d48'
                               : '#10b981',
                             color: rehPresentHere ? '#6d28d9' : '#ffffff',
